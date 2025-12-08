@@ -1,0 +1,39 @@
+{
+  "name": "nexus-enterprise",
+  "version": "1.0.0",
+  "private": true,
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "turbo dev",
+    "dev:api": "turbo dev --filter=api",
+    "dev:all": "turbo dev --parallel",
+    "dev:clean": "bash ./scripts/dev-clean.sh",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "check-types": "turbo run check-types",
+    "format": "prettier --write ."
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "packageManager": "npm@10.0.0",
+  "devDependencies": {
+    "@types/passport-jwt": "^4.0.1",
+    "eslint": "^9.39.1",
+    "prettier": "^3.7.4",
+    "turbo": "^2.6.1",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.9",
+    "@nestjs/core": "^11.1.9",
+    "@nestjs/platform-express": "^11.1.9",
+    "@nestjs/platform-fastify": "^11.1.9"
+  }
+}
