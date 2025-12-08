@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log
+Dockerfile*
+.dockerignore
+.git
+.gitignore
+.env
+.env.*
+**/.env
+**/.env.*
+**/dist
+**/*.log
+NEAT NODE STACK iTERM WINDOWS (12:5:2025).iterm2arrangement
+NEAT_SU_PANE_STACK (12:5:2025).iterm2arrangement

@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: nexus-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nexus_user
+      POSTGRES_PASSWORD: nexus_password
+      POSTGRES_DB: nexus_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - nexus-postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: nexus-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - nexus-redis-data:/data
+
+volumes:
+  nexus-postgres-data:
+  nexus-redis-data:

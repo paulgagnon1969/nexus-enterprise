@@ -1,0 +1,46 @@
+import { Module } from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
+import { HealthModule } from "./modules/health/health.module";
+import { PrismaModule } from "./infra/prisma/prisma.module";
+import { RedisModule } from "./infra/redis/redis.module";
+import { AuthModule } from "./modules/auth/auth.module";
+import { CompanyModule } from "./modules/company/company.module";
+import { UserModule } from "./modules/user/user.module";
+import { ProjectModule } from "./modules/project/project.module";
+import { AdminModule } from "./modules/admin/admin.module";
+import { CommonModule } from "./common/common.module";
+import { TaskModule } from "./modules/task/task.module";
+import { ParcelModule } from "./modules/parcel/parcel.module";
+import { DevController } from "./modules/dev/dev.controller";
+import { JobStatusModule } from "./modules/job-status/job-status.module";
+import { TagModule } from "./modules/tag/tag.module";
+import { RolesModule } from "./modules/roles/roles.module";
+import { DailyLogModule } from "./modules/daily-log/daily-log.module";
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      // Look for env files both in the workspace root and this app directory
+      // so DATABASE_URL / REDIS_URL are visible in dev regardless of cwd.
+      envFilePath: [".env", "../../.env"]
+    }),
+    CommonModule,
+    PrismaModule,
+    RedisModule,
+    HealthModule,
+    AuthModule,
+    CompanyModule,
+    UserModule,
+    ProjectModule,
+    TaskModule,
+    ParcelModule,
+    AdminModule,
+    JobStatusModule,
+    TagModule,
+    RolesModule,
+    DailyLogModule
+  ],
+  controllers: [DevController]
+})
+export class AppModule {}

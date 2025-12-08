@@ -1,0 +1,187 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww11520\viewh31800\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 please proceed\
+\
+Let\'92s extend the workflow with:\
+\
+1. **Estimate import states**, and  \
+2. **Percent\uc0\u8209 complete update flow** (line\u8209 item and bulk) with rollups.\
+\
+---\
+\
+## 1. Estimate import states\
+\
+```mermaid\
+stateDiagram-v2\
+    [*] --> PendingUpload\
+\
+    PendingUpload: User selected file\\nand submitted upload\
+    PendingUpload --> Parsing : API stores file\\ncreates estimate_versions(pending)\
+    Parsing --> ImportingRaw : Parse XACT_RAW\\n\uc0\u8594  raw_xact_rows\
+    ImportingRaw --> BuildingModel : Derive building_groups,\\nroom_groups, sows, sow_items\
+    BuildingModel --> Completed : All records created\\nsummary cached\
+\
+    Parsing --> Failed : parse error,\\ninvalid format, etc.\
+    ImportingRaw --> Failed : DB/validation error\
+    BuildingModel --> Failed : model construction error\
+\
+    Failed --> [*]\
+    Completed --> [*]\
+```\
+**State meaning:**\
+\
+- `PendingUpload`: UI has sent file; `estimate_versions` row exists, status `pending`.\
+- `Parsing`: backend reading Excel/CSV, validating XACT_RAW.\
+- `ImportingRaw`: inserting into `raw_xact_rows`.\
+- `BuildingModel`: building `building_groups`, `room_groups`, `sows`, `sow_logical_items`, `sow_items`.\
+- `Completed`: import succeeded; PTL is ready.\
+- `Failed`: any error along the way; status updated with error metadata for UI.\
+\
+NCC UI can poll `GET /estimates/\{id\}/status` and show:\
+\
+- Progress bar / spinner for `Parsing` / `ImportingRaw` / `BuildingModel`.\
+- Errors with actionable messages for `Failed`.\
+\
+---\
+\
+## 2. Percent\uc0\u8209 complete update workflow\
+\
+We\'92ll cover both:\
+\
+- **Line\uc0\u8209 item update** (single `sow_item`), and  \
+- **Bulk update** (selection of SOW items filtered by room, category, etc.).\
+\
+### 2.1 Line\uc0\u8209 item update sequence\
+\
+```mermaid\
+sequenceDiagram\
+    participant U as User\
+    participant F as NCC Frontend\
+    participant A as NCC API\
+    participant DB as DB\
+\
+    U->>F: Edit percent complete\\non a PTL line (e.g. 40% \uc0\u8594  75%)\
+    F->>A: PATCH /sow-items/\{id\}/percent-complete\\n\{ percent: 75 \}\
+    A->>DB: Update sow_items.percent_complete\
+    A->>DB: Insert event sow_item_percent_updated\
+    A->>DB: Recompute cached rollups\\n(optional: per room, building, project)\
+    DB-->>A: Updated values\
+    A-->>F: 200 OK + updated item + rollups\
+    F-->>U: Update row + KPIs\\n(project %, room %, selection %)\
+```\
+**Key points:**\
+\
+- **API contract** (REST\uc0\u8209 style example):  \
+  `PATCH /api/projects/\{projectId\}/sow-items/\{sowItemId\}/percent-complete`  \
+  Body: `\{ "percent": 75 \}` or `\{ "percent": 0.75 \}` depending on convention.\
+- **DB write**:\
+  - `sow_items.percent_complete` updated.\
+  - Append `sow_item_percent_updated` event (who, when, old \uc0\u8594  new).\
+- **Rollup strategy**:\
+  - Either:\
+    - Compute rollups on the fly, or\
+    - Maintain cached per\uc0\u8209 group/project aggregates and update incrementally.\
+- **UI**:\
+  - Immediately updates that row.\
+  - Re\uc0\u8209 renders **Project % Complete**, **Room % Complete**, and any \'93Selection %\'94 KPIs using the weighted formula from your spec.\
+\
+---\
+\
+### 2.2 Bulk percent\uc0\u8209 complete update sequence\
+\
+```mermaid\
+sequenceDiagram\
+    participant U as User\
+    participant F as NCC Frontend\
+    participant A as NCC API\
+    participant DB as DB\
+\
+    U->>F: Select filter(s)\\n(e.g. Room=Unit 1 Entry,\\nCat=WTR) and choose bulk update\
+    F->>A: POST /projects/\{id\}/progress/bulk-update\\n\{ filters, operation, percent: 100 \}\
+    A->>DB: Find sow_items matching filters\
+    DB-->>A: Matching item IDs + basis amounts\
+    A->>DB: Update percent_complete\\nfor all matches\
+    A->>DB: Insert bulk event\\nbulk_percent_update with filters,\\noperation, affected_items_count\
+    A->>DB: Recompute rollups (room,\\nproject, selection KPIs)\
+    DB-->>A: Updated rollup values\
+    A-->>F: 200 OK + summary\\n(affected_items_count, new KPIs)\
+    F-->>U: Show updated PTL rows\\n+ new project/room/selection %\
+```\
+**API contract (from spec, REST flavor):**\
+\
+- `POST /api/projects/\{projectId\}/progress/bulk-update`  \
+  Body shape:\
+\
+```json\
+  \{\
+    "filters": \{\
+      "room_group_ids": ["..."],\
+      "category_codes": ["WTR"],\
+      "selection_codes": [],\
+      "performed": null\
+    \},\
+    "operation": "set",      // or "increment", "max", etc.\
+    "percent": 100\
+  \}\
+```\
+- Backend:\
+  - Resolves filters to a set of `sow_items`.\
+  - Applies operation (`set` to 100%, or other semantics you define).\
+  - Logs a `bulk_percent_update` event with filters + affected count.\
+\
+---\
+\
+### 2.3 Basis\uc0\u8209 weighted rollup\
+\
+For any set of items `S` (e.g. all project items, or current filtered selection):\
+\
+```text\
+percent(S) =\
+  ( \uc0\u931  (basis_amount_i * percent_complete_i) ) /\
+  ( \uc0\u931  basis_amount_i )\
+```\
+- `basis_amount_i` might be:\
+  - `rcv_amount`\
+  - `carrier_approved_amount`\
+  - another configured basis.\
+- You can store `basis_amount_source` per `sow_item` or per project to clarify the rule.\
+\
+**Examples:**\
+\
+- **Project %** \'96 `S` = all `sow_items` for project.\
+- **Room %** \'96 `S` = `sow_items` for a single `room_group`.\
+- **Selection %** \'96 `S` = `sow_items` matching UI filters.\
+\
+---\
+\
+## 3. Combined: import \uc0\u8594  PTL \u8594  progress\
+\
+```mermaid\
+flowchart TD\
+    A[Upload Xactimate Excel] --> B[RAW import\\nestimate_versions + raw_xact_rows]\
+    B --> C[Build model\\nbuilding_groups, room_groups,\\nsows, sow_items (PTL)]\
+    C --> D[User views PTL\\nin NCC UI]\
+    D --> E[User updates\\nsingle line %]\
+    D --> F[User runs\\nbulk % update]\
+    E --> G[Recompute rollups\\n(project, room, selection)]\
+    F --> G\
+    G --> D\
+```\
+- **A \uc0\u8594  C**: One\u8209 time per estimate version.\
+- **D \uc0\u8594  E/F \u8594  G**: Continuous during job execution; this is your operational \'93Project Percent Complete\'94 loop.\
+\
+---\
+\
+If you\'92d like, next I can:\
+\
+- Propose **specific tRPC procedure names and input/output types** for:\
+  - `estimate.importXactRaw`\
+  - `project.getPTL`\
+  - `progress.updateLine`\
+  - `progress.bulkUpdate`\
+- Or, sketch **NCC screen wireframes** in words: which KPIs, filters, and tables appear on the main PTL/progress screen.}

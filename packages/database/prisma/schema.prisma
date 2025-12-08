@@ -1,0 +1,749 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Company {
+  id        String              @id @default(cuid())
+  name      String
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  memberships        CompanyMembership[]
+  projects           Project[]
+  projectMemberships ProjectMembership[]
+  tasks              Task[]
+  invites            CompanyInvite[]
+  parcels            Parcel[]
+
+  buildings          ProjectBuilding[]
+  units              ProjectUnit[]
+  particles          ProjectParticle[]
+
+  // Back-relations for roles and tags
+  roleProfiles       RoleProfile[]
+  tags               Tag[]
+  tagAssignments     TagAssignment[]
+}
+
+enum GlobalRole {
+  NONE
+  SUPER_ADMIN
+  SUPPORT
+}
+
+enum UserType {
+  INTERNAL
+  CLIENT
+}
+
+model User {
+  id           String              @id @default(cuid())
+  email        String              @unique
+  passwordHash String
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  globalRole   GlobalRole          @default(NONE)
+  userType     UserType            @default(INTERNAL)
+
+  memberships        CompanyMembership[]
+  projectMemberships ProjectMembership[]
+  assignedTasks      Task[] @relation("TaskAssignee")
+  acceptedInvites    CompanyInvite[]
+  createdDailyLogs   DailyLog[]
+}
+
+model CompanyMembership {
+  user      User    @relation(fields: [userId], references: [id])
+  userId    String
+  company   Company @relation(fields: [companyId], references: [id])
+  companyId String
+  role      Role
+
+  // Optional permission profile for this membership (standard or custom)
+  profile   RoleProfile? @relation(fields: [profileId], references: [id])
+  profileId String?
+
+  createdAt DateTime @default(now())
+
+  @@id([userId, companyId])
+}
+
+model CompanyInvite {
+  id        String   @id @default(cuid())
+  company   Company  @relation(fields: [companyId], references: [id])
+  companyId String
+  email     String
+  role      Role
+  token     String   @unique
+  expiresAt DateTime
+  acceptedAt DateTime?
+  acceptedUser   User?   @relation(fields: [acceptedUserId], references: [id])
+  acceptedUserId String?
+  createdAt DateTime @default(now())
+}
+
+/// Feature / capability that can be secured via roles (e.g. project_management.daily_logs).
+model PermissionResource {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  label     String
+  section   String
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+
+  rolePermissions RolePermission[]
+}
+
+/// NCC standard or custom per-company permission profile.
+model RoleProfile {
+  id        String   @id @default(cuid())
+  company   Company? @relation(fields: [companyId], references: [id])
+  companyId String?
+
+  code        String
+  label       String
+  description String?
+
+  isStandard      Boolean  @default(false)
+  active          Boolean  @default(true)
+  sourceProfileId String?
+
+  createdAt DateTime @default(now())
+  createdBy String?
+  updatedAt DateTime @updatedAt
+
+  permissions RolePermission[]
+  members     CompanyMembership[]
+
+  @@index([companyId], name: "RoleProfile_company_idx")
+}
+
+/// Mapping between a RoleProfile and a PermissionResource with specific actions.
+model RolePermission {
+  id         String            @id @default(cuid())
+  profile    RoleProfile       @relation(fields: [profileId], references: [id])
+  profileId  String
+  resource   PermissionResource @relation(fields: [resourceId], references: [id])
+  resourceId String
+
+  canView           Boolean @default(false)
+  canAdd            Boolean @default(false)
+  canEdit           Boolean @default(false)
+  canDelete         Boolean @default(false)
+  canViewAll        Boolean @default(false)
+  canApprove        Boolean @default(false)
+  canManageSettings Boolean @default(false)
+
+  @@index([profileId], name: "RolePermission_profile_idx")
+  @@index([resourceId], name: "RolePermission_resource_idx")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+  CLIENT
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  company   Company  @relation(fields: [companyId], references: [id])
+  companyId String
+  name      String
+  /// Optional external claim / file ID used to link imports
+  externalId String? @unique
+  status    String   @default("active")
+
+  // Physical location / address
+  addressLine1 String
+  addressLine2 String?
+  city         String
+  state        String
+  postalCode   String?
+  country      String?  @default("US")
+
+  // Geo-coordinates (typically from mobile geolocation or geocoding)
+  latitude   Float?
+  longitude  Float?
+  geocodedAt DateTime?
+
+  // Primary contact at this project/site
+  primaryContactName  String?
+  primaryContactPhone String?
+  primaryContactEmail String?
+
+  createdByUserId String?
+
+  memberships ProjectMembership[]
+  tasks       Task[]
+  parcels     Parcel[]
+
+  buildings ProjectBuilding[]
+  units     ProjectUnit[]
+  particles ProjectParticle[]
+
+  // Daily logs
+  dailyLogs DailyLog[]
+
+  // Estimate / SOW / PETL relations
+  estimateVersions EstimateVersion[]
+  sows             Sow[]
+  sowLogicalItems  SowLogicalItem[]
+  petlEditSessions PetlEditSession[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum ParcelStatus {
+  PLANNED
+  ACTIVE
+  ON_HOLD
+  COMPLETE
+}
+
+model Parcel {
+  id          String       @id @default(cuid())
+  name        String
+  parcelCode  String?
+  status      ParcelStatus @default(PLANNED)
+  areaSqFt    Float?
+  zoning      String?
+
+  company   Company @relation(fields: [companyId], references: [id])
+  companyId String
+
+  project   Project @relation(fields: [projectId], references: [id])
+  projectId String
+
+  projectParticle   ProjectParticle? @relation(fields: [projectParticleId], references: [id])
+  projectParticleId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Global list of job / project statuses (e.g. Open, Closed, Warranty).
+model JobStatus {
+  id        String  @id @default(cuid())
+  code      String  @unique
+  label     String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+}
+
+enum ProjectRole {
+  OWNER
+  MANAGER
+  COLLABORATOR
+  VIEWER
+}
+
+enum ProjectParticipantScope {
+  OWNER_MEMBER
+  COLLABORATOR_MEMBER
+  EXTERNAL_CONTACT
+}
+
+enum ProjectVisibilityLevel {
+  FULL
+  LIMITED
+  READ_ONLY
+}
+
+model ProjectMembership {
+  user      User    @relation(fields: [userId], references: [id])
+  userId    String
+  project   Project @relation(fields: [projectId], references: [id])
+  projectId String
+  company   Company @relation(fields: [companyId], references: [id])
+  companyId String
+  role      ProjectRole
+  scope     ProjectParticipantScope @default(OWNER_MEMBER)
+  visibility ProjectVisibilityLevel @default(FULL)
+
+  createdAt DateTime @default(now())
+
+  @@id([userId, projectId])
+}
+
+model ProjectBuilding {
+  id        String   @id @default(cuid())
+  company   Company  @relation(fields: [companyId], references: [id])
+  companyId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+
+  // Optional building code ("Building A", "Bldg 1", etc.)
+  code String?
+
+  // Display name for UI
+  name String
+
+  units     ProjectUnit[]
+  particles ProjectParticle[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ProjectUnit {
+  id        String   @id @default(cuid())
+  company   Company  @relation(fields: [companyId], references: [id])
+  companyId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+
+  building   ProjectBuilding? @relation(fields: [buildingId], references: [id])
+  buildingId String?
+
+  // Optional external code and label ("Unit 1", "Unit 2A")
+  externalCode String?
+  label        String
+  floor        Int?
+
+  particles ProjectParticle[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, label], name: "ProjectUnit_projectId_label_key")
+}
+
+enum ProjectParticleType {
+  ROOM
+  ZONE
+  EXTERIOR
+}
+
+model ProjectParticle {
+  id        String   @id @default(cuid())
+  company   Company  @relation(fields: [companyId], references: [id])
+  companyId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+
+  building   ProjectBuilding? @relation(fields: [buildingId], references: [id])
+  buildingId String?
+
+  unit   ProjectUnit? @relation(fields: [unitId], references: [id])
+  unitId String?
+
+  type ProjectParticleType @default(ROOM)
+
+  // Short and full labels for the particle
+  name      String
+  fullLabel String
+
+  externalGroupCode        String?
+  externalGroupDescription String?
+
+  parentParticle   ProjectParticle?   @relation("ProjectParticleParent", fields: [parentParticleId], references: [id])
+  parentParticleId String?
+  childParticles   ProjectParticle[]  @relation("ProjectParticleParent")
+
+  tasks   Task[]
+  parcels Parcel[]
+
+  // SOW relations at the particle (room/zone) level
+  sowLogicalItems SowLogicalItem[]
+  sowItems       SowItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AdminAuditLog {
+  id              String      @id @default(cuid())
+  actorId         String
+  actorEmail      String
+  actorGlobalRole GlobalRole
+  action          String
+  targetCompanyId String?
+  targetUserId    String?
+  metadata        Json?
+  createdAt       DateTime    @default(now())
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  DONE
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  title       String
+  description String?
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  dueDate     DateTime?
+
+  company   Company @relation(fields: [companyId], references: [id])
+  companyId String
+
+  project   Project @relation(fields: [projectId], references: [id])
+  projectId String
+
+  projectParticle   ProjectParticle? @relation(fields: [projectParticleId], references: [id])
+  projectParticleId String?
+
+  assignee   User?  @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  assigneeId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// --- RAW / SOW / PETL models (adapted from legacy Nexus schema) ---
+
+model EstimateVersion {
+  id        String   @id @default(cuid())
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+
+  sourceType       String
+  fileName         String
+  storedPath       String
+  estimateKind     String
+  sequenceNo       Int
+  defaultPayerType String
+  description      String?
+
+  status       String
+  errorMessage String?
+
+  importedByUserId String?
+  importedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rawRows  RawXactRow[]
+  sows     Sow[]
+  sowItems SowItem[]
+
+  @@index([projectId, sequenceNo], name: "EstimateVersion_project_sequence_idx")
+}
+
+model RawXactRow {
+  id              String          @id @default(cuid())
+  estimateVersion EstimateVersion @relation(fields: [estimateVersionId], references: [id])
+  estimateVersionId String
+
+  lineNo Int
+
+  groupCode        String?
+  groupDescription String?
+  desc             String?
+  age              Float?
+  condition        String?
+  qty              Float?
+  itemAmount       Float?
+  reportedCost     Float?
+  unitCost         Float?
+  unit             String?
+  coverage         String?
+  activity         String?
+  workersWage      Float?
+  laborBurden      Float?
+  laborOverhead    Float?
+  material         Float?
+  equipment        Float?
+  marketConditions Float?
+  laborMinimum     Float?
+  salesTax         Float?
+  rcv              Float?
+  life             Int?
+  depreciationType String?
+  depreciationAmount Float?
+  recoverable      Boolean?
+  acv              Float?
+  tax              Float?
+  replaceFlag      Boolean?
+  cat              String?
+  sel              String?
+  owner            String?
+  originalVendor   String?
+  sourceName       String?
+  sourceDate       DateTime?
+  note1            String?
+  adjSource        String?
+
+  rawRowJson Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sowItems SowItem[]
+
+  @@index([estimateVersionId, lineNo], name: "RawXactRow_estimate_line_idx")
+}
+
+model Sow {
+  id        String   @id @default(cuid())
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+
+  estimateVersion   EstimateVersion @relation(fields: [estimateVersionId], references: [id])
+  estimateVersionId String
+
+  sourceType  String
+  totalAmount Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items SowItem[]
+}
+
+model SowLogicalItem {
+  id        String   @id @default(cuid())
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+
+  // Every logical item belongs to a specific particle (room/zone)
+  projectParticle   ProjectParticle @relation(fields: [projectParticleId], references: [id])
+  projectParticleId String
+
+  signatureHash String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items SowItem[]
+}
+
+model SowItem {
+  id      String @id @default(cuid())
+  sow     Sow    @relation(fields: [sowId], references: [id])
+  sowId   String
+
+  estimateVersion   EstimateVersion @relation(fields: [estimateVersionId], references: [id])
+  estimateVersionId String
+
+  rawRow   RawXactRow @relation(fields: [rawRowId], references: [id])
+  rawRowId String
+
+  logicalItem   SowLogicalItem @relation(fields: [logicalItemId], references: [id])
+  logicalItemId String
+
+  // Attach to physical hierarchy
+  projectParticle   ProjectParticle @relation(fields: [projectParticleId], references: [id])
+  projectParticleId String
+
+  lineNo Int
+
+  description        String
+  qty                Float?
+  unit               String?
+  unitCost           Float?
+  itemAmount         Float?
+  rcvAmount          Float?
+  acvAmount          Float?
+  depreciationAmount Float?
+  salesTaxAmount     Float?
+  categoryCode       String?
+  selectionCode      String?
+  activity           String?
+  materialAmount     Float?
+  equipmentAmount    Float?
+
+  payerType           String
+  performed           Boolean @default(false)
+  eligibleForAcvRefund Boolean @default(false)
+  acvRefundAmount     Float?
+
+  percentComplete Float @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  petlEditChanges PetlEditChange[]
+
+  // Indexes to speed up PETL queries and bulk updates
+  @@index([estimateVersionId, projectParticleId], name: "SowItem_estimate_particle_idx")
+  @@index([projectParticleId], name: "SowItem_particle_idx")
+  @@index([categoryCode, selectionCode], name: "SowItem_cat_sel_idx")
+}
+
+/// Generic nickname / alias model for projects and particles.
+model NameAlias {
+  id String @id @default(cuid())
+
+  /// 'project' | 'particle' (extendable later)
+  entityType String
+
+  /// ID of the underlying entity (Project.id, ProjectParticle.id, ...)
+  entityId String
+
+  /// The original name we are aliasing from (for audit / display of Xactimate source names).
+  originalName String
+
+  /// The human-friendly nickname.
+  nickname String
+
+  /// Exactly one current alias per (entityType, entityId) should be true.
+  isCurrent Boolean @default(true)
+
+  createdBy String?
+  createdAt DateTime @default(now())
+}
+
+/// Global tag dictionary per company (project groups, room tags, etc.).
+model Tag {
+  id        String   @id @default(cuid())
+  company   Company  @relation(fields: [companyId], references: [id])
+  companyId String
+
+  code      String
+  label     String
+  color     String?
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  assignments TagAssignment[]
+
+  @@unique([companyId, code], name: "Tag_company_code_key")
+}
+
+/// Attach tags to arbitrary entities (projects, particles, tasks, parcels, ...).
+model TagAssignment {
+  id        String  @id @default(cuid())
+  tag       Tag     @relation(fields: [tagId], references: [id])
+  tagId     String
+
+  company   Company @relation(fields: [companyId], references: [id])
+  companyId String
+
+  /// 'project' | 'particle' | 'task' | 'parcel' | ...
+  entityType String
+  entityId   String
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  @@index([companyId, entityType, entityId], name: "TagAssignment_entity_idx")
+  @@index([companyId, tagId], name: "TagAssignment_tag_idx")
+}
+
+model PetlEditSession {
+  id        String   @id @default(cuid())
+  userId    String?
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+
+  source String @default("ncc-petl-ui")
+  meta   Json?
+
+  startedAt DateTime
+  endedAt   DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  changes PetlEditChange[]
+}
+
+model PetlEditChange {
+  id      String   @id @default(cuid())
+  session PetlEditSession @relation(fields: [sessionId], references: [id])
+  sessionId String
+
+  sowItem   SowItem @relation(fields: [sowItemId], references: [id])
+  sowItemId String
+
+  field    String
+  oldValue Float?
+  newValue Float?
+
+  effectiveAt DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum DailyLogStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+model DailyLog {
+  id String @id @default(cuid())
+
+  // Relations
+  project   Project @relation(fields: [projectId], references: [id])
+  projectId String
+
+  createdBy   User   @relation(fields: [createdById], references: [id])
+  createdById String
+
+  attachments DailyLogAttachment[]
+
+  // Core fields
+  logDate DateTime
+  title   String?
+
+  // Rich content
+  tagsJson          String?  // JSON-encoded string[]
+  weatherSummary    String?
+  crewOnSite        String?
+  workPerformed     String?
+  issues            String?
+  safetyIncidents   String?
+  manpowerOnsite    String?
+  personOnsite      String?
+  confidentialNotes String?
+
+  // Visibility / permissions (requested)
+  shareInternal Boolean @default(true)
+  shareSubs     Boolean @default(false)
+  shareClient   Boolean @default(false)
+  sharePrivate  Boolean @default(false)
+
+  // Effective client visibility after approval workflow
+  status              DailyLogStatus @default(SUBMITTED)
+  effectiveShareClient Boolean       @default(false)
+
+  // Notifications
+  notifyUserIdsJson String? // JSON-encoded string[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId], name: "DailyLog_project_idx")
+}
+
+model DailyLogAttachment {
+  id         String   @id @default(cuid())
+  dailyLog   DailyLog @relation(fields: [dailyLogId], references: [id])
+  dailyLogId String
+
+  fileUrl   String
+  fileName  String?
+  mimeType  String?
+  sizeBytes Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([dailyLogId], name: "DailyLogAttachment_log_idx")
+}
