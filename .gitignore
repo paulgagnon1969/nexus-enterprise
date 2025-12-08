@@ -4,3 +4,5 @@ dist/
 build/
 .env
 *.log
+.turbo/
+apps/web/tmp_uploads/
