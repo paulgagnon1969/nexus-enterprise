@@ -11,17 +11,24 @@ export class HealthController {
 
   @Get()
   async getHealth() {
-    const dbTime = await this.prisma.$queryRawUnsafe<
-      { now: Date }[]
-    >("SELECT NOW()");
+    const dbTime = await this.prisma.$queryRawUnsafe<{ now: Date }[]>(
+      "SELECT NOW()"
+    );
 
-    const redisClient = this.redis.getClient();
-    const redisPing = await redisClient.ping();
+    let redisStatus: string;
+    try {
+      const redisClient = this.redis.getClient();
+      const redisPing = await redisClient.ping();
+      redisStatus = redisPing;
+    } catch (e) {
+      // Redis might not be available in some environments (like Cloud Run)
+      redisStatus = "unreachable";
+    }
 
     return {
       ok: true,
       dbTime: dbTime[0]?.now,
-      redis: redisPing
+      redis: redisStatus
     };
   }
 }
