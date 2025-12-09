@@ -31,7 +31,7 @@ function AcceptInviteForm() {
     localStorage.setItem("refreshToken", data.refreshToken);
     localStorage.setItem("companyId", data.company.id);
 
-    window.location.href = "/company/users";
+    window.location.href = "/projects";
   }
 
   return (
