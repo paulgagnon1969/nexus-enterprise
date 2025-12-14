@@ -16,6 +16,9 @@ import { JobStatusModule } from "./modules/job-status/job-status.module";
 import { TagModule } from "./modules/tag/tag.module";
 import { RolesModule } from "./modules/roles/roles.module";
 import { DailyLogModule } from "./modules/daily-log/daily-log.module";
+import { OnboardingModule } from "./modules/onboarding/onboarding.module";
+import { SkillsModule } from "./modules/skills/skills.module";
+import { ReputationModule } from "./modules/reputation/reputation.module";
 
 @Module({
   imports: [
@@ -39,7 +42,10 @@ import { DailyLogModule } from "./modules/daily-log/daily-log.module";
     JobStatusModule,
     TagModule,
     RolesModule,
-    DailyLogModule
+    DailyLogModule,
+    OnboardingModule,
+    SkillsModule,
+    ReputationModule
   ],
   controllers: [DevController]
 })

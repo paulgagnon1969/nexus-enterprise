@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -39,6 +39,15 @@ const DEFAULT_FILTERS: FilterState = {
   managers: [],
 };
 
+const NEW_PROJECT_DEFAULT = {
+  name: "",
+  addressLine1: "",
+  city: "",
+  state: "",
+  postalCode: "",
+  country: "USA",
+};
+
 export default function ProjectsLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -52,6 +61,11 @@ export default function ProjectsLayout({ children }: { children: ReactNode }) {
   const [pendingFilters, setPendingFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [filterOpen, setFilterOpen] = useState(false);
   const [search, setSearch] = useState("");
+
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [newProject, setNewProject] = useState({ ...NEW_PROJECT_DEFAULT });
+  const [newProjectError, setNewProjectError] = useState<string | null>(null);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
@@ -179,6 +193,83 @@ export default function ProjectsLayout({ children }: { children: ReactNode }) {
     setFilters(DEFAULT_FILTERS);
     setPendingFilters(DEFAULT_FILTERS);
     setFilterOpen(false);
+  };
+
+  const handleNewProjectChange = (field: keyof typeof NEW_PROJECT_DEFAULT, value: string) => {
+    setNewProject(prev => ({ ...prev, [field]: value }));
+  };
+
+  const reloadProjects = async (token: string) => {
+    const params = new URLSearchParams();
+    if (filters.status) params.set("status", filters.status);
+    if (filters.groups.length) params.set("tagIds", filters.groups.join(","));
+
+    const url = `${API_BASE}/projects${params.toString() ? `?${params.toString()}` : ""}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to load projects (${res.status})`);
+    }
+    const data = await res.json();
+    setProjects(Array.isArray(data) ? data : []);
+  };
+
+  const handleCreateProject = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setNewProjectError(null);
+
+    const requiredFields: (keyof typeof NEW_PROJECT_DEFAULT)[] = [
+      "name",
+      "addressLine1",
+      "city",
+      "state",
+    ];
+
+    for (const field of requiredFields) {
+      if (!newProject[field].trim()) {
+        setNewProjectError("Name, address, city, and state are required.");
+        return;
+      }
+    }
+
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    if (!token) {
+      setNewProjectError("Missing access token. Please login again.");
+      return;
+    }
+
+    try {
+      setCreatingProject(true);
+      const res = await fetch(`${API_BASE}/projects`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(newProject),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        setNewProjectError(`Create failed (${res.status}) ${text}`);
+        return;
+      }
+
+      // Clear form and hide panel
+      setNewProject({ ...NEW_PROJECT_DEFAULT });
+      setShowNewProject(false);
+
+      // Reload projects list
+      setLoading(true);
+      await reloadProjects(token);
+      setError(null);
+    } catch (err: any) {
+      setNewProjectError(err?.message ?? "Failed to create project");
+    } finally {
+      setCreatingProject(false);
+      setLoading(false);
+    }
   };
 
   return (
@@ -502,6 +593,44 @@ export default function ProjectsLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
 
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            marginBottom: 4,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setShowNewProject(true)}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 4,
+              border: "1px solid #0f172a",
+              background: "#0f172a",
+              color: "#f9fafb",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            New Project
+          </button>
+          <Link
+            href="/projects/import"
+            style={{
+              padding: "6px 10px",
+              borderRadius: 4,
+              border: "1px solid #d1d5db",
+              background: "#ffffff",
+              fontSize: 12,
+              textDecoration: "none",
+              color: "#111827",
+            }}
+          >
+            Import CSV
+          </Link>
+        </div>
+
         <div style={{ marginBottom: 4 }}>
           <input
             type="text"
@@ -593,7 +722,183 @@ export default function ProjectsLayout({ children }: { children: ReactNode }) {
       </aside>
 
       {/* Right pane: current projects route content */}
-      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+      <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+        {children}
+        {showNewProject && (
+          <div
+            style={{
+              position: "absolute",
+              top: 16,
+              right: 16,
+              zIndex: 20,
+            }}
+          >
+            <form
+              onSubmit={handleCreateProject}
+              className="app-card"
+              style={{
+                width: 360,
+                maxWidth: "100%",
+                padding: 16,
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                fontSize: 12,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 4,
+                }}
+              >
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 14,
+                    fontWeight: 600,
+                  }}
+                >
+                  New Project
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setShowNewProject(false)}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    fontSize: 14,
+                  }}
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+
+              <label>
+                <span style={{ display: "block", marginBottom: 2 }}>Name</span>
+                <input
+                  type="text"
+                  value={newProject.name}
+                  onChange={e => handleNewProjectChange("name", e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                  }}
+                />
+              </label>
+
+              <label>
+                <span style={{ display: "block", marginBottom: 2 }}>Address line 1</span>
+                <input
+                  type="text"
+                  value={newProject.addressLine1}
+                  onChange={e => handleNewProjectChange("addressLine1", e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                  }}
+                />
+              </label>
+
+              <label>
+                <span style={{ display: "block", marginBottom: 2 }}>City</span>
+                <input
+                  type="text"
+                  value={newProject.city}
+                  onChange={e => handleNewProjectChange("city", e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                  }}
+                />
+              </label>
+
+              <label>
+                <span style={{ display: "block", marginBottom: 2 }}>State</span>
+                <input
+                  type="text"
+                  value={newProject.state}
+                  onChange={e => handleNewProjectChange("state", e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                  }}
+                />
+              </label>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                }}
+              >
+                <label style={{ flex: 1 }}>
+                  <span style={{ display: "block", marginBottom: 2 }}>Postal code</span>
+                  <input
+                    type="text"
+                    value={newProject.postalCode}
+                    onChange={e => handleNewProjectChange("postalCode", e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                    }}
+                  />
+                </label>
+                <label style={{ flex: 1 }}>
+                  <span style={{ display: "block", marginBottom: 2 }}>Country</span>
+                  <input
+                    type="text"
+                    value={newProject.country}
+                    onChange={e => handleNewProjectChange("country", e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                    }}
+                  />
+                </label>
+              </div>
+
+              {newProjectError && (
+                <div style={{ color: "#b91c1c", fontSize: 12 }}>{newProjectError}</div>
+              )}
+
+              <button
+                type="submit"
+                disabled={creatingProject}
+                style={{
+                  marginTop: 8,
+                  padding: "8px 10px",
+                  borderRadius: 4,
+                  border: "none",
+                  backgroundColor: creatingProject ? "#e5e7eb" : "#2563eb",
+                  color: creatingProject ? "#4b5563" : "#f9fafb",
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: creatingProject ? "default" : "pointer",
+                }}
+              >
+                {creatingProject ? "Creating…" : "Create project"}
+              </button>
+            </form>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

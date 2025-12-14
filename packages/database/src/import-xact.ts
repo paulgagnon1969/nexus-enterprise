@@ -115,114 +115,221 @@ export async function importXactCsvForProject(options: {
     skip_empty_lines: true
   });
 
-  const rawRows = await prisma.$transaction(
-    records.map((record) => {
-      const rawLineNoValue =
-        (record["#"] as string | undefined) ??
-        (record["\u001b#"] as string | undefined) ??
-        (record["﻿#"] as string | undefined) ??
-        (record[Object.keys(record)[0] ?? ""] as string | undefined);
+  // Bulk-insert raw rows to avoid thousands of individual INSERT statements
+  // against a remote Cloud SQL database. We then read them back ordered by
+  // lineNo so we can attach SowItems to the correct RawXactRow ids.
+  const rawRowsData = records.map((record) => {
+    const rawLineNoValue =
+      (record["#"] as string | undefined) ??
+      (record["\u001b#"] as string | undefined) ??
+      (record["﻿#"] as string | undefined) ??
+      (record[Object.keys(record)[0] ?? ""] as string | undefined);
 
-      const parsedLineNo = rawLineNoValue
-        ? Number(String(rawLineNoValue).replace(/,/g, "")) || 0
-        : 0;
+    const parsedLineNo = rawLineNoValue
+      ? Number(String(rawLineNoValue).replace(/,/g, "")) || 0
+      : 0;
 
-      return prisma.rawXactRow.create({
-        data: {
-          estimateVersionId: estimateVersion.id,
-          lineNo: parsedLineNo,
+    return {
+      estimateVersionId: estimateVersion.id,
+      lineNo: parsedLineNo,
 
-          groupCode: cleanText(record["Group Code"]),
-          groupDescription: cleanText(record["Group Description"]),
-          desc: cleanText(record["Desc"]),
-          age: toNumber(record["Age"]),
-          condition: cleanText(record["Condition"]),
-          qty: toNumber(record["Qty"]),
-          itemAmount: toNumber(record["Item Amount"]),
-          reportedCost: toNumber(record["Reported Cost"]),
-          unitCost: toNumber(record["Unit Cost"]),
-          unit: cleanText(record["Unit"]),
-          coverage: cleanText(record["Coverage"]),
-          activity: cleanText(record["Activity"]),
-          workersWage: toNumber(record["Worker's Wage"]),
-          laborBurden: toNumber(record["Labor burden"]),
-          laborOverhead: toNumber(record["Labor Overhead"]),
-          material: toNumber(record["Material"]),
-          equipment: toNumber(record["Equipment"]),
-          marketConditions: toNumber(record["Market Conditions"]),
-          laborMinimum: toNumber(record["Labor Minimum"]),
-          salesTax: toNumber(record["Sales Tax"]),
-          rcv: toNumber(record["RCV"]),
-          life: record["Life"] ? Number(record["Life"]) : null,
-          depreciationType: record["Depreciation Type"] || null,
-          depreciationAmount: toNumber(record["Depreciation Amount"]),
-          recoverable: toBooleanYesNo(record["Recoverable"]),
-          acv: toNumber(record["ACV"]),
-          tax: toNumber(record["Tax"]),
-          replaceFlag: toBooleanYesNo(record["Replace"]),
-          cat: cleanText(record["Cat"]),
-          sel: cleanText(record["Sel"]),
-          owner: cleanText(record["Owner"]),
-          originalVendor: cleanText(record["Original Vendor"]),
-          sourceName: cleanText(record["Source Name"]),
-          sourceDate: toDate(record["Date"]),
-          note1: cleanNote(record["Note 1"]),
-          adjSource: record["ADJ_SOURCE"] || null,
+      groupCode: cleanText(record["Group Code"]),
+      groupDescription: cleanText(record["Group Description"]),
+      desc: cleanText(record["Desc"]),
+      age: toNumber(record["Age"]),
+      condition: cleanText(record["Condition"]),
+      qty: toNumber(record["Qty"]),
+      itemAmount: toNumber(record["Item Amount"]),
+      reportedCost: toNumber(record["Reported Cost"]),
+      unitCost: toNumber(record["Unit Cost"]),
+      unit: cleanText(record["Unit"]),
+      coverage: cleanText(record["Coverage"]),
+      activity: cleanText(record["Activity"]),
+      workersWage: toNumber(record["Worker's Wage"]),
+      laborBurden: toNumber(record["Labor burden"]),
+      laborOverhead: toNumber(record["Labor Overhead"]),
+      material: toNumber(record["Material"]),
+      equipment: toNumber(record["Equipment"]),
+      marketConditions: toNumber(record["Market Conditions"]),
+      laborMinimum: toNumber(record["Labor Minimum"]),
+      salesTax: toNumber(record["Sales Tax"]),
+      rcv: toNumber(record["RCV"]),
+      life: record["Life"] ? Number(record["Life"]) : null,
+      depreciationType: record["Depreciation Type"] || null,
+      depreciationAmount: toNumber(record["Depreciation Amount"]),
+      recoverable: toBooleanYesNo(record["Recoverable"]),
+      acv: toNumber(record["ACV"]),
+      tax: toNumber(record["Tax"]),
+      replaceFlag: toBooleanYesNo(record["Replace"]),
+      cat: cleanText(record["Cat"]),
+      sel: cleanText(record["Sel"]),
+      owner: cleanText(record["Owner"]),
+      originalVendor: cleanText(record["Original Vendor"]),
+      sourceName: cleanText(record["Source Name"]),
+      sourceDate: toDate(record["Date"]),
+      note1: cleanNote(record["Note 1"]),
+      adjSource: record["ADJ_SOURCE"] || null,
 
-          rawRowJson: record
-        }
+      rawRowJson: record as any,
+    };
+  });
+
+  if (rawRowsData.length > 0) {
+    await prisma.rawXactRow.createMany({ data: rawRowsData });
+  }
+
+  const rawRows = await prisma.rawXactRow.findMany({
+    where: { estimateVersionId: estimateVersion.id },
+    orderBy: { lineNo: "asc" },
+  });
+
+  // --- Phase 1: precompute all unit / particle keys so we can batch DB work ---
+  type ParticleKeyInfo = {
+    unitLabel: string;
+    roomName: string;
+    groupCode: string | null;
+    groupDescription: string;
+  };
+
+  const particleKeyToInfo = new Map<string, ParticleKeyInfo>();
+  const unitLabels = new Set<string>();
+
+  for (const record of records) {
+    const groupDescription = cleanText(record["Group Description"]);
+    if (!groupDescription) continue;
+    const groupCode = cleanText(record["Group Code"]);
+    const { unitLabel, roomName } = parseUnitAndRoom(groupDescription);
+
+    unitLabels.add(unitLabel);
+
+    const particleKey = `${unitLabel}::${roomName}`;
+    if (!particleKeyToInfo.has(particleKey)) {
+      particleKeyToInfo.set(particleKey, {
+        unitLabel,
+        roomName,
+        groupCode,
+        groupDescription
       });
+    }
+  }
+
+  // --- Phase 2: ensure all units exist (reusing existing ones when present) ---
+  const existingUnits = await prisma.projectUnit.findMany({
+    where: { projectId }
+  });
+
+  const existingUnitLabels = new Set(existingUnits.map((u) => u.label));
+  const unitsToCreate = Array.from(unitLabels)
+    .filter((label) => !existingUnitLabels.has(label))
+    .map((label) => ({
+      projectId,
+      companyId: project!.companyId,
+      label
+    }));
+
+  if (unitsToCreate.length > 0) {
+    await prisma.projectUnit.createMany({ data: unitsToCreate });
+  }
+
+  const allUnits = await prisma.projectUnit.findMany({ where: { projectId } });
+  const unitById = new Map(allUnits.map((u) => [u.id, u]));
+  const unitByLabel = new Map(allUnits.map((u) => [u.label, u]));
+
+  // --- Phase 3: ensure all particles exist and build a key -> id map ---
+  const existingParticles = await prisma.projectParticle.findMany({
+    where: { projectId }
+  });
+
+  const particleIdByKey = new Map<string, string>();
+  for (const p of existingParticles) {
+    const unitId = p.unitId;
+    if (!unitId) continue;
+    const unit = unitById.get(unitId);
+    if (!unit) continue;
+    const key = `${unit.label}::${p.name}`;
+    if (!particleIdByKey.has(key)) {
+      particleIdByKey.set(key, p.id);
+    }
+  }
+
+  const particlesToCreate: any[] = [];
+  for (const [key, info] of particleKeyToInfo.entries()) {
+    if (particleIdByKey.has(key)) continue;
+    const unit = unitByLabel.get(info.unitLabel);
+    if (!unit) continue;
+    particlesToCreate.push({
+      projectId,
+      companyId: project!.companyId,
+      unitId: unit.id,
+      type: ProjectParticleType.ROOM,
+      name: info.roomName,
+      fullLabel: `${info.unitLabel} - ${info.roomName}`,
+      externalGroupCode: info.groupCode,
+      externalGroupDescription: info.groupDescription
+    });
+  }
+
+  if (particlesToCreate.length > 0) {
+    await prisma.projectParticle.createMany({ data: particlesToCreate });
+  }
+
+  const allParticles = await prisma.projectParticle.findMany({
+    where: { projectId }
+  });
+  particleIdByKey.clear();
+  for (const p of allParticles) {
+    const unitId = p.unitId;
+    if (!unitId) continue;
+    const unit = unitById.get(unitId);
+    if (!unit) continue;
+    const key = `${unit.label}::${p.name}`;
+    if (!particleIdByKey.has(key)) {
+      particleIdByKey.set(key, p.id);
+    }
+  }
+
+  // --- Phase 4: pre-create logical items for each distinct (particle, signature) ---
+  const logicalKeyToData = new Map<string, { projectParticleId: string; signature: string }>();
+
+  for (const record of records) {
+    const groupDescription = cleanText(record["Group Description"]);
+    if (!groupDescription) continue;
+    const { unitLabel, roomName } = parseUnitAndRoom(groupDescription);
+    const particleKey = `${unitLabel}::${roomName}`;
+    const projectParticleId = particleIdByKey.get(particleKey);
+    if (!projectParticleId) continue;
+
+    const signature = computeSignature(record);
+    const logicalKey = `${projectParticleId}:${signature}`;
+    if (!logicalKeyToData.has(logicalKey)) {
+      logicalKeyToData.set(logicalKey, { projectParticleId, signature });
+    }
+  }
+
+  const logicalItemsToCreate = Array.from(logicalKeyToData.values()).map(
+    ({ projectParticleId, signature }) => ({
+      projectId,
+      projectParticleId,
+      signatureHash: signature
     })
   );
 
-  // Build/lookup units and particles from Group Description
-  const particleCache = new Map<string, string>();
-
-  async function getOrCreateParticle(groupDescription: string | null, groupCode: string | null) {
-    const desc = (groupDescription || "").trim();
-    if (!desc) {
-      // fallback: whole project particle could be added later
-      throw new Error("Missing Group Description; cannot resolve particle");
-    }
-    const { unitLabel, roomName } = parseUnitAndRoom(desc);
-    const cacheKey = `${unitLabel}::${roomName}`;
-    const cached = particleCache.get(cacheKey);
-    if (cached) return cached;
-
-    const unit = await prisma.projectUnit.upsert({
-      where: {
-        // Use the named compound unique constraint from schema.prisma
-        ProjectUnit_projectId_label_key: {
-          projectId,
-          label: unitLabel
-        }
-      },
-      update: {},
-      create: {
-        projectId,
-        // project is guaranteed non-null above
-        companyId: project!.companyId,
-        label: unitLabel
-      }
-    } as any);
-
-    const particle = await prisma.projectParticle.create({
-      data: {
-        projectId,
-        companyId: project!.companyId,
-        unitId: unit.id,
-        type: ProjectParticleType.ROOM,
-        name: roomName,
-        fullLabel: `${unitLabel} - ${roomName}`,
-        externalGroupCode: groupCode,
-        externalGroupDescription: groupDescription
-      }
-    });
-
-    particleCache.set(cacheKey, particle.id);
-    return particle.id;
+  if (logicalItemsToCreate.length > 0) {
+    await prisma.sowLogicalItem.createMany({ data: logicalItemsToCreate });
   }
 
+  const allLogicalItems = await prisma.sowLogicalItem.findMany({
+    where: { projectId }
+  });
+  const logicalIdByKey = new Map<string, string>();
+  for (const logical of allLogicalItems) {
+    const key = `${logical.projectParticleId}:${logical.signatureHash}`;
+    if (!logicalIdByKey.has(key)) {
+      logicalIdByKey.set(key, logical.id);
+    }
+  }
+
+  // --- Phase 5: build SOW + PETL rows using the precomputed maps ---
   const sow = await prisma.sow.create({
     data: {
       projectId,
@@ -232,24 +339,28 @@ export async function importXactCsvForProject(options: {
     }
   });
 
-  const logicalCache = new Map<string, string>();
   const sowItemsData: any[] = [];
 
   for (let i = 0; i < records.length; i++) {
     const record = records[i];
     const raw = rawRows[i];
 
+    if (!raw) continue;
+
     const groupDescription = cleanText(record["Group Description"]) || "";
     if (!groupDescription) continue;
-    const groupCode = cleanText(record["Group Code"]);
 
-    const projectParticleId = await getOrCreateParticle(groupDescription, groupCode);
+    const { unitLabel, roomName } = parseUnitAndRoom(groupDescription);
+    const particleKey = `${unitLabel}::${roomName}`;
+    const projectParticleId = particleIdByKey.get(particleKey);
+    if (!projectParticleId) continue;
 
     const signature = computeSignature(record);
     const logicalKey = `${projectParticleId}:${signature}`;
 
-    let logicalItemId = logicalCache.get(logicalKey);
+    let logicalItemId = logicalIdByKey.get(logicalKey);
     if (!logicalItemId) {
+      // Extremely rare fallback: create on-demand if the pre-create path missed one
       const logical = await prisma.sowLogicalItem.create({
         data: {
           projectId,
@@ -258,7 +369,7 @@ export async function importXactCsvForProject(options: {
         }
       });
       logicalItemId = logical.id;
-      logicalCache.set(logicalKey, logicalItemId!);
+      logicalIdByKey.set(logicalKey, logicalItemId!);
     }
 
     sowItemsData.push({
@@ -296,8 +407,9 @@ export async function importXactCsvForProject(options: {
     await prisma.sowItem.createMany({ data: chunk });
   }
 
+  // Baseline SOW total on RCV; fall back to Item Amount only if RCV is missing.
   const totalAmount = sowItemsData.reduce(
-    (sum: number, item: any) => sum + (item.itemAmount ?? 0),
+    (sum: number, item: any) => sum + (item.rcvAmount ?? item.itemAmount ?? 0),
     0
   );
 
