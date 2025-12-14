@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -10,7 +10,7 @@ interface Project {
   name: string;
 }
 
-export default function ProjectImportPage() {
+function ProjectImportPageInner() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState<string>("");
   const [file, setFile] = useState<File | null>(null);
@@ -438,5 +438,13 @@ export default function ProjectImportPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ProjectImportPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 32 }}>Loading project import…</div>}>
+      <ProjectImportPageInner />
+    </Suspense>
   );
 }
