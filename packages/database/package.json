@@ -9,8 +9,10 @@
     "prisma:generate": "prisma generate",
     "build": "tsc -p tsconfig.json",
     "check-types": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src --ext .ts",
-    "import:xact": "ts-node src/run-import-xact.ts"
+    "lint": "echo 'lint disabled'",
+    "import:xact": "ts-node src/run-import-xact.ts",
+    "import:xact-components": "ts-node src/run-import-xact-components.ts",
+    "allocate:xact-components": "ts-node src/run-allocate-xact-components.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",

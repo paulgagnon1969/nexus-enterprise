@@ -12,6 +12,8 @@ export class UserService {
       select: {
         id: true,
         email: true,
+        globalRole: true,
+        userType: true,
         memberships: {
           select: {
             companyId: true,

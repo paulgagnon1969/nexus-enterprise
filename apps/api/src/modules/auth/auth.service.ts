@@ -3,7 +3,7 @@ import { JwtService } from "@nestjs/jwt";
 import * as argon2 from "argon2";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { RedisService } from "../../infra/redis/redis.service";
-import { RegisterDto, LoginDto } from "./dto/auth.dto";
+import { RegisterDto, LoginDto, ChangePasswordDto } from "./dto/auth.dto";
 import { Role, GlobalRole, UserType } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { AuthenticatedUser } from "./jwt.strategy";
@@ -212,6 +212,27 @@ export class AuthService {
       accessToken,
       refreshToken: newRefresh
     };
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user || !user.passwordHash) {
+      throw new UnauthorizedException("Invalid credentials");
+    }
+
+    const valid = await argon2.verify(user.passwordHash, dto.currentPassword);
+    if (!valid) {
+      throw new UnauthorizedException("Invalid credentials");
+    }
+
+    const newHash = await argon2.hash(dto.newPassword);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: newHash }
+    });
+
+    return { success: true };
   }
 
   async acceptInvite(token: string, password: string) {

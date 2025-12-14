@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
+import * as argon2 from "argon2";
+import { Role, UserType } from "@prisma/client";
 
 @Injectable()
 export class AdminService {
@@ -250,6 +252,77 @@ export class AdminService {
     });
 
     await this.audit(actor, "ADMIN_ADD_USER_TO_COMPANY", {
+      companyId,
+      userId: user.id
+    });
+
+    return {
+      user: { id: user.id, email: user.email },
+      membership
+    };
+  }
+
+  /**
+   * Create or update a user with a specific password and attach them to a company
+   * with the given role. This is used by trusted admins (Paul / superadmin) when
+   * they have a known email address and want to hand a password directly to the user.
+   */
+  async createUserWithPassword(
+    actor: AuthenticatedUser,
+    params: { email: string; password: string; companyId: string; role: string; userType?: string }
+  ) {
+    const { email, password, companyId, role, userType } = params;
+
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) {
+      throw new Error("Company not found");
+    }
+
+    const allowedRoles: Role[] = ["OWNER", "ADMIN", "MEMBER", "CLIENT"];
+    if (!allowedRoles.includes(role as Role)) {
+      throw new Error(`Invalid role: ${role}`);
+    }
+
+    const passwordHash = await argon2.hash(password);
+
+    let user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      const resolvedUserType: UserType =
+        (userType as UserType) || (role === "CLIENT" ? "CLIENT" : "INTERNAL");
+
+      user = await this.prisma.user.create({
+        data: {
+          email,
+          passwordHash,
+          userType: resolvedUserType,
+          globalRole: "NONE"
+        }
+      });
+    } else {
+      user = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash }
+      });
+    }
+
+    const membership = await this.prisma.companyMembership.upsert({
+      where: {
+        userId_companyId: {
+          userId: user.id,
+          companyId
+        }
+      },
+      update: {
+        role: role as Role
+      },
+      create: {
+        userId: user.id,
+        companyId,
+        role: role as Role
+      }
+    });
+
+    await this.audit(actor, "ADMIN_CREATE_USER_WITH_PASSWORD", {
       companyId,
       userId: user.id
     });
