@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -24,6 +25,7 @@ interface PetlItem {
   itemAmount: number | null;
   rcvAmount: number | null;
   percentComplete: number;
+  isAcvOnly?: boolean;
   payerType: string;
   categoryCode: string | null;
   selectionCode: string | null;
@@ -122,7 +124,63 @@ interface NewDailyLogState {
   sharePrivate: boolean;
 }
 
-type TabKey = "SUMMARY" | "PETL" | "DAILY_LOGS" | "FILES" | "FINANCIAL";
+interface RoomComponentAgg {
+  code: string;
+  description: string | null;
+  unit: string | null;
+  quantity: number;
+  total: number;
+  lines: number;
+}
+
+interface ImportRoomBucket {
+  groupCode: string | null;
+  groupDescription: string | null;
+  lineCount: number;
+  totalAmount: number;
+  sampleUnitLocations: string[];
+  assignedUnitLabel: string | null;
+  assignedUnitId: string | null;
+  assignedFullLabel: string | null;
+}
+
+interface ImportRoomLine {
+  lineNo: number;
+  desc: string | null;
+  qty: number | null;
+  unit: string | null;
+  itemAmount: number | null;
+  cat: string | null;
+  sel: string | null;
+  owner: string | null;
+  originalVendor: string | null;
+  sourceName: string | null;
+}
+
+interface FinancialSummary {
+  totalRcvClaim: number;
+  totalAcvClaim: number;
+  workCompleteRcv: number;
+  acvReturn: number;
+  opRate: number;
+  acvOP: number;
+  totalDueWorkBillable: number;
+  depositRate: number;
+  depositBaseline: number;
+  billedToDate: number;
+  duePayable: number;
+  dueAmount: number;
+  snapshotComputedAt: string | null;
+  snapshotSource: "none" | "snapshot" | "recomputed";
+}
+
+type TabKey =
+  | "SUMMARY"
+  | "PETL"
+  | "STRUCTURE"
+  | "DAILY_LOGS"
+  | "FILES"
+  | "FINANCIAL";
 
 export default function ProjectDetailPage({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -131,6 +189,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
   const [loading, setLoading] = useState(true);
   const [petlItemCount, setPetlItemCount] = useState<number | null>(null);
   const [petlTotalAmount, setPetlTotalAmount] = useState<number | null>(null);
+  const [componentsCount, setComponentsCount] = useState<number | null>(null);
   const [petlItems, setPetlItems] = useState<PetlItem[]>([]);
   const [petlLoading, setPetlLoading] = useState(false);
 
@@ -169,7 +228,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
   const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
 
   const [operation, setOperation] = useState<"set" | "increment" | "decrement">("set");
-  const [operationPercent, setOperationPercent] = useState<string>("");
+  const [operationPercent, setOperationPercent] = useState<string>("0");
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
 
@@ -180,12 +239,50 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
     percentComplete: number;
   } | null>(null);
 
+  const [financialSummary, setFinancialSummary] = useState<FinancialSummary | null>(null);
+  const [financialLoading, setFinancialLoading] = useState(false);
+  const [financialError, setFinancialError] = useState<string | null>(null);
+
   const [dailyLogs, setDailyLogs] = useState<DailyLog[]>([]);
   const [dailyLogsLoading, setDailyLogsLoading] = useState(false);
   const [dailyLogSaving, setDailyLogSaving] = useState(false);
   const [dailyLogMessage, setDailyLogMessage] = useState<string | null>(null);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [showPendingClientOnly, setShowPendingClientOnly] = useState(false);
+
+  const [roomComponentsPanel, setRoomComponentsPanel] = useState<{
+    open: boolean;
+    loading: boolean;
+    error: string | null;
+    roomName: string;
+    components: RoomComponentAgg[];
+  }>({ open: false, loading: false, error: null, roomName: "", components: [] });
+
+  const [importRoomBuckets, setImportRoomBuckets] = useState<ImportRoomBucket[] | null>(null);
+  const [importRoomBucketsLoading, setImportRoomBucketsLoading] = useState(false);
+  const [importRoomBucketsError, setImportRoomBucketsError] = useState<string | null>(null);
+  const [importRoomBucketsSelection, setImportRoomBucketsSelection] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [assignTargetType, setAssignTargetType] = useState<"existing" | "new">("existing");
+  const [assignExistingUnitId, setAssignExistingUnitId] = useState<string>("");
+  const [assignNewUnitLabel, setAssignNewUnitLabel] = useState<string>("");
+  const [assignNewUnitFloor, setAssignNewUnitFloor] = useState<string>("");
+  const [assignSubmitting, setAssignSubmitting] = useState(false);
+  const [assignMessage, setAssignMessage] = useState<string | null>(null);
+  const [expandedImportBucketKeys, setExpandedImportBucketKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [importRoomBucketLines, setImportRoomBucketLines] = useState<
+    Record<
+      string,
+      {
+        loading: boolean;
+        error: string | null;
+        rows: ImportRoomLine[];
+      }
+    >
+  >({});
 
   const [newDailyLog, setNewDailyLog] = useState<NewDailyLogState>(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -216,14 +313,34 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
   const [structureOpen, setStructureOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("SUMMARY");
 
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const tab = searchParams?.get("tab");
+    if (!tab) return;
+    if (
+      tab === "SUMMARY" ||
+      tab === "PETL" ||
+      tab === "STRUCTURE" ||
+      tab === "DAILY_LOGS" ||
+      tab === "FILES" ||
+      tab === "FINANCIAL"
+    ) {
+      setActiveTab(tab as TabKey);
+    } else if (tab.toUpperCase() === "PETL") {
+      setActiveTab("PETL");
+    }
+  }, [searchParams]);
+
   const overallSummary = useMemo(() => {
     if (!petlItems.length) return null;
     let count = 0;
     let total = 0;
     let completed = 0;
     for (const item of petlItems) {
-      const amt = item.itemAmount ?? 0;
-      const pct = item.percentComplete ?? 0;
+      const amt = item.rcvAmount ?? item.itemAmount ?? 0;
+      const basePct = item.percentComplete ?? 0;
+      const pct = item.isAcvOnly ? 0 : basePct;
       count += 1;
       total += amt;
       completed += amt * (pct / 100);
@@ -275,6 +392,81 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
     return true;
   };
 
+  const toggleImportBucketExpanded = async (bucket: ImportRoomBucket) => {
+    const key = `${bucket.groupCode ?? ""}::${bucket.groupDescription ?? ""}`;
+    setExpandedImportBucketKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+    // If we don't have rows loaded for this bucket yet, fetch them.
+    if (!importRoomBucketLines[key]) {
+      const token = typeof window !== "undefined"
+        ? localStorage.getItem("accessToken")
+        : null;
+      if (!token) {
+        setImportRoomBucketLines(prev => ({
+          ...prev,
+          [key]: {
+            loading: false,
+            error: "Missing access token. Please login again.",
+            rows: [],
+          },
+        }));
+        return;
+      }
+
+      setImportRoomBucketLines(prev => ({
+        ...prev,
+        [key]: { loading: true, error: null, rows: [] },
+      }));
+
+      try {
+        const params = new URLSearchParams();
+        if (bucket.groupCode != null) params.set("groupCode", bucket.groupCode);
+        if (bucket.groupDescription != null) {
+          params.set("groupDescription", bucket.groupDescription);
+        }
+        const res = await fetch(
+          `${API_BASE}/projects/${id}/import-structure/room-lines?${params.toString()}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          setImportRoomBucketLines(prev => ({
+            ...prev,
+            [key]: {
+              loading: false,
+              error: `Failed to load lines (${res.status}) ${text}`,
+              rows: [],
+            },
+          }));
+          return;
+        }
+        const json: any = await res.json();
+        const rows: ImportRoomLine[] = Array.isArray(json.rows) ? json.rows : [];
+        setImportRoomBucketLines(prev => ({
+          ...prev,
+          [key]: { loading: false, error: null, rows },
+        }));
+      } catch (err: any) {
+        setImportRoomBucketLines(prev => ({
+          ...prev,
+          [key]: {
+            loading: false,
+            error: err?.message ?? "Failed to load lines",
+            rows: [],
+          },
+        }));
+      }
+    }
+  };
+
+  // Initial load: just project + estimate summary for a fast first paint
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
     if (!token) {
@@ -283,199 +475,320 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
       return;
     }
 
-    async function load() {
+    let cancelled = false;
+
+    async function loadInitial() {
       try {
-        const res = await fetch(`${API_BASE}/projects`, {
-          headers: { Authorization: `Bearer ${token}` }
+        const res = await fetch(`${API_BASE}/projects/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) {
           throw new Error(`Failed to load project (${res.status})`);
         }
-        const data: Project[] = await res.json();
-        const found = data.find(p => p.id === id) ?? null;
-        if (!found) {
-          setError("Project not found for this account.");
-          return;
-        }
-
+        const found: Project = await res.json();
+        if (cancelled) return;
         setProject(found);
 
-        // Load a lightweight estimate summary (item count + total amount)
+        // Lightweight estimate summary (item count + total amount)
         try {
           const summaryRes = await fetch(`${API_BASE}/projects/${id}/estimate-summary`, {
-            headers: { Authorization: `Bearer ${token}` }
+            headers: { Authorization: `Bearer ${token}` },
           });
           if (summaryRes.ok) {
             const summary: any = await summaryRes.json();
+            if (cancelled) return;
             setPetlItemCount(typeof summary.itemCount === "number" ? summary.itemCount : null);
             setPetlTotalAmount(
-              typeof summary.totalAmount === "number" ? summary.totalAmount : null
+              typeof summary.totalAmount === "number" ? summary.totalAmount : null,
+            );
+            setComponentsCount(
+              typeof summary.componentsCount === "number" ? summary.componentsCount : null,
             );
           }
         } catch {
           // Ignore summary errors in this lightweight view
         }
-
-        // Load full PETL items for this project
-        try {
-          setPetlLoading(true);
-          const petlRes = await fetch(`${API_BASE}/projects/${id}/petl`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (petlRes.ok) {
-            const petl: any = await petlRes.json();
-            const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
-            setPetlItems(items);
-          }
-        } catch {
-          // ignore PETL errors for now; UI will just show placeholder
-        } finally {
-          setPetlLoading(false);
-        }
-
-        // Load room/zone group summary for PETL
-        try {
-          setGroupLoading(true);
-          const groupsRes = await fetch(`${API_BASE}/projects/${id}/petl-groups`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (groupsRes.ok) {
-            const json: any = await groupsRes.json();
-            setGroups(Array.isArray(json.groups) ? json.groups : []);
-          }
-        } catch {
-          // ignore group summary errors; UI will just hide the section
-        } finally {
-          setGroupLoading(false);
-        }
-
-        // Load hierarchy (site / buildings / units / particles)
-        try {
-          const hRes = await fetch(`${API_BASE}/projects/${id}/hierarchy`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (hRes.ok) {
-            const json: any = await hRes.json();
-            setHierarchy(json);
-          }
-        } catch {
-          // hierarchy is optional
-        }
-
-        // Load internal company members (for My Organization picker)
-        try {
-          const companyRes = await fetch(`${API_BASE}/companies/me`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (companyRes.ok) {
-            const companyJson: any = await companyRes.json();
-            const members: any[] = companyJson?.memberships ?? [];
-            setAvailableMembers(
-              members.map(m => ({
-                userId: m.userId,
-                email: m.user?.email ?? "(user)",
-                role: m.role,
-              }))
-            );
-          }
-        } catch {
-          // optional
-        }
-
-        // Load available project tags for this company (any tags ever used on projects)
-        try {
-          const tagRes = await fetch(`${API_BASE}/tags?entityType=project`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (tagRes.ok) {
-            const tagsJson: any[] = await tagRes.json();
-            setAvailableTags(
-              (tagsJson || []).map(t => ({
-                id: t.id,
-                label: t.label,
-                color: t.color ?? null
-              }))
-            );
-          }
-        } catch {
-          // optional
-        }
-
-        // Load tags assigned to this project
-        try {
-          const projTagsRes = await fetch(`${API_BASE}/tags/projects/${id}`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (projTagsRes.ok) {
-            const projTagsJson: TagAssignmentDto[] = await projTagsRes.json();
-            setProjectTags(projTagsJson || []);
-          }
-        } catch {
-          // optional
-        }
-
-        // Load participants (My Organization / Collaborators)
-        try {
-          const partsRes = await fetch(`${API_BASE}/projects/${id}/participants`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (partsRes.ok) {
-            const json: any = await partsRes.json();
-            setParticipants({
-              myOrganization: json.myOrganization ?? [],
-              collaborators: json.collaborators ?? []
-            });
-          }
-        } catch {
-          // optional; safe to ignore for now
-        }
-
-        // Load daily logs
-        try {
-          setDailyLogsLoading(true);
-          const logsRes = await fetch(`${API_BASE}/projects/${id}/daily-logs`, {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (logsRes.ok) {
-            const json: any = await logsRes.json();
-            const logs: DailyLog[] = Array.isArray(json) ? json : json.items ?? [];
-            setDailyLogs(logs);
-          }
-        } catch {
-          // optional; leave logs empty on error
-        } finally {
-          setDailyLogsLoading(false);
-        }
-
-        // Initial selection summary (no filters)
-        try {
-          const selRes = await fetch(
-            `${API_BASE}/projects/${id}/petl-selection-summary`,
-            {
-              headers: { Authorization: `Bearer ${token}` }
-            }
-          );
-          if (selRes.ok) {
-            const json: any = await selRes.json();
-            setSelectionSummary({
-              itemCount: json.itemCount ?? 0,
-              totalAmount: json.totalAmount ?? 0,
-              completedAmount: json.completedAmount ?? 0,
-              percentComplete: json.percentComplete ?? 0
-            });
-          }
-        } catch {
-          // ignore, summary is optional
-        }
       } catch (err: any) {
+        if (cancelled) return;
         setError(err.message || "Unknown error");
       } finally {
+        if (cancelled) return;
         setLoading(false);
       }
     }
 
-    void load();
+    void loadInitial();
+
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
+
+  // Load PETL-related data when project is available and user views PETL/STRUCTURE
+  useEffect(() => {
+    if (!project) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    if (activeTab !== "PETL" && activeTab !== "STRUCTURE" && activeTab !== "SUMMARY") {
+      // SUMMARY also benefits from PETL data for overall/selection summaries
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadPetl = async () => {
+      try {
+        setPetlLoading(true);
+        const [petlRes, groupsRes] = await Promise.all([
+          fetch(`${API_BASE}/projects/${project.id}/petl`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE}/projects/${project.id}/petl-groups`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+
+        if (!cancelled && petlRes.ok) {
+          const petl: any = await petlRes.json();
+          const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
+          setPetlItems(items);
+        }
+
+        if (!cancelled && groupsRes.ok) {
+          const json: any = await groupsRes.json();
+          setGroups(Array.isArray(json.groups) ? json.groups : []);
+        }
+      } finally {
+        if (!cancelled) setPetlLoading(false);
+      }
+    };
+
+    void loadPetl();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project, activeTab]);
+
+  // Load hierarchy lazily when STRUCTURE tab is opened
+  useEffect(() => {
+    if (!project) return;
+    if (activeTab !== "STRUCTURE") return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    const loadHierarchy = async () => {
+      try {
+        const hRes = await fetch(`${API_BASE}/projects/${project.id}/hierarchy`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!cancelled && hRes.ok) {
+          const json: any = await hRes.json();
+          setHierarchy(json);
+        }
+      } catch {
+        // optional
+      }
+    };
+
+    void loadHierarchy();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project, activeTab]);
+
+  // Load import structuring room buckets when STRUCTURE tab is opened
+  useEffect(() => {
+    if (!project) return;
+    if (activeTab !== "STRUCTURE") return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    const loadBuckets = async () => {
+      try {
+        setImportRoomBucketsLoading(true);
+        setImportRoomBucketsSelection(new Set());
+        const bucketsRes = await fetch(
+          `${API_BASE}/projects/${project.id}/import-structure/room-buckets`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (cancelled) return;
+        if (bucketsRes.ok) {
+          const json: any = await bucketsRes.json();
+          setImportRoomBuckets(Array.isArray(json.buckets) ? json.buckets : []);
+        } else if (bucketsRes.status === 404) {
+          setImportRoomBuckets([]);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setImportRoomBucketsError(
+            err?.message ?? "Unable to load import structuring buckets.",
+          );
+        }
+      } finally {
+        if (!cancelled) setImportRoomBucketsLoading(false);
+      }
+    };
+
+    void loadBuckets();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project, activeTab]);
+
+  // Load organization-related metadata (company members, tags, participants) when SUMMARY tab is active
+  useEffect(() => {
+    if (!project) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+    if (activeTab !== "SUMMARY") return;
+
+    let cancelled = false;
+
+    const loadMeta = async () => {
+      try {
+        const [companyRes, tagRes, projTagsRes, partsRes] = await Promise.all([
+          fetch(`${API_BASE}/companies/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE}/tags?entityType=project`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE}/tags/projects/${project.id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE}/projects/${project.id}/participants`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+
+        if (!cancelled && companyRes.ok) {
+          const companyJson: any = await companyRes.json();
+          const members: any[] = companyJson?.memberships ?? [];
+          setAvailableMembers(
+            members.map((m) => ({
+              userId: m.userId,
+              email: m.user?.email ?? "(user)",
+              role: m.role,
+            })),
+          );
+        }
+
+        if (!cancelled && tagRes.ok) {
+          const tagsJson: any[] = await tagRes.json();
+          setAvailableTags(
+            (tagsJson || []).map((t) => ({
+              id: t.id,
+              label: t.label,
+              color: t.color ?? null,
+            })),
+          );
+        }
+
+        if (!cancelled && projTagsRes.ok) {
+          const projTagsJson: TagAssignmentDto[] = await projTagsRes.json();
+          setProjectTags(projTagsJson || []);
+        }
+
+        if (!cancelled && partsRes.ok) {
+          const json: any = await partsRes.json();
+          setParticipants({
+            myOrganization: json.myOrganization ?? [],
+            collaborators: json.collaborators ?? [],
+          });
+        }
+      } catch {
+        // optional; safe to ignore for now
+      }
+    };
+
+    void loadMeta();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project, activeTab]);
+
+  // Load daily logs only when DAILY_LOGS tab is active
+  useEffect(() => {
+    if (!project) return;
+    if (activeTab !== "DAILY_LOGS") return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    const loadLogs = async () => {
+      try {
+        setDailyLogsLoading(true);
+        const logsRes = await fetch(`${API_BASE}/projects/${project.id}/daily-logs`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!cancelled && logsRes.ok) {
+          const json: any = await logsRes.json();
+          const logs: DailyLog[] = Array.isArray(json) ? json : json.items ?? [];
+          setDailyLogs(logs);
+        }
+      } catch {
+        // leave logs empty on error
+      } finally {
+        if (!cancelled) setDailyLogsLoading(false);
+      }
+    };
+
+    void loadLogs();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project, activeTab]);
+
+  // Initial selection summary (no filters) once PETL items are present
+  useEffect(() => {
+    if (!project) return;
+    if (!petlItems.length) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    const loadInitialSelection = async () => {
+      try {
+        const selRes = await fetch(
+          `${API_BASE}/projects/${project.id}/petl-selection-summary`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (!cancelled && selRes.ok) {
+          const json: any = await selRes.json();
+          setSelectionSummary({
+            itemCount: json.itemCount ?? 0,
+            totalAmount: json.totalAmount ?? 0,
+            completedAmount: json.completedAmount ?? 0,
+            percentComplete: json.percentComplete ?? 0,
+          });
+        }
+      } catch {
+        // ignore, summary is optional
+      }
+    };
+
+    void loadInitialSelection();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project, petlItems]);
 
   // Refresh selection summary whenever filters change
   useEffect(() => {
@@ -483,18 +796,19 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
     if (!token || !project) return;
 
     const params = new URLSearchParams();
+    if (roomFilter) params.append("roomParticleId", roomFilter);
     if (categoryFilter) params.append("categoryCode", categoryFilter);
     if (selectionFilter) params.append("selectionCode", selectionFilter);
 
-    // For now, only category/selection are wired server-side; room filtering uses client-side match
-    if (categoryFilter || selectionFilter) {
+    // If any filters are active, ask the server for an authoritative rollup.
+    if (roomFilter || categoryFilter || selectionFilter) {
       fetch(
         `${API_BASE}/projects/${project.id}/petl-selection-summary?${params.toString()}`,
         {
           headers: { Authorization: `Bearer ${token}` }
         }
       )
-        .then(res => res.ok ? res.json() : null)
+        .then(res => (res.ok ? res.json() : null))
         .then(json => {
           if (!json) return;
           setSelectionSummary({
@@ -507,30 +821,83 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
         .catch(() => {
           // ignore
         });
-    } else {
-      // No server-side filters; recompute from local items
-      if (petlItems.length === 0) {
-        setSelectionSummary(null);
-      } else {
-        let count = 0;
-        let total = 0;
-        let completed = 0;
-        for (const item of petlItems) {
-          const amt = item.itemAmount ?? 0;
-          const pct = item.percentComplete ?? 0;
-          count += 1;
-          total += amt;
-          completed += amt * (pct / 100);
-        }
-        setSelectionSummary({
-          itemCount: count,
-          totalAmount: total,
-          completedAmount: completed,
-          percentComplete: total > 0 ? (completed / total) * 100 : 0
-        });
-      }
+      return;
     }
+
+    // No server-side filters; recompute from local items
+    if (petlItems.length === 0) {
+      setSelectionSummary(null);
+      return;
+    }
+
+    let count = 0;
+    let total = 0;
+    let completed = 0;
+    for (const item of petlItems) {
+      const amt = item.rcvAmount ?? item.itemAmount ?? 0;
+      const basePct = item.percentComplete ?? 0;
+      const pct = item.isAcvOnly ? 0 : basePct;
+      count += 1;
+      total += amt;
+      completed += amt * (pct / 100);
+    }
+    setSelectionSummary({
+      itemCount: count,
+      totalAmount: total,
+      completedAmount: completed,
+      percentComplete: total > 0 ? (completed / total) * 100 : 0
+    });
   }, [project, roomFilter, categoryFilter, selectionFilter, petlItems]);
+
+  // Lazy-load financial summary only when Financial tab is opened
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token || !project) return;
+    if (activeTab !== "FINANCIAL") return;
+    // Only load once per project/tab while there is no summary yet
+    if (financialSummary) return;
+
+    let cancelled = false;
+
+    setFinancialLoading(true);
+    setFinancialError(null);
+
+    fetch(`${API_BASE}/projects/${project.id}/financial-summary`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((json: any) => {
+        if (cancelled) return;
+        setFinancialSummary({
+          totalRcvClaim: json.totalRcvClaim ?? 0,
+          totalAcvClaim: json.totalAcvClaim ?? 0,
+          workCompleteRcv: json.workCompleteRcv ?? 0,
+          acvReturn: json.acvReturn ?? 0,
+          opRate: json.opRate ?? 0,
+          acvOP: json.acvOP ?? 0,
+          totalDueWorkBillable: json.totalDueWorkBillable ?? 0,
+          depositRate: json.depositRate ?? 0.5,
+          depositBaseline: json.depositBaseline ?? 0,
+          billedToDate: json.billedToDate ?? 0,
+          duePayable: json.duePayable ?? 0,
+          dueAmount: json.dueAmount ?? 0,
+          snapshotComputedAt: json.snapshotComputedAt ?? null,
+          snapshotSource: json.snapshotSource ?? "none",
+        });
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setFinancialError(err?.message ?? "Failed to load financial summary.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setFinancialLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, project, financialSummary]);
 
   const toggleRoomExpanded = (particleId: string | null) => {
     if (!particleId) return;
@@ -550,6 +917,66 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
       if (selectionFilter && item.selectionCode !== selectionFilter) return false;
       return true;
     });
+  };
+
+  const openRoomComponentsPanel = async (roomId: string | null, roomName: string) => {
+    if (!roomId) return;
+    setRoomFilter(roomId);
+    setRoomComponentsPanel({
+      open: true,
+      loading: true,
+      error: null,
+      roomName,
+      components: [],
+    });
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setRoomComponentsPanel(prev => ({
+        ...prev,
+        loading: false,
+        error: "Missing access token. Please login again.",
+      }));
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams();
+      params.set("roomParticleId", roomId);
+      if (categoryFilter) params.set("categoryCode", categoryFilter);
+      if (selectionFilter) params.set("selectionCode", selectionFilter);
+
+      const res = await fetch(
+        `${API_BASE}/projects/${id}/petl-components?${params.toString()}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        setRoomComponentsPanel(prev => ({
+          ...prev,
+          loading: false,
+          error: `Failed to load components (${res.status}) ${text}`,
+        }));
+        return;
+      }
+      const json: any = await res.json();
+      const items: RoomComponentAgg[] = Array.isArray(json.components)
+        ? json.components
+        : [];
+      setRoomComponentsPanel(prev => ({
+        ...prev,
+        loading: false,
+        components: items,
+      }));
+    } catch (err: any) {
+      setRoomComponentsPanel(prev => ({
+        ...prev,
+        loading: false,
+        error: err?.message ?? "Failed to load components",
+      }));
+    }
   };
 
   const handleCreateDailyLog = async (e: React.FormEvent) => {
@@ -671,10 +1098,72 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
           {" "}
           {petlTotalAmount !== null
             ? `$${petlTotalAmount.toLocaleString(undefined, {
-                maximumFractionDigits: 2
+                maximumFractionDigits: 2,
               })}`
             : "total N/A"}
         </p>
+      )}
+
+      {/* Baseline reminder / components reminder */}
+      {petlItemCount === 0 && (
+        <div
+          style={{
+            marginTop: 12,
+            padding: 12,
+            borderRadius: 8,
+            border: "1px solid #0f172a",
+            background: "#fef9c3",
+            fontSize: 12,
+            color: "#0f172a",
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>
+            Xactimate baseline not imported yet
+          </div>
+          <p style={{ margin: 0, marginBottom: 8 }}>
+            This project doesn&apos;t yet have an estimate baseline. Upload your
+            Xactimate CSV exports so Nexus can build the PETL and progress
+            tracking.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              if (typeof window !== "undefined") {
+                window.location.href = `/projects/import?projectId=${project.id}`;
+              }
+            }}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 4,
+              border: "1px solid #0f172a",
+              backgroundColor: "#0f172a",
+              color: "#f9fafb",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            Import Xactimate CSVs for this project
+          </button>
+        </div>
+      )}
+
+      {petlItemCount !== null && petlItemCount > 0 && componentsCount === 0 && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: 10,
+            borderRadius: 6,
+            border: "1px solid #0f172a",
+            background: "#fef9c3",
+            fontSize: 11,
+            color: "#0f172a",
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>Heads up:</span> line items are
+          imported, but components CSV hasn&apos;t been imported yet. When you&apos;re
+          ready, upload the components CSV from the Import screen so we can
+          break each task into detailed materials, labor, and equipment.
+        </div>
       )}
 
       {/* Tab strip for project detail sections */}
@@ -690,6 +1179,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
           [
             { key: "SUMMARY", label: "Summary" },
             { key: "PETL", label: "PETL" },
+            { key: "STRUCTURE", label: "Project Organization" },
             { key: "DAILY_LOGS", label: "Daily Logs" },
             { key: "FILES", label: "Files" },
             { key: "FINANCIAL", label: "Financial" },
@@ -726,27 +1216,29 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                 <>
                   {" "}of $
                   {overallSummary.totalAmount.toLocaleString(undefined, {
-                    maximumFractionDigits: 2
+                    maximumFractionDigits: 2,
                   })}
                 </>
               )}
             </div>
           )}
 
-          {selectionSummary &&
-            (roomFilter || categoryFilter || selectionFilter) && (
-              <div>
-                Current selection: {selectionSummary.percentComplete.toFixed(2)}%
-                {selectionSummary.totalAmount > 0 && (
-                  <>
-                    {" "}of $
-                    {selectionSummary.totalAmount.toLocaleString(undefined, {
-                      maximumFractionDigits: 2
-                    })}
-                  </>
-                )}
-              </div>
-            )}
+          {selectionSummary && (
+            <div>
+              {roomFilter || categoryFilter || selectionFilter
+                ? "Current selection: "
+                : "Current selection (all items): "}
+              {selectionSummary.percentComplete.toFixed(2)}%
+              {selectionSummary.totalAmount > 0 && (
+                <>
+                  {" "}of $
+                  {selectionSummary.totalAmount.toLocaleString(undefined, {
+                    maximumFractionDigits: 2,
+                  })}
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1131,6 +1623,939 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* FINANCIAL tab content */}
+      {activeTab === "FINANCIAL" && (
+        <div style={{ marginTop: 8, marginBottom: 16 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Financial Overview</h2>
+
+          {financialLoading && (
+            <p style={{ fontSize: 12, color: "#6b7280" }}>Loading financial summary…</p>
+          )}
+
+          {financialError && !financialLoading && (
+            <p style={{ fontSize: 12, color: "#b91c1c" }}>{financialError}</p>
+          )}
+
+          {!financialSummary && !financialLoading && !financialError && (
+            <p style={{ fontSize: 12, color: "#6b7280" }}>
+              No financial snapshot has been computed yet for this project.
+            </p>
+          )}
+
+          {financialSummary && !financialError && (
+            <>
+              {/* Snapshot age + refresh */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  fontSize: 12,
+                  marginBottom: 4,
+                  color: "#4b5563",
+                }}
+              >
+                <span>
+                  {financialSummary.snapshotComputedAt
+                    ? (() => {
+                        const ageMs =
+                          Date.now() -
+                          new Date(financialSummary.snapshotComputedAt).getTime();
+                        const ageHours = ageMs / 36e5;
+                        const label =
+                          ageHours < 1
+                            ? "under an hour old"
+                            : ageHours < 24
+                            ? `${ageHours.toFixed(1)} hours old`
+                            : `${(ageHours / 24).toFixed(1)} days old`;
+                        return `Latest financial overview is ${label}.`;
+                      })()
+                    : "No snapshot age available."}
+                </span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!project) return;
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) {
+                      alert("Missing access token; please log in again.");
+                      return;
+                    }
+                    setFinancialLoading(true);
+                    setFinancialError(null);
+                    try {
+                      const res = await fetch(
+                        `${API_BASE}/projects/${project.id}/financial-summary?forceRefresh=true`,
+                        { headers: { Authorization: `Bearer ${token}` } },
+                      );
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        throw new Error(`Refresh failed (${res.status}) ${text}`);
+                      }
+                      const json: any = await res.json();
+                      setFinancialSummary({
+                        totalRcvClaim: json.totalRcvClaim ?? 0,
+                        totalAcvClaim: json.totalAcvClaim ?? 0,
+                        workCompleteRcv: json.workCompleteRcv ?? 0,
+                        acvReturn: json.acvReturn ?? 0,
+                        opRate: json.opRate ?? 0,
+                        acvOP: json.acvOP ?? 0,
+                        totalDueWorkBillable: json.totalDueWorkBillable ?? 0,
+                        depositRate: json.depositRate ?? 0.5,
+                        depositBaseline: json.depositBaseline ?? 0,
+                        billedToDate: json.billedToDate ?? 0,
+                        duePayable: json.duePayable ?? 0,
+                        dueAmount: json.dueAmount ?? 0,
+                        snapshotComputedAt: json.snapshotComputedAt ?? null,
+                        snapshotSource: json.snapshotSource ?? "recomputed",
+                      });
+                    } catch (err: any) {
+                      setFinancialError(
+                        err?.message ?? "Failed to refresh financial summary.",
+                      );
+                    } finally {
+                      setFinancialLoading(false);
+                    }
+                  }}
+                  disabled={financialLoading}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #0f172a",
+                    backgroundColor: financialLoading ? "#e5e7eb" : "#0f172a",
+                    color: financialLoading ? "#4b5563" : "#f9fafb",
+                    fontSize: 11,
+                    cursor: financialLoading ? "default" : "pointer",
+                  }}
+                >
+                  {financialLoading ? "Updating…" : "Update now"}
+                </button>
+              </div>
+
+              {/* Summary cards */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1.2fr 1fr",
+                  gap: 12,
+                  alignItems: "flex-start",
+                }}
+              >
+                {/* Left: claim + work math */}
+                <div
+                  style={{
+                    borderRadius: 8,
+                    border: "1px solid #e5e7eb",
+                    background: "#ffffff",
+                    padding: 10,
+                    fontSize: 13,
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                    Carrier / Scope Summary
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1.4fr 1fr",
+                      rowGap: 4,
+                    }}
+                  >
+                    <div>Total RCV Claim</div>
+                    <div style={{ textAlign: "right" }}>
+                      ${financialSummary.totalRcvClaim.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+
+                    <div>ACV Return (credit bucket)</div>
+                    <div style={{ textAlign: "right" }}>
+                      ${financialSummary.acvReturn.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+
+                    <div>ACV O&P ({Math.round(financialSummary.opRate * 100)}%)</div>
+                    <div style={{ textAlign: "right" }}>
+                      ${financialSummary.acvOP.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+
+                    <div>Work Complete (RCV basis)</div>
+                    <div style={{ textAlign: "right" }}>
+                      ${financialSummary.workCompleteRcv.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+
+                    <div
+                      style={{
+                        fontWeight: 600,
+                        borderTop: "1px solid #e5e7eb",
+                        paddingTop: 4,
+                      }}
+                    >
+                      Total Due (Work Complete) – Billable
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "right",
+                        fontWeight: 600,
+                        borderTop: "1px solid #e5e7eb",
+                        paddingTop: 4,
+                      }}
+                    >
+                      ${financialSummary.totalDueWorkBillable.toLocaleString(
+                        undefined,
+                        {
+                          maximumFractionDigits: 2,
+                        },
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: deposit + due payable */}
+                <div
+                  style={{
+                    borderRadius: 8,
+                    border: "1px solid #e5e7eb",
+                    background: "#ffffff",
+                    padding: 10,
+                    fontSize: 13,
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                    Deposits &amp; Due Amount
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1.4fr 1fr",
+                      rowGap: 4,
+                    }}
+                  >
+                    <div>
+                      Deposit baseline ({Math.round(financialSummary.depositRate * 100)}%)
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      ${financialSummary.depositBaseline.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+
+                    <div>Billed to date</div>
+                    <div style={{ textAlign: "right" }}>
+                      ${financialSummary.billedToDate.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+
+                    <div
+                      style={{
+                        fontWeight: 600,
+                        borderTop: "1px solid #e5e7eb",
+                        paddingTop: 4,
+                      }}
+                    >
+                      Due Payable (baseline deposit)
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "right",
+                        fontWeight: 600,
+                        borderTop: "1px solid #e5e7eb",
+                        paddingTop: 4,
+                      }}
+                    >
+                      ${financialSummary.duePayable.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+
+                    <div>Due Amount (above 50%, not yet billed)</div>
+                    <div style={{ textAlign: "right" }}>
+                      ${financialSummary.dueAmount.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+                  </div>
+
+                  <p style={{ marginTop: 8, fontSize: 11, color: "#6b7280" }}>
+                    Rules: deposit baseline is {Math.round(financialSummary.depositRate * 100)}%
+                    of Total Due. Due Amount represents anything above that baseline which
+                    has not yet been billed.
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      {/* IMPORT STRUCTURE tab content */}
+      {activeTab === "STRUCTURE" && (
+        <div style={{ marginTop: 8, marginBottom: 16 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
+            Project Organization (Room Buckets)
+          </h2>
+          <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 8 }}>
+            These buckets come directly from the latest Xactimate RAW import by
+            combining <strong>Group Code</strong> and <strong>Group Description</strong>.
+            Use this view to group buckets into Units and later Buildings.
+          </p>
+
+          {importRoomBucketsLoading && (
+            <p style={{ fontSize: 12, color: "#6b7280" }}>Loading room buckets…</p>
+          )}
+
+          {!importRoomBucketsLoading && importRoomBucketsError && (
+            <p style={{ fontSize: 12, color: "#b91c1c" }}>{importRoomBucketsError}</p>
+          )}
+
+          {!importRoomBucketsLoading &&
+            !importRoomBucketsError &&
+            importRoomBuckets &&
+            importRoomBuckets.length === 0 && (
+              <p style={{ fontSize: 12, color: "#6b7280" }}>
+                No RAW Xactimate imports found for this project yet.
+              </p>
+            )}
+
+          {!importRoomBucketsLoading &&
+            !importRoomBucketsError &&
+            importRoomBuckets &&
+            importRoomBuckets.length > 0 && (
+              <>
+                {/* Assignment controls */}
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 12,
+                    alignItems: "flex-end",
+                    marginBottom: 8,
+                  }}
+                >
+                  <div style={{ fontSize: 12 }}>
+                    <div style={{ marginBottom: 4, fontWeight: 600 }}>
+                      Selected buckets: {importRoomBucketsSelection.size}
+                    </div>
+                    <div style={{ color: "#6b7280" }}>
+                      Tip: use the checkboxes to multi-select similar buckets and
+                      assign them to a Unit.
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      marginLeft: "auto",
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      alignItems: "center",
+                      fontSize: 12,
+                    }}
+                  >
+                    <span style={{ fontWeight: 600 }}>Assign to Unit:</span>
+
+                    <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <input
+                        type="radio"
+                        name="assignTargetType"
+                        value="existing"
+                        checked={assignTargetType === "existing"}
+                        onChange={() => setAssignTargetType("existing")}
+                      />
+                      <span>Existing</span>
+                    </label>
+
+                    <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <input
+                        type="radio"
+                        name="assignTargetType"
+                        value="new"
+                        checked={assignTargetType === "new"}
+                        onChange={() => setAssignTargetType("new")}
+                      />
+                      <span>New</span>
+                    </label>
+
+                    {assignTargetType === "existing" && (
+                      <select
+                        value={assignExistingUnitId}
+                        onChange={e => setAssignExistingUnitId(e.target.value)}
+                        style={{
+                          padding: "4px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 12,
+                          minWidth: 160,
+                        }}
+                      >
+                        <option value="">Select unit…</option>
+                        {hierarchy && (
+                          <>
+                            {hierarchy.buildings.map((b: any) =>
+                              (b.units || []).map((u: any) => (
+                                <option key={u.id} value={u.id}>
+                                  {u.label}
+                                  {typeof u.floor === "number"
+                                    ? ` (Floor ${u.floor})`
+                                    : ""}
+                                </option>
+                              )),
+                            )}
+                            {hierarchy.units.map((u: any) => (
+                              <option key={u.id} value={u.id}>
+                                {u.label}
+                                {typeof u.floor === "number" ? ` (Floor ${u.floor})` : ""}
+                              </option>
+                            ))}
+                          </>
+                        )}
+                      </select>
+                    )}
+
+                    {assignTargetType === "new" && (
+                      <>
+                        <input
+                          type="text"
+                          placeholder="New unit label (e.g. Unit 163 L)"
+                          value={assignNewUnitLabel}
+                          onChange={e => setAssignNewUnitLabel(e.target.value)}
+                          style={{
+                            padding: "4px 6px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                            minWidth: 180,
+                          }}
+                        />
+                        <input
+                          type="number"
+                          placeholder="Floor"
+                          value={assignNewUnitFloor}
+                          onChange={e => setAssignNewUnitFloor(e.target.value)}
+                          style={{
+                            width: 70,
+                            padding: "4px 6px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                          }}
+                        />
+                      </>
+                    )}
+
+                    <button
+                      type="button"
+                      disabled={
+                        assignSubmitting ||
+                        importRoomBucketsSelection.size === 0 ||
+                        (assignTargetType === "existing" && !assignExistingUnitId) ||
+                        (assignTargetType === "new" && !assignNewUnitLabel.trim())
+                      }
+                      onClick={async () => {
+                        setAssignMessage(null);
+                        if (importRoomBucketsSelection.size === 0) return;
+                        const token = localStorage.getItem("accessToken");
+                        if (!token) {
+                          setAssignMessage("Missing access token. Please login again.");
+                          return;
+                        }
+
+                        const selectedKeys = new Set(importRoomBucketsSelection);
+                        const bucketsPayload = (importRoomBuckets || [])
+                          .filter(b =>
+                            selectedKeys.has(
+                              `${b.groupCode ?? ""}::${b.groupDescription ?? ""}`,
+                            ),
+                          )
+                          .map(b => ({
+                            groupCode: b.groupCode,
+                            groupDescription: b.groupDescription,
+                          }));
+                        if (bucketsPayload.length === 0) {
+                          setAssignMessage("No matching buckets found for selection.");
+                          return;
+                        }
+
+                        const target: any =
+                          assignTargetType === "existing"
+                            ? { type: "existing", unitId: assignExistingUnitId }
+                            : {
+                                type: "new",
+                                label: assignNewUnitLabel,
+                                floor:
+                                  assignNewUnitFloor.trim() === ""
+                                    ? null
+                                    : Number(assignNewUnitFloor),
+                              };
+
+                        setAssignSubmitting(true);
+                        try {
+                          const res = await fetch(
+                            `${API_BASE}/projects/${id}/import-structure/assign-buckets-to-unit`,
+                            {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${token}`,
+                              },
+                              body: JSON.stringify({ target, buckets: bucketsPayload }),
+                            },
+                          );
+                          if (!res.ok) {
+                            const text = await res.text().catch(() => "");
+                            setAssignMessage(
+                              `Assign failed (${res.status}). ${text || ""}`,
+                            );
+                            return;
+                          }
+
+                          setAssignMessage("Assigned buckets to unit.");
+                          setImportRoomBucketsSelection(new Set());
+                          // Refresh buckets so assignedUnitLabel updates
+                          try {
+                            setImportRoomBucketsLoading(true);
+                            const bucketsRes = await fetch(
+                              `${API_BASE}/projects/${id}/import-structure/room-buckets`,
+                              {
+                                headers: { Authorization: `Bearer ${token}` },
+                              },
+                            );
+                            if (bucketsRes.ok) {
+                              const json: any = await bucketsRes.json();
+                              setImportRoomBuckets(
+                                Array.isArray(json.buckets) ? json.buckets : [],
+                              );
+                            }
+                          } finally {
+                            setImportRoomBucketsLoading(false);
+                          }
+                        } catch (err: any) {
+                          setAssignMessage(err?.message || "Assign failed.");
+                        } finally {
+                          setAssignSubmitting(false);
+                        }
+                      }}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 4,
+                        border: "1px solid #0f172a",
+                        backgroundColor:
+                          assignSubmitting || importRoomBucketsSelection.size === 0
+                            ? "#e5e7eb"
+                            : "#0f172a",
+                        color:
+                          assignSubmitting || importRoomBucketsSelection.size === 0
+                            ? "#4b5563"
+                            : "#f9fafb",
+                        fontSize: 12,
+                        cursor:
+                          assignSubmitting || importRoomBucketsSelection.size === 0
+                            ? "default"
+                            : "pointer",
+                      }}
+                    >
+                      {assignSubmitting ? "Assigning…" : "Assign selected"}
+                    </button>
+                  </div>
+                </div>
+
+                {assignMessage && (
+                  <div
+                    style={{
+                      marginBottom: 8,
+                      fontSize: 12,
+                      color: assignMessage.toLowerCase().includes("fail")
+                        ? "#b91c1c"
+                        : "#4b5563",
+                    }}
+                  >
+                    {assignMessage}
+                  </div>
+                )}
+
+                <div style={{ maxHeight: "75vh", overflow: "auto" }}>
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: 12,
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ backgroundColor: "#f9fafb" }}>
+                        <th style={{ padding: "6px 8px" }}>
+                          <input
+                            type="checkbox"
+                            checked={
+                              importRoomBucketsSelection.size > 0 &&
+                              importRoomBucketsSelection.size ===
+                                importRoomBuckets.length
+                            }
+                            onChange={e => {
+                              if (!importRoomBuckets) return;
+                              const checked = e.target.checked;
+                              if (!checked) {
+                                setImportRoomBucketsSelection(new Set());
+                              } else {
+                                const next = new Set<string>();
+                                for (const b of importRoomBuckets) {
+                                  const key = `${b.groupCode ?? ""}::${
+                                    b.groupDescription ?? ""
+                                  }`;
+                                  next.add(key);
+                                }
+                                setImportRoomBucketsSelection(next);
+                              }
+                            }}
+                          />
+                        </th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Bucket</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Group Code</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                          Group Description
+                        </th>
+                        <th style={{ textAlign: "right", padding: "6px 8px" }}>Lines</th>
+                        <th style={{ textAlign: "right", padding: "6px 8px" }}>Total</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                          Assigned Unit
+                        </th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                          Assigned Room Label
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importRoomBuckets.map((b, idx) => {
+                        const key = `${b.groupCode ?? ""}::${
+                          b.groupDescription ?? ""
+                        }`;
+                        const selected = importRoomBucketsSelection.has(key);
+                        const isExpanded = expandedImportBucketKeys.has(key);
+                        const linesEntry = importRoomBucketLines[key];
+                        return (
+                          <>
+                            <tr key={`${key}::${idx}`}>
+                              <td
+                                style={{
+                                  padding: "4px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selected}
+                                  onChange={e => {
+                                    setImportRoomBucketsSelection(prev => {
+                                      const next = new Set(prev);
+                                      if (e.target.checked) next.add(key);
+                                      else next.delete(key);
+                                      return next;
+                                    });
+                                  }}
+                                />
+                              </td>
+                              <td
+                                style={{
+                                  padding: "4px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  cursor: "pointer",
+                                  color: "#2563eb",
+                                  whiteSpace: "nowrap",
+                                }}
+                                onClick={() => {
+                                  void toggleImportBucketExpanded(b);
+                                }}
+                              >
+                                {isExpanded ? "▾" : "▸"} Bucket
+                              </td>
+                              <td
+                                style={{
+                                  padding: "4px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {b.groupCode ?? ""}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "4px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                }}
+                              >
+                                {b.groupDescription ?? ""}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "4px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  textAlign: "right",
+                                }}
+                              >
+                                {b.lineCount}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "4px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  textAlign: "right",
+                                }}
+                              >
+                                {b.totalAmount.toLocaleString(undefined, {
+                                  maximumFractionDigits: 2,
+                                })}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "4px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  fontSize: 11,
+                                  color: "#4b5563",
+                                }}
+                              >
+                                {b.assignedUnitLabel ?? "—"}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "4px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  fontSize: 11,
+                                  color: "#4b5563",
+                                }}
+                              >
+                                {b.assignedFullLabel ?? "—"}
+                              </td>
+                            </tr>
+
+                            {isExpanded && (
+                              <tr key={`${key}::${idx}::lines`}>
+                                <td colSpan={8} style={{ padding: 0, borderTop: "none" }}>
+                                  <div
+                                    style={{
+                                      backgroundColor: "#f9fafb",
+                                      padding: "4px 8px 8px 32px",
+                                    }}
+                                  >
+                                    {!linesEntry && (
+                                      <div
+                                        style={{
+                                          fontSize: 12,
+                                          color: "#6b7280",
+                                        }}
+                                      >
+                                        Loading lines…
+                                      </div>
+                                    )}
+                                    {linesEntry && linesEntry.loading && (
+                                      <div
+                                        style={{
+                                          fontSize: 12,
+                                          color: "#6b7280",
+                                        }}
+                                      >
+                                        Loading lines…
+                                      </div>
+                                    )}
+                                    {linesEntry && linesEntry.error && !linesEntry.loading && (
+                                      <div
+                                        style={{
+                                          fontSize: 12,
+                                          color: "#b91c1c",
+                                        }}
+                                      >
+                                        {linesEntry.error}
+                                      </div>
+                                    )}
+                                    {linesEntry &&
+                                      !linesEntry.loading &&
+                                      !linesEntry.error && (
+                                        <table
+                                          style={{
+                                            width: "100%",
+                                            borderCollapse: "collapse",
+                                            fontSize: 11,
+                                          }}
+                                        >
+                                          <thead>
+                                            <tr style={{ backgroundColor: "#e5e7eb" }}>
+                                              <th
+                                                style={{
+                                                  textAlign: "left",
+                                                  padding: "4px 6px",
+                                                }}
+                                              >
+                                                Line
+                                              </th>
+                                              <th
+                                                style={{
+                                                  textAlign: "left",
+                                                  padding: "4px 6px",
+                                                }}
+                                              >
+                                                Description
+                                              </th>
+                                              <th
+                                                style={{
+                                                  textAlign: "right",
+                                                  padding: "4px 6px",
+                                                }}
+                                              >
+                                                Qty
+                                              </th>
+                                              <th
+                                                style={{
+                                                  textAlign: "right",
+                                                  padding: "4px 6px",
+                                                }}
+                                              >
+                                                Unit
+                                              </th>
+                                              <th
+                                                style={{
+                                                  textAlign: "right",
+                                                  padding: "4px 6px",
+                                                }}
+                                              >
+                                                Total
+                                              </th>
+                                              <th
+                                                style={{
+                                                  textAlign: "left",
+                                                  padding: "4px 6px",
+                                                }}
+                                              >
+                                                Cat
+                                              </th>
+                                              <th
+                                                style={{
+                                                  textAlign: "left",
+                                                  padding: "4px 6px",
+                                                }}
+                                              >
+                                                Sel
+                                              </th>
+                                              <th
+                                                style={{
+                                                  textAlign: "left",
+                                                  padding: "4px 6px",
+                                                }}
+                                              >
+                                                Source
+                                              </th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {linesEntry.rows.map(line => (
+                                              <tr key={line.lineNo}>
+                                                <td
+                                                  style={{
+                                                    padding: "3px 6px",
+                                                    borderTop:
+                                                      "1px solid #e5e7eb",
+                                                  }}
+                                                >
+                                                  {line.lineNo}
+                                                </td>
+                                                <td
+                                                  style={{
+                                                    padding: "3px 6px",
+                                                    borderTop:
+                                                      "1px solid #e5e7eb",
+                                                  }}
+                                                >
+                                                  {line.desc ?? ""}
+                                                </td>
+                                                <td
+                                                  style={{
+                                                    padding: "3px 6px",
+                                                    borderTop:
+                                                      "1px solid #e5e7eb",
+                                                    textAlign: "right",
+                                                  }}
+                                                >
+                                                  {line.qty ?? ""}
+                                                </td>
+                                                <td
+                                                  style={{
+                                                    padding: "3px 6px",
+                                                    borderTop:
+                                                      "1px solid #e5e7eb",
+                                                    textAlign: "right",
+                                                  }}
+                                                >
+                                                  {line.unit ?? ""}
+                                                </td>
+                                                <td
+                                                  style={{
+                                                    padding: "3px 6px",
+                                                    borderTop:
+                                                      "1px solid #e5e7eb",
+                                                    textAlign: "right",
+                                                  }}
+                                                >
+                                                  {line.itemAmount != null
+                                                    ? line.itemAmount.toLocaleString(
+                                                        undefined,
+                                                        {
+                                                          maximumFractionDigits: 2,
+                                                        },
+                                                      )
+                                                    : ""}
+                                                </td>
+                                                <td
+                                                  style={{
+                                                    padding: "3px 6px",
+                                                    borderTop:
+                                                      "1px solid #e5e7eb",
+                                                  }}
+                                                >
+                                                  {line.cat ?? ""}
+                                                </td>
+                                                <td
+                                                  style={{
+                                                    padding: "3px 6px",
+                                                    borderTop:
+                                                      "1px solid #e5e7eb",
+                                                  }}
+                                                >
+                                                  {line.sel ?? ""}
+                                                </td>
+                                                <td
+                                                  style={{
+                                                    padding: "3px 6px",
+                                                    borderTop:
+                                                      "1px solid #e5e7eb",
+                                                    fontSize: 10,
+                                                    color: "#6b7280",
+                                                  }}
+                                                >
+                                                  {line.sourceName ?? line.owner ?? ""}
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
         </div>
       )}
 
@@ -1872,55 +3297,55 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
 
       {/* PETL tab content */}
       {activeTab === "PETL" && (
-        <>
-      {/* Project hierarchy (site / buildings / units / particles) */}
-      {hierarchy && (
-        <div style={{ marginBottom: 12 }}>
-          <button
-            type="button"
-            onClick={() => setStructureOpen(o => !o)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              fontSize: 14,
-              fontWeight: 600,
-              color: "#111827",
-              background: "none",
-              border: "none",
-              padding: 0,
-              cursor: "pointer",
-            }}
-          >
-            <span>{structureOpen ? "▾" : "▸"}</span>
-            <span>Project Hierarchy Expand</span>
-          </button>
+        <div>
+          {/* Project hierarchy: Job (property) → Buildings / Structures → Units → Rooms */}
+          {hierarchy && (
+            <div style={{ marginBottom: 12 }}>
+              <button
+                type="button"
+                onClick={() => setStructureOpen(o => !o)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: "#111827",
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                }}
+              >
+                <span>{structureOpen ? "▾" : "▸"}</span>
+                <span>Job layout (Property → Buildings → Units → Rooms)</span>
+              </button>
 
-          {structureOpen && (
-            <div style={{ fontSize: 12, color: "#4b5563", marginTop: 4 }}>
-              <div>
-                <strong>Site:</strong> {hierarchy.project.name}
-              </div>
+              {structureOpen && (
+                <div style={{ fontSize: 12, color: "#4b5563", marginTop: 4 }}>
+                  <div>
+                    <strong>Job / Property:</strong> {hierarchy.project.name}
+                  </div>
               {hierarchy.buildings.length > 0 && (
                 <ul style={{ marginTop: 4, marginLeft: 16 }}>
                   {hierarchy.buildings.map((b: any) => (
                     <li key={b.id}>
                       <span>
-                        <strong>Building</strong> {b.code || ""} {b.name}
+                        <strong>Building / Structure:</strong> {b.code || ""} {b.name}
                       </span>
                       {b.units?.length > 0 && (
-                      <ul style={{ marginTop: 2, marginLeft: 14 }}>
-                        {b.units.map((u: any) => (
-                          <li key={u.id}>
-                            <span>
-                              <strong>Unit</strong> {u.label}
-                              {typeof u.floor === "number" && ` (Floor ${u.floor})`}
-                            </span>
+                        <ul style={{ marginTop: 2, marginLeft: 14 }}>
+                          {b.units.map((u: any) => (
+                            <li key={u.id}>
+                              <span>
+                                <strong>Unit (e.g. apartment / house):</strong> {u.label}
+                                {typeof u.floor === "number" && ` (Floor ${u.floor})`}
+                              </span>
                             {u.particles?.length > 0 && (
                               <ul style={{ marginTop: 2, marginLeft: 14 }}>
                                 {u.particles.map((p: any) => (
                                   <li key={p.id}>
-                                    Room: {p.fullLabel || p.name}
+                                    Room / Space: {p.fullLabel || p.name}
                                   </li>
                                 ))}
                               </ul>
@@ -1933,7 +3358,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                       <ul style={{ marginTop: 2, marginLeft: 14 }}>
                         {b.particles.map((p: any) => (
                           <li key={p.id}>
-                            Building room: {p.fullLabel || p.name}
+                            Room / Space in this building: {p.fullLabel || p.name}
                           </li>
                         ))}
                       </ul>
@@ -1944,12 +3369,12 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
             )}
               {hierarchy.units.length > 0 && (
                 <div style={{ marginTop: 4 }}>
-                  <div><strong>Project-level units:</strong></div>
+                  <div><strong>Units directly under property (no building):</strong></div>
                   <ul style={{ marginTop: 2, marginLeft: 16 }}>
                     {hierarchy.units.map((u: any) => (
                       <li key={u.id}>
                         <span>
-                          <strong>Unit</strong> {u.label}
+                          <strong>Unit:</strong> {u.label}
                           {typeof u.floor === "number" && ` (Floor ${u.floor})`}
                         </span>
                       </li>
@@ -2048,10 +3473,21 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                 e.preventDefault();
                 setBulkMessage(null);
 
-                const pct = parseFloat(operationPercent);
-                if (Number.isNaN(pct) || pct < 0 || pct > 100) {
-                  setBulkMessage("Enter a percent between 0 and 100.");
+                const raw = operationPercent.trim();
+                const isAcv = raw === "ACV";
+
+                if (isAcv && operation !== "set") {
+                  setBulkMessage("ACV only can only be used with the 'Set to' operation.");
                   return;
+                }
+
+                let pct = 0;
+                if (!isAcv) {
+                  pct = Number(raw);
+                  if (Number.isNaN(pct) || pct < 0 || pct > 100) {
+                    setBulkMessage("Enter a percent between 0 and 100, or choose ACV only.");
+                    return;
+                  }
                 }
 
                 const token = localStorage.getItem("accessToken");
@@ -2061,11 +3497,12 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                 }
 
         const filters: {
-                  roomParticleIds?: string[];
-                  categoryCodes?: string[];
-                  selectionCodes?: string[];
-                } = {};
+          roomParticleIds?: string[];
+          categoryCodes?: string[];
+          selectionCodes?: string[];
+        } = {};
 
+        if (roomFilter) filters.roomParticleIds = [roomFilter];
         if (categoryFilter) filters.categoryCodes = [categoryFilter];
         if (selectionFilter) filters.selectionCodes = [selectionFilter];
 
@@ -2081,10 +3518,15 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                       filters,
                       operation,
                       percent: pct,
+                      acvOnly: isAcv,
                     }),
                   });
+                  const json = await res.json().catch(() => null);
+
                   if (!res.ok) {
-                    setBulkMessage(`Bulk update failed (${res.status}).`);
+                    setBulkMessage(
+                      `Bulk update failed (${res.status}). ${json ? JSON.stringify(json) : ""}`,
+                    );
                     return;
                   }
 
@@ -2092,15 +3534,39 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                   setPetlItems(prev =>
                     prev.map(it => {
                       if (!matchesFilters(it)) return it;
+
+                      // For ACV-only bulk set, flag as ACV and zero out percent.
+                      if (isAcv && operation === "set") {
+                        return { ...it, percentComplete: 0, isAcvOnly: true };
+                      }
+
                       const current = it.percentComplete ?? 0;
                       let next = current;
                       if (operation === "set") next = pct;
                       else if (operation === "increment") next = current + pct;
                       else if (operation === "decrement") next = current - pct;
                       next = Math.max(0, Math.min(100, next));
-                      return { ...it, percentComplete: next };
+                      return { ...it, percentComplete: next, isAcvOnly: false };
                     }),
                   );
+
+                  // Refresh PETL from server so the UI always reflects persisted values
+                  try {
+                    const petlRes = await fetch(`${API_BASE}/projects/${id}/petl`, {
+                      headers: { Authorization: `Bearer ${token}` },
+                    });
+                    if (petlRes.ok) {
+                      const petl: any = await petlRes.json();
+                      const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
+                      setPetlItems(items);
+                    }
+                  } catch {
+                    // ignore
+                  }
+
+                  if (json?.status === "noop") {
+                    setBulkMessage("No matching items found for the current filters.");
+                  }
 
                   // Refresh groups
                   try {
@@ -2148,22 +3614,29 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                 <option value="increment">Increase by</option>
                 <option value="decrement">Decrease by</option>
               </select>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step={1}
+              <select
                 value={operationPercent}
                 onChange={e => setOperationPercent(e.target.value)}
                 style={{
-                  width: 70,
                   padding: "4px 6px",
                   borderRadius: 4,
                   border: "1px solid #d1d5db",
                   fontSize: 12,
                 }}
-              />
-              <span style={{ fontSize: 12 }}>%</span>
+              >
+                <option value="0">0%</option>
+                <option value="10">10%</option>
+                <option value="20">20%</option>
+                <option value="30">30%</option>
+                <option value="40">40%</option>
+                <option value="50">50%</option>
+                <option value="60">60%</option>
+                <option value="70">70%</option>
+                <option value="80">80%</option>
+                <option value="90">90%</option>
+                <option value="100">100%</option>
+                <option value="ACV">ACV only</option>
+              </select>
               <button
                 type="submit"
                 disabled={bulkSaving || petlItems.length === 0}
@@ -2231,6 +3704,26 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                         >
                           {isExpanded ? "▾ " : "▸ "}
                           {g.roomName}
+                          {g.particleId && (
+                            <button
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation();
+                                void openRoomComponentsPanel(g.particleId, g.roomName);
+                              }}
+                              style={{
+                                marginLeft: 8,
+                                padding: "2px 6px",
+                                borderRadius: 999,
+                                border: "1px solid #0f172a",
+                                background: "#ffffff",
+                                fontSize: 11,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Components
+                            </button>
+                          )}
                         </td>
                         <td
                           style={{
@@ -2366,26 +3859,22 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                                           textAlign: "right",
                                         }}
                                       >
-                                        <input
-                                          type="number"
-                                          min={0}
-                                          max={100}
-                                          value={item.percentComplete}
+                                        <select
+                                          value={item.isAcvOnly ? "ACV" : String(item.percentComplete)}
                                           onChange={async (e) => {
-                                            const raw = Number(e.target.value);
-                                            if (Number.isNaN(raw)) return;
-                                            const clamped = Math.max(
-                                              0,
-                                              Math.min(100, raw),
-                                            );
+                                            const value = e.target.value;
+                                            const isAcv = value === "ACV";
+                                            const percent = isAcv ? 0 : Number(value);
+                                            if (
+                                              !isAcv &&
+                                              (Number.isNaN(percent) || percent < 0 || percent > 100)
+                                            ) {
+                                              return;
+                                            }
 
-                                            const token = localStorage.getItem(
-                                              "accessToken",
-                                            );
+                                            const token = localStorage.getItem("accessToken");
                                             if (!token) {
-                                              alert(
-                                                "Missing access token; please log in again.",
-                                              );
+                                              alert("Missing access token; please log in again.");
                                               return;
                                             }
 
@@ -2395,8 +3884,8 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                                                   it.id === item.id
                                                     ? {
                                                         ...it,
-                                                        percentComplete:
-                                                          clamped,
+                                                        percentComplete: percent,
+                                                        isAcvOnly: isAcv,
                                                       }
                                                     : it,
                                                 ),
@@ -2412,7 +3901,8 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                                                     Authorization: `Bearer ${token}`,
                                                   },
                                                   body: JSON.stringify({
-                                                    newPercent: clamped,
+                                                    newPercent: percent,
+                                                    acvOnly: isAcv,
                                                   }),
                                                 },
                                               );
@@ -2427,14 +3917,26 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                                             }
                                           }}
                                           style={{
-                                            width: 55,
+                                            width: 70,
                                             padding: "2px 4px",
                                             borderRadius: 4,
                                             border: "1px solid #d1d5db",
                                             fontSize: 11,
-                                            textAlign: "right",
                                           }}
-                                        />
+                                        >
+                                          <option value="0">0%</option>
+                                          <option value="10">10%</option>
+                                          <option value="20">20%</option>
+                                          <option value="30">30%</option>
+                                          <option value="40">40%</option>
+                                          <option value="50">50%</option>
+                                          <option value="60">60%</option>
+                                          <option value="70">70%</option>
+                                          <option value="80">80%</option>
+                                          <option value="90">90%</option>
+                                          <option value="100">100%</option>
+                                          <option value="ACV">ACV only</option>
+                                        </select>
                                       </td>
                                       <td
                                         style={{
@@ -2468,6 +3970,186 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
           </div>
         </div>
       )}
+
+      {/* Room components side drawer */}
+      {roomComponentsPanel.open ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 40,
+            display: "flex",
+            justifyContent: "flex-end",
+            backgroundColor: "rgba(15,23,42,0.35)",
+          }}
+          onClick={() =>
+            setRoomComponentsPanel(prev => ({
+              ...prev,
+              open: false,
+            }))
+          }
+        >
+          <div
+            style={{
+              position: "relative",
+              top: 0,
+              bottom: 0,
+              width: 360,
+              maxWidth: "80vw",
+              backgroundColor: "#ffffff",
+              borderLeft: "1px solid #e5e7eb",
+              boxShadow: "-4px 0 12px rgba(15,23,42,0.12)",
+              display: "flex",
+              flexDirection: "column",
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: "10px 12px",
+                borderBottom: "1px solid #e5e7eb",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: 13,
+                fontWeight: 600,
+                backgroundColor: "#f3f4f6",
+              }}
+            >
+              <div>
+                Components in
+                <br />
+                <span style={{ fontWeight: 700 }}>{roomComponentsPanel.roomName}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setRoomComponentsPanel(prev => ({
+                    ...prev,
+                    open: false,
+                  }))
+                }
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: 18,
+                  lineHeight: 1,
+                }}
+                aria-label="Close components panel"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ padding: 10, fontSize: 12, flex: 1, overflow: "auto" }}>
+              {roomComponentsPanel.loading && (
+                <div style={{ color: "#6b7280" }}>Loading components…</div>
+              )}
+              {!roomComponentsPanel.loading && roomComponentsPanel.error && (
+                <div style={{ color: "#b91c1c" }}>{roomComponentsPanel.error}</div>
+              )}
+              {!roomComponentsPanel.loading &&
+                !roomComponentsPanel.error &&
+                roomComponentsPanel.components.length === 0 && (
+                  <div style={{ color: "#6b7280" }}>
+                    No components found for this selection.
+                  </div>
+                )}
+              {!roomComponentsPanel.loading &&
+                !roomComponentsPanel.error &&
+                roomComponentsPanel.components.length > 0 && (
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: 12,
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ backgroundColor: "#f9fafb" }}>
+                        <th style={{ textAlign: "left", padding: "4px 6px" }}>
+                          Code
+                        </th>
+                        <th style={{ textAlign: "left", padding: "4px 6px" }}>
+                          Description
+                        </th>
+                        <th style={{ textAlign: "right", padding: "4px 6px" }}>
+                          Qty
+                        </th>
+                        <th style={{ textAlign: "right", padding: "4px 6px" }}>
+                          Unit
+                        </th>
+                        <th style={{ textAlign: "right", padding: "4px 6px" }}>
+                          Total
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {roomComponentsPanel.components.map(c => (
+                        <tr key={c.code}>
+                          <td
+                            style={{
+                              padding: "4px 6px",
+                              borderTop: "1px solid #e5e7eb",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {c.code}
+                          </td>
+                          <td
+                            style={{
+                              padding: "4px 6px",
+                              borderTop: "1px solid #e5e7eb",
+                              maxWidth: 160,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                            title={c.description ?? undefined}
+                          >
+                            {c.description ?? ""}
+                          </td>
+                          <td
+                            style={{
+                              padding: "4px 6px",
+                              borderTop: "1px solid #e5e7eb",
+                              textAlign: "right",
+                            }}
+                          >
+                            {c.quantity.toLocaleString(undefined, {
+                              maximumFractionDigits: 2,
+                            })}
+                          </td>
+                          <td
+                            style={{
+                              padding: "4px 6px",
+                              borderTop: "1px solid #e5e7eb",
+                              textAlign: "right",
+                            }}
+                          >
+                            {c.unit ?? ""}
+                          </td>
+                          <td
+                            style={{
+                              padding: "4px 6px",
+                              borderTop: "1px solid #e5e7eb",
+                              textAlign: "right",
+                            }}
+                          >
+                            {c.total.toLocaleString(undefined, {
+                              maximumFractionDigits: 2,
+                            })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {petlLoading && (
         <p style={{ fontSize: 13, color: "#6b7280" }}>Loading PETL items…</p>
@@ -2562,15 +4244,15 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                         textAlign: "right",
                       }}
                     >
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={item.percentComplete}
+                      <select
+                        value={item.isAcvOnly ? "ACV" : String(item.percentComplete)}
                         onChange={async (e) => {
-                          const raw = Number(e.target.value);
-                          if (Number.isNaN(raw)) return;
-                          const clamped = Math.max(0, Math.min(100, raw));
+                          const value = e.target.value;
+                          const isAcv = value === "ACV";
+                          const percent = isAcv ? 0 : Number(value);
+                          if (!isAcv && (Number.isNaN(percent) || percent < 0 || percent > 100)) {
+                            return;
+                          }
 
                           const token = localStorage.getItem("accessToken");
                           if (!token) {
@@ -2582,7 +4264,11 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                             setPetlItems(prev =>
                               prev.map(it =>
                                 it.id === item.id
-                                  ? { ...it, percentComplete: clamped }
+                                  ? {
+                                      ...it,
+                                      percentComplete: percent,
+                                      isAcvOnly: isAcv,
+                                    }
                                   : it,
                               ),
                             );
@@ -2595,7 +4281,10 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                                   "Content-Type": "application/json",
                                   Authorization: `Bearer ${token}`,
                                 },
-                                body: JSON.stringify({ newPercent: clamped }),
+                                body: JSON.stringify({
+                                  newPercent: percent,
+                                  acvOnly: isAcv,
+                                }),
                               },
                             );
                             if (!res.ok) {
@@ -2606,14 +4295,26 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                           }
                         }}
                         style={{
-                          width: 60,
+                          width: 80,
                           padding: "2px 4px",
                           borderRadius: 4,
                           border: "1px solid #d1d5db",
                           fontSize: 11,
-                          textAlign: "right",
                         }}
-                      />
+                      >
+                        <option value="0">0%</option>
+                        <option value="10">10%</option>
+                        <option value="20">20%</option>
+                        <option value="30">30%</option>
+                        <option value="40">40%</option>
+                        <option value="50">50%</option>
+                        <option value="60">60%</option>
+                        <option value="70">70%</option>
+                        <option value="80">80%</option>
+                        <option value="90">90%</option>
+                        <option value="100">100%</option>
+                        <option value="ACV">ACV only</option>
+                      </select>
                     </td>
                     <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
                       {item.categoryCode ?? ""}
@@ -2628,7 +4329,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
           </div>
         </div>
       )}
-        </>
+        </div>
       )}
     </div>
   );

@@ -28,6 +28,14 @@ model Company {
   roleProfiles       RoleProfile[]
   tags               Tag[]
   tagAssignments     TagAssignment[]
+
+  // Onboarding
+  onboardingSessions OnboardingSession[] @relation("CompanyOnboardingSessions")
+
+  // Aggregated reputation (overall) for this company in the marketplace
+  reputationOverallAvg      Float  @default(2.0)
+  reputationOverallCount    Int    @default(0)
+  reputationOverallOverride Int?
 }
 
 enum GlobalRole {
@@ -55,6 +63,14 @@ model User {
   assignedTasks      Task[] @relation("TaskAssignee")
   acceptedInvites    CompanyInvite[]
   createdDailyLogs   DailyLog[]
+
+  // Onboarding
+  assignedOnboardingSessions OnboardingSession[] @relation("UserAssignedOnboardingSessions")
+
+  // Aggregated reputation (overall) for this worker in the marketplace
+  reputationOverallAvg      Float  @default(2.0)
+  reputationOverallCount    Int    @default(0)
+  reputationOverallOverride Int?
 }
 
 model CompanyMembership {
@@ -190,11 +206,15 @@ model Project {
   // Daily logs
   dailyLogs DailyLog[]
 
-  // Estimate / SOW / PETL relations
-  estimateVersions EstimateVersion[]
-  sows             Sow[]
-  sowLogicalItems  SowLogicalItem[]
-  petlEditSessions PetlEditSession[]
+  // Estimate / SOW / PETL / components relations
+  estimateVersions     EstimateVersion[]
+  sows                 Sow[]
+  sowLogicalItems      SowLogicalItem[]
+  petlEditSessions     PetlEditSession[]
+  componentSummaries   ComponentSummary[]
+  componentAllocations SowComponentAllocation[]
+  allocationRules      ComponentAllocationRule[]
+  financialSnapshots   ProjectFinancialSnapshot[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -432,9 +452,14 @@ model EstimateVersion {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  rawRows  RawXactRow[]
-  sows     Sow[]
-  sowItems SowItem[]
+  rawRows              RawXactRow[]
+  sows                 Sow[]
+  sowItems             SowItem[]
+  rawComponentRows     RawComponentRow[]
+  componentSummaries   ComponentSummary[]
+  componentAllocations SowComponentAllocation[]
+  allocationRules      ComponentAllocationRule[]
+  financialSnapshots   ProjectFinancialSnapshot[]
 
   @@index([projectId, sequenceNo], name: "EstimateVersion_project_sequence_idx")
 }
@@ -491,6 +516,106 @@ model RawXactRow {
   sowItems SowItem[]
 
   @@index([estimateVersionId, lineNo], name: "RawXactRow_estimate_line_idx")
+}
+
+model RawComponentRow {
+  id                String          @id @default(cuid())
+  estimateVersion   EstimateVersion @relation(fields: [estimateVersionId], references: [id])
+  estimateVersionId String
+
+  code                       String?
+  description                String?
+  taxStatus                  String?
+  contractorSuppliedRaw      String?
+  quantityRaw                String?
+  unitRaw                    String?
+  unitPriceRaw               String?
+  totalRaw                   String?
+  requestThirdPartyPricingRaw String?
+
+  rawRowJson Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([estimateVersionId], name: "RawComponentRow_estimate_idx")
+}
+
+model ComponentSummary {
+  id        String   @id @default(cuid())
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+
+  estimateVersion   EstimateVersion @relation(fields: [estimateVersionId], references: [id])
+  estimateVersionId String
+
+  code                    String
+  description             String?
+  taxStatus               String?
+  contractorSupplied      Boolean?
+  quantity                Float?
+  unit                    String?
+  unitPrice               Float?
+  total                   Float?
+  requestThirdPartyPricing Boolean?
+
+  allocations SowComponentAllocation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId, estimateVersionId, code], name: "ComponentSummary_project_estimate_code_idx")
+}
+
+model SowComponentAllocation {
+  id        String   @id @default(cuid())
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+
+  estimateVersion   EstimateVersion @relation(fields: [estimateVersionId], references: [id])
+  estimateVersionId String
+
+  sowItem   SowItem @relation(fields: [sowItemId], references: [id])
+  sowItemId String
+
+  componentSummary   ComponentSummary? @relation(fields: [componentSummaryId], references: [id])
+  componentSummaryId String?
+
+  code            String
+  quantity        Float?
+  total           Float?
+  allocationBasis String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId, estimateVersionId, code], name: "SowComponentAllocation_project_estimate_code_idx")
+  @@index([sowItemId], name: "SowComponentAllocation_sowItem_idx")
+}
+
+model ComponentAllocationRule {
+  id        String   @id @default(cuid())
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+
+  estimateVersion   EstimateVersion? @relation(fields: [estimateVersionId], references: [id])
+  estimateVersionId String?
+
+  componentCode String
+
+  // Optional filters that further narrow which PETL lines this component maps to
+  targetCategoryCode String?
+  targetActivity     String?
+
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId, componentCode], name: "ComponentAllocationRule_project_code_idx")
+  @@index([estimateVersionId], name: "ComponentAllocationRule_estimate_idx")
 }
 
 model Sow {
@@ -567,12 +692,16 @@ model SowItem {
   eligibleForAcvRefund Boolean @default(false)
   acvRefundAmount     Float?
 
+  /// When true, this line is settled on ACV only (no work performed on RCV).
+  isAcvOnly       Boolean @default(false)
+
   percentComplete Float @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   petlEditChanges PetlEditChange[]
+  componentAllocations SowComponentAllocation[]
 
   // Indexes to speed up PETL queries and bulk updates
   @@index([estimateVersionId, projectParticleId], name: "SowItem_estimate_particle_idx")
@@ -642,6 +771,36 @@ model TagAssignment {
 
   @@index([companyId, entityType, entityId], name: "TagAssignment_entity_idx")
   @@index([companyId, tagId], name: "TagAssignment_tag_idx")
+}
+
+model ProjectFinancialSnapshot {
+  id        String   @id @default(cuid())
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId String
+
+  estimateVersion   EstimateVersion @relation(fields: [estimateVersionId], references: [id])
+  estimateVersionId String
+
+  // Core financial numbers
+  totalRcvClaim        Float
+  totalAcvClaim        Float
+  workCompleteRcv      Float
+  acvReturn            Float
+  opRate               Float
+  acvOP                Float
+  totalDueWorkBillable Float
+
+  // Deposit & due logic
+  depositRate     Float
+  depositBaseline Float
+  billedToDate    Float
+  duePayable      Float
+  dueAmount       Float
+
+  snapshotDate   DateTime
+  computedAt     DateTime @default(now())
+
+  @@index([projectId, estimateVersionId, snapshotDate], name: "ProjectFinancialSnapshot_project_estimate_date_idx")
 }
 
 model PetlEditSession {
@@ -746,4 +905,322 @@ model DailyLogAttachment {
   createdAt DateTime @default(now())
 
   @@index([dailyLogId], name: "DailyLogAttachment_log_idx")
+}
+
+// --- Onboarding models ---
+
+enum OnboardingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum OnboardingDocumentType {
+  PHOTO
+  GOV_ID
+  OTHER
+}
+
+model OnboardingSession {
+  id                      String           @id @default(cuid())
+  companyId               String
+  company                 Company          @relation("CompanyOnboardingSessions", fields: [companyId], references: [id])
+  email                   String
+  token                   String           @unique
+  status                  OnboardingStatus @default(NOT_STARTED)
+  checklistJson           String?
+  assignedHiringManagerId String?
+  assignedHiringManager   User?            @relation("UserAssignedOnboardingSessions", fields: [assignedHiringManagerId], references: [id])
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  profile      OnboardingProfile?
+  documents    OnboardingDocument[]
+  bankInfo     OnboardingBankInfo?
+  skillRatings OnboardingSkillRating[]
+}
+
+model OnboardingProfile {
+  id        String            @id @default(cuid())
+  sessionId String
+  session   OnboardingSession @relation(fields: [sessionId], references: [id])
+
+  firstName    String?
+  lastName     String?
+  phone        String?
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  postalCode   String?
+  country      String?
+
+  @@unique([sessionId], name: "OnboardingProfile_sessionId_key")
+}
+
+model OnboardingDocument {
+  id        String            @id @default(cuid())
+  sessionId String
+  session   OnboardingSession @relation(fields: [sessionId], references: [id])
+
+  type      OnboardingDocumentType
+  fileUrl   String
+  fileName  String?
+  mimeType  String?
+  sizeBytes Int?
+  createdAt DateTime @default(now())
+}
+
+model OnboardingBankInfo {
+  id        String            @id @default(cuid())
+  sessionId String
+  session   OnboardingSession @relation(fields: [sessionId], references: [id])
+
+  accountHolderName   String?
+  routingNumberMasked String?
+  accountNumberMasked String?
+  bankName            String?
+  createdAt           DateTime @default(now())
+
+  @@unique([sessionId], name: "OnboardingBankInfo_sessionId_key")
+}
+
+model OnboardingSkillRating {
+  id        String            @id @default(cuid())
+  sessionId String
+  session   OnboardingSession @relation(fields: [sessionId], references: [id])
+
+  skillId String
+  skill   SkillDefinition @relation("SkillDefinitionOnboardingRatings", fields: [skillId], references: [id])
+
+  level     Int
+  updatedAt DateTime @updatedAt
+
+  @@unique([sessionId, skillId], name: "OnboardingSkillRating_session_skill_key")
+}
+
+// --- Skill catalog and user skill ratings ---
+
+model SkillCategory {
+  id        String  @id @default(cuid())
+  code      String  @unique
+  label     String
+  sortOrder Int     @default(0)
+  active    Boolean @default(true)
+}
+
+model SkillDefinition {
+  id          String  @id @default(cuid())
+  categoryId  String
+  code        String  @unique
+  label       String
+  /// Mid-level grouping within a functional area (e.g., "Surveyors" within "Site Work")
+  tradeLabel  String?
+  description String?
+  sortOrder   Int     @default(0)
+  active      Boolean @default(true)
+
+  onboardingRatings OnboardingSkillRating[] @relation("SkillDefinitionOnboardingRatings")
+}
+
+model UserSkillRating {
+  id                  String  @id @default(cuid())
+  userId              String
+  skillId             String
+  selfLevel           Int
+  selfLevelLabel      String?
+  yearsExperience     Int?
+  notes               String?
+  // Aggregated employer / peer ratings
+  employerAvgLevel    Float?
+  employerRatingCount Int?
+  // Aggregated client ratings
+  clientAvgLevel      Float?
+  clientRatingCount   Int?
+  adminOverrideLevel  Int?
+  updatedAt           DateTime @updatedAt
+
+  @@unique([userId, skillId], name: "UserSkillRating_user_skill_key")
+}
+
+model EmployerSkillRating {
+  id            String   @id @default(cuid())
+  userId        String
+  skillId       String
+  companyId     String
+  ratedByUserId String?
+  level         Int
+  levelLabel    String?
+  comment       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId, skillId], name: "EmployerSkillRating_user_skill_idx")
+  @@index([companyId], name: "EmployerSkillRating_company_idx")
+}
+
+model ClientSkillRating {
+  id               String   @id @default(cuid())
+  userId           String
+  skillId          String
+  clientCompanyId  String?
+  ratedByUserId    String?
+  level            Int
+  levelLabel       String?
+  comment          String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId, skillId], name: "ClientSkillRating_user_skill_idx")
+  @@index([clientCompanyId], name: "ClientSkillRating_client_company_idx")
+}
+
+enum SkillSuggestionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model UserSkillSuggestion {
+  id             String                @id @default(cuid())
+  userId         String
+  label          String
+  categoryLabel  String?
+  description    String?
+  status         SkillSuggestionStatus @default(PENDING)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([userId, status], name: "UserSkillSuggestion_user_status_idx")
+}
+
+// --- Generic reputation ratings ---
+
+enum ReputationSubjectType {
+  USER
+  COMPANY
+}
+
+enum ReputationSourceType {
+  EMPLOYER_ON_WORKER
+  WORKER_ON_EMPLOYER
+  CLIENT_ON_COMPANY
+  COMPANY_ON_CLIENT
+  MODERATOR_ADJUSTMENT
+}
+
+enum ReputationDimension {
+  OVERALL
+  SAFETY
+  PAYMENT
+  COMMUNICATION
+  QUALITY
+}
+
+enum ReputationModerationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model ReputationRating {
+  id               String                     @id @default(cuid())
+  subjectType      ReputationSubjectType
+  subjectUserId    String?
+  subjectCompanyId String?
+  raterUserId      String?
+  raterCompanyId   String?
+  sourceType       ReputationSourceType
+  dimension        ReputationDimension        @default(OVERALL)
+  score            Int
+  comment          String?
+
+  moderationStatus  ReputationModerationStatus @default(PENDING)
+  moderatedByUserId String?
+  moderatedAt       DateTime?
+  moderatorNote     String?
+
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([subjectUserId], name: "ReputationRating_subject_user_idx")
+  @@index([subjectCompanyId], name: "ReputationRating_subject_company_idx")
+}
+
+// --- Pricing catalog and adjustments ---
+
+model ComponentCatalog {
+  code        String   @id
+  description String
+  unit        String?
+  category    String?
+  trade       String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  prices      ComponentPrice[]
+}
+
+model ComponentPrice {
+  id             String   @id @default(cuid())
+  code           String
+  regionKey      String
+  effectiveMonth DateTime
+
+  totalRate      Float
+  materialRate   Float?
+  laborRate      Float?
+  equipmentRate  Float?
+  taxRate        Float?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  component      ComponentCatalog @relation(fields: [code], references: [code])
+
+  @@index([regionKey, effectiveMonth])
+  @@unique([code, regionKey, effectiveMonth])
+}
+
+model PriceObservation {
+  id             String   @id @default(cuid())
+  code           String
+  regionKey      String
+  observedMonth  DateTime
+  source         String
+
+  obsUnitPrice   Float
+  basePriceAtTime Float?
+  deltaPct       Float?
+
+  projectId      String
+  rawRowId       String?
+
+  createdAt      DateTime @default(now())
+
+  @@index([code, regionKey, observedMonth])
+}
+
+model PricingAdjustment {
+  id             String   @id @default(cuid())
+  regionKey      String
+  effectiveMonth DateTime
+  level          String   // "GLOBAL" | "CATEGORY"
+  categoryCode   String?
+
+  factor         Float
+  source         String
+  notes          String?
+
+  approvedByUserId String?
+  approvedAt       DateTime?
+
+  createdAt      DateTime @default(now())
+
+  @@index([regionKey, effectiveMonth, level, categoryCode])
 }

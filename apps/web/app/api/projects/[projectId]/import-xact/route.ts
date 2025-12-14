@@ -13,6 +13,9 @@ export async function POST(
   try {
     const form = await req.formData();
     const file = form.get("file");
+    const tokenField = form.get("accessToken");
+    const accessToken =
+      typeof tokenField === "string" ? tokenField : tokenField instanceof File ? await tokenField.text() : undefined;
 
     if (!(file instanceof File)) {
       return NextResponse.json(
@@ -36,7 +39,10 @@ export async function POST(
     await fs.writeFile(filePath, buffer);
 
     const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-    const authHeader = req.headers.get("authorization") ?? undefined;
+    const authHeaderFromReq = req.headers.get("authorization") ?? undefined;
+    const authHeader = accessToken
+      ? `Bearer ${accessToken}`
+      : authHeaderFromReq;
 
     const apiRes = await fetch(`${apiBase}/projects/${projectId}/import-xact`, {
       method: "POST",

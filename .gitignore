@@ -1,8 +1,11 @@
-node_modules/
-.next/
-dist/
+node_modules
+.env
+.DS_Store
+.turbo/
 build/
 .env
 *.log
 .turbo/
 apps/web/tmp_uploads/
+.vercel
+.env*.local

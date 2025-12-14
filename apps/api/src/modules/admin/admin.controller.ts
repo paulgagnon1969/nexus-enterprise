@@ -32,6 +32,23 @@ export class AdminController {
     return this.admin.listAuditLogs(100);
   }
 
+  @Get("reputation/pending")
+  listPendingReputation() {
+    return this.admin.listPendingReputation(100);
+  }
+
+  @Post("reputation/:id/approve")
+  approveReputation(@Param("id") id: string, @Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.moderateReputation(actor, id, "APPROVED");
+  }
+
+  @Post("reputation/:id/reject")
+  rejectReputation(@Param("id") id: string, @Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.moderateReputation(actor, id, "REJECTED");
+  }
+
   @Post("impersonate")
   impersonate(
     @Req() req: any,

@@ -72,6 +72,95 @@ export class AdminService {
     });
   }
 
+  async listPendingReputation(limit = 100) {
+    return this.prisma.reputationRating.findMany({
+      where: { moderationStatus: "PENDING" as any },
+      orderBy: { createdAt: "desc" },
+      take: limit
+    });
+  }
+
+  private async recomputeCompanyReputation(companyId: string) {
+    const agg = await this.prisma.reputationRating.aggregate({
+      where: {
+        subjectType: "COMPANY" as any,
+        subjectCompanyId: companyId,
+        moderationStatus: "APPROVED" as any,
+        isActive: true,
+        dimension: "OVERALL" as any
+      },
+      _avg: { score: true },
+      _count: { score: true }
+    });
+
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        reputationOverallAvg: (agg._avg.score as number | null) ?? 2.0,
+        reputationOverallCount: agg._count.score ?? 0
+      }
+    });
+  }
+
+  private async recomputeUserReputation(userId: string) {
+    const agg = await this.prisma.reputationRating.aggregate({
+      where: {
+        subjectType: "USER" as any,
+        subjectUserId: userId,
+        moderationStatus: "APPROVED" as any,
+        isActive: true,
+        dimension: "OVERALL" as any
+      },
+      _avg: { score: true },
+      _count: { score: true }
+    });
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        reputationOverallAvg: (agg._avg.score as number | null) ?? 2.0,
+        reputationOverallCount: agg._count.score ?? 0
+      }
+    });
+  }
+
+  async moderateReputation(
+    actor: AuthenticatedUser,
+    id: string,
+    status: "APPROVED" | "REJECTED"
+  ) {
+    const rating = await this.prisma.reputationRating.findUnique({
+      where: { id },
+    });
+
+    if (!rating) {
+      throw new Error("Reputation rating not found");
+    }
+
+    const updated = await this.prisma.reputationRating.update({
+      where: { id },
+      data: {
+        moderationStatus: status as any,
+        moderatedByUserId: actor.userId,
+        moderatedAt: new Date(),
+      },
+    });
+
+    if (updated.subjectType === "COMPANY") {
+      await this.recomputeCompanyReputation(updated.subjectCompanyId as string);
+    }
+    if (updated.subjectType === "USER") {
+      await this.recomputeUserReputation(updated.subjectUserId as string);
+    }
+
+    await this.audit(actor, "ADMIN_MODERATE_REPUTATION", {
+      companyId: updated.subjectCompanyId ?? undefined,
+      userId: updated.subjectUserId ?? undefined,
+    });
+
+    return updated;
+  }
+
   /**
    * Seed one test user per company Role (OWNER, ADMIN, MEMBER, CLIENT)
    * in the actor's current company. User emails are role-based for easy testing,

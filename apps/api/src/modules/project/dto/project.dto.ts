@@ -59,7 +59,74 @@ export class AddProjectMemberDto {
   role!: ProjectRole;
 }
 
+export class UpdateProjectDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  externalId?: string;
+
+  @IsOptional()
+  @IsString()
+  addressLine1?: string;
+
+  @IsOptional()
+  @IsString()
+  addressLine2?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  postalCode?: string;
+
+  @IsOptional()
+  @IsString()
+  country?: string;
+
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+
+  @IsOptional()
+  @IsString()
+  primaryContactName?: string;
+
+  @IsOptional()
+  @IsString()
+  primaryContactPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  primaryContactEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+}
+
 export class ImportXactDto {
   @IsString()
   csvPath!: string;
+}
+
+export class ImportXactComponentsDto {
+  @IsString()
+  csvPath!: string;
+
+  @IsOptional()
+  @IsString()
+  estimateVersionId?: string;
 }

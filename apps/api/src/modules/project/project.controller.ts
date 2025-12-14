@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Req,
   UseGuards,
@@ -12,7 +13,7 @@ import {
 import { ProjectService } from "./project.service";
 import { JwtAuthGuard, Roles } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { CreateProjectDto, AddProjectMemberDto, ImportXactDto } from "./dto/project.dto";
+import { CreateProjectDto, AddProjectMemberDto, ImportXactDto, ImportXactComponentsDto, UpdateProjectDto } from "./dto/project.dto";
 import { Role } from "@prisma/client";
 
 @Controller("projects")
@@ -51,6 +52,21 @@ export class ProjectController {
   create(@Req() req: any, @Body() dto: CreateProjectDto) {
     const user = req.user as AuthenticatedUser;
     return this.projects.createProject(dto, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id")
+  getOne(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getProjectByIdForUser(projectId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Patch(":id")
+  update(@Req() req: any, @Param("id") projectId: string, @Body() dto: UpdateProjectDto) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.updateProject(projectId, dto, user);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -121,6 +137,24 @@ export class ProjectController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post(":id/import-xact-components")
+  importXactComponents(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body() dto: ImportXactComponentsDto
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.importXactComponentsForProject(
+      projectId,
+      user.companyId,
+      dto.csvPath,
+      user,
+      dto.estimateVersionId,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(":id/petl")
   getPetl(@Req() req: any, @Param("id") projectId: string) {
     const user = req.user as AuthenticatedUser;
@@ -137,7 +171,7 @@ export class ProjectController {
     @Req() req: any,
     @Param("id") projectId: string,
     @Param("sowItemId") sowItemId: string,
-    @Body() body: { newPercent: number }
+    @Body() body: { newPercent: number; acvOnly?: boolean }
   ) {
     const user = req.user as AuthenticatedUser;
     return this.projects.applySinglePetlPercentEdit(
@@ -145,7 +179,24 @@ export class ProjectController {
       user.companyId,
       user,
       sowItemId,
-      body.newPercent
+      body.newPercent,
+      body.acvOnly,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/petl/:sowItemId/components")
+  getPetlComponents(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("sowItemId") sowItemId: string
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getPetlComponentsForItem(
+      projectId,
+      user.companyId,
+      user,
+      sowItemId
     );
   }
 
@@ -172,6 +223,22 @@ export class ProjectController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get(":id/financial-summary")
+  getFinancialSummary(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Query("forceRefresh") forceRefresh?: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getFinancialSummaryForProject(
+      projectId,
+      user.companyId,
+      user,
+      { forceRefresh: forceRefresh === "true" },
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(":id/petl-selection-summary")
   getPetlSelectionSummary(
     @Req() req: any,
@@ -191,6 +258,88 @@ export class ProjectController {
         selectionCode: selectionCode || undefined
       }
     );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/petl-components")
+  getPetlComponentsForSelection(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Query("roomParticleId") roomParticleId?: string,
+    @Query("categoryCode") categoryCode?: string,
+    @Query("selectionCode") selectionCode?: string
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getPetlComponentsForSelection(
+      projectId,
+      user.companyId,
+      user,
+      {
+        roomParticleId: roomParticleId || undefined,
+        categoryCode: categoryCode || undefined,
+        selectionCode: selectionCode || undefined
+      }
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/import-structure/room-buckets")
+  getImportStructureRoomBuckets(
+    @Req() req: any,
+    @Param("id") projectId: string
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getImportRoomBucketsForProject(
+      projectId,
+      user.companyId,
+      user
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/import-structure/room-lines")
+  getImportStructureRoomBucketLines(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Query("groupCode") groupCode?: string | null,
+    @Query("groupDescription") groupDescription?: string | null,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getImportRoomBucketLinesForProject(
+      projectId,
+      user.companyId,
+      user,
+      {
+        groupCode: groupCode ?? null,
+        groupDescription: groupDescription ?? null,
+      },
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/import-structure/assign-buckets-to-unit")
+  assignImportStructureBucketsToUnit(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body()
+    body: {
+      target: {
+        type: "existing" | "new";
+        unitId?: string;
+        label?: string;
+        floor?: number | null;
+      };
+      buckets: { groupCode: string | null; groupDescription: string | null }[];
+    }
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.assignImportRoomBucketsToUnit({
+      projectId,
+      companyId: user.companyId,
+      actor: user,
+      target: body.target,
+      buckets: body.buckets,
+    });
   }
 
   @UseGuards(JwtAuthGuard)
