@@ -1,0 +1,4 @@
+email,password,role
+worker1@example.com,TempPass!2025,MEMBER
+worker2@example.com,TempPass!2025,MEMBER
+client1@example.com,ClientPass!2025,CLIENT

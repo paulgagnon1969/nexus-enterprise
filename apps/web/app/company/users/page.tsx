@@ -69,9 +69,31 @@ export default function CompanyUsersPage() {
   const [singleError, setSingleError] = useState<string | null>(null);
   const [singleSuccess, setSingleSuccess] = useState<string | null>(null);
 
+  // Admin-only: directly create a user with a password (no email invite).
+  const [createEmail, setCreateEmail] = useState("");
+  const [createPassword, setCreatePassword] = useState("");
+  const [createRole, setCreateRole] = useState<CompanyRole>("MEMBER");
+  const [createSaving, setCreateSaving] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createSuccess, setCreateSuccess] = useState<string | null>(null);
+
   const [bulkText, setBulkText] = useState("");
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
+
+  // Bulk CSV add (create users with passwords)
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkCsvSaving, setBulkCsvSaving] = useState(false);
+  const [bulkCsvResult, setBulkCsvResult] = useState<string | null>(null);
+
+  // Inline reset password panel (for admins)
+  const [resetEmail, setResetEmail] = useState<string | null>(null);
+  const [resetRole, setResetRole] = useState<CompanyRole | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
+  const [resetSaving, setResetSaving] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetSuccess, setResetSuccess] = useState<string | null>(null);
 
   const [initialLoading, setInitialLoading] = useState(true);
   const [initialError, setInitialError] = useState<string | null>(null);
@@ -257,6 +279,233 @@ export default function CompanyUsersPage() {
     } finally {
       setSingleSaving(false);
     }
+  };
+
+  const openResetPasswordPanel = (email: string, role: CompanyRole) => {
+    setResetEmail(email);
+    setResetRole(role);
+    setResetPassword("");
+    setResetPasswordConfirm("");
+    setResetError(null);
+    setResetSuccess(null);
+  };
+
+  const closeResetPasswordPanel = () => {
+    setResetEmail(null);
+    setResetRole(null);
+    setResetPassword("");
+    setResetPasswordConfirm("");
+    setResetError(null);
+    setResetSuccess(null);
+  };
+
+  const handleCreateUserWithPassword = async (e: FormEvent) => {
+    e.preventDefault();
+    setCreateError(null);
+    setCreateSuccess(null);
+
+    if (!companyId) {
+      setCreateError("Missing company context.");
+      return;
+    }
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setCreateError("Missing access token. Please log in again.");
+      return;
+    }
+
+    if (!createEmail.trim()) {
+      setCreateError("Email is required.");
+      return;
+    }
+
+    if (!createPassword) {
+      setCreateError("Password is required.");
+      return;
+    }
+
+    if (createPassword.length < 8) {
+      setCreateError("Password must be at least 8 characters.");
+      return;
+    }
+
+    try {
+      setCreateSaving(true);
+      const res = await fetch(`${API_BASE}/admin/create-user-with-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          email: createEmail.trim(),
+          password: createPassword,
+          companyId,
+          role: createRole,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to create user (${res.status}) ${text}`);
+      }
+
+      // Refresh members list so the new user appears in the table with full details.
+      const membersRes = await fetch(`${API_BASE}/companies/${companyId}/members`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (membersRes.ok) {
+        const membersJson: CompanyMemberRow[] = await membersRes.json();
+        setMembers(membersJson || []);
+      }
+
+      setCreateSuccess(
+        `User ${createEmail.trim()} created and added as ${createRole}. Share the /login link with them manually.`,
+      );
+      setCreateEmail("");
+      setCreatePassword("");
+      setCreateRole("MEMBER");
+    } catch (err: any) {
+      setCreateError(err?.message ?? "Failed to create user.");
+    } finally {
+      setCreateSaving(false);
+    }
+  };
+
+  const readFileAsText = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+      reader.readAsText(file);
+    });
+  };
+
+  const handleBulkCsvCreateUsers = async (e: FormEvent) => {
+    e.preventDefault();
+    setBulkCsvResult(null);
+
+    if (!companyId) {
+      setBulkCsvResult("Missing company context.");
+      return;
+    }
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setBulkCsvResult("Missing access token. Please log in again.");
+      return;
+    }
+
+    if (!bulkFile) {
+      setBulkCsvResult("Choose a CSV file first.");
+      return;
+    }
+
+    let text: string;
+    try {
+      text = await readFileAsText(bulkFile);
+    } catch (err: any) {
+      setBulkCsvResult(err?.message ?? "Failed to read CSV file.");
+      return;
+    }
+
+    const rows = text
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(Boolean);
+
+    if (!rows.length) {
+      setBulkCsvResult("CSV file is empty.");
+      return;
+    }
+
+    // Expect header: email,password,role (case-insensitive). Role is optional and
+    // currently ignored for safety; all users are created as MEMBER by default.
+    const [headerLine, ...dataLines] = rows;
+    const headerParts = headerLine.split(",").map(p => p.trim().toLowerCase());
+    const emailIdx = headerParts.indexOf("email");
+    const pwdIdx = headerParts.indexOf("password");
+
+    if (emailIdx === -1 || pwdIdx === -1) {
+      setBulkCsvResult(
+        "CSV must have at least 'email' and 'password' columns in the first row.",
+      );
+      return;
+    }
+
+    let successCount = 0;
+    const errors: string[] = [];
+
+    try {
+      setBulkCsvSaving(true);
+      for (const line of dataLines) {
+        const cols = line.split(",");
+        const email = (cols[emailIdx] || "").trim();
+        const password = (cols[pwdIdx] || "").trim();
+
+        if (!email) {
+          errors.push("Missing email on a row; skipping.");
+          continue;
+        }
+        if (!password || password.length < 8) {
+          errors.push(`${email}: password missing or shorter than 8 characters; skipping.`);
+          continue;
+        }
+
+        // For now, default all new users to MEMBER; roles can be adjusted later
+        // from the Members table. This keeps bulk import simple and safe.
+        const role: CompanyRole = "MEMBER";
+
+        try {
+          const res = await fetch(`${API_BASE}/admin/create-user-with-password`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              email,
+              password,
+              companyId,
+              role,
+            }),
+          });
+
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            errors.push(
+              `${email}: failed to create user (${res.status}) ${text?.slice(0, 120) ?? ""}`,
+            );
+            continue;
+          }
+
+          successCount += 1;
+        } catch (err: any) {
+          errors.push(`${email}: ${err?.message ?? "request failed"}`);
+        }
+      }
+
+      // Refresh members list if we created any
+      if (successCount > 0) {
+        const membersRes = await fetch(`${API_BASE}/companies/${companyId}/members`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (membersRes.ok) {
+          const membersJson: CompanyMemberRow[] = await membersRes.json();
+          setMembers(membersJson || []);
+        }
+      }
+    } finally {
+      setBulkCsvSaving(false);
+    }
+
+    const summary: string[] = [];
+    summary.push(`Created ${successCount} user${successCount === 1 ? "" : "s"}.`);
+    if (errors.length) {
+      summary.push(`Errors: ${errors.join(" | ")}`);
+    }
+
+    setBulkCsvResult(summary.join(" "));
   };
 
   const handleBulkInvite = async (e: FormEvent) => {
@@ -464,29 +713,47 @@ export default function CompanyUsersPage() {
                       }}
                     >
                       {canManageMembers ? (
-                        <select
-                          value={m.role}
-                          onChange={e =>
-                            handleChangeRole(
-                              m.userId,
-                              m.role,
-                              e.target.value as CompanyRole,
-                            )
-                          }
-                          style={{
-                            padding: "2px 6px",
-                            borderRadius: 4,
-                            border: "1px solid #d1d5db",
-                            fontSize: 12,
-                          }}
-                        >
-                          <option value="OWNER" disabled={!canGrantOwner}>
-                            OWNER
-                          </option>
-                          <option value="ADMIN">ADMIN</option>
-                          <option value="MEMBER">MEMBER</option>
-                          <option value="CLIENT">CLIENT</option>
-                        </select>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          <select
+                            value={m.role}
+                            onChange={e =>
+                              handleChangeRole(
+                                m.userId,
+                                m.role,
+                                e.target.value as CompanyRole,
+                              )
+                            }
+                            style={{
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          >
+                            <option value="OWNER" disabled={!canGrantOwner}>
+                              OWNER
+                            </option>
+                            <option value="ADMIN">ADMIN</option>
+                            <option value="MEMBER">MEMBER</option>
+                            <option value="CLIENT">CLIENT</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => openResetPasswordPanel(m.user.email, m.role)}
+                            style={{
+                              alignSelf: "flex-start",
+                              padding: 0,
+                              border: "none",
+                              background: "transparent",
+                              fontSize: 11,
+                              color: "#2563eb",
+                              textDecoration: "underline",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Set / reset password
+                          </button>
+                        </div>
                       ) : (
                         m.role
                       )}
@@ -523,7 +790,7 @@ export default function CompanyUsersPage() {
         )}
       </section>
 
-      {/* Invite single user */}
+      {/* Invite single user via email link */}
       {canManageMembers && (
         <section style={{ marginTop: 16 }}>
           <h2 style={{ fontSize: 16, marginBottom: 4 }}>Invite a single user</h2>
@@ -598,7 +865,92 @@ export default function CompanyUsersPage() {
         </section>
       )}
 
-      {/* Bulk invite */}
+      {/* Direct add user with password (SUPER_ADMIN only) */}
+      {canManageMembers && actorGlobalRole === "SUPER_ADMIN" && (
+        <section style={{ marginTop: 16 }}>
+          <h2 style={{ fontSize: 16, marginBottom: 4 }}>Quick add user with password</h2>
+          <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 6 }}>
+            Create a user directly with an email and password in this company. No invite email
+            is sent; you can share the <code>/login</code> link and password with them via text
+            or email.
+          </p>
+          <form
+            onSubmit={handleCreateUserWithPassword}
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              alignItems: "center",
+              fontSize: 13,
+            }}
+          >
+            <input
+              type="email"
+              required
+              value={createEmail}
+              onChange={e => setCreateEmail(e.target.value)}
+              placeholder="user@example.com"
+              style={{
+                minWidth: 220,
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+              }}
+            />
+            <input
+              type="text"
+              required
+              value={createPassword}
+              onChange={e => setCreatePassword(e.target.value)}
+              placeholder="Temporary password (min 8 chars)"
+              style={{
+                minWidth: 200,
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+              }}
+            />
+            <select
+              value={createRole}
+              onChange={e => setCreateRole(e.target.value as CompanyRole)}
+              style={{
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+              }}
+            >
+              <option value="MEMBER">MEMBER</option>
+              <option value="ADMIN">ADMIN</option>
+              <option value="CLIENT">CLIENT</option>
+              <option value="OWNER" disabled={!canGrantOwner}>
+                OWNER
+              </option>
+            </select>
+            <button
+              type="submit"
+              disabled={createSaving}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 4,
+                border: "1px solid #0f172a",
+                backgroundColor: createSaving ? "#e5e7eb" : "#0f172a",
+                color: createSaving ? "#4b5563" : "#f9fafb",
+                cursor: createSaving ? "default" : "pointer",
+              }}
+            >
+              {createSaving ? "Creating…" : "Create user"}
+            </button>
+          </form>
+          {createError && (
+            <p style={{ marginTop: 4, fontSize: 12, color: "#b91c1c" }}>{createError}</p>
+          )}
+          {createSuccess && (
+            <p style={{ marginTop: 4, fontSize: 12, color: "#16a34a" }}>{createSuccess}</p>
+          )}
+        </section>
+      )}
+
+      {/* Bulk invite via text area */}
       {canManageMembers && (
         <section style={{ marginTop: 16 }}>
           <h2 style={{ fontSize: 16, marginBottom: 4 }}>Bulk invite users</h2>
@@ -644,6 +996,58 @@ export default function CompanyUsersPage() {
             <p style={{ marginTop: 4, fontSize: 12, color: "#4b5563" }}>
               {bulkResult}
             </p>
+          )}
+        </section>
+      )}
+
+      {/* Bulk CSV: create users with passwords */}
+      {canManageMembers && actorGlobalRole === "SUPER_ADMIN" && (
+        <section style={{ marginTop: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+            <h2 style={{ fontSize: 16, marginBottom: 4 }}>Bulk add users with password (CSV)</h2>
+            <a
+              href="/templates/bulk-users-template.csv"
+              download
+              style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}
+            >
+              Download CSV template
+            </a>
+          </div>
+          <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 6 }}>
+            Upload a CSV file to create many users at once. The first row should be a header
+            containing at least <code>email</code> and <code>password</code> columns. All
+            users will be created as <strong>MEMBER</strong> in this company; you can promote
+            them to ADMIN or OWNER later from the Members table.
+          </p>
+          <form
+            onSubmit={handleBulkCsvCreateUsers}
+            style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}
+          >
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={e => setBulkFile(e.target.files?.[0] ?? null)}
+              style={{ fontSize: 12 }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button
+                type="submit"
+                disabled={bulkCsvSaving}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #0f172a",
+                  backgroundColor: bulkCsvSaving ? "#e5e7eb" : "#0f172a",
+                  color: bulkCsvSaving ? "#4b5563" : "#f9fafb",
+                  cursor: bulkCsvSaving ? "default" : "pointer",
+                }}
+              >
+                {bulkCsvSaving ? "Processing CSV…" : "Create users from CSV"}
+              </button>
+            </div>
+          </form>
+          {bulkCsvResult && (
+            <p style={{ marginTop: 4, fontSize: 12, color: "#4b5563" }}>{bulkCsvResult}</p>
           )}
         </section>
       )}
@@ -707,7 +1111,25 @@ export default function CompanyUsersPage() {
                           borderTop: "1px solid #e5e7eb",
                         }}
                       >
-                        {invite.role}
+                        {canManageMembers ? (
+                          <button
+                            type="button"
+                            onClick={() => openResetPasswordPanel(invite.email, invite.role)}
+                            style={{
+                              padding: 0,
+                              border: "none",
+                              background: "transparent",
+                              fontSize: 12,
+                              color: "#2563eb",
+                              textDecoration: "underline",
+                              cursor: "pointer",
+                            }}
+                          >
+                            {invite.role}
+                          </button>
+                        ) : (
+                          invite.role
+                        )}
                       </td>
                       <td
                         style={{
@@ -766,6 +1188,150 @@ export default function CompanyUsersPage() {
           </div>
         )}
       </section>
+
+      {/* Inline reset password panel (appears when you click a role link) */}
+      {canManageMembers && resetEmail && (
+        <section style={{ marginTop: 16 }}>
+          <h2 style={{ fontSize: 16, marginBottom: 4 }}>Set / reset password</h2>
+          <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 6 }}>
+            You are setting a password for <strong>{resetEmail}</strong> in this company.
+            Share the <code>/login</code> link and this password with them directly.
+          </p>
+          <form
+            onSubmit={async e => {
+              e.preventDefault();
+              setResetError(null);
+              setResetSuccess(null);
+
+              if (!companyId || !resetEmail) {
+                setResetError("Missing company or user context.");
+                return;
+              }
+
+              const token = window.localStorage.getItem("accessToken");
+              if (!token) {
+                setResetError("Missing access token. Please log in again.");
+                return;
+              }
+
+              if (!resetPassword || resetPassword.length < 8) {
+                setResetError("Password must be at least 8 characters.");
+                return;
+              }
+
+              if (resetPassword !== resetPasswordConfirm) {
+                setResetError("Passwords do not match.");
+                return;
+              }
+
+              try {
+                setResetSaving(true);
+                const res = await fetch(`${API_BASE}/admin/create-user-with-password`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({
+                    email: resetEmail,
+                    password: resetPassword,
+                    companyId,
+                    role: resetRole ?? "MEMBER",
+                  }),
+                });
+
+                if (!res.ok) {
+                  const text = await res.text().catch(() => "");
+                  throw new Error(`Failed to set password (${res.status}) ${text}`);
+                }
+
+                // Refresh members so a previously invited user appears in the list
+                const membersRes = await fetch(`${API_BASE}/companies/${companyId}/members`, {
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                if (membersRes.ok) {
+                  const membersJson: CompanyMemberRow[] = await membersRes.json();
+                  setMembers(membersJson || []);
+                }
+
+                setResetSuccess("Password set successfully. Share it with the user.");
+                setResetPassword("");
+                setResetPasswordConfirm("");
+              } catch (err: any) {
+                setResetError(err?.message ?? "Failed to set password.");
+              } finally {
+                setResetSaving(false);
+              }
+            }}
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              alignItems: "center",
+              fontSize: 13,
+            }}
+          >
+            <input
+              type="password"
+              placeholder="New password (min 8 chars)"
+              value={resetPassword}
+              onChange={e => setResetPassword(e.target.value)}
+              style={{
+                minWidth: 200,
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+              }}
+            />
+            <input
+              type="password"
+              placeholder="Confirm password"
+              value={resetPasswordConfirm}
+              onChange={e => setResetPasswordConfirm(e.target.value)}
+              style={{
+                minWidth: 200,
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+              }}
+            />
+            <button
+              type="submit"
+              disabled={resetSaving}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 4,
+                border: "1px solid #0f172a",
+                backgroundColor: resetSaving ? "#e5e7eb" : "#0f172a",
+                color: resetSaving ? "#4b5563" : "#f9fafb",
+                cursor: resetSaving ? "default" : "pointer",
+              }}
+            >
+              {resetSaving ? "Saving…" : "Set password"}
+            </button>
+            <button
+              type="button"
+              onClick={closeResetPasswordPanel}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                backgroundColor: "#ffffff",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+            {resetError && (
+              <span style={{ fontSize: 12, color: "#b91c1c" }}>{resetError}</span>
+            )}
+            {resetSuccess && (
+              <span style={{ fontSize: 12, color: "#16a34a" }}>{resetSuccess}</span>
+            )}
+          </form>
+        </section>
+      )}
     </div>
   );
 }

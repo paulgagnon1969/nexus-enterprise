@@ -1,6 +1,6 @@
 import { Body, Controller, Post, Req, UseGuards } from "@nestjs/common";
 import { AuthService } from "./auth.service";
-import { RegisterDto, LoginDto } from "./dto/auth.dto";
+import { RegisterDto, LoginDto, ChangePasswordDto } from "./dto/auth.dto";
 import { JwtAuthGuard } from "./auth.guards";
 import { AuthenticatedUser } from "./jwt.strategy";
 import { AcceptInviteDto } from "./dto/accept-invite.dto";
@@ -34,6 +34,13 @@ export class AuthController {
   @Post("accept-invite")
   acceptInvite(@Body() dto: AcceptInviteDto) {
     return this.auth.acceptInvite(dto.token, dto.password);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post("change-password")
+  changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
+    const user = req.user as AuthenticatedUser;
+    return this.auth.changePassword(user.userId, dto);
   }
 
   @UseGuards(JwtAuthGuard)

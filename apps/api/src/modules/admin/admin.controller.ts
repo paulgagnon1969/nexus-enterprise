@@ -77,4 +77,24 @@ export class AdminController {
     const actor = req.user as AuthenticatedUser;
     return this.admin.addUserToCompanyByEmail(actor, { email, companyId, role });
   }
+
+  // Create or update a user with a specific password and attach to a company.
+  @Post("create-user-with-password")
+  createUserWithPassword(
+    @Req() req: any,
+    @Body("email") email: string,
+    @Body("password") password: string,
+    @Body("companyId") companyId: string,
+    @Body("role") role: string,
+    @Body("userType") userType?: string
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.createUserWithPassword(actor, {
+      email,
+      password,
+      companyId,
+      role,
+      userType
+    });
+  }
 }
