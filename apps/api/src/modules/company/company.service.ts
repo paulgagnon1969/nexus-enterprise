@@ -49,8 +49,6 @@ export class CompanyService {
   }
 
   async createCompany(name: string, userId: string, actor: AuthenticatedUser) {
-    const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
-
     const company = await this.prisma.$transaction(async tx => {
       const created = await tx.company.create({
         data: {
@@ -58,17 +56,16 @@ export class CompanyService {
         }
       });
 
-      // Creator gets OWNER membership; SUPER_ADMIN should be silent.
+      // Creator gets OWNER membership.
       await tx.companyMembership.create({
         data: {
           userId,
           companyId: created.id,
           role: Role.OWNER,
-          isHidden: isSuperAdmin,
         }
       });
 
-      // Ensure all SUPER_ADMIN users have silent access to the new company.
+      // Ensure all SUPER_ADMIN users have access to the new company.
       const superAdmins = await tx.user.findMany({
         where: { globalRole: GlobalRole.SUPER_ADMIN },
         select: { id: true },
@@ -80,7 +77,6 @@ export class CompanyService {
             userId: u.id,
             companyId: created.id,
             role: Role.OWNER,
-            isHidden: true,
           })),
           skipDuplicates: true,
         });

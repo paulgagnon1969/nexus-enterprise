@@ -294,6 +294,9 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
   const [expandedImportBucketKeys, setExpandedImportBucketKeys] = useState<Set<string>>(
     () => new Set(),
   );
+  const [expandedImportUnitKeys, setExpandedImportUnitKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [importRoomBucketLines, setImportRoomBucketLines] = useState<
     Record<
       string,
@@ -304,6 +307,60 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
       }
     >
   >({});
+
+  const toggleImportUnitExpanded = (unitKey: string) => {
+    setExpandedImportUnitKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(unitKey)) next.delete(unitKey);
+      else next.add(unitKey);
+      return next;
+    });
+  };
+
+  const importRoomBucketsByUnit = useMemo(() => {
+    if (!importRoomBuckets) return [];
+
+    const map = new Map<
+      string,
+      {
+        unitKey: string;
+        unitId: string | null;
+        unitLabel: string;
+        buckets: ImportRoomBucket[];
+        lineCount: number;
+        totalAmount: number;
+      }
+    >();
+
+    for (const b of importRoomBuckets) {
+      const unitKey = b.assignedUnitId ?? "unassigned";
+      const unitLabel = b.assignedUnitLabel ?? "Unassigned";
+      const existing = map.get(unitKey);
+      if (!existing) {
+        map.set(unitKey, {
+          unitKey,
+          unitId: b.assignedUnitId,
+          unitLabel,
+          buckets: [b],
+          lineCount: b.lineCount ?? 0,
+          totalAmount: b.totalAmount ?? 0,
+        });
+      } else {
+        existing.buckets.push(b);
+        existing.lineCount += b.lineCount ?? 0;
+        existing.totalAmount += b.totalAmount ?? 0;
+      }
+    }
+
+    const arr = Array.from(map.values());
+    arr.sort((a, b) => {
+      if (a.unitKey === "unassigned" && b.unitKey !== "unassigned") return -1;
+      if (b.unitKey === "unassigned" && a.unitKey !== "unassigned") return 1;
+      return a.unitLabel.localeCompare(b.unitLabel);
+    });
+
+    return arr;
+  }, [importRoomBuckets]);
 
   const [newDailyLog, setNewDailyLog] = useState<NewDailyLogState>(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -2774,6 +2831,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                             }}
                           />
                         </th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Assigned Unit</th>
                         <th style={{ textAlign: "left", padding: "6px 8px" }}>Bucket</th>
                         <th style={{ textAlign: "left", padding: "6px 8px" }}>Group Code</th>
                         <th style={{ textAlign: "left", padding: "6px 8px" }}>
@@ -2790,30 +2848,38 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                       </tr>
                     </thead>
                     <tbody>
-                      {importRoomBuckets.map((b, idx) => {
-                        const key = `${b.groupCode ?? ""}::${
-                          b.groupDescription ?? ""
-                        }`;
-                        const selected = importRoomBucketsSelection.has(key);
-                        const isExpanded = expandedImportBucketKeys.has(key);
-                        const linesEntry = importRoomBucketLines[key];
+                      {importRoomBucketsByUnit.map(unitGroup => {
+                        const unitIsExpanded = expandedImportUnitKeys.has(unitGroup.unitKey);
+
+                        const unitBucketKeys = unitGroup.buckets.map(
+                          b => `${b.groupCode ?? ""}::${b.groupDescription ?? ""}`,
+                        );
+
+                        const unitAllSelected =
+                          unitBucketKeys.length > 0 &&
+                          unitBucketKeys.every(k => importRoomBucketsSelection.has(k));
+
                         return (
-                          <>
-                            <tr key={`${key}::${idx}`}>
+                          <Fragment key={`unit::${unitGroup.unitKey}`}>
+                            <tr>
                               <td
                                 style={{
                                   padding: "4px 8px",
                                   borderTop: "1px solid #e5e7eb",
+                                  background: "#f9fafb",
                                 }}
                               >
                                 <input
                                   type="checkbox"
-                                  checked={selected}
+                                  checked={unitAllSelected}
                                   onChange={e => {
+                                    const checked = e.target.checked;
                                     setImportRoomBucketsSelection(prev => {
                                       const next = new Set(prev);
-                                      if (e.target.checked) next.add(key);
-                                      else next.delete(key);
+                                      for (const k of unitBucketKeys) {
+                                        if (checked) next.add(k);
+                                        else next.delete(k);
+                                      }
                                       return next;
                                     });
                                   }}
@@ -2823,289 +2889,392 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                                 style={{
                                   padding: "4px 8px",
                                   borderTop: "1px solid #e5e7eb",
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  color: "#111827",
+                                  whiteSpace: "nowrap",
                                   cursor: "pointer",
-                                  color: "#2563eb",
-                                  whiteSpace: "nowrap",
+                                  background: "#f9fafb",
                                 }}
-                                onClick={() => {
-                                  void toggleImportBucketExpanded(b);
-                                }}
+                                onClick={() => toggleImportUnitExpanded(unitGroup.unitKey)}
                               >
-                                {isExpanded ? "▾" : "▸"} Bucket
+                                {unitIsExpanded ? "▾" : "▸"} {unitGroup.unitLabel}
                               </td>
                               <td
                                 style={{
                                   padding: "4px 8px",
                                   borderTop: "1px solid #e5e7eb",
+                                  background: "#f9fafb",
+                                  color: "#6b7280",
                                   whiteSpace: "nowrap",
                                 }}
                               >
-                                {b.groupCode ?? ""}
+                                {unitGroup.buckets.length} buckets
                               </td>
+                              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", background: "#f9fafb" }} />
+                              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", background: "#f9fafb" }} />
                               <td
                                 style={{
                                   padding: "4px 8px",
                                   borderTop: "1px solid #e5e7eb",
+                                  textAlign: "right",
+                                  background: "#f9fafb",
+                                  whiteSpace: "nowrap",
                                 }}
                               >
-                                {b.groupDescription ?? ""}
+                                {unitGroup.lineCount}
                               </td>
                               <td
                                 style={{
                                   padding: "4px 8px",
                                   borderTop: "1px solid #e5e7eb",
                                   textAlign: "right",
+                                  background: "#f9fafb",
+                                  whiteSpace: "nowrap",
                                 }}
                               >
-                                {b.lineCount}
-                              </td>
-                              <td
-                                style={{
-                                  padding: "4px 8px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  textAlign: "right",
-                                }}
-                              >
-                                {b.totalAmount.toLocaleString(undefined, {
+                                {unitGroup.totalAmount.toLocaleString(undefined, {
                                   maximumFractionDigits: 2,
                                 })}
                               </td>
-                              <td
-                                style={{
-                                  padding: "4px 8px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  fontSize: 11,
-                                  color: "#4b5563",
-                                }}
-                              >
-                                {b.assignedUnitLabel ?? "—"}
-                              </td>
-                              <td
-                                style={{
-                                  padding: "4px 8px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  fontSize: 11,
-                                  color: "#4b5563",
-                                }}
-                              >
-                                {b.assignedFullLabel ?? "—"}
-                              </td>
+                              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", background: "#f9fafb" }} />
+                              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", background: "#f9fafb" }} />
                             </tr>
 
-                            {isExpanded && (
-                              <tr key={`${key}::${idx}::lines`}>
-                                <td colSpan={8} style={{ padding: 0, borderTop: "none" }}>
-                                  <div
-                                    style={{
-                                      backgroundColor: "#f9fafb",
-                                      padding: "4px 8px 8px 32px",
-                                    }}
-                                  >
-                                    {!linesEntry && (
-                                      <div
+                            {unitIsExpanded &&
+                              unitGroup.buckets.map((b, idx) => {
+                                const key = `${b.groupCode ?? ""}::${
+                                  b.groupDescription ?? ""
+                                }`;
+                                const selected = importRoomBucketsSelection.has(key);
+                                const isExpanded = expandedImportBucketKeys.has(key);
+                                const linesEntry = importRoomBucketLines[key];
+
+                                return (
+                                  <Fragment key={`${unitGroup.unitKey}::${key}::${idx}`}>
+                                    <tr>
+                                      <td
                                         style={{
-                                          fontSize: 12,
-                                          color: "#6b7280",
+                                          padding: "4px 8px",
+                                          borderTop: "1px solid #e5e7eb",
                                         }}
                                       >
-                                        Loading lines…
-                                      </div>
-                                    )}
-                                    {linesEntry && linesEntry.loading && (
-                                      <div
-                                        style={{
-                                          fontSize: 12,
-                                          color: "#6b7280",
-                                        }}
-                                      >
-                                        Loading lines…
-                                      </div>
-                                    )}
-                                    {linesEntry && linesEntry.error && !linesEntry.loading && (
-                                      <div
-                                        style={{
-                                          fontSize: 12,
-                                          color: "#b91c1c",
-                                        }}
-                                      >
-                                        {linesEntry.error}
-                                      </div>
-                                    )}
-                                    {linesEntry &&
-                                      !linesEntry.loading &&
-                                      !linesEntry.error && (
-                                        <table
-                                          style={{
-                                            width: "100%",
-                                            borderCollapse: "collapse",
-                                            fontSize: 11,
+                                        <input
+                                          type="checkbox"
+                                          checked={selected}
+                                          onChange={e => {
+                                            setImportRoomBucketsSelection(prev => {
+                                              const next = new Set(prev);
+                                              if (e.target.checked) next.add(key);
+                                              else next.delete(key);
+                                              return next;
+                                            });
                                           }}
-                                        >
-                                          <thead>
-                                            <tr style={{ backgroundColor: "#e5e7eb" }}>
-                                              <th
+                                        />
+                                      </td>
+                                      <td
+                                        style={{
+                                          padding: "4px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                          fontSize: 11,
+                                          color: "#9ca3af",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                      >
+                                        {/* grouped under the unit row */}
+                                      </td>
+                                      <td
+                                        style={{
+                                          padding: "4px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                          cursor: "pointer",
+                                          color: "#2563eb",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                        onClick={() => toggleImportBucketExpanded(b)}
+                                      >
+                                        {isExpanded ? "▾" : "▸"} Bucket
+                                      </td>
+                                      <td
+                                        style={{
+                                          padding: "4px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                      >
+                                        {b.groupCode ?? ""}
+                                      </td>
+                                      <td
+                                        style={{
+                                          padding: "4px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                        }}
+                                      >
+                                        {b.groupDescription ?? ""}
+                                      </td>
+                                      <td
+                                        style={{
+                                          padding: "4px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                          textAlign: "right",
+                                        }}
+                                      >
+                                        {b.lineCount}
+                                      </td>
+                                      <td
+                                        style={{
+                                          padding: "4px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                          textAlign: "right",
+                                        }}
+                                      >
+                                        {b.totalAmount.toLocaleString(undefined, {
+                                          maximumFractionDigits: 2,
+                                        })}
+                                      </td>
+                                      <td
+                                        style={{
+                                          padding: "4px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                          fontSize: 11,
+                                          color: "#4b5563",
+                                        }}
+                                      >
+                                        {b.assignedUnitLabel ?? "—"}
+                                      </td>
+                                      <td
+                                        style={{
+                                          padding: "4px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                          fontSize: 11,
+                                          color: "#4b5563",
+                                        }}
+                                      >
+                                        {b.assignedFullLabel ?? "—"}
+                                      </td>
+                                    </tr>
+
+                                    {isExpanded && (
+                                      <tr key={`${key}::${idx}::lines`}>
+                                        <td colSpan={9} style={{ padding: 0, borderTop: "none" }}>
+                                          <div
+                                            style={{
+                                              backgroundColor: "#f9fafb",
+                                              padding: "4px 8px 8px 32px",
+                                            }}
+                                          >
+                                            {!linesEntry && (
+                                              <div
                                                 style={{
-                                                  textAlign: "left",
-                                                  padding: "4px 6px",
+                                                  fontSize: 12,
+                                                  color: "#6b7280",
                                                 }}
                                               >
-                                                Line
-                                              </th>
-                                              <th
+                                                Loading lines…
+                                              </div>
+                                            )}
+                                            {linesEntry && linesEntry.loading && (
+                                              <div
                                                 style={{
-                                                  textAlign: "left",
-                                                  padding: "4px 6px",
+                                                  fontSize: 12,
+                                                  color: "#6b7280",
                                                 }}
                                               >
-                                                Description
-                                              </th>
-                                              <th
-                                                style={{
-                                                  textAlign: "right",
-                                                  padding: "4px 6px",
-                                                }}
-                                              >
-                                                Qty
-                                              </th>
-                                              <th
-                                                style={{
-                                                  textAlign: "right",
-                                                  padding: "4px 6px",
-                                                }}
-                                              >
-                                                Unit
-                                              </th>
-                                              <th
-                                                style={{
-                                                  textAlign: "right",
-                                                  padding: "4px 6px",
-                                                }}
-                                              >
-                                                Total
-                                              </th>
-                                              <th
-                                                style={{
-                                                  textAlign: "left",
-                                                  padding: "4px 6px",
-                                                }}
-                                              >
-                                                Cat
-                                              </th>
-                                              <th
-                                                style={{
-                                                  textAlign: "left",
-                                                  padding: "4px 6px",
-                                                }}
-                                              >
-                                                Sel
-                                              </th>
-                                              <th
-                                                style={{
-                                                  textAlign: "left",
-                                                  padding: "4px 6px",
-                                                }}
-                                              >
-                                                Source
-                                              </th>
-                                            </tr>
-                                          </thead>
-                                          <tbody>
-                                            {linesEntry.rows.map(line => (
-                                              <tr key={line.lineNo}>
-                                                <td
+                                                Loading lines…
+                                              </div>
+                                            )}
+                                            {linesEntry &&
+                                              linesEntry.error &&
+                                              !linesEntry.loading && (
+                                                <div
                                                   style={{
-                                                    padding: "3px 6px",
-                                                    borderTop:
-                                                      "1px solid #e5e7eb",
+                                                    fontSize: 12,
+                                                    color: "#b91c1c",
                                                   }}
                                                 >
-                                                  {line.lineNo}
-                                                </td>
-                                                <td
+                                                  {linesEntry.error}
+                                                </div>
+                                              )}
+                                            {linesEntry &&
+                                              !linesEntry.loading &&
+                                              !linesEntry.error && (
+                                                <table
                                                   style={{
-                                                    padding: "3px 6px",
-                                                    borderTop:
-                                                      "1px solid #e5e7eb",
+                                                    width: "100%",
+                                                    borderCollapse: "collapse",
+                                                    fontSize: 11,
                                                   }}
                                                 >
-                                                  {line.desc ?? ""}
-                                                </td>
-                                                <td
-                                                  style={{
-                                                    padding: "3px 6px",
-                                                    borderTop:
-                                                      "1px solid #e5e7eb",
-                                                    textAlign: "right",
-                                                  }}
-                                                >
-                                                  {line.qty ?? ""}
-                                                </td>
-                                                <td
-                                                  style={{
-                                                    padding: "3px 6px",
-                                                    borderTop:
-                                                      "1px solid #e5e7eb",
-                                                    textAlign: "right",
-                                                  }}
-                                                >
-                                                  {line.unit ?? ""}
-                                                </td>
-                                                <td
-                                                  style={{
-                                                    padding: "3px 6px",
-                                                    borderTop:
-                                                      "1px solid #e5e7eb",
-                                                    textAlign: "right",
-                                                  }}
-                                                >
-                                                  {line.itemAmount != null
-                                                    ? line.itemAmount.toLocaleString(
-                                                        undefined,
-                                                        {
-                                                          maximumFractionDigits: 2,
-                                                        },
-                                                      )
-                                                    : ""}
-                                                </td>
-                                                <td
-                                                  style={{
-                                                    padding: "3px 6px",
-                                                    borderTop:
-                                                      "1px solid #e5e7eb",
-                                                  }}
-                                                >
-                                                  {line.cat ?? ""}
-                                                </td>
-                                                <td
-                                                  style={{
-                                                    padding: "3px 6px",
-                                                    borderTop:
-                                                      "1px solid #e5e7eb",
-                                                  }}
-                                                >
-                                                  {line.sel ?? ""}
-                                                </td>
-                                                <td
-                                                  style={{
-                                                    padding: "3px 6px",
-                                                    borderTop:
-                                                      "1px solid #e5e7eb",
-                                                    fontSize: 10,
-                                                    color: "#6b7280",
-                                                  }}
-                                                >
-                                                  {line.sourceName ?? line.owner ?? ""}
-                                                </td>
-                                              </tr>
-                                            ))}
-                                          </tbody>
-                                        </table>
-                                      )}
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                          </>
+                                                  <thead>
+                                                    <tr style={{ backgroundColor: "#e5e7eb" }}>
+                                                      <th
+                                                        style={{
+                                                          textAlign: "left",
+                                                          padding: "4px 6px",
+                                                        }}
+                                                      >
+                                                        Line
+                                                      </th>
+                                                      <th
+                                                        style={{
+                                                          textAlign: "left",
+                                                          padding: "4px 6px",
+                                                        }}
+                                                      >
+                                                        Description
+                                                      </th>
+                                                      <th
+                                                        style={{
+                                                          textAlign: "right",
+                                                          padding: "4px 6px",
+                                                        }}
+                                                      >
+                                                        Qty
+                                                      </th>
+                                                      <th
+                                                        style={{
+                                                          textAlign: "right",
+                                                          padding: "4px 6px",
+                                                        }}
+                                                      >
+                                                        Unit
+                                                      </th>
+                                                      <th
+                                                        style={{
+                                                          textAlign: "right",
+                                                          padding: "4px 6px",
+                                                        }}
+                                                      >
+                                                        Total
+                                                      </th>
+                                                      <th
+                                                        style={{
+                                                          textAlign: "left",
+                                                          padding: "4px 6px",
+                                                        }}
+                                                      >
+                                                        Cat
+                                                      </th>
+                                                      <th
+                                                        style={{
+                                                          textAlign: "left",
+                                                          padding: "4px 6px",
+                                                        }}
+                                                      >
+                                                        Sel
+                                                      </th>
+                                                      <th
+                                                        style={{
+                                                          textAlign: "left",
+                                                          padding: "4px 6px",
+                                                        }}
+                                                      >
+                                                        Source
+                                                      </th>
+                                                    </tr>
+                                                  </thead>
+                                                  <tbody>
+                                                    {linesEntry.rows.map(line => (
+                                                      <tr key={line.lineNo}>
+                                                        <td
+                                                          style={{
+                                                            padding: "3px 6px",
+                                                            borderTop:
+                                                              "1px solid #e5e7eb",
+                                                          }}
+                                                        >
+                                                          {line.lineNo}
+                                                        </td>
+                                                        <td
+                                                          style={{
+                                                            padding: "3px 6px",
+                                                            borderTop:
+                                                              "1px solid #e5e7eb",
+                                                          }}
+                                                        >
+                                                          {line.desc ?? ""}
+                                                        </td>
+                                                        <td
+                                                          style={{
+                                                            padding: "3px 6px",
+                                                            borderTop:
+                                                              "1px solid #e5e7eb",
+                                                            textAlign: "right",
+                                                          }}
+                                                        >
+                                                          {line.qty ?? ""}
+                                                        </td>
+                                                        <td
+                                                          style={{
+                                                            padding: "3px 6px",
+                                                            borderTop:
+                                                              "1px solid #e5e7eb",
+                                                            textAlign: "right",
+                                                          }}
+                                                        >
+                                                          {line.unit ?? ""}
+                                                        </td>
+                                                        <td
+                                                          style={{
+                                                            padding: "3px 6px",
+                                                            borderTop:
+                                                              "1px solid #e5e7eb",
+                                                            textAlign: "right",
+                                                          }}
+                                                        >
+                                                          {line.itemAmount != null
+                                                            ? line.itemAmount.toLocaleString(
+                                                                undefined,
+                                                                {
+                                                                  maximumFractionDigits: 2,
+                                                                },
+                                                              )
+                                                            : ""}
+                                                        </td>
+                                                        <td
+                                                          style={{
+                                                            padding: "3px 6px",
+                                                            borderTop:
+                                                              "1px solid #e5e7eb",
+                                                          }}
+                                                        >
+                                                          {line.cat ?? ""}
+                                                        </td>
+                                                        <td
+                                                          style={{
+                                                            padding: "3px 6px",
+                                                            borderTop:
+                                                              "1px solid #e5e7eb",
+                                                          }}
+                                                        >
+                                                          {line.sel ?? ""}
+                                                        </td>
+                                                        <td
+                                                          style={{
+                                                            padding: "3px 6px",
+                                                            borderTop:
+                                                              "1px solid #e5e7eb",
+                                                            fontSize: 10,
+                                                            color: "#6b7280",
+                                                          }}
+                                                        >
+                                                          {line.sourceName ??
+                                                            line.owner ??
+                                                            ""}
+                                                        </td>
+                                                      </tr>
+                                                    ))}
+                                                  </tbody>
+                                                </table>
+                                              )}
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </Fragment>
+                                );
+                              })}
+                          </Fragment>
                         );
                       })}
                     </tbody>

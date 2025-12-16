@@ -66,6 +66,13 @@ export class AdminController {
     return this.admin.seedRoleUsersForCompany(actor);
   }
 
+  // One-time helper: ensure all SUPER_ADMIN users have access to every company.
+  @Post("backfill-superadmin-memberships")
+  backfillSuperAdminMemberships(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.backfillSuperAdminMemberships(actor);
+  }
+
   // Attach an existing user (by email) to a company with a given Role.
   @Post("add-company-member")
   addCompanyMember(

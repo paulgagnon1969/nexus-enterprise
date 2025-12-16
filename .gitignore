@@ -1,11 +1,24 @@
 node_modules
 .env
 .DS_Store
+
+# Turborepo
 .turbo/
+
+# Build artifacts
 build/
+**/dist/
+**/.next/
+logs/
+
+# Env files (keep examples tracked)
 .env
+.env.*
+!.env.example
+
+# Logs
 *.log
-.turbo/
+
 apps/web/tmp_uploads/
 .vercel
 .env*.local

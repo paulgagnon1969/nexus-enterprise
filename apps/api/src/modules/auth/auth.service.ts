@@ -82,6 +82,24 @@ export class AuthService {
     };
   }
 
+  private async ensureSuperAdminMemberships(userId: string) {
+    const companies = await this.prisma.company.findMany({ select: { id: true } });
+    if (!companies.length) return;
+
+    // NOTE: We intentionally do NOT set isHidden here because some Prisma
+    // clients in dev may be out of sync with the schema and not recognize
+    // that field yet. The default is false, which is fine for login flows.
+    await this.prisma.companyMembership.createMany({
+      data: companies.map(c => ({
+        userId,
+        companyId: c.id,
+        role: Role.OWNER,
+        // isHidden: true,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
   async bootstrapSuperAdmin(email: string, password: string) {
     // Allow bootstrap only if there is no SUPER_ADMIN yet, or the only
     // SUPER_ADMIN is this same email (idempotent repair).
@@ -117,7 +135,8 @@ export class AuthService {
       });
     }
 
-    // Ensure the superadmin has at least one company membership so login works.
+    // Ensure the superadmin can access every company.
+    // Also ensure they have at least one company membership so login works.
     const existingMemberships = await this.prisma.companyMembership.findMany({
       where: { userId: user.id }
     });
@@ -129,10 +148,12 @@ export class AuthService {
         data: {
           userId: user.id,
           companyId: company.id,
-          role: Role.OWNER
+          role: Role.OWNER,
         }
       });
     }
+
+    await this.ensureSuperAdminMemberships(user.id);
 
     return { userId: user.id, email: user.email, globalRole: user.globalRole };
   }
@@ -154,6 +175,12 @@ export class AuthService {
     const valid = await argon2.verify(user.passwordHash, dto.password);
     if (!valid) {
       throw new UnauthorizedException("Invalid credentials");
+    }
+
+    if (user.globalRole === GlobalRole.SUPER_ADMIN) {
+      // Best-effort: ensure SUPER_ADMIN is silently attached to every company.
+      // This avoids admin accounts getting "stuck" without access after data imports.
+      await this.ensureSuperAdminMemberships(user.id);
     }
 
     const membership = user.memberships[0];
@@ -400,19 +427,6 @@ export class AuthService {
   }
 
   async switchCompany(userId: string, companyId: string) {
-    const membership = await this.prisma.companyMembership.findUnique({
-      where: {
-        userId_companyId: {
-          userId,
-          companyId
-        }
-      }
-    });
-
-    if (!membership) {
-      throw new UnauthorizedException("No access to this company");
-    }
-
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true, globalRole: true }
@@ -429,6 +443,30 @@ export class AuthService {
 
     if (!company) {
       throw new UnauthorizedException("Company not found");
+    }
+
+    let membership = await this.prisma.companyMembership.findUnique({
+      where: {
+        userId_companyId: {
+          userId,
+          companyId
+        }
+      }
+    });
+
+    // SUPER_ADMIN should always be able to switch into any company.
+    if (!membership && user.globalRole === GlobalRole.SUPER_ADMIN) {
+      membership = await this.prisma.companyMembership.create({
+        data: {
+          userId,
+          companyId,
+          role: Role.OWNER,
+        }
+      });
+    }
+
+    if (!membership) {
+      throw new UnauthorizedException("No access to this company");
     }
 
     const { accessToken, refreshToken } = await this.issueTokens(

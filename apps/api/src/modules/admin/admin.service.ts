@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import * as argon2 from "argon2";
-import { Role, UserType } from "@prisma/client";
+import { GlobalRole, Role, UserType } from "@prisma/client";
 
 @Injectable()
 export class AdminService {
@@ -46,6 +46,45 @@ export class AdminService {
         }
       }
     });
+  }
+
+  async backfillSuperAdminMemberships(actor: AuthenticatedUser) {
+    await this.audit(actor, "ADMIN_BACKFILL_SUPERADMIN_MEMBERSHIPS");
+
+    const [companies, superAdmins] = await Promise.all([
+      this.prisma.company.findMany({ select: { id: true } }),
+      this.prisma.user.findMany({
+        where: { globalRole: GlobalRole.SUPER_ADMIN },
+        select: { id: true, email: true },
+      }),
+    ]);
+
+    if (!companies.length || !superAdmins.length) {
+      return {
+        companies: companies.length,
+        superAdmins: superAdmins.length,
+        createdMemberships: 0,
+      };
+    }
+
+    const rows = superAdmins.flatMap(u =>
+      companies.map(c => ({
+        userId: u.id,
+        companyId: c.id,
+        role: Role.OWNER,
+      }))
+    );
+
+    const result = await this.prisma.companyMembership.createMany({
+      data: rows,
+      skipDuplicates: true,
+    });
+
+    return {
+      companies: companies.length,
+      superAdmins: superAdmins.length,
+      createdMemberships: result.count,
+    };
   }
 
   async listCompanyUsers(companyId: string, actor: AuthenticatedUser) {
@@ -242,12 +281,12 @@ export class AdminService {
         }
       },
       update: {
-        role: role as any
+        role: role as any,
       },
       create: {
         userId: user.id,
         companyId,
-        role: role as any
+        role: role as any,
       }
     });
 
