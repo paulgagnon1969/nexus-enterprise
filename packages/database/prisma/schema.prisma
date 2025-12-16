@@ -274,6 +274,28 @@ model AdminAuditLog {
   createdAt       DateTime   @default(now())
 }
 
+model ProjectFinancialSnapshot {
+  id                   String   @id @default(cuid())
+  projectId             String
+  estimateVersionId     String
+  snapshotDate          DateTime
+  computedAt            DateTime @default(now())
+  totalRcvClaim         Float
+  totalAcvClaim         Float
+  workCompleteRcv       Float
+  acvReturn             Float
+  opRate                Float
+  acvOP                 Float
+  totalDueWorkBillable  Float
+  depositRate           Float
+  depositBaseline       Float
+  billedToDate          Float
+  duePayable            Float
+  dueAmount             Float
+
+  @@index([projectId, estimateVersionId, snapshotDate], map: "ProjectFinancialSnapshot_project_estimate_date_idx")
+}
+
 model Task {
   id                String           @id @default(cuid())
   title             String
@@ -501,6 +523,7 @@ model SowItem {
   performed            Boolean                  @default(false)
   eligibleForAcvRefund Boolean                  @default(false)
   acvRefundAmount      Float?
+  isAcvOnly             Boolean                 @default(false)
   percentComplete      Float                    @default(0)
   createdAt            DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
@@ -651,11 +674,16 @@ model OnboardingSession {
   assignedHiringManagerId String?
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
+
+  profile      OnboardingProfile?
+  documents    OnboardingDocument[]
+  bankInfo     OnboardingBankInfo?
+  skillRatings OnboardingSkillRating[]
 }
 
 model OnboardingProfile {
   id           String  @id @default(cuid())
-  sessionId    String
+  sessionId    String  @unique
   firstName    String?
   lastName     String?
   phone        String?
@@ -665,6 +693,8 @@ model OnboardingProfile {
   state        String?
   postalCode   String?
   country      String?
+
+  session OnboardingSession @relation(fields: [sessionId], references: [id])
 }
 
 model OnboardingDocument {
@@ -676,16 +706,22 @@ model OnboardingDocument {
   mimeType  String?
   sizeBytes Int?
   createdAt DateTime               @default(now())
+
+  session OnboardingSession @relation(fields: [sessionId], references: [id])
+
+  @@index([sessionId], map: "OnboardingDocument_session_idx")
 }
 
 model OnboardingBankInfo {
   id                  String   @id @default(cuid())
-  sessionId           String
+  sessionId           String   @unique
   accountHolderName   String?
   routingNumberMasked String?
   accountNumberMasked String?
   bankName            String?
   createdAt           DateTime @default(now())
+
+  session OnboardingSession @relation(fields: [sessionId], references: [id])
 }
 
 model OnboardingSkillRating {
@@ -694,6 +730,10 @@ model OnboardingSkillRating {
   skillId   String
   level     Int
   updatedAt DateTime @updatedAt
+
+  session OnboardingSession @relation(fields: [sessionId], references: [id])
+
+  @@unique([sessionId, skillId], name: "OnboardingSkillRating_session_skill_key")
 }
 
 model SkillCategory {
@@ -709,6 +749,7 @@ model SkillDefinition {
   categoryId  String
   code        String  @unique
   label       String
+  tradeLabel  String?
   description String?
   sortOrder   Int     @default(0)
   active      Boolean @default(true)
@@ -724,6 +765,8 @@ model UserSkillRating {
   notes               String?
   employerAvgLevel    Float?
   employerRatingCount Int?
+  clientAvgLevel      Float?
+  clientRatingCount   Int?
   adminOverrideLevel  Int?
   updatedAt           DateTime @updatedAt
 
@@ -744,6 +787,36 @@ model EmployerSkillRating {
 
   @@index([userId, skillId], map: "EmployerSkillRating_user_skill_idx")
   @@index([companyId], map: "EmployerSkillRating_company_idx")
+}
+
+model ClientSkillRating {
+  id              String   @id @default(cuid())
+  userId          String
+  skillId         String
+  clientCompanyId String?
+  ratedByUserId   String?
+  level           Int
+  levelLabel      String?
+  comment         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, skillId], map: "ClientSkillRating_user_skill_idx")
+  @@index([clientCompanyId], map: "ClientSkillRating_company_idx")
+}
+
+model UserSkillSuggestion {
+  id            String   @id @default(cuid())
+  userId        String
+  label         String
+  categoryLabel String?
+  description   String?
+  status        String   @default("PENDING")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId], map: "UserSkillSuggestion_user_idx")
+  @@index([status], map: "UserSkillSuggestion_status_idx")
 }
 
 model ReputationRating {
