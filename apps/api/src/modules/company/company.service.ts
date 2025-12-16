@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
-import { Role } from "@prisma/client";
+import { GlobalRole, Role } from "@prisma/client";
 import { AuditService } from "../../common/audit.service";
 import { EmailService } from "../../common/email.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
@@ -40,27 +40,53 @@ export class CompanyService {
                 email: true,
                 globalRole: true,
                 userType: true,
-              }
-            }
-          }
+              },
+            },
+          },
         }
       }
     });
   }
 
   async createCompany(name: string, userId: string, actor: AuthenticatedUser) {
-    const company = await this.prisma.company.create({
-      data: {
-        name
-      }
-    });
+    const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
 
-    await this.prisma.companyMembership.create({
-      data: {
-        userId,
-        companyId: company.id,
-        role: Role.OWNER
+    const company = await this.prisma.$transaction(async tx => {
+      const created = await tx.company.create({
+        data: {
+          name
+        }
+      });
+
+      // Creator gets OWNER membership; SUPER_ADMIN should be silent.
+      await tx.companyMembership.create({
+        data: {
+          userId,
+          companyId: created.id,
+          role: Role.OWNER,
+          isHidden: isSuperAdmin,
+        }
+      });
+
+      // Ensure all SUPER_ADMIN users have silent access to the new company.
+      const superAdmins = await tx.user.findMany({
+        where: { globalRole: GlobalRole.SUPER_ADMIN },
+        select: { id: true },
+      });
+
+      if (superAdmins.length) {
+        await tx.companyMembership.createMany({
+          data: superAdmins.map(u => ({
+            userId: u.id,
+            companyId: created.id,
+            role: Role.OWNER,
+            isHidden: true,
+          })),
+          skipDuplicates: true,
+        });
       }
+
+      return created;
     });
 
     await this.audit.log(actor, "COMPANY_CREATED", {
@@ -144,10 +170,10 @@ export class CompanyService {
             id: true,
             email: true,
             globalRole: true,
-            userType: true
-          }
-        }
-      }
+            userType: true,
+          },
+        },
+      },
     });
   }
 

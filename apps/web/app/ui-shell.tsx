@@ -136,6 +136,15 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               Reports
             </Link>
+            <Link
+              href="/company/users"
+              className={
+                "app-nav-link" +
+                (isActive("/company/users") ? " app-nav-link-active" : "")
+              }
+            >
+              People
+            </Link>
           </nav>
         </div>
         <div className="app-header-right">
