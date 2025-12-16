@@ -79,6 +79,9 @@ interface DailyLogAttachmentDto {
   sizeBytes?: number | null;
 }
 
+type CompanyRole = "OWNER" | "ADMIN" | "MEMBER" | "CLIENT";
+type GlobalRole = "SUPER_ADMIN" | "NONE" | string;
+
 interface DailyLog {
   id: string;
   projectId: string;
@@ -201,10 +204,28 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
     | null
   >(null);
 
+  const [currentCompanyId, setCurrentCompanyId] = useState<string | null>(null);
+  const [actorCompanyRole, setActorCompanyRole] = useState<CompanyRole | null>(null);
+  const [actorGlobalRole, setActorGlobalRole] = useState<GlobalRole | null>(null);
+
   const [availableMembers, setAvailableMembers] = useState<
     { userId: string; email: string; role: string }[]
   >([]);
   const [newMemberRole, setNewMemberRole] = useState<"MANAGER" | "VIEWER">("MANAGER");
+  const [bulkInternalSelection, setBulkInternalSelection] = useState<string[]>([]);
+  const [bulkInternalSaving, setBulkInternalSaving] = useState(false);
+  const [bulkInternalMessage, setBulkInternalMessage] = useState<string | null>(null);
+
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [invitePassword, setInvitePassword] = useState("");
+  const [inviteProjectRole, setInviteProjectRole] = useState<"MANAGER" | "VIEWER">("MANAGER");
+  const [inviteSaving, setInviteSaving] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
+
+  // Controls which admin action panel (if any) is visible under Participants.
+  const [participantAdminMode, setParticipantAdminMode] = useState<
+    "none" | "internal" | "invite"
+  >("none");
 
   const [availableTags, setAvailableTags] = useState<SimpleTag[]>([]);
   const [projectTags, setProjectTags] = useState<TagAssignmentDto[]>([]);
@@ -645,7 +666,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
     };
   }, [project, activeTab]);
 
-  // Load organization-related metadata (company members, tags, participants) when SUMMARY tab is active
+  // Load organization-related metadata (company members, tags, participants, actor roles) when SUMMARY tab is active
   useEffect(() => {
     if (!project) return;
     const token = localStorage.getItem("accessToken");
@@ -656,8 +677,11 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
 
     const loadMeta = async () => {
       try {
-        const [companyRes, tagRes, projTagsRes, partsRes] = await Promise.all([
+        const [companyRes, meRes, tagRes, projTagsRes, partsRes] = await Promise.all([
           fetch(`${API_BASE}/companies/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE}/users/me`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
           fetch(`${API_BASE}/tags?entityType=project`, {
@@ -671,8 +695,35 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
           }),
         ]);
 
+        if (!cancelled && meRes.ok) {
+          const meJson: any = await meRes.json();
+          const globalRole: GlobalRole = meJson.globalRole ?? "NONE";
+          setActorGlobalRole(globalRole);
+
+          const storedCompanyId =
+            typeof window !== "undefined"
+              ? window.localStorage.getItem("companyId")
+              : null;
+          let effectiveCompanyId = storedCompanyId;
+          if (!effectiveCompanyId && Array.isArray(meJson.memberships) && meJson.memberships[0]) {
+            effectiveCompanyId = meJson.memberships[0].companyId;
+          }
+          if (effectiveCompanyId) {
+            setCurrentCompanyId(effectiveCompanyId);
+            const membership = meJson.memberships?.find(
+              (m: any) => m.companyId === effectiveCompanyId,
+            );
+            if (membership) {
+              setActorCompanyRole(membership.role as CompanyRole);
+            }
+          }
+        }
+
         if (!cancelled && companyRes.ok) {
           const companyJson: any = await companyRes.json();
+          if (!currentCompanyId && companyJson?.id) {
+            setCurrentCompanyId(companyJson.id);
+          }
           const members: any[] = companyJson?.memberships ?? [];
           setAvailableMembers(
             members.map((m) => ({
@@ -1476,9 +1527,46 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                 fontSize: 13,
                 fontWeight: 600,
                 background: "#f3f4f6",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "flex-start",
+                gap: 8,
               }}
             >
-              Participants
+              <span>Participants</span>
+              {(actorGlobalRole === "SUPER_ADMIN" ||
+                actorCompanyRole === "OWNER" ||
+                actorCompanyRole === "ADMIN" ||
+                actorCompanyRole === "MEMBER") && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <select
+                    value={participantAdminMode}
+                    onChange={e => {
+                      const value = e.target.value as
+                        | "none"
+                        | "internal"
+                        | "invite";
+                      setParticipantAdminMode(value);
+                    }}
+                    style={{
+                      marginLeft: 8,
+                      padding: "4px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                      background: "#ffffff",
+                    }}
+                  >
+                    <option value="none">Add participants…</option>
+                    <option value="internal">Add Nexus user(s) from my company</option>
+                    {actorGlobalRole === "SUPER_ADMIN" && (
+                      <option value="invite">
+                        Add new user with temp password
+                      </option>
+                    )}
+                  </select>
+                </div>
+              )}
             </div>
             <div
               style={{
@@ -1506,85 +1594,9 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                     ))}
                   </ul>
                 )}
-                {/* Simple add internal user control */}
-                {availableMembers.length > 0 && (
-                  <div style={{ marginTop: 8, display: "flex", gap: 4, alignItems: "center" }}>
-                    {/* Role select */}
-                    <select
-                      value={newMemberRole}
-                      onChange={e => setNewMemberRole(e.target.value as "MANAGER" | "VIEWER")}
-                      style={{
-                        padding: "2px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 12,
-                      }}
-                    >
-                      <option value="MANAGER">Manager</option>
-                      <option value="VIEWER">Viewer</option>
-                    </select>
-
-                    {/* User select (excluding those already on project) */}
-                    <select
-                      onChange={async (e) => {
-                        const userId = e.target.value;
-                        if (!userId) return;
-                        const token = localStorage.getItem("accessToken");
-                        if (!token) {
-                          alert("Missing access token; please log in again.");
-                          return;
-                        }
-                        try {
-                          const res = await fetch(`${API_BASE}/projects/${id}/members`, {
-                            method: "POST",
-                            headers: {
-                              "Content-Type": "application/json",
-                              Authorization: `Bearer ${token}`,
-                            },
-                            body: JSON.stringify({
-                              userId,
-                              role: newMemberRole,
-                            }),
-                          });
-                          if (res.ok) {
-                            // refresh participants after adding
-                            const partsRes = await fetch(`${API_BASE}/projects/${id}/participants`, {
-                              headers: { Authorization: `Bearer ${token}` },
-                            });
-                            if (partsRes.ok) {
-                              const json: any = await partsRes.json();
-                              setParticipants({
-                                myOrganization: json.myOrganization ?? [],
-                                collaborators: json.collaborators ?? [],
-                              });
-                            }
-                          }
-                        } finally {
-                          // reset select back to placeholder
-                          e.target.value = "";
-                        }
-                      }}
-                      defaultValue=""
-                      style={{
-                        padding: "2px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 12,
-                      }}
-                    >
-                      <option value="">+ Add internal user…</option>
-                      {availableMembers
-                        .filter(m =>
-                          !participants?.myOrganization.some(p => p.userId === m.userId),
-                        )
-                        .map(m => (
-                          <option key={m.userId} value={m.userId}>
-                            {m.email}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                )}
+                {/* Inline add-internal-user control has been removed in favor of the bulk selector
+                    below. Use the Participants header dropdown to open the multi-select panel.
+                */}
               </div>
 
               {/* Collaborators */}
@@ -1620,8 +1632,553 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                     ))}
                   </div>
                 )}
+
+                {/* Placeholder: collaborator management UI (to be implemented) */}
+                {(actorGlobalRole === "SUPER_ADMIN" ||
+                  actorCompanyRole === "OWNER" ||
+                  actorCompanyRole === "ADMIN") && (
+                  <div style={{ marginTop: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Placeholder only for now; real collaborator flows will be wired later.
+                        alert(
+                          "Collaborator management is coming soon. This will let you connect external organizations and users to this project.",
+                        );
+                      }}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        backgroundColor: "#f9fafb",
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      + Add collaborator (coming soon)
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Admin / foreman bulk add + invite panel, driven by dropdown mode */}
+            {(actorGlobalRole === "SUPER_ADMIN" ||
+              actorCompanyRole === "OWNER" ||
+              actorCompanyRole === "ADMIN" ||
+              actorCompanyRole === "MEMBER") &&
+              participantAdminMode !== "none" && (
+              <div
+                style={{
+                  borderTop: "1px solid #e5e7eb",
+                  padding: 10,
+                  fontSize: 12,
+                  background: "#f9fafb",
+                }}
+              >
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1.2fr 1.1fr",
+                    gap: 16,
+                    alignItems: "flex-start",
+                  }}
+                >
+                  {/* Bulk add existing internal users (mode: internal) */}
+                  {participantAdminMode === "internal" && (
+                    <div>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                      Add existing internal users
+                    </div>
+                    <p style={{ marginTop: 0, marginBottom: 6, color: "#6b7280" }}>
+                      Select one or more company members and add them to this project
+                      with a project-level role.
+                    </p>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        marginBottom: 6,
+                      }}
+                    >
+                      <span style={{ fontSize: 11, color: "#4b5563" }}>Project role</span>
+                      <select
+                        value={newMemberRole}
+                        onChange={e =>
+                          setNewMemberRole(e.target.value as "MANAGER" | "VIEWER")
+                        }
+                        style={{
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 12,
+                        }}
+                      >
+                        <option value="MANAGER">Manager</option>
+                        <option value="VIEWER">Viewer</option>
+                      </select>
+                    </div>
+                    <div
+                      style={{
+                        maxHeight: 160,
+                        overflow: "auto",
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 4,
+                        background: "#ffffff",
+                        padding: 6,
+                      }}
+                    >
+                      {(() => {
+                        const addableMembers = availableMembers.filter(m =>
+                          !participants?.myOrganization.some(p => p.userId === m.userId),
+                        );
+                        if (addableMembers.length === 0) {
+                          return (
+                            <div style={{ fontSize: 12, color: "#6b7280" }}>
+                              All company members are already on this project.
+                            </div>
+                          );
+                        }
+                        const allSelected =
+                          addableMembers.length > 0 &&
+                          addableMembers.every(m =>
+                            bulkInternalSelection.includes(m.userId),
+                          );
+                        return (
+                          <>
+                            <div
+                              style={{
+                                marginBottom: 4,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                              }}
+                            >
+                              <label
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  fontSize: 12,
+                                  color: "#4b5563",
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={allSelected}
+                                  onChange={e => {
+                                    const checked = e.target.checked;
+                                    setBulkInternalSelection(
+                                      checked
+                                        ? addableMembers.map(m => m.userId)
+                                        : [],
+                                    );
+                                  }}
+                                />
+                                <span>Select all</span>
+                              </label>
+                            </div>
+                            <ul
+                              style={{
+                                listStyle: "none",
+                                padding: 0,
+                                margin: 0,
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 4,
+                              }}
+                            >
+                              {addableMembers.map(m => (
+                                <li key={m.userId}>
+                                  <label
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 6,
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={bulkInternalSelection.includes(m.userId)}
+                                      onChange={e => {
+                                        setBulkInternalSelection(prev => {
+                                          if (e.target.checked) {
+                                            return [...prev, m.userId];
+                                          }
+                                          return prev.filter(id => id !== m.userId);
+                                        });
+                                      }}
+                                    />
+                                    <span>{m.email}</span>
+                                    {m.role && (
+                                      <span
+                                        style={{
+                                          fontSize: 11,
+                                          color: "#6b7280",
+                                        }}
+                                      >
+                                        ({m.role})
+                                      </span>
+                                    )}
+                                  </label>
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
+                      <button
+                        type="button"
+                        disabled={
+                          bulkInternalSaving || bulkInternalSelection.length === 0
+                        }
+                        onClick={async () => {
+                          setBulkInternalMessage(null);
+                          if (!bulkInternalSelection.length) return;
+                          const token = localStorage.getItem("accessToken");
+                          if (!token) {
+                            setBulkInternalMessage(
+                              "Missing access token; please log in again.",
+                            );
+                            return;
+                          }
+                          try {
+                            setBulkInternalSaving(true);
+                            const uniqueIds = Array.from(
+                              new Set(bulkInternalSelection),
+                            );
+                            for (const userId of uniqueIds) {
+                              // eslint-disable-next-line no-await-in-loop
+                              await fetch(`${API_BASE}/projects/${id}/members`, {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  Authorization: `Bearer ${token}`,
+                                },
+                                body: JSON.stringify({
+                                  userId,
+                                  role: newMemberRole,
+                                }),
+                              });
+                            }
+                            // Refresh participants
+                            const partsRes = await fetch(
+                              `${API_BASE}/projects/${id}/participants`,
+                              {
+                                headers: { Authorization: `Bearer ${token}` },
+                              },
+                            );
+                            if (partsRes.ok) {
+                              const json: any = await partsRes.json();
+                              setParticipants({
+                                myOrganization: json.myOrganization ?? [],
+                                collaborators: json.collaborators ?? [],
+                              });
+                            }
+                            setBulkInternalMessage(
+                              `Added ${bulkInternalSelection.length} user(s) to this project.`,
+                            );
+                            setBulkInternalSelection([]);
+                          } catch (err: any) {
+                            setBulkInternalMessage(
+                              err?.message ?? "Failed to add internal users.",
+                            );
+                          } finally {
+                            setBulkInternalSaving(false);
+                          }
+                        }}
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 4,
+                          border: "1px solid #0f172a",
+                          backgroundColor:
+                            bulkInternalSaving || bulkInternalSelection.length === 0
+                              ? "#e5e7eb"
+                              : "#0f172a",
+                          color:
+                            bulkInternalSaving || bulkInternalSelection.length === 0
+                              ? "#4b5563"
+                              : "#f9fafb",
+                          fontSize: 12,
+                          cursor:
+                            bulkInternalSaving || bulkInternalSelection.length === 0
+                              ? "default"
+                              : "pointer",
+                        }}
+                      >
+                        {bulkInternalSaving
+                          ? "Adding…"
+                          : "Add selected to project"}
+                      </button>
+                      {bulkInternalMessage && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: bulkInternalMessage.toLowerCase().includes(
+                              "fail",
+                            )
+                              ? "#b91c1c"
+                              : "#4b5563",
+                            alignSelf: "center",
+                          }}
+                        >
+                          {bulkInternalMessage}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  )}
+
+                  {/* SUPER_ADMIN-only: invite new user with temp password (mode: invite) */}
+                  {actorGlobalRole === "SUPER_ADMIN" &&
+                    participantAdminMode === "invite" && (
+                    <div>
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                        Invite new user with temporary password
+                      </div>
+                      <p
+                        style={{
+                          marginTop: 0,
+                          marginBottom: 6,
+                          color: "#6b7280",
+                        }}
+                      >
+                        Creates a user, attaches them to your company as a MEMBER,
+                        and adds them to this project. Share the temp password
+                        with the user out-of-band.
+                      </p>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 6,
+                        }}
+                      >
+                        <label style={{ fontSize: 12 }}>
+                          <span
+                            style={{ display: "block", marginBottom: 2 }}
+                          >
+                            Email
+                          </span>
+                          <input
+                            type="email"
+                            value={inviteEmail}
+                            onChange={e => setInviteEmail(e.target.value)}
+                            style={{
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </label>
+                        <label style={{ fontSize: 12 }}>
+                          <span
+                            style={{ display: "block", marginBottom: 2 }}
+                          >
+                            Temporary password
+                          </span>
+                          <input
+                            type="password"
+                            value={invitePassword}
+                            onChange={e => setInvitePassword(e.target.value)}
+                            style={{
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </label>
+                        <label style={{ fontSize: 12 }}>
+                          <span
+                            style={{ display: "block", marginBottom: 2 }}
+                          >
+                            Project role
+                          </span>
+                          <select
+                            value={inviteProjectRole}
+                            onChange={e =>
+                              setInviteProjectRole(
+                                e.target.value as "MANAGER" | "VIEWER",
+                              )
+                            }
+                            style={{
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          >
+                            <option value="MANAGER">Manager</option>
+                            <option value="VIEWER">Viewer</option>
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          disabled={
+                            inviteSaving ||
+                            !inviteEmail.trim() ||
+                            !invitePassword.trim() ||
+                            !currentCompanyId
+                          }
+                          onClick={async () => {
+                            setInviteMessage(null);
+                            if (!currentCompanyId) {
+                              setInviteMessage("Missing company context.");
+                              return;
+                            }
+                            const token = localStorage.getItem("accessToken");
+                            if (!token) {
+                              setInviteMessage(
+                                "Missing access token; please log in again.",
+                              );
+                              return;
+                            }
+                            try {
+                              setInviteSaving(true);
+                              const createRes = await fetch(
+                                `${API_BASE}/admin/create-user-with-password`,
+                                {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                  body: JSON.stringify({
+                                    email: inviteEmail.trim(),
+                                    password: invitePassword,
+                                    companyId: currentCompanyId,
+                                    role: "MEMBER",
+                                  }),
+                                },
+                              );
+                              if (!createRes.ok) {
+                                const text = await createRes
+                                  .text()
+                                  .catch(() => "");
+                                setInviteMessage(
+                                  `Failed to create user (${createRes.status}) ${text}`,
+                                );
+                                return;
+                              }
+                              const created: any = await createRes.json();
+                              const newUserId: string | undefined =
+                                created?.user?.id ?? created?.id;
+                              if (!newUserId) {
+                                setInviteMessage(
+                                  "User was created but no user ID was returned.",
+                                );
+                                return;
+                              }
+                              const attachRes = await fetch(
+                                `${API_BASE}/projects/${id}/members`,
+                                {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                  body: JSON.stringify({
+                                    userId: newUserId,
+                                    role: inviteProjectRole,
+                                  }),
+                                },
+                              );
+                              if (!attachRes.ok) {
+                                const text = await attachRes
+                                  .text()
+                                  .catch(() => "");
+                              setInviteMessage(
+                                  `User created but failed to add to project (${attachRes.status}) ${text}`,
+                                );
+                                return;
+                              }
+                              const partsRes = await fetch(
+                                `${API_BASE}/projects/${id}/participants`,
+                                {
+                                  headers: { Authorization: `Bearer ${token}` },
+                                },
+                              );
+                              if (partsRes.ok) {
+                                const json: any = await partsRes.json();
+                                setParticipants({
+                                  myOrganization: json.myOrganization ?? [],
+                                  collaborators: json.collaborators ?? [],
+                                });
+                              }
+                              setInviteMessage(
+                                "User created and added to this project.",
+                              );
+                              setInviteEmail("");
+                              setInvitePassword("");
+                            } catch (err: any) {
+                              setInviteMessage(
+                                err?.message ?? "Failed to invite user.",
+                              );
+                            } finally {
+                              setInviteSaving(false);
+                            }
+                          }}
+                          style={{
+                            marginTop: 4,
+                            padding: "6px 10px",
+                            borderRadius: 4,
+                            border: "1px solid #0f172a",
+                            backgroundColor:
+                              inviteSaving ||
+                              !inviteEmail.trim() ||
+                              !invitePassword.trim() ||
+                              !currentCompanyId
+                                ? "#e5e7eb"
+                                : "#0f172a",
+                            color:
+                              inviteSaving ||
+                              !inviteEmail.trim() ||
+                              !invitePassword.trim() ||
+                              !currentCompanyId
+                                ? "#4b5563"
+                                : "#f9fafb",
+                            fontSize: 12,
+                            cursor:
+                              inviteSaving ||
+                              !inviteEmail.trim() ||
+                              !invitePassword.trim() ||
+                              !currentCompanyId
+                                ? "default"
+                                : "pointer",
+                          }}
+                        >
+                          {inviteSaving ? "Inviting…" : "Invite and add to project"}
+                        </button>
+                        {inviteMessage && (
+                          <p
+                            style={{
+                              margin: 0,
+                              marginTop: 4,
+                              fontSize: 11,
+                              color: inviteMessage
+                                .toLowerCase()
+                                .includes("fail")
+                                ? "#b91c1c"
+                                : "#4b5563",
+                            }}
+                          >
+                            {inviteMessage}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

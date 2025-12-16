@@ -1,4 +1,4 @@
-import { IsEnum, IsNumber, IsOptional, IsString, IsUUID } from "class-validator";
+import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString } from "class-validator";
 import { ProjectRole } from "@prisma/client";
 
 export class CreateProjectDto {
@@ -52,7 +52,9 @@ export class CreateProjectDto {
 }
 
 export class AddProjectMemberDto {
-  @IsUUID()
+  // User IDs are Prisma string IDs (cuid), not RFC4122 UUIDs.
+  @IsString()
+  @IsNotEmpty()
   userId!: string;
 
   @IsEnum(ProjectRole)
