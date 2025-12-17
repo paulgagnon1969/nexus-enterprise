@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useState } from "react";
+import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -116,6 +116,53 @@ function CompanyUsersPageInner() {
   const [initialError, setInitialError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<"users" | "candidates">("users");
+
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const copyTimerRef = useRef<number | null>(null);
+
+  const onboardingUrl =
+    typeof window !== "undefined" ? `${window.location.origin}/apply` : "/apply";
+
+  async function copyOnboardingUrl() {
+    try {
+      const text = onboardingUrl;
+
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else if (typeof document !== "undefined") {
+        const el = document.createElement("textarea");
+        el.value = text;
+        el.style.position = "fixed";
+        el.style.top = "-1000px";
+        el.style.left = "-1000px";
+        document.body.appendChild(el);
+        el.focus();
+        el.select();
+        document.execCommand("copy");
+        document.body.removeChild(el);
+      }
+
+      setCopyState("copied");
+      if (copyTimerRef.current != null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+      copyTimerRef.current = window.setTimeout(() => setCopyState("idle"), 2000);
+    } catch {
+      setCopyState("error");
+      if (copyTimerRef.current != null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+      copyTimerRef.current = window.setTimeout(() => setCopyState("idle"), 2500);
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current != null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
 
   // Allow deep-links like /company/users?tab=candidates
   useEffect(() => {
@@ -670,6 +717,50 @@ function CompanyUsersPageInner() {
           )}
         </p>
       )}
+
+      <div
+        style={{
+          marginTop: 10,
+          padding: 10,
+          border: "1px solid #e5e7eb",
+          borderRadius: 8,
+          background: "#f9fafb",
+          display: "flex",
+          gap: 10,
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ fontSize: 12, color: "#4b5563" }}>
+          <div style={{ fontWeight: 700, color: "#111827" }}>Onboarding URL</div>
+          <div style={{ marginTop: 2, fontFamily: "monospace" }}>{onboardingUrl}</div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            type="button"
+            onClick={() => void copyOnboardingUrl()}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: "1px solid #0f172a",
+              background: "#0f172a",
+              color: "#f9fafb",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            Copy onboarding URL
+          </button>
+          {copyState === "copied" && (
+            <span style={{ fontSize: 12, color: "#16a34a" }}>Copied</span>
+          )}
+          {copyState === "error" && (
+            <span style={{ fontSize: 12, color: "#b91c1c" }}>Copy failed</span>
+          )}
+        </div>
+      </div>
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 8, marginTop: 12, marginBottom: 12 }}>
