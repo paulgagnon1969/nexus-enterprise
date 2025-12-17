@@ -1,12 +1,27 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import PublicOnboardingForm from "../onboarding/public-onboarding-form";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export default function ApplyPage() {
+  return (
+    <Suspense
+      fallback={
+        <main style={{ padding: "2rem", maxWidth: 720, margin: "0 auto" }}>
+          <h1 style={{ marginTop: 0 }}>NEXUS Recruitment</h1>
+          <p style={{ fontSize: 14, color: "#6b7280" }}>Loading…</p>
+        </main>
+      }
+    >
+      <ApplyPageInner />
+    </Suspense>
+  );
+}
+
+function ApplyPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 

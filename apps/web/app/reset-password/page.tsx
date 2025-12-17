@@ -1,11 +1,26 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export default function ResetPasswordPage() {
+  return (
+    <Suspense
+      fallback={
+        <main style={{ padding: "2rem", maxWidth: 520, margin: "0 auto" }}>
+          <h1 style={{ marginTop: 0 }}>Reset password</h1>
+          <p style={{ fontSize: 13, color: "#6b7280" }}>Loading…</p>
+        </main>
+      }
+    >
+      <ResetPasswordPageInner />
+    </Suspense>
+  );
+}
+
+function ResetPasswordPageInner() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token") || "";
 

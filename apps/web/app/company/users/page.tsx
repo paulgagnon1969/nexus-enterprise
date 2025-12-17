@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -50,6 +50,20 @@ interface CompanyInviteRow {
 }
 
 export default function CompanyUsersPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="app-card">
+          <p style={{ fontSize: 14, color: "#6b7280" }}>Loading people…</p>
+        </div>
+      }
+    >
+      <CompanyUsersPageInner />
+    </Suspense>
+  );
+}
+
+function CompanyUsersPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [me, setMe] = useState<MeResponse | null>(null);
