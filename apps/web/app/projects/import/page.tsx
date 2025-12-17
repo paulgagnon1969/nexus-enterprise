@@ -24,6 +24,12 @@ function ProjectImportPageInner() {
   const [componentsResult, setComponentsResult] = useState<any>(null);
   const [componentsError, setComponentsError] = useState<string | null>(null);
 
+  // Async import job tracking (local dev / worker mode)
+  const [rawJobId, setRawJobId] = useState<string | null>(null);
+  const [rawJob, setRawJob] = useState<any>(null);
+  const [componentsJobId, setComponentsJobId] = useState<string | null>(null);
+  const [componentsJob, setComponentsJob] = useState<any>(null);
+
   const isAnyLoading = loading || componentsLoading;
 
   const searchParams = useSearchParams();
@@ -56,9 +62,8 @@ function ProjectImportPageInner() {
   useEffect(() => {
     if (!isAnyLoading) return;
 
-    // Start a gentle, time-based progress that tops out at ~85% until the
-    // server finishes the import. This keeps the bar moving without
-    // overshooting completion.
+    // This progress bar represents *upload + request time*, not the async import job.
+    // The job progress is shown separately once we receive a jobId.
     setProgress(5);
 
     const id = window.setInterval(() => {
@@ -70,10 +75,79 @@ function ProjectImportPageInner() {
 
     return () => {
       window.clearInterval(id);
-      // when loading ends, show completion
       setProgress(100);
     };
   }, [isAnyLoading]);
+
+  useEffect(() => {
+    if (!rawJobId) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let done = false;
+
+    async function poll() {
+      try {
+        const res = await fetch(`${API_BASE}/import-jobs/${rawJobId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        setRawJob(json);
+        if (json?.status === "SUCCEEDED" || json?.status === "FAILED") {
+          done = true;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    void poll();
+    const id = window.setInterval(() => {
+      if (done) return;
+      void poll();
+    }, 1500);
+
+    return () => {
+      window.clearInterval(id);
+      done = true;
+    };
+  }, [rawJobId]);
+
+  useEffect(() => {
+    if (!componentsJobId) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let done = false;
+
+    async function poll() {
+      try {
+        const res = await fetch(`${API_BASE}/import-jobs/${componentsJobId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        setComponentsJob(json);
+        if (json?.status === "SUCCEEDED" || json?.status === "FAILED") {
+          done = true;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    void poll();
+    const id = window.setInterval(() => {
+      if (done) return;
+      void poll();
+    }, 1500);
+
+    return () => {
+      window.clearInterval(id);
+      done = true;
+    };
+  }, [componentsJobId]);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -124,30 +198,15 @@ function ProjectImportPageInner() {
 
       setResult(json);
 
-      // After a successful import, do a short poll of the estimate summary
-      // so we can be confident PETL is available before redirecting.
-      try {
-        const maxAttempts = 10;
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-          const summaryRes = await fetch(
-            `${API_BASE}/projects/${projectId}/estimate-summary`,
-            {
-              headers: { Authorization: `Bearer ${token}` }
-            }
-          );
-          if (summaryRes.ok) {
-            const summary: any = await summaryRes.json().catch(() => null);
-            if (summary && typeof summary.itemCount === "number" && summary.itemCount > 0) {
-              break;
-            }
-          }
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      } catch {
-        // If summary polling fails, still continue to redirect; PETL may still be ready.
+      // If the backend enqueued an async import job, start polling status and
+      // allow the user to keep using the app while it runs.
+      if (json?.jobId) {
+        setRawJobId(String(json.jobId));
+        setLoading(false);
+        return;
       }
 
-      // Stop showing the loading overlay and move the user to the PETL list.
+      // Legacy synchronous behavior: redirect to PETL once import finishes.
       setLoading(false);
       alert("Import complete. Opening PETL list for this project…");
       window.location.href = `/projects/${projectId}?tab=PETL`;
@@ -209,6 +268,10 @@ function ProjectImportPageInner() {
       }
 
       setComponentsResult(json);
+
+      if (json?.jobId) {
+        setComponentsJobId(String(json.jobId));
+      }
     } catch (err: any) {
       setComponentsError(err.message ?? String(err));
     } finally {
@@ -301,6 +364,37 @@ function ProjectImportPageInner() {
           {loading ? "Importing…" : "Upload & import"}
         </button>
 
+        {rawJobId && (
+          <div style={{ marginTop: 8, fontSize: 12 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+              RAW import job: {rawJobId}
+            </div>
+            <div style={{ color: "#6b7280", marginBottom: 6 }}>
+              Status: {rawJob?.status ?? "…"} · Progress: {rawJob?.progress ?? 0}%
+              {rawJob?.message ? ` · ${rawJob.message}` : ""}
+            </div>
+            <div
+              style={{
+                width: "100%",
+                height: 8,
+                borderRadius: 999,
+                backgroundColor: "#e5e7eb",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${rawJob?.progress ?? 0}%`,
+                  height: "100%",
+                  backgroundColor:
+                    rawJob?.status === "FAILED" ? "#ef4444" : "#2563eb",
+                  transition: "width 0.4s ease-out",
+                }}
+              />
+            </div>
+          </div>
+        )}
+
         {result && (
           <pre
             style={{
@@ -364,6 +458,37 @@ function ProjectImportPageInner() {
           >
             {componentsLoading ? "Importing components…" : "Upload components CSV"}
           </button>
+
+          {componentsJobId && (
+            <div style={{ marginTop: 8, fontSize: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                Components import job: {componentsJobId}
+              </div>
+              <div style={{ color: "#6b7280", marginBottom: 6 }}>
+                Status: {componentsJob?.status ?? "…"} · Progress: {componentsJob?.progress ?? 0}%
+                {componentsJob?.message ? ` · ${componentsJob.message}` : ""}
+              </div>
+              <div
+                style={{
+                  width: "100%",
+                  height: 8,
+                  borderRadius: 999,
+                  backgroundColor: "#e5e7eb",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${componentsJob?.progress ?? 0}%`,
+                    height: "100%",
+                    backgroundColor:
+                      componentsJob?.status === "FAILED" ? "#ef4444" : "#0f172a",
+                    transition: "width 0.4s ease-out",
+                  }}
+                />
+              </div>
+            </div>
+          )}
 
           {componentsResult && (
             <pre
@@ -430,9 +555,9 @@ function ProjectImportPageInner() {
                 }}
               />
             </div>
-            <div style={{ color: "#9ca3af", marginTop: 4 }}>{progress}% complete (approximate)</div>
+            <div style={{ color: "#9ca3af", marginTop: 4 }}>{progress}% complete (upload)</div>
             <div style={{ color: "#9ca3af", marginTop: 2 }}>
-              Please keep this tab open until the import finishes.
+              You can keep working once the upload finishes; processing runs in the background.
             </div>
           </div>
         </div>

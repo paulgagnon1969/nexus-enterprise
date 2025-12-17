@@ -45,17 +45,22 @@ export async function POST(
       ? `Bearer ${accessToken}`
       : authHeaderFromReq;
 
-    const apiRes = await fetch(
-      `${apiBase}/projects/${projectId}/import-xact-components`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authHeader ? { Authorization: authHeader } : {}),
-        },
-        body: JSON.stringify({ csvPath: filePath }),
+    const isLocalApi = /localhost|127\.0\.0\.1/.test(apiBase);
+
+    const endpoint = isLocalApi
+      ? `${apiBase}/projects/${projectId}/import-jobs/xact-components`
+      : `${apiBase}/projects/${projectId}/import-xact-components`;
+
+    const payload = isLocalApi ? { csvPath: filePath } : { csvPath: filePath };
+
+    const apiRes = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(authHeader ? { Authorization: authHeader } : {}),
       },
-    );
+      body: JSON.stringify(payload),
+    });
 
     const json = await apiRes.json().catch(() => ({}));
 
