@@ -29,7 +29,7 @@ a:hover {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -124,6 +124,9 @@ a:hover {
 
 .app-main {
   padding: 12px 20px 24px;
+  flex: 1;
+  min-height: 0; /* allow children to be scroll containers without forcing page overflow */
+  overflow: auto;
 }
 
 .app-card {
@@ -132,4 +135,55 @@ a:hover {
   border-radius: 8px;
   padding: 20px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+/* Header dropdown (used by People menu) */
+.nexus-nav-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.nexus-nav-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 8px;
+  min-width: 240px;
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+  border: 1px solid var(--color-border-subtle);
+  padding: 8px;
+  z-index: 60;
+  animation: nexusDropdownIn 140ms ease-out;
+  transform-origin: top;
+}
+
+@keyframes nexusDropdownIn {
+  from {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.nexus-nav-dropdown-item {
+  width: 100%;
+  text-align: left;
+  padding: 10px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.nexus-nav-dropdown-item:hover {
+  background: #f9fafb;
+  border-color: var(--color-border-subtle);
 }

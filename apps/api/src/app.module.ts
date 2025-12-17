@@ -19,6 +19,7 @@ import { DailyLogModule } from "./modules/daily-log/daily-log.module";
 import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { SkillsModule } from "./modules/skills/skills.module";
 import { ReputationModule } from "./modules/reputation/reputation.module";
+import { ImportJobsModule } from "./modules/import-jobs/import-jobs.module";
 
 @Module({
   imports: [
@@ -45,7 +46,8 @@ import { ReputationModule } from "./modules/reputation/reputation.module";
     DailyLogModule,
     OnboardingModule,
     SkillsModule,
-    ReputationModule
+    ReputationModule,
+    ImportJobsModule
   ],
   controllers: [DevController]
 })

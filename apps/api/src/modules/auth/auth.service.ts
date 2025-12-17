@@ -7,16 +7,23 @@ import { RegisterDto, LoginDto, ChangePasswordDto } from "./dto/auth.dto";
 import { Role, GlobalRole, UserType } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { AuthenticatedUser } from "./jwt.strategy";
+import { EmailService } from "../../common/email.service";
 
 const REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const PASSWORD_RESET_TTL_SECONDS = 60 * 15; // 15 minutes
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
-    private readonly jwt: JwtService
+    private readonly jwt: JwtService,
+    private readonly email: EmailService
   ) {}
+
+  private normalizeEmail(email: string): string {
+    return email.trim().toLowerCase();
+  }
 
   private getDefaultProfileCodeForRole(role: Role): string | null {
     switch (role) {
@@ -33,8 +40,10 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
-    const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email }
+    const email = this.normalizeEmail(dto.email);
+
+    const existing = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } }
     });
     if (existing) {
       throw new BadRequestException("Email already in use");
@@ -45,7 +54,7 @@ export class AuthService {
     const [user, company] = await this.prisma.$transaction([
       this.prisma.user.create({
         data: {
-          email: dto.email,
+          email,
           passwordHash,
           userType: UserType.INTERNAL
         }
@@ -101,6 +110,8 @@ export class AuthService {
   }
 
   async bootstrapSuperAdmin(email: string, password: string) {
+    const normalizedEmail = this.normalizeEmail(email);
+
     // Allow bootstrap only if there is no SUPER_ADMIN yet, or the only
     // SUPER_ADMIN is this same email (idempotent repair).
     const existingSuperAdmins = await this.prisma.user.findMany({
@@ -108,18 +119,20 @@ export class AuthService {
     });
     if (
       existingSuperAdmins.length > 0 &&
-      !existingSuperAdmins.some(u => u.email === email)
+      !existingSuperAdmins.some(u => this.normalizeEmail(u.email) === normalizedEmail)
     ) {
       throw new BadRequestException("SUPER_ADMIN already exists");
     }
 
     const passwordHash = await argon2.hash(password);
 
-    let user = await this.prisma.user.findUnique({ where: { email } });
+    let user = await this.prisma.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: "insensitive" } }
+    });
     if (!user) {
       user = await this.prisma.user.create({
         data: {
-          email,
+          email: normalizedEmail,
           passwordHash,
           userType: UserType.INTERNAL,
           globalRole: GlobalRole.SUPER_ADMIN
@@ -159,8 +172,10 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+    const email = this.normalizeEmail(dto.email);
+
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
       include: {
         memberships: {
           include: { company: true }
@@ -280,8 +295,10 @@ export class AuthService {
       throw new BadRequestException("Invite is invalid or expired");
     }
 
-    let user = await this.prisma.user.findUnique({
-      where: { email: invite.email }
+    const inviteEmail = this.normalizeEmail(invite.email);
+
+    let user = await this.prisma.user.findFirst({
+      where: { email: { equals: inviteEmail, mode: "insensitive" } }
     });
 
     const passwordHash = await argon2.hash(password);
@@ -289,7 +306,7 @@ export class AuthService {
     if (!user) {
       user = await this.prisma.user.create({
         data: {
-          email: invite.email,
+          email: inviteEmail,
           passwordHash,
           userType:
             invite.role === Role.CLIENT ? UserType.CLIENT : UserType.INTERNAL
@@ -500,6 +517,88 @@ export class AuthService {
       accessToken,
       refreshToken
     };
+  }
+
+  async requestPasswordReset(email: string) {
+    const normalizedEmail = this.normalizeEmail(email || "");
+
+    // Always succeed (avoid user enumeration)
+    if (!normalizedEmail) {
+      return { ok: true };
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: "insensitive" } },
+      select: { id: true, email: true }
+    });
+
+    if (!user) {
+      return { ok: true };
+    }
+
+    const resetToken = randomUUID();
+    const redisClient = this.redis.getClient();
+    await redisClient.setex(
+      `pwdreset:${resetToken}`,
+      PASSWORD_RESET_TTL_SECONDS,
+      JSON.stringify({ userId: user.id })
+    );
+
+    const webBase = process.env.WEB_BASE_URL || "http://localhost:3000";
+    const resetUrl = `${webBase.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(resetToken)}`;
+
+    await this.email.sendMail({
+      to: user.email,
+      subject: "Reset your Nexus password",
+      html: `
+        <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.4;">
+          <h2 style="margin: 0 0 12px;">Password reset requested</h2>
+          <p style="margin: 0 0 12px;">Click below to reset your password. This link expires in 15 minutes.</p>
+          <p style="margin: 0 0 18px;">
+            <a href="${resetUrl}" style="display: inline-block; background: #2563eb; color: #fff; padding: 10px 14px; border-radius: 6px; text-decoration: none;">
+              Reset password
+            </a>
+          </p>
+          <p style="margin: 0; color: #6b7280; font-size: 12px;">If you didnt request this, you can ignore this email.</p>
+        </div>
+      `.trim(),
+      text: `Reset your password: ${resetUrl} (expires in 15 minutes)`
+    });
+
+    return { ok: true };
+  }
+
+  async resetPasswordWithToken(token: string, password: string) {
+    if (!token) {
+      throw new BadRequestException("Reset token is required");
+    }
+    if (!password || password.length < 8) {
+      throw new BadRequestException("Password must be at least 8 characters");
+    }
+
+    const redisClient = this.redis.getClient();
+    const raw = await redisClient.get(`pwdreset:${token}`);
+    if (!raw) {
+      throw new BadRequestException("Reset token is invalid or expired");
+    }
+
+    let payload: { userId: string };
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      throw new BadRequestException("Reset token is invalid");
+    }
+
+    const passwordHash = await argon2.hash(password);
+
+    await this.prisma.user.update({
+      where: { id: payload.userId },
+      data: { passwordHash }
+    });
+
+    await redisClient.del(`pwdreset:${token}`);
+
+    return { ok: true };
   }
 
   private async issueTokens(

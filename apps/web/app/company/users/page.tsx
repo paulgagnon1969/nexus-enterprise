@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -49,6 +50,8 @@ interface CompanyInviteRow {
 }
 
 export default function CompanyUsersPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [me, setMe] = useState<MeResponse | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState<string>("");
@@ -97,6 +100,18 @@ export default function CompanyUsersPage() {
 
   const [initialLoading, setInitialLoading] = useState(true);
   const [initialError, setInitialError] = useState<string | null>(null);
+
+  const [activeTab, setActiveTab] = useState<"users" | "candidates">("users");
+
+  // Allow deep-links like /company/users?tab=candidates
+  useEffect(() => {
+    const tab = searchParams?.get("tab");
+    if (tab === "candidates") {
+      setActiveTab("candidates");
+    } else {
+      setActiveTab("users");
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -188,6 +203,7 @@ export default function CompanyUsersPage() {
   const canManageMembers =
     actorCompanyRole === "OWNER" || actorCompanyRole === "ADMIN";
   const canGrantOwner = actorCompanyRole === "OWNER";
+  const canViewCandidates = actorCompanyRole === "OWNER" || actorCompanyRole === "ADMIN";
 
   const handleChangeRole = async (
     userId: string,
@@ -620,14 +636,14 @@ export default function CompanyUsersPage() {
 
   return (
     <div className="app-card">
-      <h1 style={{ marginTop: 0, fontSize: 20 }}>Company users &amp; invites</h1>
+      <h1 style={{ marginTop: 0, fontSize: 20 }}>People</h1>
       <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
         {companyName ? (
           <>
-            Managing users for <strong>{companyName}</strong>
+            Managing people for <strong>{companyName}</strong>
           </>
         ) : (
-          "Managing users for current company"
+          "Managing people for current company"
         )}
       </p>
       {actorCompanyRole && (
@@ -641,9 +657,55 @@ export default function CompanyUsersPage() {
         </p>
       )}
 
-      {/* Members section */}
-      <section style={{ marginTop: 16 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 4 }}>Members</h2>
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 8, marginTop: 12, marginBottom: 12 }}>
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab("users");
+            router.replace("/company/users");
+          }}
+          style={{
+            padding: "6px 10px",
+            borderRadius: 999,
+            border: activeTab === "users" ? "1px solid #0f172a" : "1px solid #d1d5db",
+            background: activeTab === "users" ? "#0f172a" : "#ffffff",
+            color: activeTab === "users" ? "#f9fafb" : "#111827",
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+        >
+          Company users
+        </button>
+        {canViewCandidates && (
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("candidates");
+              router.replace("/company/users?tab=candidates");
+            }}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 999,
+              border: activeTab === "candidates" ? "1px solid #0f172a" : "1px solid #d1d5db",
+              background: activeTab === "candidates" ? "#0f172a" : "#ffffff",
+              color: activeTab === "candidates" ? "#f9fafb" : "#111827",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            Prospective candidates
+          </button>
+        )}
+      </div>
+
+      {activeTab === "candidates" && companyId ? (
+        <ProspectiveCandidatesPanel companyId={companyId} companyName={companyName} />
+      ) : (
+        <>
+          {/* Members section */}
+          <section style={{ marginTop: 16 }}>
+            <h2 style={{ fontSize: 16, marginBottom: 4 }}>Members</h2>
         {membersLoading && (
           <p style={{ fontSize: 12, color: "#6b7280" }}>Loading members…</p>
         )}
@@ -1332,6 +1394,276 @@ export default function CompanyUsersPage() {
           </form>
         </section>
       )}
+        </>
+      )}
     </div>
+  );
+}
+
+type CandidateStatus =
+  | "NOT_STARTED"
+  | "IN_PROGRESS"
+  | "SUBMITTED"
+  | "UNDER_REVIEW"
+  | "APPROVED"
+  | "REJECTED"
+  | string;
+
+interface CandidateProfile {
+  firstName?: string | null;
+  lastName?: string | null;
+  phone?: string | null;
+  dob?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+}
+
+interface CandidateRow {
+  id: string;
+  email: string;
+  status: CandidateStatus;
+  createdAt: string;
+  profile?: CandidateProfile | null;
+}
+
+function stateToRegion(state: string | null | undefined): string {
+  const s = (state || "").trim().toUpperCase();
+  const northeast = ["ME", "NH", "VT", "MA", "RI", "CT", "NY", "NJ", "PA"];
+  const southeast = ["DE", "MD", "DC", "VA", "WV", "NC", "SC", "GA", "FL", "KY", "TN", "MS", "AL", "LA", "AR"];
+  const midwest = ["OH", "MI", "IN", "IL", "WI", "MN", "IA", "MO", "ND", "SD", "NE", "KS"];
+  const southwest = ["TX", "OK", "NM", "AZ"];
+  const west = ["CO", "WY", "MT", "ID", "UT", "NV", "CA", "OR", "WA", "AK", "HI"];
+
+  if (!s) return "(unknown)";
+  if (northeast.includes(s)) return "Northeast";
+  if (southeast.includes(s)) return "Southeast";
+  if (midwest.includes(s)) return "Midwest";
+  if (southwest.includes(s)) return "Southwest";
+  if (west.includes(s)) return "West";
+  return "Other";
+}
+
+function ProspectiveCandidatesPanel({
+  companyId,
+  companyName,
+}: {
+  companyId: string;
+  companyName: string;
+}) {
+  const [rows, setRows] = useState<CandidateRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [statusFilter, setStatusFilter] = useState<string>("SUBMITTED,UNDER_REVIEW");
+  const [regionFilter, setRegionFilter] = useState<string>("");
+  const [stateFilter, setStateFilter] = useState<string>("");
+  const [cityFilter, setCityFilter] = useState<string>("");
+  const [searchEmail, setSearchEmail] = useState<string>("");
+
+  useEffect(() => {
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setError("Missing access token. Please log in again.");
+      setLoading(false);
+      return;
+    }
+
+    async function load() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const url = `${API_BASE}/onboarding/company/${companyId}/sessions` +
+          (statusFilter.trim() ? `?status=${encodeURIComponent(statusFilter.trim())}` : "");
+
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Failed to load candidates (${res.status}) ${text}`);
+        }
+
+        const json: CandidateRow[] = await res.json();
+        setRows(Array.isArray(json) ? json : []);
+      } catch (e: any) {
+        setError(e?.message ?? "Failed to load candidates");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    void load();
+  }, [companyId, statusFilter]);
+
+  const filtered = rows
+    .filter(r => {
+      if (searchEmail.trim() && !r.email.toLowerCase().includes(searchEmail.trim().toLowerCase())) {
+        return false;
+      }
+      const st = (r.profile?.state || "").trim();
+      const city = (r.profile?.city || "").trim();
+
+      if (stateFilter.trim() && st.toLowerCase() !== stateFilter.trim().toLowerCase()) return false;
+      if (cityFilter.trim() && !city.toLowerCase().includes(cityFilter.trim().toLowerCase())) return false;
+      if (regionFilter && stateToRegion(st) !== regionFilter) return false;
+      return true;
+    })
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  return (
+    <section style={{ marginTop: 8 }}>
+      <h2 style={{ fontSize: 16, marginBottom: 4 }}>Prospective candidates</h2>
+      <p style={{ fontSize: 12, color: "#4b5563", marginTop: 0 }}>
+        Candidates who have submitted onboarding for <strong>{companyName}</strong>. Filter by region/state/city.
+      </p>
+
+      <div
+        style={{
+          marginTop: 10,
+          padding: 10,
+          border: "1px solid #e5e7eb",
+          borderRadius: 8,
+          background: "#f9fafb",
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 10,
+          alignItems: "center",
+          fontSize: 12,
+        }}
+      >
+        <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          Status (comma-separated)
+          <input
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            placeholder="SUBMITTED,UNDER_REVIEW"
+            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", minWidth: 220 }}
+          />
+        </label>
+
+        <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          Region
+          <select
+            value={regionFilter}
+            onChange={e => setRegionFilter(e.target.value)}
+            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", minWidth: 160 }}
+          >
+            <option value="">All regions</option>
+            <option value="Northeast">Northeast</option>
+            <option value="Southeast">Southeast</option>
+            <option value="Midwest">Midwest</option>
+            <option value="Southwest">Southwest</option>
+            <option value="West">West</option>
+            <option value="Other">Other</option>
+            <option value="(unknown)">(unknown)</option>
+          </select>
+        </label>
+
+        <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          State
+          <input
+            value={stateFilter}
+            onChange={e => setStateFilter(e.target.value)}
+            placeholder="FL"
+            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", width: 80 }}
+          />
+        </label>
+
+        <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          City
+          <input
+            value={cityFilter}
+            onChange={e => setCityFilter(e.target.value)}
+            placeholder="Miami"
+            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", minWidth: 160 }}
+          />
+        </label>
+
+        <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          Search email
+          <input
+            value={searchEmail}
+            onChange={e => setSearchEmail(e.target.value)}
+            placeholder="name@example.com"
+            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", minWidth: 220 }}
+          />
+        </label>
+
+        <div style={{ marginLeft: "auto", color: "#6b7280" }}>
+          Showing <strong>{filtered.length}</strong>
+        </div>
+      </div>
+
+      {loading ? (
+        <p style={{ fontSize: 12, color: "#6b7280", marginTop: 10 }}>Loading candidates…</p>
+      ) : error ? (
+        <p style={{ fontSize: 12, color: "#b91c1c", marginTop: 10 }}>{error}</p>
+      ) : (
+        <div
+          style={{
+            marginTop: 10,
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            overflow: "hidden",
+          }}
+        >
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ backgroundColor: "#f9fafb" }}>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>Candidate</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>Region</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>City</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>State</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>Status</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>Submitted</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(r => (
+                <tr key={r.id}>
+                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                    <div style={{ fontWeight: 600 }}>
+                      {(r.profile?.firstName || r.profile?.lastName)
+                        ? `${r.profile?.firstName ?? ""} ${r.profile?.lastName ?? ""}`.trim()
+                        : "(no name yet)"}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>{r.email}</div>
+                  </td>
+                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
+                    {stateToRegion(r.profile?.state)}
+                  </td>
+                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
+                    {r.profile?.city || "—"}
+                  </td>
+                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
+                    {r.profile?.state || "—"}
+                  </td>
+                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
+                    {r.status}
+                  </td>
+                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12, color: "#6b7280" }}>
+                    {new Date(r.createdAt).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={6} style={{ padding: 10, fontSize: 12, color: "#6b7280" }}>
+                    No candidates match your filters.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div style={{ marginTop: 10, fontSize: 11, color: "#6b7280" }}>
+        Next step: well add skill/trade filters and a Solicit workflow (message/invite) once the pool UI stabilizes.
+      </div>
+    </section>
   );
 }

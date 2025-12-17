@@ -145,6 +145,12 @@ export default function LoginPage() {
           </button>
         </form>
 
+        <div style={{ marginTop: 12, fontSize: 12 }}>
+          <a href="/reset-password" style={{ color: "#2563eb", textDecoration: "none" }}>
+            Forgot password?
+          </a>
+        </div>
+
         <p
           style={{
             marginTop: 16,

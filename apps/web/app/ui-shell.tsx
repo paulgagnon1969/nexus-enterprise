@@ -3,6 +3,7 @@
 import React, { ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import NavDropdown from "./components/nav-dropdown";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -22,16 +23,26 @@ interface UserMeResponse {
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
+  const path = pathname ?? "/";
+  const isAuthRoute = path === "/login" || path.startsWith("/accept-invite");
+  const isPublicRoute =
+    path === "/apply" ||
+    path.startsWith("/apply/") ||
+    path.startsWith("/onboarding/") ||
+    path === "/reset-password" ||
+    path.startsWith("/reset-password/");
+
+
   // On first load in this browser tab, clear any stale tokens and send the
   // user to the login screen, so deep links don't silently use expired auth.
   useEffect(() => {
     if (typeof window === "undefined") return;
 
+    // Public routes (recruiting / onboarding) should never force logout.
+    if (isPublicRoute) return;
+
     const alreadyHandled = window.sessionStorage.getItem("nexusInitialLogoutDone");
     if (alreadyHandled === "1") return;
-
-    const path = pathname ?? "/";
-    const isAuthRoute = path === "/login" || path.startsWith("/accept-invite");
 
     // Mark as handled so we only do this once per tab session.
     window.sessionStorage.setItem("nexusInitialLogoutDone", "1");
@@ -42,7 +53,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       window.localStorage.removeItem("companyId");
       window.location.href = "/login";
     }
-  }, [pathname]);
+  }, [isAuthRoute, isPublicRoute]);
 
   const handleLogout = () => {
     if (typeof window === "undefined") return;
@@ -56,6 +67,17 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (href === "/") return pathname === "/";
     return pathname?.startsWith(href);
   };
+
+  if (isPublicRoute) {
+    return (
+      <main style={{ minHeight: "100vh", background: "#ffffff" }}>{children}</main>
+    );
+  }
+
+  const noMainScroll =
+    // Pages that manage their own internal scroll panes
+    path.startsWith("/company/users/") ||
+    path === "/settings/skills";
 
   return (
     <div className="app-shell">
@@ -136,15 +158,16 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               Reports
             </Link>
-            <Link
-              href="/company/users"
-              className={
-                "app-nav-link" +
-                (isActive("/company/users") ? " app-nav-link-active" : "")
-              }
-            >
-              People
-            </Link>
+            <NavDropdown
+              label="People"
+              active={path.startsWith("/company/")}
+              items={[
+                { label: "Worker Profiles", href: "/company/users" },
+                { label: "Prospective Candidates", href: "/company/users?tab=candidates" },
+                { label: "Open Trades Profile", href: "/company/trades" },
+                { label: "Client Profiles", href: "/company/clients" },
+              ]}
+            />
           </nav>
         </div>
         <div className="app-header-right">
@@ -184,7 +207,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="app-main">{children}</main>
+      <main className="app-main" style={noMainScroll ? { overflow: "hidden" } : undefined}>
+        {children}
+      </main>
     </div>
   );
 }

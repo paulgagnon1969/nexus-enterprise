@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, Fragment, useEffect, useState } from "react";
+import StarRating from "../../components/star-rating";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -66,6 +67,8 @@ export default function SkillsSettingsPage() {
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [selectedCategoryLabel, setSelectedCategoryLabel] = useState<string>("");
   const [selectedTradeLabel, setSelectedTradeLabel] = useState<string>("");
+  const [search, setSearch] = useState<string>("");
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
   const [detailsBySkillId, setDetailsBySkillId] = useState<Record<string, SkillDetailDto | undefined>>({});
   const [detailsLoading, setDetailsLoading] = useState(false);
@@ -144,30 +147,11 @@ export default function SkillsSettingsPage() {
 
         setSkills(rows);
 
-        // Initialize dropdown defaults
-        const categories = Array.from(
-          new Set(rows.map(r => (r.categoryLabel || "Other").trim() || "Other"))
-        ).sort((a, b) => a.localeCompare(b));
-        const initialCategory = categories[0] || "";
-        const tradesForCategory = Array.from(
-          new Set(rows.filter(r => r.categoryLabel === initialCategory).map(r => r.tradeLabel))
-        ).sort((a, b) => a.localeCompare(b));
-        const initialTrade = tradesForCategory[0] || "";
-
-        if (!selectedCategoryLabel && initialCategory) {
-          setSelectedCategoryLabel(initialCategory);
-        }
-        if (!selectedTradeLabel && initialTrade) {
-          setSelectedTradeLabel(initialTrade);
-        }
-
-        const firstVisible = rows.find(
-          r => r.categoryLabel === (selectedCategoryLabel || initialCategory) &&
-               r.tradeLabel === (selectedTradeLabel || initialTrade)
-        );
-
-        if (!selectedSkillId && firstVisible) {
-          setSelectedSkillId(firstVisible.id);
+        // Default filters to "All" so the page initially shows the entire list.
+        // (User can choose a functional area / trade to filter, and can always return to "All".)
+        const sorted = [...rows].sort((a, b) => a.label.localeCompare(b.label));
+        if (!selectedSkillId && sorted[0]) {
+          setSelectedSkillId(sorted[0].id);
         }
       } catch (e: any) {
         setError(e?.message ?? "Unable to load skills");
@@ -323,7 +307,10 @@ export default function SkillsSettingsPage() {
   const tradesForSelectedCategory = Array.from(
     new Set(
       skills
-        .filter(s => (s.categoryLabel || "Other") === (selectedCategoryLabel || categoryNames[0] || "Other"))
+        .filter(s => {
+          const cat = (s.categoryLabel || "Other").trim() || "Other";
+          return !selectedCategoryLabel || cat === selectedCategoryLabel;
+        })
         .map(s => s.tradeLabel)
     )
   ).sort((a, b) => a.localeCompare(b));
@@ -333,9 +320,70 @@ export default function SkillsSettingsPage() {
       const cat = (s.categoryLabel || "Other").trim() || "Other";
       if (selectedCategoryLabel && cat !== selectedCategoryLabel) return false;
       if (selectedTradeLabel && s.tradeLabel !== selectedTradeLabel) return false;
+      if (search.trim() && !s.label.toLowerCase().includes(search.trim().toLowerCase())) return false;
       return true;
     })
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort((a, b) => {
+      const aRated = typeof a.level === "number" && a.level >= 1 && a.level <= 5;
+      const bRated = typeof b.level === "number" && b.level >= 1 && b.level <= 5;
+      if (aRated !== bRated) return aRated ? -1 : 1;
+      const aScore = aRated ? (a.level as number) : -1;
+      const bScore = bRated ? (b.level as number) : -1;
+      if (bScore !== aScore) return bScore - aScore;
+      return a.label.localeCompare(b.label);
+    });
+
+  const categoryGroups = categoryNames
+    .map(catName => {
+      const groupSkills = skills
+        .filter(s => {
+          const cat = (s.categoryLabel || "Other").trim() || "Other";
+          if (cat !== catName) return false;
+          if (selectedTradeLabel && s.tradeLabel !== selectedTradeLabel) return false;
+          if (search.trim() && !s.label.toLowerCase().includes(search.trim().toLowerCase())) return false;
+          return true;
+        })
+        .sort((a, b) => {
+          const aRated = typeof a.level === "number" && a.level >= 1 && a.level <= 5;
+          const bRated = typeof b.level === "number" && b.level >= 1 && b.level <= 5;
+          if (aRated !== bRated) return aRated ? -1 : 1;
+          const aScore = aRated ? (a.level as number) : -1;
+          const bScore = bRated ? (b.level as number) : -1;
+          if (bScore !== aScore) return bScore - aScore;
+          return a.label.localeCompare(b.label);
+        });
+
+      const rated = groupSkills.filter(s => typeof s.level === "number" && s.level >= 1 && s.level <= 5);
+      const avgSelf = rated.length ? rated.reduce((sum, s) => sum + (s.level as number), 0) / rated.length : null;
+      const maxScore = rated.length ? Math.max(...rated.map(s => s.level as number)) : -1;
+
+      const peerRated = groupSkills.filter(s => s.companyAvgLevel != null);
+      const avgPeer = peerRated.length
+        ? peerRated.reduce((sum, s) => sum + (s.companyAvgLevel as number), 0) / peerRated.length
+        : null;
+
+      const clientRated = groupSkills.filter(s => s.clientAvgLevel != null);
+      const avgClient = clientRated.length
+        ? clientRated.reduce((sum, s) => sum + (s.clientAvgLevel as number), 0) / clientRated.length
+        : null;
+
+      return {
+        categoryLabel: catName,
+        skills: groupSkills,
+        ratedCount: rated.length,
+        totalCount: groupSkills.length,
+        avgSelf,
+        avgPeer,
+        avgClient,
+        maxScore,
+      };
+    })
+    .filter(g => g.totalCount > 0)
+    .sort((a, b) => {
+      if (b.maxScore !== a.maxScore) return b.maxScore - a.maxScore;
+      if (b.ratedCount !== a.ratedCount) return b.ratedCount - a.ratedCount;
+      return a.categoryLabel.localeCompare(b.categoryLabel);
+    });
 
   const selectedSkill = selectedSkillId
     ? skills.find(s => s.id === selectedSkillId) ?? null
@@ -362,10 +410,26 @@ export default function SkillsSettingsPage() {
   }
 
   return (
-    <div className="app-card">
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
-        {/* Left column: skills matrix */}
-        <div style={{ flex: "0 0 auto", maxWidth: 720 }}>
+    <div
+      className="app-card"
+      style={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "stretch", gap: 16, flex: "1 1 auto", minHeight: 0 }}>
+        {/* Left pane: skills matrix */}
+        <div
+          style={{
+            flex: "0 0 760px",
+            maxWidth: 760,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
           <h1 style={{ marginTop: 0, fontSize: 20 }}>My skills matrix</h1>
           <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
             Rate your own skills from 1 (Novice) to 5 (Expert). Employers can add their own ratings
@@ -514,7 +578,16 @@ export default function SkillsSettingsPage() {
             )}
           </form>
 
-          <form onSubmit={handleSubmit} style={{ marginTop: 16 }}>
+          <form
+            onSubmit={handleSubmit}
+            style={{
+              marginTop: 16,
+              flex: "1 1 auto",
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
             <div
               style={{
                 display: "flex",
@@ -523,7 +596,7 @@ export default function SkillsSettingsPage() {
                 alignItems: "center",
                 padding: 10,
                 border: "1px solid #e5e7eb",
-                borderRadius: 6,
+                borderRadius: 8,
                 backgroundColor: "#f9fafb",
                 fontSize: 12,
               }}
@@ -536,13 +609,20 @@ export default function SkillsSettingsPage() {
                     const nextCategory = e.target.value;
                     setSelectedCategoryLabel(nextCategory);
 
-                    const nextTrades = Array.from(
-                      new Set(skills.filter(s => s.categoryLabel === nextCategory).map(s => s.tradeLabel))
-                    ).sort((a, b) => a.localeCompare(b));
-                    const nextTrade = nextTrades[0] || "";
-                    setSelectedTradeLabel(nextTrade);
+                    // When changing functional area, default trade back to "All".
+                    setSelectedTradeLabel("");
 
-                    const first = skills.find(s => s.categoryLabel === nextCategory && s.tradeLabel === nextTrade);
+                    // If they picked a specific group, expand it.
+                    if (nextCategory) {
+                      setExpandedCategories(prev => ({ ...prev, [nextCategory]: true }));
+                    }
+
+                    const first = [...skills]
+                      .sort((a, b) => a.label.localeCompare(b.label))
+                      .find(s => {
+                        const cat = (s.categoryLabel || "Other").trim() || "Other";
+                        return !nextCategory || cat === nextCategory;
+                      });
                     if (first) setSelectedSkillId(first.id);
                   }}
                   style={{
@@ -553,6 +633,7 @@ export default function SkillsSettingsPage() {
                     backgroundColor: "#ffffff",
                   }}
                 >
+                  <option value="">All functional areas</option>
                   {categoryNames.map(name => (
                     <option key={name} value={name}>
                       {name}
@@ -568,7 +649,15 @@ export default function SkillsSettingsPage() {
                   onChange={e => {
                     const nextTrade = e.target.value;
                     setSelectedTradeLabel(nextTrade);
-                    const first = skills.find(s => s.categoryLabel === selectedCategoryLabel && s.tradeLabel === nextTrade);
+
+                    const first = [...skills]
+                      .sort((a, b) => a.label.localeCompare(b.label))
+                      .find(s => {
+                        const cat = (s.categoryLabel || "Other").trim() || "Other";
+                        if (selectedCategoryLabel && cat !== selectedCategoryLabel) return false;
+                        if (nextTrade && s.tradeLabel !== nextTrade) return false;
+                        return true;
+                      });
                     if (first) setSelectedSkillId(first.id);
                   }}
                   style={{
@@ -579,6 +668,7 @@ export default function SkillsSettingsPage() {
                     backgroundColor: "#ffffff",
                   }}
                 >
+                  <option value="">All trades</option>
                   {tradesForSelectedCategory.map(name => (
                     <option key={name} value={name}>
                       {name}
@@ -586,12 +676,41 @@ export default function SkillsSettingsPage() {
                   ))}
                 </select>
               </div>
+
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <span style={{ fontWeight: 600 }}>Search:</span>
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Find a skill…"
+                  style={{
+                    minWidth: 220,
+                    padding: "4px 6px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    backgroundColor: "#ffffff",
+                  }}
+                />
+              </div>
+
+              <div style={{ marginLeft: "auto", color: "#6b7280" }}>
+                {selectedCategoryLabel ? (
+                  <>
+                    Showing <strong>{visibleSkills.length}</strong>
+                  </>
+                ) : (
+                  <>
+                    Showing <strong>{categoryGroups.length}</strong> groups
+                  </>
+                )}
+              </div>
             </div>
 
             <div
               style={{
                 marginTop: 10,
-                height: "calc(100vh - 290px)",
+                flex: "1 1 auto",
+                minHeight: 0,
                 overflowY: "auto",
                 border: "1px solid #e5e7eb",
                 borderRadius: 6,
@@ -658,102 +777,236 @@ export default function SkillsSettingsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleSkills.map(skill => {
-                    const isSelected = skill.id === selectedSkillId;
-                    return (
-                      <tr key={skill.id}>
-                        <td
-                          style={{
-                            padding: "6px 10px",
-                            borderTop: "1px solid #e5e7eb",
-                            cursor: "pointer",
-                            fontWeight: isSelected ? 600 : 400,
-                          }}
-                          onClick={() => setSelectedSkillId(skill.id)}
-                        >
-                          {skill.label}
-                        </td>
-                        <td
-                          style={{
-                            padding: "6px 10px",
-                            borderTop: "1px solid #e5e7eb",
-                            whiteSpace: "nowrap",
-                            textAlign: "right",
-                          }}
-                        >
-                          <div style={{ display: "inline-flex", gap: 4 }}>
-                            {Array.from({ length: 5 }, (_, idx) => {
-                              const starValue = idx + 1;
-                              const active = (skill.level ?? 0) >= starValue;
+                  {!selectedCategoryLabel ? (
+                    categoryGroups.map((g, gIdx) => {
+                      const expanded = !!expandedCategories[g.categoryLabel];
+                      const rounded = g.avgSelf != null ? Math.round(g.avgSelf) : null;
+
+                      return (
+                        <Fragment key={g.categoryLabel}>
+                          <tr
+                            style={{
+                              backgroundColor: gIdx % 2 === 0 ? "#ffffff" : "#fcfcfd",
+                            }}
+                          >
+                            <td
+                              style={{
+                                padding: "10px 10px",
+                                borderTop: "1px solid #e5e7eb",
+                                cursor: "pointer",
+                                fontWeight: 700,
+                              }}
+                              onClick={() =>
+                                setExpandedCategories(prev => ({
+                                  ...prev,
+                                  [g.categoryLabel]: !prev[g.categoryLabel],
+                                }))
+                              }
+                            >
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                <span>
+                                  {expanded ? "▾" : "▸"} {g.categoryLabel}
+                                </span>
+                                <span style={{ fontSize: 11, fontWeight: 600, color: "#6b7280" }}>
+                                  Rated {g.ratedCount}/{g.totalCount}
+                                </span>
+                              </div>
+                            </td>
+                            <td
+                              style={{
+                                padding: "10px 10px",
+                                borderTop: "1px solid #e5e7eb",
+                                whiteSpace: "nowrap",
+                                textAlign: "right",
+                              }}
+                            >
+                              {g.avgSelf == null ? (
+                                <span style={{ fontSize: 11, color: "#6b7280" }}>—</span>
+                              ) : (
+                                <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                                  <StarRating value={rounded} readOnly ariaLabel={`Average rating for ${g.categoryLabel}`} />
+                                  <span style={{ fontSize: 11, color: "#6b7280" }}>{g.avgSelf.toFixed(1)}/5</span>
+                                </div>
+                              )}
+                            </td>
+                            <td
+                              style={{
+                                padding: "10px 10px",
+                                borderTop: "1px solid #e5e7eb",
+                                whiteSpace: "nowrap",
+                                textAlign: "right",
+                              }}
+                            >
+                              <span style={{ fontSize: 10, color: "#6b7280" }}>
+                                {g.avgPeer != null ? `${g.avgPeer.toFixed(1)}/5` : "—"}
+                              </span>
+                            </td>
+                            <td
+                              style={{
+                                padding: "10px 10px",
+                                borderTop: "1px solid #e5e7eb",
+                                whiteSpace: "nowrap",
+                                textAlign: "right",
+                              }}
+                            >
+                              <span style={{ fontSize: 10, color: "#6b7280" }}>
+                                {g.avgClient != null ? `${g.avgClient.toFixed(1)}/5` : "—"}
+                              </span>
+                            </td>
+                          </tr>
+
+                          {expanded &&
+                            g.skills.map((skill, idx) => {
+                              const isSelected = skill.id === selectedSkillId;
                               return (
-                                <button
-                                  key={starValue}
-                                  type="button"
-                                  onClick={() => {
-                                    const value = starValue as 1 | 2 | 3 | 4 | 5;
-                                    setSkills(prev =>
-                                      prev.map(s => (s.id === skill.id ? { ...s, level: value } : s))
-                                    );
-                                    setMessage(null);
-                                  }}
+                                <tr
+                                  key={skill.id}
                                   style={{
-                                    padding: 0,
-                                    border: "none",
-                                    background: "transparent",
-                                    cursor: "pointer",
-                                    lineHeight: 0,
+                                    backgroundColor: isSelected
+                                      ? "#eff6ff"
+                                      : idx % 2 === 0
+                                      ? "#ffffff"
+                                      : "#fcfcfd",
                                   }}
-                                  aria-label={`${starValue} star${starValue > 1 ? "s" : ""}`}
                                 >
-                                  <svg
-                                    width={18}
-                                    height={18}
-                                    viewBox="0 0 24 24"
-                                    xmlns="http://www.w3.org/2000/svg"
+                                  <td
+                                    style={{
+                                      padding: "8px 10px 8px 26px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      cursor: "pointer",
+                                      fontWeight: isSelected ? 600 : 400,
+                                      borderLeft: isSelected ? "3px solid #2563eb" : "3px solid transparent",
+                                    }}
+                                    onClick={() => setSelectedSkillId(skill.id)}
                                   >
-                                    <path
-                                      d="M12 2.5l2.47 5.01 5.53.8-4 3.9.94 5.49L12 15.9l-4.94 2.8.94-5.49-4-3.9 5.53-.8L12 2.5z"
-                                      fill={active ? NEXUS_GOLD : "#ffffff"}
-                                      stroke={NEXUS_DARK_BLUE}
-                                      strokeWidth={1}
+                                    {skill.label}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "8px 10px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      whiteSpace: "nowrap",
+                                      textAlign: "right",
+                                    }}
+                                  >
+                                    <StarRating
+                                      value={skill.level}
+                                      onChange={(value) => {
+                                        setSkills(prev => prev.map(s => (s.id === skill.id ? { ...s, level: value } : s)));
+                                        setMessage(null);
+                                      }}
+                                      ariaLabel={`Self rating for ${skill.label}`}
                                     />
-                                  </svg>
-                                </button>
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "8px 10px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      whiteSpace: "nowrap",
+                                      textAlign: "right",
+                                    }}
+                                  >
+                                    <span style={{ fontSize: 10, color: "#6b7280" }}>
+                                      {skill.companyAvgLevel != null
+                                        ? `${skill.companyAvgLevel.toFixed(1)}/5 (${skill.companyRatingCount ?? 0})`
+                                        : "—"}
+                                    </span>
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "8px 10px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      whiteSpace: "nowrap",
+                                      textAlign: "right",
+                                    }}
+                                  >
+                                    <span style={{ fontSize: 10, color: "#6b7280" }}>
+                                      {skill.clientAvgLevel != null
+                                        ? `${skill.clientAvgLevel.toFixed(1)}/5 (${skill.clientRatingCount ?? 0})`
+                                        : "—"}
+                                    </span>
+                                  </td>
+                                </tr>
                               );
                             })}
-                          </div>
-                        </td>
-                        <td
+                        </Fragment>
+                      );
+                    })
+                  ) : (
+                    visibleSkills.map((skill, idx) => {
+                      const isSelected = skill.id === selectedSkillId;
+                      return (
+                        <tr
+                          key={skill.id}
                           style={{
-                            padding: "6px 10px",
-                            borderTop: "1px solid #e5e7eb",
-                            whiteSpace: "nowrap",
-                            textAlign: "right",
+                            backgroundColor: isSelected
+                              ? "#eff6ff"
+                              : idx % 2 === 0
+                              ? "#ffffff"
+                              : "#fcfcfd",
                           }}
                         >
-                          <span style={{ fontSize: 10, color: "#6b7280" }}>
-                            {skill.companyAvgLevel != null
-                              ? `${skill.companyAvgLevel.toFixed(1)}/5 (${skill.companyRatingCount ?? 0})`
-                              : "—"}
-                          </span>
-                        </td>
-                        <td
-                          style={{
-                            padding: "6px 10px",
-                            borderTop: "1px solid #e5e7eb",
-                            whiteSpace: "nowrap",
-                            textAlign: "right",
-                          }}
-                        >
-                          <span style={{ fontSize: 10, color: "#6b7280" }}>
-                            {skill.clientAvgLevel != null
-                              ? `${skill.clientAvgLevel.toFixed(1)}/5 (${skill.clientRatingCount ?? 0})`
-                              : "—"}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          <td
+                            style={{
+                              padding: "8px 10px",
+                              borderTop: "1px solid #e5e7eb",
+                              cursor: "pointer",
+                              fontWeight: isSelected ? 600 : 400,
+                              borderLeft: isSelected ? "3px solid #2563eb" : "3px solid transparent",
+                            }}
+                            onClick={() => setSelectedSkillId(skill.id)}
+                          >
+                            {skill.label}
+                          </td>
+                          <td
+                            style={{
+                              padding: "8px 10px",
+                              borderTop: "1px solid #e5e7eb",
+                              whiteSpace: "nowrap",
+                              textAlign: "right",
+                            }}
+                          >
+                            <StarRating
+                              value={skill.level}
+                              onChange={(value) => {
+                                setSkills(prev => prev.map(s => (s.id === skill.id ? { ...s, level: value } : s)));
+                                setMessage(null);
+                              }}
+                              ariaLabel={`Self rating for ${skill.label}`}
+                            />
+                          </td>
+                          <td
+                            style={{
+                              padding: "8px 10px",
+                              borderTop: "1px solid #e5e7eb",
+                              whiteSpace: "nowrap",
+                              textAlign: "right",
+                            }}
+                          >
+                            <span style={{ fontSize: 10, color: "#6b7280" }}>
+                              {skill.companyAvgLevel != null
+                                ? `${skill.companyAvgLevel.toFixed(1)}/5 (${skill.companyRatingCount ?? 0})`
+                                : "—"}
+                            </span>
+                          </td>
+                          <td
+                            style={{
+                              padding: "8px 10px",
+                              borderTop: "1px solid #e5e7eb",
+                              whiteSpace: "nowrap",
+                              textAlign: "right",
+                            }}
+                          >
+                            <span style={{ fontSize: 10, color: "#6b7280" }}>
+                              {skill.clientAvgLevel != null
+                                ? `${skill.clientAvgLevel.toFixed(1)}/5 (${skill.clientRatingCount ?? 0})`
+                                : "—"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -780,76 +1033,92 @@ export default function SkillsSettingsPage() {
           </form>
         </div>
 
-        {/* Right column: reserved for future skill details */}
+        {/* Right pane: profile card + details */}
         <div
           style={{
             flex: 1,
-            minHeight: 360,
+            minWidth: 280,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
             borderLeft: "1px solid #e5e7eb",
             paddingLeft: 16,
             fontSize: 12,
             color: "#111827",
           }}
         >
-          {!selectedSkill ? (
-            <p style={{ fontSize: 12, color: "#6b7280" }}>
-              Select a skill on the left to see details here.
-            </p>
-          ) : (
+          {/* Upper-right profile card */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: 8,
+              border: "1px solid #e5e7eb",
+              borderRadius: 6,
+              backgroundColor: "#f9fafb",
+            }}
+          >
             <div
               style={{
+                width: 40,
+                height: 40,
+                borderRadius: "9999px",
+                overflow: "hidden",
+                backgroundColor: "#e5e7eb",
                 display: "flex",
-                flexDirection: "column",
-                gap: 12,
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              <div>
-                <h2 style={{ margin: 0, fontSize: 16 }}>{selectedSkill.label}</h2>
-                {selectedSkill.categoryLabel && (
-                  <p style={{ margin: "4px 0 0", fontSize: 11, color: "#6b7280" }}>
-                    {selectedSkill.categoryLabel}
-                  </p>
-                )}
+              <img
+                src="/pg-pic-20250410-2.jpg"
+                alt="Profile photo of Paul"
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
+            </div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>Paul (paul@nfsgrp.com)</div>
+              <div style={{ fontSize: 11, color: "#6b7280" }}>
+                Owner of this skills matrix. Future versions will show additional profile details like
+                birthday and role.
               </div>
+            </div>
+          </div>
 
-              {/* Mini profile for the person whose skills this is (you, on this page) */}
+          {/* Scrollable details pane */}
+          <div
+            style={{
+              flex: "1 1 auto",
+              minHeight: 0,
+              overflowY: "auto",
+              border: "1px solid #e5e7eb",
+              borderRadius: 6,
+              padding: 10,
+              backgroundColor: "#ffffff",
+            }}
+          >
+            {!selectedSkill ? (
+              <p style={{ fontSize: 12, color: "#6b7280", margin: 0 }}>
+                Select a skill on the left to see details here.
+              </p>
+            ) : (
               <div
                 style={{
                   display: "flex",
-                  alignItems: "center",
+                  flexDirection: "column",
                   gap: 12,
-                  padding: 8,
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 6,
-                  backgroundColor: "#f9fafb",
                 }}
               >
-                <div
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: "9999px",
-                    overflow: "hidden",
-                    backgroundColor: "#e5e7eb",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <img
-                    src="/pg-pic-20250410-2.jpg"
-                    alt="Profile photo of Paul"
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  />
-                </div>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>Paul (paul@nfsgrp.com)</div>
-                  <div style={{ fontSize: 11, color: "#6b7280" }}>
-                    Owner of this skills matrix. Future versions will show additional profile details
-                    like birthday and role.
-                  </div>
+                  <h2 style={{ margin: 0, fontSize: 16 }}>{selectedSkill.label}</h2>
+                  {selectedSkill.categoryLabel && (
+                    <p style={{ margin: "4px 0 0", fontSize: 11, color: "#6b7280" }}>
+                      {selectedSkill.categoryLabel}
+                    </p>
+                  )}
                 </div>
-              </div>
 
               {/* At-a-glance rating summary for this skill */}
               <div
@@ -946,6 +1215,7 @@ export default function SkillsSettingsPage() {
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 }

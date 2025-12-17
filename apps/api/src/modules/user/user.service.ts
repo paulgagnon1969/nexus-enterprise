@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
+import { GlobalRole, Role } from "@prisma/client";
 
 @Injectable()
 export class UserService {
@@ -92,11 +93,24 @@ export class UserService {
     const ratingBySkillId = new Map(userSkillRatings.map(r => [r.skillId, r]));
     const catById = new Map(categories.map(c => [c.id, c]));
 
+    const isAdminOrAbove =
+      actor.globalRole === GlobalRole.SUPER_ADMIN || actor.role === Role.OWNER || actor.role === Role.ADMIN;
+
     const skills = skillDefs.map(def => {
       const r = ratingBySkillId.get(def.id);
       const cat = catById.get(def.categoryId) ?? null;
 
       const selfLevel = r?.selfLevel != null && r.selfLevel > 0 ? r.selfLevel : null;
+
+      const employerCount = r?.employerRatingCount ?? 0;
+      const clientCount = r?.clientRatingCount ?? 0;
+      const totalCount = employerCount + clientCount;
+
+      const sum =
+        (r?.employerAvgLevel != null ? r.employerAvgLevel * employerCount : 0) +
+        (r?.clientAvgLevel != null ? r.clientAvgLevel * clientCount : 0);
+
+      const aggregateAvgLevel = totalCount > 0 ? sum / totalCount : null;
 
       return {
         id: def.id,
@@ -104,11 +118,17 @@ export class UserService {
         label: def.label,
         tradeLabel: def.tradeLabel ?? null,
         categoryLabel: cat?.label ?? null,
-        selfLevel,
-        employerAvgLevel: r?.employerAvgLevel ?? null,
-        employerRatingCount: r?.employerRatingCount ?? null,
-        clientAvgLevel: r?.clientAvgLevel ?? null,
-        clientRatingCount: r?.clientRatingCount ?? null,
+
+        // Everyone can see the single aggregate rating for the skill.
+        aggregateAvgLevel,
+        aggregateRatingCount: totalCount,
+
+        // Only admins and above can see the breakdown.
+        selfLevel: isAdminOrAbove ? selfLevel : null,
+        employerAvgLevel: isAdminOrAbove ? r?.employerAvgLevel ?? null : null,
+        employerRatingCount: isAdminOrAbove ? r?.employerRatingCount ?? null : null,
+        clientAvgLevel: isAdminOrAbove ? r?.clientAvgLevel ?? null : null,
+        clientRatingCount: isAdminOrAbove ? r?.clientRatingCount ?? null : null,
       };
     });
 
