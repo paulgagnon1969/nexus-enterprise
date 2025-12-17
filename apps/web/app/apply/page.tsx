@@ -11,7 +11,7 @@ export default function ApplyPage() {
     <Suspense
       fallback={
         <main style={{ padding: "2rem", maxWidth: 720, margin: "0 auto" }}>
-          <h1 style={{ marginTop: 0 }}>NEXUS Recruitment</h1>
+          <h1 style={{ marginTop: 0 }}>NEXUS Contractor Connect</h1>
           <p style={{ fontSize: 14, color: "#6b7280" }}>Loading…</p>
         </main>
       }
@@ -85,16 +85,39 @@ function ApplyPageInner() {
   }
 
   return (
-    <main style={{ padding: "2rem", maxWidth: 720, margin: "0 auto" }}>
-      <h1 style={{ marginTop: 0 }}>NEXUS Recruitment</h1>
-      <p style={{ fontSize: 14, color: "#6b7280" }}>
-        Create your candidate profile in the NEXUS national pool. Youll be able to log in later
-        to update your profile and see opportunities.
-      </p>
+    <main
+      style={{
+        padding: "2rem",
+        maxWidth: 720,
+        margin: "0 auto",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+      }}
+    >
+      <img
+        src="/nexus-deconstruct-hires.gif"
+        alt="NEXUS DECONSTRUCT HIRES"
+        style={{ width: 360, maxWidth: "100%", height: "auto", display: "block" }}
+      />
 
-      <form onSubmit={start} style={{ marginTop: 16, maxWidth: 520 }}>
+      <h1 style={{ marginTop: 16, textAlign: "center" }}>NEXUS Contractor Connect</h1>
+
+      <img
+        src="/contractor-connect.gif"
+        alt="Contractor Connect"
+        style={{
+          width: 520,
+          maxWidth: "100%",
+          height: "auto",
+          display: "block",
+          marginTop: 12,
+        }}
+      />
+
+      <form onSubmit={start} style={{ marginTop: 16, width: "100%", maxWidth: 520 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <label style={{ fontSize: 14 }}>
+          <label style={{ fontSize: 14, width: "100%", textAlign: "left" }}>
             Email
             <input
               type="email"
@@ -105,7 +128,7 @@ function ApplyPageInner() {
             />
           </label>
 
-          <label style={{ fontSize: 14 }}>
+          <label style={{ fontSize: 14, width: "100%", textAlign: "left" }}>
             Password (min 8 characters)
             <input
               type="password"
@@ -116,7 +139,7 @@ function ApplyPageInner() {
             />
           </label>
 
-          <label style={{ fontSize: 14 }}>
+          <label style={{ fontSize: 14, width: "100%", textAlign: "left" }}>
             Confirm password
             <input
               type="password"
@@ -139,18 +162,19 @@ function ApplyPageInner() {
               color: submitting || !canSubmit ? "#4b5563" : "#f9fafb",
               fontSize: 14,
               cursor: submitting || !canSubmit ? "default" : "pointer",
+              width: "100%",
             }}
           >
             {submitting ? "Startingeee" : "Start application"}
           </button>
 
           {error && (
-            <p style={{ marginTop: 8, fontSize: 13, color: "#b91c1c" }}>{error}</p>
+            <p style={{ marginTop: 8, fontSize: 13, color: "#b91c1c", textAlign: "center" }}>{error}</p>
           )}
         </div>
       </form>
 
-      <div style={{ marginTop: 18, fontSize: 12, color: "#6b7280" }}>
+      <div style={{ marginTop: 18, fontSize: 12, color: "#6b7280", textAlign: "center" }}>
         Already in the pool? Log in at <a href="/login">/login</a>.
       </div>
     </main>
