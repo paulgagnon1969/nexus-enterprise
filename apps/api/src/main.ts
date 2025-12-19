@@ -16,7 +16,11 @@ async function bootstrap() {
     new FastifyAdapter()
   );
 
-  app.enableCors({ origin: true });
+  app.enableCors({
+    origin: true,
+    // Required for /users/me PATCH and any future REST updates from the web app.
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  });
 
   // Multipart uploads (Fastify-native).
   const server = app.getHttpAdapter().getInstance();

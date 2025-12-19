@@ -178,9 +178,12 @@ export class AuthService {
       where: { email: { equals: email, mode: "insensitive" } },
       include: {
         memberships: {
-          include: { company: true }
-        }
-      }
+          include: {
+            company: true,
+            profile: { select: { code: true } },
+          },
+        },
+      },
     });
 
     if (!user) {
@@ -203,13 +206,16 @@ export class AuthService {
       throw new UnauthorizedException("User is not a member of any company");
     }
 
+    const profileCode =
+      (membership as any).profile?.code ?? this.getDefaultProfileCodeForRole(membership.role);
+
     const { accessToken, refreshToken } = await this.issueTokens(
       user.id,
       membership.companyId,
       membership.role,
       user.email,
       user.globalRole,
-      this.getDefaultProfileCodeForRole(membership.role)
+      profileCode
     );
 
     return {
@@ -323,17 +329,20 @@ export class AuthService {
       where: {
         userId_companyId: {
           userId: user.id,
-          companyId: invite.companyId
-        }
+          companyId: invite.companyId,
+        },
       },
       update: {
-        role: invite.role
+        role: invite.role,
       },
       create: {
         userId: user.id,
         companyId: invite.companyId,
-        role: invite.role
-      }
+        role: invite.role,
+      },
+      include: {
+        profile: { select: { code: true } },
+      },
     });
 
     await this.prisma.companyInvite.update({
@@ -344,13 +353,16 @@ export class AuthService {
       }
     });
 
+    const profileCode =
+      (membership as any).profile?.code ?? this.getDefaultProfileCodeForRole(membership.role);
+
     const { accessToken, refreshToken } = await this.issueTokens(
       user.id,
       invite.companyId,
       membership.role,
       user.email,
       user.globalRole,
-      this.getDefaultProfileCodeForRole(membership.role)
+      profileCode
     );
 
     await this.prisma.adminAuditLog.create({
@@ -390,10 +402,11 @@ export class AuthService {
       include: {
         memberships: {
           include: {
-            company: true
-          }
-        }
-      }
+            company: true,
+            profile: { select: { code: true } },
+          },
+        },
+      },
     });
 
     if (!target) {
@@ -410,13 +423,16 @@ export class AuthService {
       );
     }
 
+    const profileCode =
+      (membership as any).profile?.code ?? this.getDefaultProfileCodeForRole(membership.role);
+
     const { accessToken, refreshToken } = await this.issueTokens(
       target.id,
       membership.companyId,
       membership.role,
       target.email,
       target.globalRole,
-      this.getDefaultProfileCodeForRole(membership.role)
+      profileCode
     );
 
     await this.prisma.adminAuditLog.create({
@@ -466,9 +482,12 @@ export class AuthService {
       where: {
         userId_companyId: {
           userId,
-          companyId
-        }
-      }
+          companyId,
+        },
+      },
+      include: {
+        profile: { select: { code: true } },
+      },
     });
 
     // SUPER_ADMIN should always be able to switch into any company.
@@ -478,7 +497,10 @@ export class AuthService {
           userId,
           companyId,
           role: Role.OWNER,
-        }
+        },
+        include: {
+          profile: { select: { code: true } },
+        },
       });
     }
 
@@ -486,13 +508,16 @@ export class AuthService {
       throw new UnauthorizedException("No access to this company");
     }
 
+    const profileCode =
+      (membership as any).profile?.code ?? this.getDefaultProfileCodeForRole(membership.role);
+
     const { accessToken, refreshToken } = await this.issueTokens(
       membership.userId,
       membership.companyId,
       membership.role,
       user.email,
       user.globalRole,
-      this.getDefaultProfileCodeForRole(membership.role)
+      profileCode
     );
 
     // Audit user-initiated company context switches
