@@ -10,11 +10,23 @@ datasource db {
 model Company {
   id                        String              @id @default(cuid())
   name                      String
+  kind                      CompanyKind         @default(ORGANIZATION)
   createdAt                 DateTime            @default(now())
   updatedAt                 DateTime            @updatedAt
   reputationOverallAvg      Float               @default(2)
   reputationOverallCount    Int                 @default(0)
   reputationOverallOverride Int?
+
+  // Organization template attachment (Option A: inherit entitlements)
+  templateId        String?
+  templateVersionId String?
+  template          OrganizationTemplate?        @relation("CompanyTemplate", fields: [templateId], references: [id])
+  templateVersion   OrganizationTemplateVersion? @relation("CompanyTemplateVersion", fields: [templateVersionId], references: [id])
+  moduleOverrides   OrganizationModuleOverride[]
+
+  // Portfolio Manager
+  userPortfolios            UserPortfolio[]
+
   invites                   CompanyInvite[]
   memberships               CompanyMembership[]
   parcels                   Parcel[]
@@ -30,10 +42,137 @@ model Company {
   importJobs                ImportJob[]
 }
 
+model OrganizationTemplate {
+  id               String                      @id @default(cuid())
+  code             String                      @unique
+  label            String
+  description      String?
+  active           Boolean                     @default(true)
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+
+  // Points at the active version.
+  currentVersionId String? @unique
+  currentVersion   OrganizationTemplateVersion? @relation("TemplateCurrentVersion", fields: [currentVersionId], references: [id])
+
+  versions         OrganizationTemplateVersion[]
+  companies        Company[]                   @relation("CompanyTemplate")
+}
+
+model OrganizationTemplateVersion {
+  id             String                   @id @default(cuid())
+  templateId     String
+  versionNo      Int
+  // YYYY-MM-DD; we coalesce multiple syncs into a single daily version.
+  dayKey         String
+  label          String?
+  notes          String?
+  contentHash    String?
+  createdAt      DateTime                 @default(now())
+  createdByUserId String?
+
+  template       OrganizationTemplate     @relation(fields: [templateId], references: [id])
+  // Back-reference for OrganizationTemplate.currentVersion
+  currentForTemplate OrganizationTemplate? @relation("TemplateCurrentVersion")
+
+  modules        OrganizationTemplateModule[]
+  articles       OrganizationTemplateArticle[]
+  roleProfiles   OrganizationTemplateRoleProfile[]
+
+  companiesUsingThisVersion Company[] @relation("CompanyTemplateVersion")
+
+  @@unique([templateId, dayKey], name: "OrgTemplateVersion_template_day_key")
+  @@unique([templateId, versionNo], name: "OrgTemplateVersion_template_version_no")
+  @@index([templateId], map: "OrgTemplateVersion_template_idx")
+}
+
+model OrganizationTemplateModule {
+  id                String                     @id @default(cuid())
+  templateVersionId String
+  moduleCode        String
+  enabled           Boolean                    @default(true)
+  configJson        Json?
+
+  templateVersion   OrganizationTemplateVersion @relation(fields: [templateVersionId], references: [id])
+
+  @@unique([templateVersionId, moduleCode], name: "OrgTemplateModule_version_module_key")
+  @@index([templateVersionId], map: "OrgTemplateModule_version_idx")
+}
+
+model OrganizationTemplateArticle {
+  id                String                     @id @default(cuid())
+  templateVersionId String
+  slug              String
+  title             String
+  body              String
+  sortOrder         Int                        @default(0)
+  active            Boolean                    @default(true)
+
+  templateVersion   OrganizationTemplateVersion @relation(fields: [templateVersionId], references: [id])
+
+  @@unique([templateVersionId, slug], name: "OrgTemplateArticle_version_slug_key")
+  @@index([templateVersionId], map: "OrgTemplateArticle_version_idx")
+}
+
+model OrganizationTemplateRoleProfile {
+  id                String                     @id @default(cuid())
+  templateVersionId String
+  code              String
+  label             String
+  description       String?
+  sortOrder         Int                        @default(0)
+  active            Boolean                    @default(true)
+
+  templateVersion   OrganizationTemplateVersion @relation(fields: [templateVersionId], references: [id])
+  permissions       OrganizationTemplateRolePermission[]
+
+  @@unique([templateVersionId, code], name: "OrgTemplateRoleProfile_version_code_key")
+  @@index([templateVersionId], map: "OrgTemplateRoleProfile_version_idx")
+}
+
+model OrganizationTemplateRolePermission {
+  id                String                        @id @default(cuid())
+  templateRoleProfileId String
+  resourceCode      String
+  canView           Boolean                       @default(false)
+  canAdd            Boolean                       @default(false)
+  canEdit           Boolean                       @default(false)
+  canDelete         Boolean                       @default(false)
+  canViewAll        Boolean                       @default(false)
+  canApprove        Boolean                       @default(false)
+  canManageSettings Boolean                       @default(false)
+
+  templateRoleProfile OrganizationTemplateRoleProfile @relation(fields: [templateRoleProfileId], references: [id])
+
+  @@unique([templateRoleProfileId, resourceCode], name: "OrgTemplateRolePermission_profile_resource_key")
+  @@index([templateRoleProfileId], map: "OrgTemplateRolePermission_profile_idx")
+}
+
+model OrganizationModuleOverride {
+  id         String   @id @default(cuid())
+  companyId  String
+  moduleCode String
+  enabled    Boolean
+  configJson Json?
+
+  company    Company  @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, moduleCode], name: "OrgModuleOverride_company_module_key")
+  @@index([companyId], map: "OrgModuleOverride_company_idx")
+}
+
 model User {
   id                        String              @id @default(cuid())
   email                     String              @unique
   passwordHash              String
+
+  // Profile
+  firstName                 String?
+  lastName                  String?
+
+  // Portfolio Manager
+  portfolios                UserPortfolio[]
+
   createdAt                 DateTime            @default(now())
   updatedAt                 DateTime            @updatedAt
   globalRole                GlobalRole          @default(NONE)
@@ -49,6 +188,46 @@ model User {
   createdImportJobs         ImportJob[]         @relation("ImportJobCreatedBy")
 
   onboardingSessions        OnboardingSession[]
+}
+
+model UserPortfolio {
+  id          String   @id @default(cuid())
+  companyId   String
+  userId      String
+
+  // Public portfolio content (visible to others)
+  headline    String?
+  bio         String?
+  photoUrl    String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id])
+  user        User     @relation(fields: [userId], references: [id])
+  hr          UserPortfolioHr?
+
+  @@unique([companyId, userId], name: "UserPortfolio_company_user_key")
+  @@index([companyId], map: "UserPortfolio_company_idx")
+  @@index([userId], map: "UserPortfolio_user_idx")
+}
+
+model UserPortfolioHr {
+  id                String   @id @default(cuid())
+  portfolioId        String   @unique
+
+  // Encrypted payload (JSON) for sensitive fields.
+  encryptedJson      Bytes
+
+  // Masked display fields
+  ssnLast4           String?
+  itinLast4          String?
+  bankAccountLast4   String?
+  bankRoutingLast4   String?
+
+  updatedAt          DateTime @updatedAt
+
+  portfolio          UserPortfolio @relation(fields: [portfolioId], references: [id])
 }
 
 model CompanyMembership {
@@ -863,9 +1042,15 @@ enum GlobalRole {
   SUPPORT
 }
 
+enum CompanyKind {
+  SYSTEM
+  ORGANIZATION
+}
+
 enum UserType {
   INTERNAL
   CLIENT
+  APPLICANT
 }
 
 enum ImportJobType {

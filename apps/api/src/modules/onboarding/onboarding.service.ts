@@ -51,6 +51,21 @@ export class OnboardingService {
       throw new BadRequestException("RECRUITING_COMPANY_ID is not configured");
     }
 
+    // Recruiting pool must attach to the SYSTEM tenant so applicants never
+    // get mixed into normal organizations.
+    const recruitingCompany = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, kind: true },
+    });
+    if (!recruitingCompany) {
+      throw new BadRequestException("RECRUITING_COMPANY_ID does not exist");
+    }
+    if ((recruitingCompany as any).kind !== "SYSTEM") {
+      throw new BadRequestException(
+        "RECRUITING_COMPANY_ID must reference a SYSTEM company (Nexus System)"
+      );
+    }
+
     const normalizedEmail = this.normalizeEmail(email);
     if (!normalizedEmail) {
       throw new BadRequestException("Email is required");
@@ -75,7 +90,7 @@ export class OnboardingService {
         data: {
           email: normalizedEmail,
           passwordHash,
-          userType: UserType.INTERNAL,
+          userType: UserType.APPLICANT,
         }
       });
 

@@ -10,6 +10,10 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
 interface UserMeResponse {
   id: string;
   email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  globalRole?: string;
+  userType?: string;
   memberships: {
     companyId: string;
     role: string;
@@ -22,6 +26,8 @@ interface UserMeResponse {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const [globalRole, setGlobalRole] = useState<string | null>(null);
+  const [userType, setUserType] = useState<string | null>(null);
 
   const path = pathname ?? "/";
   const isAuthRoute = path === "/login" || path.startsWith("/accept-invite");
@@ -74,6 +80,25 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    fetch(`${API_BASE}/users/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then((json: UserMeResponse | null) => {
+        if (!json) return;
+        setGlobalRole(json.globalRole ?? null);
+        setUserType(json.userType ?? null);
+      })
+      .catch(() => {
+        // ignore
+      });
+  }, []);
+
   const noMainScroll =
     // Pages that manage their own internal scroll panes
     path.startsWith("/company/users/") ||
@@ -95,22 +120,48 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
 
-          {/* Company switcher */}
-          <div style={{ marginLeft: 16, marginRight: 8 }}>
-            <CompanySwitcher />
-          </div>
+          {/* Company switcher (hide for applicant pool accounts) */}
+          {userType !== "APPLICANT" && (
+            <div style={{ marginLeft: 16, marginRight: 8 }}>
+              <CompanySwitcher />
+            </div>
+          )}
 
           <nav className="app-nav">
-            {/* Proj Overview = main project workspace (current /projects section) */}
-            <Link
-              href="/projects"
-              className={
-                "app-nav-link" +
-                (isActive("/projects") ? " app-nav-link-active" : "")
-              }
-            >
-              Proj Overview
-            </Link>
+            {globalRole === "SUPER_ADMIN" && (
+              <Link
+                href="/system"
+                className={
+                  "app-nav-link" +
+                  (isActive("/system") ? " app-nav-link-active" : "")
+                }
+              >
+                Nexus System
+              </Link>
+            )}
+
+            {userType === "APPLICANT" ? (
+              <Link
+                href="/candidate"
+                className={
+                  "app-nav-link" +
+                  (isActive("/candidate") ? " app-nav-link-active" : "")
+                }
+              >
+                Candidate
+              </Link>
+            ) : (
+              <>
+                {/* Proj Overview = main project workspace (current /projects section) */}
+                <Link
+                  href="/projects"
+                  className={
+                    "app-nav-link" +
+                    (isActive("/projects") ? " app-nav-link-active" : "")
+                  }
+                >
+                  Proj Overview
+                </Link>
 
             {/* Placeholder tabs matching Buildertrend-style menu (without Sales) */}
             <Link
@@ -168,17 +219,20 @@ export function AppShell({ children }: { children: ReactNode }) {
                 { label: "Client Profiles", href: "/company/clients" },
               ]}
             />
+              </>
+            )}
           </nav>
         </div>
         <div className="app-header-right">
-          {/* People / user management */}
-          <button
-            type="button"
-            onClick={() => {
-              if (typeof window !== "undefined") {
-                window.location.href = "/company/users";
-              }
-            }}
+          {/* People / user management (hide for applicant pool accounts) */}
+          {userType !== "APPLICANT" && (
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  window.location.href = "/company/users";
+                }
+              }}
             style={{
               width: 32,
               height: 32,
@@ -199,7 +253,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               alt="Company users"
               style={{ width: 20, height: "auto", display: "block" }}
             />
-          </button>
+            </button>
+          )}
 
           {/* User menu */}
           <div style={{ position: "relative" }}>
@@ -319,11 +374,56 @@ function CompanySwitcher() {
   );
 }
 
+function getUserInitials(me: UserMeResponse | null) {
+  const first = me?.firstName?.trim() ?? "";
+  const last = me?.lastName?.trim() ?? "";
+
+  const a = first[0];
+  const b = last[0];
+  if (a && b) return (a + b).toUpperCase();
+  if (a) return a.toUpperCase();
+
+  // Fallback: derive something stable from email.
+  const localPart = (me?.email ?? "").split("@")[0] ?? "";
+  const parts = localPart.split(/[._\s-]+/).filter(Boolean);
+  const e1 = parts[0]?.[0];
+  const e2 = parts.length > 1 ? parts[1]?.[0] : parts[0]?.[1];
+
+  const out = `${e1 ?? "U"}${e2 ?? ""}`.toUpperCase();
+  return out.length >= 2 ? out.slice(0, 2) : out;
+}
+
+function getUserDisplayName(me: UserMeResponse | null) {
+  const first = me?.firstName?.trim();
+  const last = me?.lastName?.trim();
+  const full = [first, last].filter(Boolean).join(" ");
+  return full || me?.email || "Account";
+}
+
 function UserMenu({ onLogout }: { onLogout: () => void }) {
   const [open, setOpen] = React.useState(false);
+  const [me, setMe] = React.useState<UserMeResponse | null>(null);
 
-  // For now, use a static placeholder; later we can pull real user info from /users/me
-  const initials = "PG";
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    fetch(`${API_BASE}/users/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then((json: UserMeResponse | null) => {
+        if (!json) return;
+        setMe(json);
+      })
+      .catch(() => {
+        // ignore
+      });
+  }, []);
+
+  const initials = getUserInitials(me);
+  const displayName = getUserDisplayName(me);
 
   return (
     <div style={{ position: "relative" }}>
@@ -370,8 +470,26 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
               marginBottom: 4,
             }}
           >
-            Paul Gagnon
+            {displayName}
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              window.location.href = "/settings/profile";
+            }}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              fontSize: 13,
+              textAlign: "left",
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+            }}
+          >
+            See/Edit Profile
+          </button>
+
           <button
             type="button"
             onClick={() => {
