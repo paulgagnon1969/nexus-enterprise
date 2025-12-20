@@ -43,7 +43,9 @@ export class AuthService {
     const email = this.normalizeEmail(dto.email);
 
     const existing = await this.prisma.user.findFirst({
-      where: { email: { equals: email, mode: "insensitive" } }
+      where: { email: { equals: email, mode: "insensitive" } },
+      // Backwards-compatible: only select stable columns that exist in older schemas.
+      select: { id: true }
     });
     if (existing) {
       throw new BadRequestException("Email already in use");
@@ -115,7 +117,9 @@ export class AuthService {
     // Allow bootstrap only if there is no SUPER_ADMIN yet, or the only
     // SUPER_ADMIN is this same email (idempotent repair).
     const existingSuperAdmins = await this.prisma.user.findMany({
-      where: { globalRole: GlobalRole.SUPER_ADMIN }
+      where: { globalRole: GlobalRole.SUPER_ADMIN },
+      // Only need email to determine if this address is already SUPER_ADMIN.
+      select: { id: true, email: true, globalRole: true }
     });
     if (
       existingSuperAdmins.length > 0 &&
@@ -127,7 +131,9 @@ export class AuthService {
     const passwordHash = await argon2.hash(password);
 
     let user = await this.prisma.user.findFirst({
-      where: { email: { equals: normalizedEmail, mode: "insensitive" } }
+      where: { email: { equals: normalizedEmail, mode: "insensitive" } },
+      // Backwards-compatible: only select stable columns used below.
+      select: { id: true, email: true, globalRole: true }
     });
     if (!user) {
       user = await this.prisma.user.create({
@@ -176,10 +182,16 @@ export class AuthService {
 
     const user = await this.prisma.user.findFirst({
       where: { email: { equals: email, mode: "insensitive" } },
-      include: {
+      // Backwards-compatible: avoid selecting newly added columns that may not
+      // exist in older prod schemas (e.g., firstName/lastName).
+      select: {
+        id: true,
+        email: true,
+        passwordHash: true,
+        globalRole: true,
         memberships: {
           include: {
-            company: true,
+            company: { select: { id: true, name: true } },
             profile: { select: { code: true } },
           },
         },
@@ -190,7 +202,20 @@ export class AuthService {
       throw new UnauthorizedException("Invalid credentials");
     }
 
-    const valid = await argon2.verify(user.passwordHash, dto.password);
+    // Some users may exist without a local password (e.g., invited users who
+    // haven't completed onboarding). Treat these as invalid credentials rather
+    // than throwing and returning a 500.
+    if (!user.passwordHash) {
+      throw new UnauthorizedException("Invalid credentials");
+    }
+
+    let valid = false;
+    try {
+      valid = await argon2.verify(user.passwordHash, dto.password);
+    } catch {
+      // If the stored hash is malformed or uses an unsupported variant, avoid a 500.
+      valid = false;
+    }
     if (!valid) {
       throw new UnauthorizedException("Invalid credentials");
     }
@@ -263,7 +288,11 @@ export class AuthService {
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      // Only need passwordHash for verification.
+      select: { id: true, passwordHash: true }
+    });
 
     if (!user || !user.passwordHash) {
       throw new UnauthorizedException("Invalid credentials");
@@ -304,7 +333,9 @@ export class AuthService {
     const inviteEmail = this.normalizeEmail(invite.email);
 
     let user = await this.prisma.user.findFirst({
-      where: { email: { equals: inviteEmail, mode: "insensitive" } }
+      where: { email: { equals: inviteEmail, mode: "insensitive" } },
+      // Only need core identity + passwordHash for invite completion.
+      select: { id: true, email: true, passwordHash: true, globalRole: true, userType: true }
     });
 
     const passwordHash = await argon2.hash(password);
@@ -399,10 +430,14 @@ export class AuthService {
 
     const target = await this.prisma.user.findUnique({
       where: { id: targetUserId },
-      include: {
+      // Only select stable scalar columns plus memberships tree.
+      select: {
+        id: true,
+        email: true,
+        globalRole: true,
         memberships: {
           include: {
-            company: true,
+            company: { select: { id: true, name: true } },
             profile: { select: { code: true } },
           },
         },

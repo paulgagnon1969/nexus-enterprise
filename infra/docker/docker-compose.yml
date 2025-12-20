@@ -9,8 +9,10 @@ services:
       POSTGRES_USER: nexus_user
       POSTGRES_PASSWORD: nexus_password
       POSTGRES_DB: nexus_db
+    # Expose Postgres on a dedicated host port to avoid conflicts with any
+    # system Postgres instance. Host 55432 -> container 5432.
     ports:
-      - "5432:5432"
+      - "55432:5432"
     volumes:
       - nexus-postgres-data:/var/lib/postgresql/data
 

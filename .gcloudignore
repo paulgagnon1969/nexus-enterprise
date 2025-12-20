@@ -1,0 +1,23 @@
+# Huge / not needed for building the API container
+docs/
+.git/
+
+# Node/build caches
+node_modules/
+.turbo/
+**/dist/
+**/.next/
+**/.cache/
+build/
+logs/
+.vercel/
+apps/web/tmp_uploads/
+
+# env/log junk
+.env
+.env.*
+!.env.example
+*.log
+
+# macOS
+.DS_Store

@@ -1,0 +1,108 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;\f1\fnil\fcharset0 HelveticaNeue;}
+{\colortbl;\red255\green255\blue255;\red251\green0\blue7;}
+{\*\expandedcolortbl;;\cspthree\c91747\c20037\c13852;}
+\margl1440\margr1440\vieww11520\viewh35440\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 cd /Users/pg/nexus-enterprise\
+\
+\
+export DEV_DB_PASSWORD=''
+\f1\fs26 \cf2 NEXUS_2025_DEV-v2"\
+\
+cd packages/database\
+DATABASE_URL="postgresql://postgres:NEXUS_2025_DEV-v2@127.0.0.1:5433/nexus_db" \\\
+  npm run prisma:migrate\
+\
+# This will prompt you for the new password (twice)\
+gcloud sql users set-password postgres \\\
+  --instance=nexus-dev-postgres \\\
+  --project=nexus-enterprise-480610 \\\
+  --type=BUILT_IN \\\
+  --prompt-for-password\
+\
+   cd /Users/pg/nexus-enterprise\
+   export DEV_DB_PASSWORD='NEXUS_2025_DEV-v2'\
+\
+   cd packages/database\
+   DATABASE_URL="postgresql://postgres:NEXUS_2025_DEV-v2@127.0.0.1:5433/nexus_db" \\\
+     npx prisma db pull\
+\
+cd packages/database\
+\
+DATABASE_URL="postgresql://postgres:NEXUS_2025_DEV-v2@127.0.0.1:5433/nexus_db" \\\
+  npx prisma db pull\
+\
+cd /Users/pg/nexus-enterprise/packages/database\
+\
+# Use the same working connection you just tested, but for migrate:\
+DATABASE_URL="postgresql://postgres:NEXUS_2025_DEV-v2@127.0.0.1:5433/nexus_db" \\\
+  npm run prisma:migrate\
+\
+\
+cd /Users/pg/nexus-enterprise\
+export DEV_DB_PASSWORD='NEXUS_2025_DEV-v2'\
+\
+\
+# Export once so scripts can use it\
+export DEV_DB_PASSWORD='NEXUS_2025_DEV-v2'\
+DEV_DB_PASSWORD="NEXUS_2025_DEV-v2" ./scripts/dev-start.sh\
+\
+# Start dev stack wired to Cloud SQL dev\
+DEV_DB_PASSWORD="NEXUS_2025_DEV-v2" ./scripts/dev-start.sh\
+\
+ cd /Users/pg/nexus-enterprise\
+   export DEV_DB_PASSWORD='NEXUS_2025_DEV-v2'\
+   DEV_DB_PASSWORD="NEXUS_2025_DEV-v2" ./scripts/dev-start.sh\
+\
+\
+cd /Users/pg/nexus-enterprise\
+\
+# EXACT password that just worked for prisma db pull/migrate\
+export DEV_DB_PASSWORD='NEXUS_2025_DEV-v2'\
+\
+DEV_DB_PASSWORD="NEXUS_2025_DEV-v2" ./scripts/dev-start.sh\
+\
+\
+cd /Users/pg/nexus-enterprise/apps/api\
+\
+# Use the EXACT URL that works for prisma (no extra spaces)\
+DATABASE_URL="postgresql://postgres:NEXUS_2025_DEV-v2@127.0.0.1:5433/nexus_db" \\\
+  npm run dev\
+\
+cd /Users/pg/nexus-enterprise\
+\
+curl -X POST http://localhost:8000/auth/bootstrap-superadmin \\\
+  -H 'Content-Type: application/json' \\\
+  -d '\{\
+    "email": "pg.superadmin@ncc.local",\
+    "password": "NexusSuperAdmin!2025"\
+  \}'\
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf2 # Set the working dev DB password\
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf2 cd /Users/pg/nexus-enterprise\
+export DEV_DB_PASSWORD='NEXUS_2025_DEV-v2'\
+\
+cd apps/api\
+DATABASE_URL="postgresql://postgres:$\{DEV_DB_PASSWORD\}@127.0.0.1:5433/nexus_db" \\\
+  npm run dev\
+\
+\
+cd /Users/pg/nexus-enterprise\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf2 curl -i http://localhost:8000/health\
+curl -i http://localhost:3000/login\
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf2 # API health\
+\
+\
+# Web (optional)\
+curl -i http://localhost:3000/login\
+\
+\
+NEXUS_2025_DEV-v2}
