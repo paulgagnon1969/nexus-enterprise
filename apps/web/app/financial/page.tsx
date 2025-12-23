@@ -312,6 +312,11 @@ export default function FinancialPage() {
       });
 
       if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error(
+            "Your session has expired or is not authorized for Golden uploads. Please log out, log back in, and try again.",
+          );
+        }
         const text = await res.text().catch(() => "");
         throw new Error(`Upload failed (${res.status}) ${text}`);
       }
@@ -320,7 +325,7 @@ export default function FinancialPage() {
 
       if (json.jobId) {
         setMessage(
-          `Queued Golden Price List import as job ${json.jobId}. You can continue working while it processes.`,
+          `Golden price list import started (job ${json.jobId}). You can go about your business; this may take a few minutes. Refresh this page later to see the updated Golden list.`,
         );
       } else {
         setMessage(
@@ -370,6 +375,11 @@ export default function FinancialPage() {
       });
 
       if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error(
+            "Your session has expired or is not authorized for Golden components uploads. Please log out, log back in, and try again.",
+          );
+        }
         const text = await res.text().catch(() => "");
         throw new Error(`Components upload failed (${res.status}) ${text}`);
       }
