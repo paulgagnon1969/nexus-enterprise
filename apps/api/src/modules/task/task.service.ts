@@ -2,7 +2,8 @@ import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/commo
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuditService } from "../../common/audit.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { Role, TaskStatus, TaskPriority } from "@prisma/client";
+import { TaskPriorityEnum, TaskStatusEnum } from "./dto/task.dto";
+import { Role } from "@prisma/client";
 
 @Injectable()
 export class TaskService {
@@ -15,9 +16,9 @@ export class TaskService {
     actor: AuthenticatedUser,
     filters: {
       projectId?: string;
-      status?: TaskStatus;
+      status?: TaskStatusEnum;
       assigneeId?: string;
-      priority?: TaskPriority;
+      priority?: TaskPriorityEnum;
       overdueOnly?: boolean;
     }
   ) {
@@ -59,10 +60,10 @@ export class TaskService {
     title: string;
     description?: string;
     assigneeId?: string;
-    priority?: TaskPriority;
+    priority?: TaskPriorityEnum;
     dueDate?: Date;
   }) {
-    if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+    if (actor.role !== "OWNER" && actor.role !== "ADMIN") {
       throw new ForbiddenException("Only company OWNER or ADMIN can create tasks");
     }
 
@@ -81,8 +82,8 @@ export class TaskService {
       data: {
         title: dto.title,
         description: dto.description,
-        status: TaskStatus.TODO,
-        priority: dto.priority ?? TaskPriority.MEDIUM,
+        status: "TODO",
+        priority: dto.priority ?? TaskPriorityEnum.MEDIUM,
         dueDate: dto.dueDate ?? null,
         companyId: actor.companyId,
         projectId: dto.projectId,
@@ -102,7 +103,7 @@ export class TaskService {
   async updateStatus(
     actor: AuthenticatedUser,
     taskId: string,
-    status: TaskStatus
+    status: TaskStatusEnum
   ) {
     const task = await this.prisma.task.findFirst({
       where: {
@@ -115,7 +116,7 @@ export class TaskService {
       throw new NotFoundException("Task not found in this company");
     }
 
-    if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+    if (actor.role !== "OWNER" && actor.role !== "ADMIN") {
       // Allow assignee to update their own task
       if (task.assigneeId !== actor.userId) {
         throw new ForbiddenException("You cannot update this task");

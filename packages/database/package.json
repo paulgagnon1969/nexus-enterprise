@@ -7,7 +7,7 @@
   "scripts": {
     "prisma:migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",
-    "build": "tsc -p tsconfig.json",
+    "build": "prisma generate && tsc -p tsconfig.json",
     "check-types": "tsc -p tsconfig.json --noEmit",
     "lint": "echo 'lint disabled'",
     "import:xact": "ts-node src/run-import-xact.ts",

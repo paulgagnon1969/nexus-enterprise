@@ -1,8 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
-import { Role, ProjectRole, ProjectParticleType, ProjectParticipantScope, ProjectVisibilityLevel } from "@prisma/client";
 import { AuditService } from "../../common/audit.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
+import { Role, ProjectRole, ProjectParticleType, ProjectParticipantScope, ProjectVisibilityLevel } from "@prisma/client";
 import { CreateProjectDto, UpdateProjectDto } from "./dto/project.dto";
 import { importXactCsvForProject, importXactComponentsCsvForEstimate, allocateComponentsForEstimate } from "@repo/database";
 

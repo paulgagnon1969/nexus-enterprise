@@ -25,12 +25,24 @@ EOF
 fi
 
 # 2) Start Cloud SQL Auth Proxy for dev (if not already running)
+# Uses a dedicated service account key for stable local auth. Set
+# CLOUD_SQL_PROXY_CREDENTIAL_FILE in your shell (e.g. ~/.zshrc):
+#   export CLOUD_SQL_PROXY_CREDENTIAL_FILE="$HOME/.gcp-keys/nexus-dev-proxy-key.json"
 if pgrep -f "cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres" >/dev/null 2>&1; then
   echo "[dev-start] Cloud SQL proxy already running" | tee -a "$LOG_DIR/dev-start.log"
 else
   echo "[dev-start] Starting Cloud SQL proxy on 127.0.0.1:5433 (dev instance)" | tee -a "$LOG_DIR/dev-start.log"
-  nohup /opt/homebrew/bin/cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres \
-    > "$LOG_DIR/cloud-sql-proxy.log" 2>&1 &
+  if [[ -z "${CLOUD_SQL_PROXY_CREDENTIAL_FILE:-}" ]]; then
+    echo "[dev-start] WARNING: CLOUD_SQL_PROXY_CREDENTIAL_FILE is not set; falling back to Application Default Credentials" | tee -a "$LOG_DIR/dev-start.log"
+    nohup /opt/homebrew/bin/cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres \
+      > "$LOG_DIR/cloud-sql-proxy.log" 2>&1 &
+  else
+    nohup /opt/homebrew/bin/cloud-sql-proxy \
+      --port=5433 \
+      --credential_file="$CLOUD_SQL_PROXY_CREDENTIAL_FILE" \
+      nexus-enterprise-480610:us-central1:nexus-dev-postgres \
+      > "$LOG_DIR/cloud-sql-proxy.log" 2>&1 &
+  fi
   echo "[dev-start] Waiting 5 seconds for Cloud SQL proxy to initialize..." | tee -a "$LOG_DIR/dev-start.log"
   sleep 5
 fi
