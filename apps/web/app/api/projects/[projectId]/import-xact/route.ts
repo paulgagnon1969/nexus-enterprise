@@ -6,9 +6,9 @@ export const dynamic = "force-dynamic";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { projectId: string } }
+  context: { params: Promise<{ projectId: string }> }
 ) {
-  const projectId = params.projectId;
+  const { projectId } = await context.params;
 
   try {
     const form = await req.formData();
