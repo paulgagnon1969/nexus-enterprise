@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { parse } from "csv-parse/sync";
 import crypto from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import prisma from "./client";
 
 function cleanText(value: string | null | undefined): string | null {
@@ -113,9 +114,13 @@ export async function importGoldenComponentsFromFile(csvPath: string) {
       description,
     });
 
-    let priceListItemId = itemCache.get(canonicalKeyHash) ?? null;
+    // Resolve the parent PriceListItem id for this canonical key.
+    let priceListItemId: string;
+    const cachedId = itemCache.get(canonicalKeyHash);
 
-    if (!priceListItemId) {
+    if (cachedId) {
+      priceListItemId = cachedId;
+    } else {
       const item = await prisma.priceListItem.findFirst({
         where: {
           priceListId: priceList.id,
@@ -159,7 +164,7 @@ export async function importGoldenComponentsFromFile(csvPath: string) {
     return { priceListId: priceList.id, itemCount: 0, componentCount: 0 };
   }
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     // First remove any existing components for the touched items so that the
     // component set for each item exactly matches the latest import.
     await tx.priceListComponent.deleteMany({
