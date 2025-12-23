@@ -12,7 +12,9 @@
     "lint": "echo 'lint disabled'",
     "import:xact": "ts-node src/run-import-xact.ts",
     "import:xact-components": "ts-node src/run-import-xact-components.ts",
-    "allocate:xact-components": "ts-node src/run-allocate-xact-components.ts"
+    "allocate:xact-components": "ts-node src/run-allocate-xact-components.ts",
+    "import:pricelist": "ts-node src/run-import-price-list.ts",
+    "import:pricelist-components": "ts-node src/run-import-pricelist-components.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",

@@ -16,9 +16,9 @@ log() {
 }
 
 # 1) Stop Cloud SQL proxy
-if pgrep -f "cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-prod-postgres" >/dev/null 2>&1; then
+if pgrep -f "cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2" >/dev/null 2>&1; then
   log "Stopping Cloud SQL proxy on 127.0.0.1:5433"
-  pkill -f "cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-prod-postgres" || true
+  pkill -f "cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2" || true
 else
   log "Cloud SQL proxy not running"
 fi

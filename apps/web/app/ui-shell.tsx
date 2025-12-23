@@ -198,7 +198,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 (isActive("/financial") ? " app-nav-link-active" : "")
               }
             >
-              Financial Overview
+              Financial
             </Link>
             <Link
               href="/reports"

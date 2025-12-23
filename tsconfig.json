@@ -11,7 +11,6 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
-      "@repo/database/*": ["packages/database/src/*"],
       "@repo/types/*": ["packages/types/src/*"]
     }
   }

@@ -20,7 +20,7 @@ If these three are healthy, the UI and login will work.
 
 Cloud SQL instances (names from GCP):
 
-- `nexus-prod-postgres`
+- `nexusprod-v2`
 - `nexus-dev-postgres`
 
 The examples below assume **prod** database for day-to-day testing. Swap to `nexus-dev-postgres` when you want a safer dev DB.
@@ -32,7 +32,7 @@ The examples below assume **prod** database for day-to-day testing. Swap to `nex
 In a terminal:
 
 ```bash
-cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-prod-postgres
+cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2
 ```
 
 Leave this running. When ready, you should see output like:

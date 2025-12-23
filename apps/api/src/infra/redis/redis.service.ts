@@ -29,13 +29,24 @@ export class RedisService implements OnModuleDestroy {
 
   constructor() {
     const url = process.env.REDIS_URL;
+    const nodeEnv = process.env.NODE_ENV || "development";
+
+    // In non-production environments, always fall back to the no-op client so
+    // that missing/unstable Redis does not break local dev flows (e.g. login).
+    // To use a real Redis in dev/staging, we can revisit this guard or add a
+    // dedicated flag later.
+    if (nodeEnv !== "production") {
+      this.client = new NoopRedis();
+      return;
+    }
+
     if (url) {
       this.client = new Redis(url);
     } else {
-      // In environments without Redis (e.g., Cloud Run dev), use a no-op client
-      // so that features depending on Redis (refresh tokens, etc.) degrade
-      // gracefully instead of crashing the API.
-      // For local development with a real Redis instance, set REDIS_URL.
+      // In production-like environments without Redis configured, still fall
+      // back to no-op so that the API degrades gracefully instead of
+      // crashing. Features depending on Redis (refresh tokens, password
+      // resets, etc.) will be effectively disabled.
       this.client = new NoopRedis();
     }
   }

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parse } from "csv-parse/sync";
 import crypto from "node:crypto";
-import { prisma, ProjectParticleType } from "./index";
+import { prisma } from "./index";
 
 function toNumber(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -75,6 +75,225 @@ function parseUnitAndRoom(groupDescription: string): { unitLabel: string; roomNa
   const left = parts[0]!.trim() || "Unit 1";
   const right = parts.slice(1).join("-").trim() || "Whole Unit";
   return { unitLabel: left, roomName: right };
+}
+
+// Sync the active Golden price list's unitPrice values with the
+// actual unit costs seen in a specific Xact RAW estimate. For each
+// (Cat, Sel) pair in the estimate that differs from the Golden price,
+// we update PriceListItem.unitPrice to the estimate's unitCost and
+// move the previous Golden price into lastKnownUnitPrice.
+async function updateGoldenFromEstimate(estimateVersionId: string) {
+  const priceList = await prisma.priceList.findFirst({
+    where: { kind: "GOLDEN", isActive: true },
+    orderBy: { revision: "desc" },
+  });
+
+  if (!priceList) {
+    return {
+      updatedCount: 0,
+      avgDelta: 0,
+      avgPercentDelta: 0,
+    };
+  }
+
+  const estimate = await prisma.estimateVersion.findUnique({
+    where: { id: estimateVersionId },
+    include: { project: true },
+  });
+
+  if (!estimate || !estimate.project) {
+    return {
+      updatedCount: 0,
+      avgDelta: 0,
+      avgPercentDelta: 0,
+    };
+  }
+
+  const companyId = estimate.project.companyId;
+  const projectId = estimate.projectId;
+  const userId = estimate.importedByUserId ?? null;
+
+  // Load raw rows for this estimate with Cat/Sel and Unit Cost.
+  const rawRows = await prisma.rawXactRow.findMany({
+    where: { estimateVersionId },
+    select: {
+      cat: true,
+      sel: true,
+      unitCost: true,
+    },
+  });
+
+  type Agg = {
+    cat: string;
+    sel: string | null;
+    totalUnitCost: number;
+    count: number;
+  };
+
+  const byKey = new Map<string, Agg>();
+
+  for (const row of rawRows) {
+    if (!row.cat || row.unitCost == null) continue;
+    const cat = row.cat.trim().toUpperCase();
+    if (!cat) continue;
+    const sel = row.sel ? row.sel.trim().toUpperCase() : null;
+    const key = `${cat}::${sel ?? ""}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.totalUnitCost += row.unitCost ?? 0;
+      existing.count += 1;
+    } else {
+      byKey.set(key, {
+        cat,
+        sel,
+        totalUnitCost: row.unitCost ?? 0,
+        count: 1,
+      });
+    }
+  }
+
+  if (byKey.size === 0) {
+    // Still log a zero-update event so the revision history reflects
+    // that this estimate was processed against the Golden price list.
+    await prisma.goldenPriceUpdateLog.create({
+      data: {
+        companyId,
+        projectId,
+        estimateVersionId,
+        userId,
+        updatedCount: 0,
+        avgDelta: 0,
+        avgPercentDelta: 0,
+      },
+    });
+
+    return {
+      updatedCount: 0,
+      avgDelta: 0,
+      avgPercentDelta: 0,
+    };
+  }
+
+  const cats = Array.from(new Set(Array.from(byKey.values()).map((a) => a.cat)));
+
+  // Load Golden items for these Cats.
+  const goldenItems = await prisma.priceListItem.findMany({
+    where: {
+      priceListId: priceList.id,
+      cat: { in: cats },
+    },
+    select: {
+      id: true,
+      cat: true,
+      sel: true,
+      unitPrice: true,
+      lastKnownUnitPrice: true,
+    },
+  });
+
+  const itemByKey = new Map<
+    string,
+    { id: string; unitPrice: number | null; lastKnownUnitPrice: number | null }
+  >();
+
+  for (const item of goldenItems) {
+    const cat = (item.cat ?? "").trim().toUpperCase();
+    if (!cat) continue;
+    const sel = item.sel ? item.sel.trim().toUpperCase() : null;
+    const key = `${cat}::${sel ?? ""}`;
+    if (!itemByKey.has(key)) {
+      itemByKey.set(key, {
+        id: item.id,
+        unitPrice: item.unitPrice,
+        lastKnownUnitPrice: item.lastKnownUnitPrice,
+      });
+    }
+  }
+
+  const updates: { id: string; oldPrice: number; newPrice: number }[] = [];
+
+  for (const [key, agg] of byKey.entries()) {
+    const avgUnitCost = agg.totalUnitCost / (agg.count || 1);
+    if (!Number.isFinite(avgUnitCost)) continue;
+
+    const item = itemByKey.get(key);
+    if (!item) continue;
+
+    const oldPrice = item.unitPrice ?? 0;
+    const newPrice = avgUnitCost;
+
+    // Skip if effectively the same price (tiny rounding differences).
+    if (Math.abs(newPrice - oldPrice) < 0.005) continue;
+
+    updates.push({ id: item.id, oldPrice, newPrice });
+  }
+
+  if (updates.length === 0) {
+    // No per-item price changes, but we still record a history event so
+    // the Golden Price List Revision Log shows that this estimate ran.
+    await prisma.goldenPriceUpdateLog.create({
+      data: {
+        companyId,
+        projectId,
+        estimateVersionId,
+        userId,
+        updatedCount: 0,
+        avgDelta: 0,
+        avgPercentDelta: 0,
+      },
+    });
+
+    return {
+      updatedCount: 0,
+      avgDelta: 0,
+      avgPercentDelta: 0,
+    };
+  }
+
+  await prisma.$transaction(
+    updates.map((u) =>
+      prisma.priceListItem.update({
+        where: { id: u.id },
+        data: {
+          lastKnownUnitPrice: u.oldPrice,
+          unitPrice: u.newPrice,
+        },
+      }),
+    ),
+  );
+
+  let sumDelta = 0;
+  let sumPercent = 0;
+
+  for (const u of updates) {
+    const delta = u.newPrice - u.oldPrice;
+    sumDelta += delta;
+    if (u.oldPrice > 0) {
+      sumPercent += delta / u.oldPrice;
+    }
+  }
+
+  const updatedCount = updates.length;
+  const avgDelta = updatedCount ? sumDelta / updatedCount : 0;
+  const avgPercentDelta = updatedCount ? sumPercent / updatedCount : 0;
+
+  await prisma.goldenPriceUpdateLog.create({
+    data: {
+      companyId,
+      projectId,
+      estimateVersionId,
+      userId,
+      updatedCount,
+      avgDelta,
+      avgPercentDelta,
+    },
+  });
+
+  return {
+    updatedCount,
+    avgDelta,
+    avgPercentDelta,
+  };
 }
 
 export async function importXactCsvForProject(options: {
@@ -218,7 +437,7 @@ export async function importXactCsvForProject(options: {
     where: { projectId }
   });
 
-  const existingUnitLabels = new Set(existingUnits.map((u) => u.label));
+  const existingUnitLabels = new Set(existingUnits.map((u: any) => u.label));
   const unitsToCreate = Array.from(unitLabels)
     .filter((label) => !existingUnitLabels.has(label))
     .map((label) => ({
@@ -232,8 +451,8 @@ export async function importXactCsvForProject(options: {
   }
 
   const allUnits = await prisma.projectUnit.findMany({ where: { projectId } });
-  const unitById = new Map(allUnits.map((u) => [u.id, u]));
-  const unitByLabel = new Map(allUnits.map((u) => [u.label, u]));
+  const unitById = new Map(allUnits.map((u: any) => [u.id, u]));
+  const unitByLabel = new Map(allUnits.map((u: any) => [u.label, u]));
 
   // --- Phase 3: ensure all particles exist and build a key -> id map ---
   const existingParticles = await prisma.projectParticle.findMany({
@@ -244,7 +463,7 @@ export async function importXactCsvForProject(options: {
   for (const p of existingParticles) {
     const unitId = p.unitId;
     if (!unitId) continue;
-    const unit = unitById.get(unitId);
+    const unit = unitById.get(unitId) as any;
     if (!unit) continue;
     const key = `${unit.label}::${p.name}`;
     if (!particleIdByKey.has(key)) {
@@ -255,13 +474,13 @@ export async function importXactCsvForProject(options: {
   const particlesToCreate: any[] = [];
   for (const [key, info] of particleKeyToInfo.entries()) {
     if (particleIdByKey.has(key)) continue;
-    const unit = unitByLabel.get(info.unitLabel);
+    const unit = unitByLabel.get(info.unitLabel) as any;
     if (!unit) continue;
     particlesToCreate.push({
       projectId,
       companyId: project!.companyId,
       unitId: unit.id,
-      type: ProjectParticleType.ROOM,
+      type: "ROOM",
       name: info.roomName,
       fullLabel: `${info.unitLabel} - ${info.roomName}`,
       externalGroupCode: info.groupCode,
@@ -280,7 +499,7 @@ export async function importXactCsvForProject(options: {
   for (const p of allParticles) {
     const unitId = p.unitId;
     if (!unitId) continue;
-    const unit = unitById.get(unitId);
+    const unit = unitById.get(unitId) as any;
     if (!unit) continue;
     const key = `${unit.label}::${p.name}`;
     if (!particleIdByKey.has(key)) {
@@ -418,20 +637,23 @@ export async function importXactCsvForProject(options: {
       where: { id: estimateVersion.id },
       data: {
         status: "completed",
-        importedAt: new Date()
-      }
+        importedAt: new Date(),
+      },
     }),
     prisma.sow.update({
       where: { id: sow.id },
-      data: { totalAmount }
-    })
+      data: { totalAmount },
+    }),
   ]);
+
+  const goldenUpdate = await updateGoldenFromEstimate(estimateVersion.id);
 
   return {
     projectId,
     estimateVersionId: estimateVersion.id,
     sowId: sow.id,
     itemCount: sowItemsData.length,
-    totalAmount
+    totalAmount,
+    goldenUpdate,
   };
 }

@@ -8,27 +8,22 @@ datasource db {
 }
 
 model Company {
-  id                        String              @id @default(cuid())
+  id                        String                       @id @default(cuid())
   name                      String
-  kind                      CompanyKind         @default(ORGANIZATION)
-  createdAt                 DateTime            @default(now())
-  updatedAt                 DateTime            @updatedAt
-  reputationOverallAvg      Float               @default(2)
-  reputationOverallCount    Int                 @default(0)
+  createdAt                 DateTime                     @default(now())
+  updatedAt                 DateTime                     @updatedAt
+  reputationOverallAvg      Float                        @default(2)
+  reputationOverallCount    Int                          @default(0)
   reputationOverallOverride Int?
-
-  // Organization template attachment (Option A: inherit entitlements)
-  templateId        String?
-  templateVersionId String?
-  template          OrganizationTemplate?        @relation("CompanyTemplate", fields: [templateId], references: [id])
-  templateVersion   OrganizationTemplateVersion? @relation("CompanyTemplateVersion", fields: [templateVersionId], references: [id])
-  moduleOverrides   OrganizationModuleOverride[]
-
-  // Portfolio Manager
-  userPortfolios            UserPortfolio[]
-
+  kind                      CompanyKind                  @default(ORGANIZATION)
+  templateId                String?
+  templateVersionId         String?
+  template                  OrganizationTemplate?        @relation("CompanyTemplate", fields: [templateId], references: [id])
+  templateVersion           OrganizationTemplateVersion? @relation("CompanyTemplateVersion", fields: [templateVersionId], references: [id])
   invites                   CompanyInvite[]
   memberships               CompanyMembership[]
+  importJobs                ImportJob[]
+  moduleOverrides           OrganizationModuleOverride[]
   parcels                   Parcel[]
   projects                  Project[]
   buildings                 ProjectBuilding[]
@@ -39,47 +34,40 @@ model Company {
   tags                      Tag[]
   tagAssignments            TagAssignment[]
   tasks                     Task[]
-  importJobs                ImportJob[]
+  userPortfolios            UserPortfolio[]
+  goldenPriceUpdates        GoldenPriceUpdateLog[]
 }
 
 model OrganizationTemplate {
-  id               String                      @id @default(cuid())
-  code             String                      @unique
+  id               String                        @id @default(cuid())
+  code             String                        @unique
   label            String
   description      String?
-  active           Boolean                     @default(true)
-  createdAt        DateTime                    @default(now())
-  updatedAt        DateTime                    @updatedAt
-
-  // Points at the active version.
-  currentVersionId String? @unique
-  currentVersion   OrganizationTemplateVersion? @relation("TemplateCurrentVersion", fields: [currentVersionId], references: [id])
-
+  active           Boolean                       @default(true)
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
+  currentVersionId String?                       @unique
+  companies        Company[]                     @relation("CompanyTemplate")
+  currentVersion   OrganizationTemplateVersion?  @relation("TemplateCurrentVersion", fields: [currentVersionId], references: [id])
   versions         OrganizationTemplateVersion[]
-  companies        Company[]                   @relation("CompanyTemplate")
 }
 
 model OrganizationTemplateVersion {
-  id             String                   @id @default(cuid())
-  templateId     String
-  versionNo      Int
-  // YYYY-MM-DD; we coalesce multiple syncs into a single daily version.
-  dayKey         String
-  label          String?
-  notes          String?
-  contentHash    String?
-  createdAt      DateTime                 @default(now())
-  createdByUserId String?
-
-  template       OrganizationTemplate     @relation(fields: [templateId], references: [id])
-  // Back-reference for OrganizationTemplate.currentVersion
-  currentForTemplate OrganizationTemplate? @relation("TemplateCurrentVersion")
-
-  modules        OrganizationTemplateModule[]
-  articles       OrganizationTemplateArticle[]
-  roleProfiles   OrganizationTemplateRoleProfile[]
-
-  companiesUsingThisVersion Company[] @relation("CompanyTemplateVersion")
+  id                        String                            @id @default(cuid())
+  templateId                String
+  versionNo                 Int
+  dayKey                    String
+  label                     String?
+  notes                     String?
+  contentHash               String?
+  createdAt                 DateTime                          @default(now())
+  createdByUserId           String?
+  companiesUsingThisVersion Company[]                         @relation("CompanyTemplateVersion")
+  currentForTemplate        OrganizationTemplate?             @relation("TemplateCurrentVersion")
+  articles                  OrganizationTemplateArticle[]
+  modules                   OrganizationTemplateModule[]
+  roleProfiles              OrganizationTemplateRoleProfile[]
+  template                  OrganizationTemplate              @relation(fields: [templateId], references: [id])
 
   @@unique([templateId, dayKey], name: "OrgTemplateVersion_template_day_key")
   @@unique([templateId, versionNo], name: "OrgTemplateVersion_template_version_no")
@@ -87,12 +75,11 @@ model OrganizationTemplateVersion {
 }
 
 model OrganizationTemplateModule {
-  id                String                     @id @default(cuid())
+  id                String                      @id @default(cuid())
   templateVersionId String
   moduleCode        String
-  enabled           Boolean                    @default(true)
+  enabled           Boolean                     @default(true)
   configJson        Json?
-
   templateVersion   OrganizationTemplateVersion @relation(fields: [templateVersionId], references: [id])
 
   @@unique([templateVersionId, moduleCode], name: "OrgTemplateModule_version_module_key")
@@ -100,14 +87,13 @@ model OrganizationTemplateModule {
 }
 
 model OrganizationTemplateArticle {
-  id                String                     @id @default(cuid())
+  id                String                      @id @default(cuid())
   templateVersionId String
   slug              String
   title             String
   body              String
-  sortOrder         Int                        @default(0)
-  active            Boolean                    @default(true)
-
+  sortOrder         Int                         @default(0)
+  active            Boolean                     @default(true)
   templateVersion   OrganizationTemplateVersion @relation(fields: [templateVersionId], references: [id])
 
   @@unique([templateVersionId, slug], name: "OrgTemplateArticle_version_slug_key")
@@ -115,47 +101,44 @@ model OrganizationTemplateArticle {
 }
 
 model OrganizationTemplateRoleProfile {
-  id                String                     @id @default(cuid())
+  id                String                               @id @default(cuid())
   templateVersionId String
   code              String
   label             String
   description       String?
-  sortOrder         Int                        @default(0)
-  active            Boolean                    @default(true)
-
-  templateVersion   OrganizationTemplateVersion @relation(fields: [templateVersionId], references: [id])
+  sortOrder         Int                                  @default(0)
+  active            Boolean                              @default(true)
   permissions       OrganizationTemplateRolePermission[]
+  templateVersion   OrganizationTemplateVersion          @relation(fields: [templateVersionId], references: [id])
 
   @@unique([templateVersionId, code], name: "OrgTemplateRoleProfile_version_code_key")
   @@index([templateVersionId], map: "OrgTemplateRoleProfile_version_idx")
 }
 
 model OrganizationTemplateRolePermission {
-  id                String                        @id @default(cuid())
+  id                    String                          @id @default(cuid())
   templateRoleProfileId String
-  resourceCode      String
-  canView           Boolean                       @default(false)
-  canAdd            Boolean                       @default(false)
-  canEdit           Boolean                       @default(false)
-  canDelete         Boolean                       @default(false)
-  canViewAll        Boolean                       @default(false)
-  canApprove        Boolean                       @default(false)
-  canManageSettings Boolean                       @default(false)
-
-  templateRoleProfile OrganizationTemplateRoleProfile @relation(fields: [templateRoleProfileId], references: [id])
+  resourceCode          String
+  canView               Boolean                         @default(false)
+  canAdd                Boolean                         @default(false)
+  canEdit               Boolean                         @default(false)
+  canDelete             Boolean                         @default(false)
+  canViewAll            Boolean                         @default(false)
+  canApprove            Boolean                         @default(false)
+  canManageSettings     Boolean                         @default(false)
+  templateRoleProfile   OrganizationTemplateRoleProfile @relation(fields: [templateRoleProfileId], references: [id])
 
   @@unique([templateRoleProfileId, resourceCode], name: "OrgTemplateRolePermission_profile_resource_key")
   @@index([templateRoleProfileId], map: "OrgTemplateRolePermission_profile_idx")
 }
 
 model OrganizationModuleOverride {
-  id         String   @id @default(cuid())
+  id         String  @id @default(cuid())
   companyId  String
   moduleCode String
   enabled    Boolean
   configJson Json?
-
-  company    Company  @relation(fields: [companyId], references: [id])
+  company    Company @relation(fields: [companyId], references: [id])
 
   @@unique([companyId, moduleCode], name: "OrgModuleOverride_company_module_key")
   @@index([companyId], map: "OrgModuleOverride_company_idx")
@@ -165,14 +148,6 @@ model User {
   id                        String              @id @default(cuid())
   email                     String              @unique
   passwordHash              String
-
-  // Profile
-  firstName                 String?
-  lastName                  String?
-
-  // Portfolio Manager
-  portfolios                UserPortfolio[]
-
   createdAt                 DateTime            @default(now())
   updatedAt                 DateTime            @updatedAt
   globalRole                GlobalRole          @default(NONE)
@@ -180,32 +155,31 @@ model User {
   reputationOverallAvg      Float               @default(2)
   reputationOverallCount    Int                 @default(0)
   reputationOverallOverride Int?
+  firstName                 String?
+  lastName                  String?
   acceptedInvites           CompanyInvite[]
   memberships               CompanyMembership[]
   createdDailyLogs          DailyLog[]
+  createdImportJobs         ImportJob[]         @relation("ImportJobCreatedBy")
+  onboardingSessions        OnboardingSession[]
   projectMemberships        ProjectMembership[]
   assignedTasks             Task[]              @relation("TaskAssignee")
-  createdImportJobs         ImportJob[]         @relation("ImportJobCreatedBy")
-
-  onboardingSessions        OnboardingSession[]
+  portfolios                UserPortfolio[]
+  goldenPriceUpdates        GoldenPriceUpdateLog[]
 }
 
 model UserPortfolio {
-  id          String   @id @default(cuid())
-  companyId   String
-  userId      String
-
-  // Public portfolio content (visible to others)
-  headline    String?
-  bio         String?
-  photoUrl    String?
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  company     Company  @relation(fields: [companyId], references: [id])
-  user        User     @relation(fields: [userId], references: [id])
-  hr          UserPortfolioHr?
+  id        String           @id @default(cuid())
+  companyId String
+  userId    String
+  headline  String?
+  bio       String?
+  photoUrl  String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  company   Company          @relation(fields: [companyId], references: [id])
+  user      User             @relation(fields: [userId], references: [id])
+  hr        UserPortfolioHr?
 
   @@unique([companyId, userId], name: "UserPortfolio_company_user_key")
   @@index([companyId], map: "UserPortfolio_company_idx")
@@ -213,21 +187,15 @@ model UserPortfolio {
 }
 
 model UserPortfolioHr {
-  id                String   @id @default(cuid())
-  portfolioId        String   @unique
-
-  // Encrypted payload (JSON) for sensitive fields.
-  encryptedJson      Bytes
-
-  // Masked display fields
-  ssnLast4           String?
-  itinLast4          String?
-  bankAccountLast4   String?
-  bankRoutingLast4   String?
-
-  updatedAt          DateTime @updatedAt
-
-  portfolio          UserPortfolio @relation(fields: [portfolioId], references: [id])
+  id               String        @id @default(cuid())
+  portfolioId      String        @unique
+  encryptedJson    Bytes
+  ssnLast4         String?
+  itinLast4        String?
+  bankAccountLast4 String?
+  bankRoutingLast4 String?
+  updatedAt        DateTime      @updatedAt
+  portfolio        UserPortfolio @relation(fields: [portfolioId], references: [id])
 }
 
 model CompanyMembership {
@@ -333,6 +301,7 @@ model Project {
   componentSummaries   ComponentSummary[]
   dailyLogs            DailyLog[]
   estimateVersions     EstimateVersion[]
+  importJobs           ImportJob[]
   parcels              Parcel[]
   petlEditSessions     PetlEditSession[]
   company              Company                   @relation(fields: [companyId], references: [id])
@@ -344,7 +313,7 @@ model Project {
   componentAllocations SowComponentAllocation[]
   sowLogicalItems      SowLogicalItem[]
   tasks                Task[]
-  importJobs           ImportJob[]
+  goldenPriceUpdates   GoldenPriceUpdateLog[]
 }
 
 model Parcel {
@@ -460,24 +429,47 @@ model AdminAuditLog {
 
 model ProjectFinancialSnapshot {
   id                   String   @id @default(cuid())
-  projectId             String
-  estimateVersionId     String
-  snapshotDate          DateTime
-  computedAt            DateTime @default(now())
-  totalRcvClaim         Float
-  totalAcvClaim         Float
-  workCompleteRcv       Float
-  acvReturn             Float
-  opRate                Float
-  acvOP                 Float
-  totalDueWorkBillable  Float
-  depositRate           Float
-  depositBaseline       Float
-  billedToDate          Float
-  duePayable            Float
-  dueAmount             Float
+  projectId            String
+  estimateVersionId    String
+  totalRcvClaim        Float
+  totalAcvClaim        Float
+  workCompleteRcv      Float
+  acvReturn            Float
+  opRate               Float
+  acvOP                Float
+  totalDueWorkBillable Float
+  depositRate          Float
+  depositBaseline      Float
+  billedToDate         Float
+  duePayable           Float
+  dueAmount            Float
+  snapshotDate         DateTime
+  computedAt           DateTime @default(now())
 
   @@index([projectId, estimateVersionId, snapshotDate], map: "ProjectFinancialSnapshot_project_estimate_date_idx")
+}
+
+/// Log of Golden price list updates driven by Xact RAW imports.
+/// Each row records how many items were updated and the average
+/// price deltas, along with the project, estimate, and user.
+model GoldenPriceUpdateLog {
+  id                String   @id @default(cuid())
+  companyId         String
+  projectId         String
+  estimateVersionId String
+  userId            String?
+  updatedCount      Int
+  avgDelta          Float
+  avgPercentDelta   Float
+  createdAt         DateTime @default(now())
+
+  company          Company         @relation(fields: [companyId], references: [id])
+  project          Project         @relation(fields: [projectId], references: [id])
+  estimateVersion  EstimateVersion @relation(fields: [estimateVersionId], references: [id])
+  user             User?           @relation(fields: [userId], references: [id])
+
+  @@index([companyId, createdAt], map: "GoldenPriceUpdateLog_company_created_idx")
+  @@index([projectId, createdAt], map: "GoldenPriceUpdateLog_project_created_idx")
 }
 
 model Task {
@@ -523,6 +515,7 @@ model EstimateVersion {
   sows                 Sow[]
   componentAllocations SowComponentAllocation[]
   sowItems             SowItem[]
+  goldenPriceUpdates   GoldenPriceUpdateLog[]
 
   @@index([projectId, sequenceNo], map: "EstimateVersion_project_sequence_idx")
 }
@@ -707,10 +700,10 @@ model SowItem {
   performed            Boolean                  @default(false)
   eligibleForAcvRefund Boolean                  @default(false)
   acvRefundAmount      Float?
-  isAcvOnly             Boolean                 @default(false)
   percentComplete      Float                    @default(0)
   createdAt            DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
+  isAcvOnly            Boolean                  @default(false)
   petlEditChanges      PetlEditChange[]
   componentAllocations SowComponentAllocation[]
   estimateVersion      EstimateVersion          @relation(fields: [estimateVersionId], references: [id])
@@ -849,46 +842,40 @@ model DailyLogAttachment {
 }
 
 model OnboardingSession {
-  id                      String           @id @default(cuid())
+  id                      String                  @id @default(cuid())
   companyId               String
   email                   String
-  token                   String           @unique
-  status                  OnboardingStatus @default(NOT_STARTED)
+  token                   String                  @unique
+  status                  OnboardingStatus        @default(NOT_STARTED)
   checklistJson           String?
   assignedHiringManagerId String?
-
-  // When onboarding is used for public recruiting, we create a pool user account so the
-  // candidate can log in later and manage their profile.
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
   userId                  String?
-
-  createdAt               DateTime         @default(now())
-  updatedAt               DateTime         @updatedAt
-
-  user         User?             @relation(fields: [userId], references: [id])
-  profile      OnboardingProfile?
-  documents    OnboardingDocument[]
-  bankInfo     OnboardingBankInfo?
-  skillRatings OnboardingSkillRating[]
+  bankInfo                OnboardingBankInfo?
+  documents               OnboardingDocument[]
+  profile                 OnboardingProfile?
+  user                    User?                   @relation(fields: [userId], references: [id])
+  skillRatings            OnboardingSkillRating[]
 
   @@index([companyId, createdAt], map: "OnboardingSession_company_created_idx")
   @@index([userId], map: "OnboardingSession_user_idx")
 }
 
 model OnboardingProfile {
-  id           String   @id @default(cuid())
-  sessionId    String   @unique
+  id           String            @id @default(cuid())
+  sessionId    String            @unique
   firstName    String?
   lastName     String?
   phone        String?
-  dob          DateTime?
   addressLine1 String?
   addressLine2 String?
   city         String?
   state        String?
   postalCode   String?
   country      String?
-
-  session OnboardingSession @relation(fields: [sessionId], references: [id])
+  dob          DateTime?
+  session      OnboardingSession @relation(fields: [sessionId], references: [id])
 }
 
 model OnboardingDocument {
@@ -900,32 +887,29 @@ model OnboardingDocument {
   mimeType  String?
   sizeBytes Int?
   createdAt DateTime               @default(now())
-
-  session OnboardingSession @relation(fields: [sessionId], references: [id])
+  session   OnboardingSession      @relation(fields: [sessionId], references: [id])
 
   @@index([sessionId], map: "OnboardingDocument_session_idx")
 }
 
 model OnboardingBankInfo {
-  id                  String   @id @default(cuid())
-  sessionId           String   @unique
+  id                  String            @id @default(cuid())
+  sessionId           String            @unique
   accountHolderName   String?
   routingNumberMasked String?
   accountNumberMasked String?
   bankName            String?
-  createdAt           DateTime @default(now())
-
-  session OnboardingSession @relation(fields: [sessionId], references: [id])
+  createdAt           DateTime          @default(now())
+  session             OnboardingSession @relation(fields: [sessionId], references: [id])
 }
 
 model OnboardingSkillRating {
-  id        String   @id @default(cuid())
+  id        String            @id @default(cuid())
   sessionId String
   skillId   String
   level     Int
-  updatedAt DateTime @updatedAt
-
-  session OnboardingSession @relation(fields: [sessionId], references: [id])
+  updatedAt DateTime          @updatedAt
+  session   OnboardingSession @relation(fields: [sessionId], references: [id])
 
   @@unique([sessionId, skillId], name: "OnboardingSkillRating_session_skill_key")
 }
@@ -943,10 +927,10 @@ model SkillDefinition {
   categoryId  String
   code        String  @unique
   label       String
-  tradeLabel  String?
   description String?
   sortOrder   Int     @default(0)
   active      Boolean @default(true)
+  tradeLabel  String?
 }
 
 model UserSkillRating {
@@ -959,10 +943,10 @@ model UserSkillRating {
   notes               String?
   employerAvgLevel    Float?
   employerRatingCount Int?
-  clientAvgLevel      Float?
-  clientRatingCount   Int?
   adminOverrideLevel  Int?
   updatedAt           DateTime @updatedAt
+  clientAvgLevel      Float?
+  clientRatingCount   Int?
 
   @@unique([userId, skillId], name: "UserSkillRating_user_skill_key")
 }
@@ -1010,7 +994,7 @@ model UserSkillSuggestion {
   updatedAt     DateTime @updatedAt
 
   @@index([userId], map: "UserSkillSuggestion_user_idx")
-  @@index([status], map: "UserSkillSuggestion_status_idx")
+  @@index([status])
 }
 
 model ReputationRating {
@@ -1036,6 +1020,121 @@ model ReputationRating {
   @@index([subjectCompanyId], map: "ReputationRating_subject_company_idx")
 }
 
+model ImportJob {
+  id                String          @id @default(cuid())
+  companyId         String
+  projectId         String?
+  createdByUserId   String
+  type              ImportJobType
+  status            ImportJobStatus @default(QUEUED)
+  progress          Int             @default(0)
+  message           String?
+  csvPath           String?
+  estimateVersionId String?
+  resultJson        Json?
+  errorJson         Json?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  company           Company         @relation(fields: [companyId], references: [id])
+  createdBy         User            @relation("ImportJobCreatedBy", fields: [createdByUserId], references: [id])
+  project           Project?        @relation(fields: [projectId], references: [id])
+
+  @@index([companyId, createdAt], map: "ImportJob_company_created_idx")
+  @@index([projectId, createdAt], map: "ImportJob_project_created_idx")
+  @@index([status, createdAt], map: "ImportJob_status_created_idx")
+}
+
+/// Global price list metadata (e.g. canonical Xactimate price list revisions).
+model PriceList {
+  id            String         @id @default(cuid())
+  kind          PriceListKind  @default(GOLDEN)
+  code          String?
+  label         String
+  revision      Int
+  effectiveDate DateTime?
+  currency      String?        @default("USD")
+  isActive      Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  items         PriceListItem[]
+
+  @@index([kind, isActive, revision], map: "PriceList_kind_active_revision_idx")
+}
+
+/// Individual price list items (e.g. CAT/SEL codes and unit prices).
+model PriceListItem {
+  id                 String              @id @default(cuid())
+  priceListId        String
+  lineNo             Int?
+  groupCode          String?
+  groupDescription   String?
+  description        String?
+  cat                String?
+  sel                String?
+  unit               String?
+  unitPrice          Float?
+  lastKnownUnitPrice Float?
+  coverage           String?
+  activity           String?
+  owner              String?
+  sourceVendor       String?
+  sourceDate         DateTime?
+  rawJson            Json?
+  canonicalKeyHash   String?
+  divisionCode       String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  priceList          PriceList          @relation(fields: [priceListId], references: [id])
+  division           Division?          @relation(fields: [divisionCode], references: [code])
+  components         PriceListComponent[]
+
+  @@index([priceListId, cat, sel], map: "PriceListItem_priceList_cat_sel_idx")
+  @@index([divisionCode], map: "PriceListItem_division_code_idx")
+  @@unique([priceListId, canonicalKeyHash], map: "PriceListItem_priceList_canonical_hash_key")
+}
+
+model PriceListComponent {
+  id              String         @id @default(cuid())
+  priceListItemId String
+  componentCode   String
+  description     String?
+  quantity        Float?
+  material        Float?
+  labor           Float?
+  equipment       Float?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  priceListItem   PriceListItem  @relation(fields: [priceListItemId], references: [id])
+
+  @@index([priceListItemId], map: "PriceListComponent_item_idx")
+  @@index([componentCode], map: "PriceListComponent_code_idx")
+  @@unique([priceListItemId, componentCode], name: "PLComponent_item_code_key")
+}
+
+/// Standard CSI-style construction divisions (01–16) used for
+/// organizing revenue, cost, and work by building system.
+model Division {
+  id             String           @id @default(cuid())
+  code           String           @unique
+  name           String
+  sortOrder      Int              @default(0)
+  catMappings    CatDivision[]
+  priceListItems PriceListItem[]
+}
+
+/// Global mapping from Xactimate Cat codes (e.g. DRY, PLM) to
+/// construction divisions. One row per Cat code.
+model CatDivision {
+  id           String   @id @default(cuid())
+  cat          String   @unique
+  divisionCode String
+  division     Division @relation(fields: [divisionCode], references: [code])
+
+  @@index([divisionCode], map: "CatDivision_division_code_idx")
+}
+
 enum GlobalRole {
   NONE
   SUPER_ADMIN
@@ -1056,6 +1155,8 @@ enum UserType {
 enum ImportJobType {
   XACT_RAW
   XACT_COMPONENTS
+  PRICE_LIST
+  PRICE_LIST_COMPONENTS
 }
 
 enum ImportJobStatus {
@@ -1065,35 +1166,9 @@ enum ImportJobStatus {
   FAILED
 }
 
-model ImportJob {
-  id              String          @id @default(cuid())
-  companyId        String
-  projectId        String
-  createdByUserId  String
-  type            ImportJobType
-  status          ImportJobStatus @default(QUEUED)
-  progress        Int             @default(0)
-  message         String?
-
-  // Local/dev-friendly input. For production we will move to object storage (GCS) and store a URI.
-  csvPath          String?
-  estimateVersionId String?
-
-  resultJson      Json?
-  errorJson       Json?
-
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  startedAt       DateTime?
-  finishedAt      DateTime?
-
-  company         Company         @relation(fields: [companyId], references: [id])
-  project         Project         @relation(fields: [projectId], references: [id])
-  createdBy       User            @relation("ImportJobCreatedBy", fields: [createdByUserId], references: [id])
-
-  @@index([companyId, createdAt], map: "ImportJob_company_created_idx")
-  @@index([projectId, createdAt], map: "ImportJob_project_created_idx")
-  @@index([status, createdAt], map: "ImportJob_status_created_idx")
+enum PriceListKind {
+  GOLDEN
+  ACTIVE
 }
 
 enum Role {
