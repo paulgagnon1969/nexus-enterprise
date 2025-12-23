@@ -9,8 +9,10 @@ import {
   allocateComponentsForEstimate,
   importXactComponentsCsvForEstimate,
   importXactCsvForProject,
+  importGoldenComponentsFromFile,
 } from "@repo/database";
-import { ImportJobStatus, ImportJobType } from "@prisma/client";
+import { ImportJobStatus, ImportJobType } from "@repo/database";
+import { importPriceListFromFile } from "./modules/pricing/pricing.service";
 
 type ImportJobPayload = {
   importJobId: string;
@@ -61,6 +63,10 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       data: { progress: 20, message: "Importing Xact raw line items..." },
     });
 
+    if (!job.projectId) {
+      throw new Error("XACT_RAW import job is missing projectId");
+    }
+
     const result = await importXactCsvForProject({
       projectId: job.projectId,
       csvPath,
@@ -91,7 +97,7 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
 
     if (!estimateVersionId) {
       const latest = await prisma.estimateVersion.findFirst({
-        where: { projectId: job.projectId },
+        where: { projectId: job.projectId as string },
         orderBy: [
           { sequenceNo: "desc" },
           { importedAt: "desc" },
@@ -138,10 +144,64 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
     return;
   }
 
+  if (job.type === ImportJobType.PRICE_LIST) {
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        status: ImportJobStatus.RUNNING,
+        startedAt: new Date(),
+        progress: 10,
+        message: "Importing Golden price list...",
+      },
+    });
+
+    const result = await importPriceListFromFile(csvPath);
+
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        status: ImportJobStatus.SUCCEEDED,
+        finishedAt: new Date(),
+        progress: 100,
+        message: "Golden price list import complete",
+        resultJson: result as any,
+      },
+    });
+
+    return;
+  }
+
+  if (job.type === ImportJobType.PRICE_LIST_COMPONENTS) {
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        status: ImportJobStatus.RUNNING,
+        startedAt: new Date(),
+        progress: 10,
+        message: "Importing Golden components...",
+      },
+    });
+
+    const result = await importGoldenComponentsFromFile(csvPath);
+
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        status: ImportJobStatus.SUCCEEDED,
+        finishedAt: new Date(),
+        progress: 100,
+        message: "Golden components import complete",
+        resultJson: result as any,
+      },
+    });
+
+    return;
+  }
+
   throw new Error(`Unhandled ImportJobType: ${job.type}`);
 }
 
-async function bootstrap() {
+export async function startWorker() {
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ["log", "warn", "error"],
   });
@@ -192,7 +252,12 @@ async function bootstrap() {
   console.log(`[worker] started (queue=${IMPORT_QUEUE_NAME})`);
 }
 
-bootstrap().catch((err) => {
-  console.error("[worker] fatal", err);
-  process.exit(1);
-});
+// When this file is executed directly (e.g. npm run worker), start the worker.
+// When imported (e.g. by worker-http.ts), callers can invoke startWorker() without
+// creating multiple worker instances.
+if (require.main === module) {
+  startWorker().catch((err) => {
+    console.error("[worker] fatal", err);
+    process.exit(1);
+  });
+}

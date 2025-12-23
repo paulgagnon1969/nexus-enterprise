@@ -11,6 +11,10 @@ LOG_DIR="$REPO_ROOT/logs"
 
 mkdir -p "$LOG_DIR"
 
+# In local dev, clear any inherited REDIS_URL so RedisService falls back to
+# the NoopRedis client and features depending on Redis degrade gracefully.
+unset REDIS_URL
+
 # 1) Ensure web .env.local points to local API
 WEB_ENV="$REPO_ROOT/apps/web/.env.local"
 if [ ! -f "$WEB_ENV" ]; then
@@ -50,7 +54,25 @@ else
   sleep 5
 fi
 
-# 4) Start web dev server
+# 4) Start API worker (BullMQ import jobs)
+if pgrep -f "src/worker.ts" >/dev/null 2>&1; then
+  echo "[dev-start] API worker already running" | tee -a "$LOG_DIR/dev-start.log"
+else
+  echo "[dev-start] Starting API worker (import jobs)" | tee -a "$LOG_DIR/dev-start.log"
+  (
+    cd "$REPO_ROOT"
+    if [[ -z "${DEV_DB_PASSWORD:-}" ]]; then
+      echo "[dev-start] DEV_DB_PASSWORD is not set. Export it in your shell before running this script." | tee -a "$LOG_DIR/dev-start.log"
+      exit 1
+    fi
+    export DATABASE_URL="postgresql://postgres:${DEV_DB_PASSWORD}@127.0.0.1:5433/nexus_db"
+    cd "$REPO_ROOT/apps/api"
+    nohup /usr/local/bin/npm run worker:dev \
+      > "$LOG_DIR/api-worker-dev.log" 2>&1 &
+  )
+fi
+
+# 5) Start web dev server
 if pgrep -f "next dev -p 3000" >/dev/null 2>&1; then
   echo "[dev-start] Web dev server already running" | tee -a "$LOG_DIR/dev-start.log"
 else

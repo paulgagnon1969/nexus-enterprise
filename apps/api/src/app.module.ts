@@ -20,6 +20,7 @@ import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { SkillsModule } from "./modules/skills/skills.module";
 import { ReputationModule } from "./modules/reputation/reputation.module";
 import { ImportJobsModule } from "./modules/import-jobs/import-jobs.module";
+import { PricingModule } from "./modules/pricing/pricing.module";
 
 @Module({
   imports: [
@@ -47,7 +48,8 @@ import { ImportJobsModule } from "./modules/import-jobs/import-jobs.module";
     OnboardingModule,
     SkillsModule,
     ReputationModule,
-    ImportJobsModule
+    ImportJobsModule,
+    PricingModule
   ],
   controllers: [DevController]
 })
