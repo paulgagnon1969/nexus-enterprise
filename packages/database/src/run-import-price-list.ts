@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parse } from "csv-parse/sync";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "./index";
 
 function toNumber(value: string | null | undefined): number | null {
@@ -98,7 +99,7 @@ async function main() {
     `[price-list-import] Creating GOLDEN price list revision ${revision} with label "${label}"`
   );
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     // Deactivate any existing GOLDEN price lists so this one becomes the active default.
     await tx.priceList.updateMany({
       where: { kind: "GOLDEN", isActive: true },
