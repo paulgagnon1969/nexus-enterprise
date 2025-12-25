@@ -6,9 +6,9 @@ export const dynamic = "force-dynamic";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { projectId: string } }
+  context: { params: Promise<{ projectId: string }> }
 ) {
-  const projectId = params.projectId;
+  const { projectId } = await context.params;
 
   try {
     const form = await req.formData();
@@ -44,13 +44,25 @@ export async function POST(
       ? `Bearer ${accessToken}`
       : authHeaderFromReq;
 
-    const apiRes = await fetch(`${apiBase}/projects/${projectId}/import-xact`, {
+    const isLocalApi = /localhost|127\.0\.0\.1/.test(apiBase);
+
+    // If the API is local, we can enqueue an async job that reads the csvPath
+    // from the shared local filesystem. For non-local environments (Cloud Run),
+    // csvPath won't be accessible from a separate worker until we move uploads
+    // to object storage (GCS). In that case, fall back to the synchronous import.
+    const endpoint = isLocalApi
+      ? `${apiBase}/projects/${projectId}/import-jobs/xact-raw`
+      : `${apiBase}/projects/${projectId}/import-xact`;
+
+    const payload = isLocalApi ? { csvPath: filePath } : { csvPath: filePath };
+
+    const apiRes = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...(authHeader ? { Authorization: authHeader } : {})
       },
-      body: JSON.stringify({ csvPath: filePath })
+      body: JSON.stringify(payload)
     });
 
     const json = await apiRes.json().catch(() => ({}));

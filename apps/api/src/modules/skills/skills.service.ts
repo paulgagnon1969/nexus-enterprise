@@ -186,6 +186,33 @@ export class SkillsService {
     });
   }
 
+  private ensureCanViewWorkerSkillDetails(actor: AuthenticatedUser) {
+    if (actor.globalRole === GlobalRole.SUPER_ADMIN) {
+      return;
+    }
+
+    if (actor.role === Role.OWNER || actor.role === Role.ADMIN) {
+      return;
+    }
+
+    throw new ForbiddenException("You are not allowed to view skill rating details");
+  }
+
+  async getWorkerSkillDetails(actor: AuthenticatedUser, targetUserId: string, skillId: string) {
+    this.ensureCanViewWorkerSkillDetails(actor);
+
+    // Ensure target user exists and is in the same company
+    const membership = await this.prisma.companyMembership.findFirst({
+      where: { userId: targetUserId, companyId: actor.companyId },
+    });
+
+    if (!membership) {
+      throw new NotFoundException("Target user is not a member of your company");
+    }
+
+    return this.getSelfSkillDetails(targetUserId, skillId);
+  }
+
   // NOTE: this returns details for a given user+skill. For suggestions, we call it
   // with the suggesting user and the suggestion.id as the skillId.
   // Authorization helper for skills review endpoints

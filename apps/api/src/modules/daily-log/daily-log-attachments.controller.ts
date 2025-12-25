@@ -1,9 +1,9 @@
-import { Controller, Get, Param, Post, Req, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
-import { FileInterceptor } from "@nestjs/platform-express";
+import { BadRequestException, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard, Roles } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { DailyLogService } from "./daily-log.service";
 import { Role } from "@prisma/client";
+import type { FastifyRequest } from "fastify";
 
 @Controller("daily-logs/:logId/attachments")
 export class DailyLogAttachmentsController {
@@ -16,22 +16,42 @@ export class DailyLogAttachmentsController {
     return this.dailyLogs.listAttachments(logId, user.companyId, user);
   }
 
-@UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
   @Post()
-  @UseInterceptors(FileInterceptor("file"))
-  upload(
-    @Req() req: any,
-    @Param("logId") logId: string,
-    @UploadedFile()
-    file: {
-      originalname?: string;
-      mimetype?: string;
-      buffer: Buffer;
-      size?: number;
+  async upload(@Req() req: FastifyRequest, @Param("logId") logId: string) {
+    const user = (req as any).user as AuthenticatedUser;
+
+    const parts = (req as any).parts?.();
+    if (!parts) {
+      throw new BadRequestException("Multipart support is not configured");
     }
-  ) {
-    const user = req.user as AuthenticatedUser;
-    return this.dailyLogs.addAttachment(logId, user.companyId, user, file);
+
+    let filePart:
+      | {
+          filename: string;
+          mimetype: string;
+          toBuffer: () => Promise<Buffer>;
+        }
+      | undefined;
+
+    for await (const part of parts) {
+      if (part.type === "file" && part.fieldname === "file") {
+        filePart = part;
+      }
+    }
+
+    if (!filePart) {
+      throw new BadRequestException("No file uploaded");
+    }
+
+    const buffer = await filePart.toBuffer();
+
+    return this.dailyLogs.addAttachment(logId, user.companyId, user, {
+      originalname: filePart.filename,
+      mimetype: filePart.mimetype,
+      buffer,
+      size: buffer.length,
+    });
   }
 }

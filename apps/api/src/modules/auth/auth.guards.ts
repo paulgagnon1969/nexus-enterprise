@@ -62,3 +62,51 @@ export class GlobalRolesGuard implements CanActivate {
     return required.includes(user.globalRole);
   }
 }
+
+// --- Role hierarchy helper for app-level RBAC ---
+
+// Higher numbers == more authority.
+export const ROLE_LEVELS: Record<Role, number> = {
+  [Role.OWNER]: 90,
+  [Role.ADMIN]: 80,
+  [Role.MEMBER]: 40,
+  [Role.CLIENT]: 10,
+};
+
+export const GLOBAL_ROLE_LEVELS: Record<GlobalRole, number> = {
+  [GlobalRole.SUPER_ADMIN]: 100,
+  [GlobalRole.SUPPORT]: 85,
+  [GlobalRole.NONE]: 0,
+};
+
+// Profile codes (when present) refine MEMBER-level authority.
+export const PROFILE_LEVELS: Record<string, number> = {
+  EXECUTIVE: 70,
+  PM: 60,
+  HR: 55,
+  FINANCE: 55,
+  FOREMAN: 50,
+  CREW: 40,
+  CLIENT_OWNER: 20,
+  CLIENT_REP: 20,
+};
+
+export function getEffectiveRoleLevel(opts: {
+  globalRole?: GlobalRole | null;
+  role?: Role | null;
+  profileCode?: string | null;
+}): number {
+  const { globalRole, role, profileCode } = opts;
+
+  const globalLevel = globalRole ? GLOBAL_ROLE_LEVELS[globalRole] ?? 0 : 0;
+  if (globalLevel >= GLOBAL_ROLE_LEVELS[GlobalRole.SUPER_ADMIN]) {
+    // SUPER_ADMIN always wins.
+    return globalLevel;
+  }
+
+  const baseLevel = role ? ROLE_LEVELS[role] ?? 0 : 0;
+
+  const profileLevel = profileCode ? PROFILE_LEVELS[profileCode] ?? 0 : 0;
+
+  return Math.max(globalLevel, baseLevel, profileLevel);
+}

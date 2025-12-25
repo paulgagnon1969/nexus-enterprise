@@ -64,6 +64,18 @@ export class SkillsController {
     return this.skills.addEmployerRating(actor, userId, body.skillId, body.level, body.comment);
   }
 
+  // Admin-only: view detailed peer/client ratings (including comments) for a worker skill
+  @UseGuards(JwtAuthGuard)
+  @Get("workers/:userId/details/:skillId")
+  async getWorkerSkillDetails(
+    @Req() req: any,
+    @Param("userId") userId: string,
+    @Param("skillId") skillId: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.skills.getWorkerSkillDetails(actor, userId, skillId);
+  }
+
   // Client ratings for a worker's skills (CLIENT users)
   @UseGuards(JwtAuthGuard)
   @Post("clients/:userId")

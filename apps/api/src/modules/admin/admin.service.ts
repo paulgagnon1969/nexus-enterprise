@@ -2,7 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import * as argon2 from "argon2";
-import { GlobalRole, Role, UserType } from "@prisma/client";
+import { GlobalRole, Role, UserType, CompanyKind } from "@prisma/client";
+import { createHash } from "crypto";
 
 @Injectable()
 export class AdminService {
@@ -38,6 +39,9 @@ export class AdminService {
       select: {
         id: true,
         name: true,
+        kind: true,
+        templateId: true,
+        templateVersionId: true,
         createdAt: true,
         memberships: {
           select: {
@@ -46,6 +50,502 @@ export class AdminService {
         }
       }
     });
+  }
+
+  private getDayKey(d = new Date()): string {
+    // Coalesce template sync revisions by day in UTC.
+    return d.toISOString().slice(0, 10);
+  }
+
+  private hashJson(obj: any): string {
+    const json = JSON.stringify(obj);
+    return createHash("sha256").update(json).digest("hex");
+  }
+
+  private getModuleCatalog(): { moduleCode: string; enabled: boolean; configJson?: any }[] {
+    // v1 module catalog
+    return [
+      { moduleCode: "projects", enabled: true },
+      { moduleCode: "project_management", enabled: true },
+      { moduleCode: "daily_logs", enabled: true },
+      { moduleCode: "files", enabled: true },
+      { moduleCode: "messaging", enabled: true },
+      { moduleCode: "financial", enabled: true },
+      { moduleCode: "reports", enabled: true },
+      { moduleCode: "people", enabled: true },
+      { moduleCode: "onboarding", enabled: true },
+    ];
+  }
+
+  private getSystemArticles(): { slug: string; title: string; body: string; sortOrder: number; active: boolean }[] {
+    // Minimal seed; we will evolve this into full “administrative articles”.
+    return [
+      {
+        slug: "sorm-overview",
+        title: "SORM — System Organization Revision Management",
+        body:
+          "SORM tracks Nexus System → template revisions (daily coalesced). Use this to provision and reconcile organizations safely.",
+        sortOrder: 0,
+        active: true,
+      },
+    ];
+  }
+
+  private async ensureSuperAdminsHaveMembership(companyId: string) {
+    const superAdmins = await this.prisma.user.findMany({
+      where: { globalRole: GlobalRole.SUPER_ADMIN },
+      select: { id: true },
+    });
+
+    if (!superAdmins.length) return;
+
+    await this.prisma.companyMembership.createMany({
+      data: superAdmins.map(u => ({
+        userId: u.id,
+        companyId,
+        role: Role.OWNER,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  async listTemplates(actor: AuthenticatedUser) {
+    await this.audit(actor, "ADMIN_LIST_TEMPLATES");
+
+    return this.prisma.organizationTemplate.findMany({
+      orderBy: [{ active: "desc" }, { label: "asc" }],
+      include: {
+        currentVersion: {
+          select: {
+            id: true,
+            versionNo: true,
+            dayKey: true,
+            createdAt: true,
+          }
+        },
+      },
+    });
+  }
+
+  async createTemplate(
+    actor: AuthenticatedUser,
+    params: { code: string; label: string; description?: string }
+  ) {
+    const code = (params.code || "").trim().toUpperCase();
+    const label = (params.label || "").trim();
+    if (!code) throw new Error("Template code is required");
+    if (!label) throw new Error("Template label is required");
+
+    await this.audit(actor, "ADMIN_CREATE_TEMPLATE");
+
+    const created = await this.prisma.organizationTemplate.create({
+      data: {
+        code,
+        label,
+        description: params.description?.trim() || null,
+      },
+    });
+
+    return created;
+  }
+
+  async getTemplate(actor: AuthenticatedUser, templateId: string) {
+    await this.audit(actor, "ADMIN_GET_TEMPLATE");
+
+    const template = await this.prisma.organizationTemplate.findUnique({
+      where: { id: templateId },
+      include: {
+        currentVersion: {
+          include: {
+            modules: true,
+            articles: true,
+            roleProfiles: {
+              include: {
+                permissions: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!template) throw new Error("Template not found");
+
+    return template;
+  }
+
+  async syncTemplateFromSystem(actor: AuthenticatedUser, templateId: string) {
+    await this.audit(actor, "ADMIN_TEMPLATE_SYNC_FROM_SYSTEM");
+
+    const template = await this.prisma.organizationTemplate.findUnique({
+      where: { id: templateId },
+      select: {
+        id: true,
+        currentVersionId: true,
+      },
+    });
+    if (!template) throw new Error("Template not found");
+
+    const dayKey = this.getDayKey();
+
+    // 1) Load canonical “system” sources.
+    const moduleCatalog = this.getModuleCatalog().slice().sort((a, b) => a.moduleCode.localeCompare(b.moduleCode));
+    const systemArticles = this.getSystemArticles().slice().sort((a, b) => a.slug.localeCompare(b.slug));
+
+    // Standard role profiles (companyId null).
+    const [stdProfiles, resources] = await Promise.all([
+      this.prisma.roleProfile.findMany({
+        where: { companyId: null, active: true },
+        include: { permissions: true },
+        orderBy: [{ isStandard: "desc" }, { label: "asc" }],
+      }),
+      this.prisma.permissionResource.findMany({
+        where: { active: true },
+        select: { id: true, code: true },
+      }),
+    ]);
+
+    const resourceCodeById = new Map(resources.map(r => [r.id, r.code]));
+
+    const templateRoles = stdProfiles.map(p => {
+      const perms = (p.permissions || [])
+        .map((rp: any) => ({
+          resourceCode: resourceCodeById.get(rp.resourceId) || null,
+          canView: !!rp.canView,
+          canAdd: !!rp.canAdd,
+          canEdit: !!rp.canEdit,
+          canDelete: !!rp.canDelete,
+          canViewAll: !!rp.canViewAll,
+          canApprove: !!rp.canApprove,
+          canManageSettings: !!rp.canManageSettings,
+        }))
+        .filter(x => !!x.resourceCode)
+        .sort((a, b) => (a.resourceCode as string).localeCompare(b.resourceCode as string));
+
+      return {
+        code: p.code,
+        label: p.label,
+        description: p.description ?? null,
+        sortOrder: 0,
+        active: !!p.active,
+        permissions: perms,
+      };
+    });
+
+    const content = {
+      modules: moduleCatalog,
+      articles: systemArticles,
+      roles: templateRoles,
+    };
+    const contentHash = this.hashJson(content);
+
+    // 2) Upsert TODAY's version (daily coalesced).
+    const result = await this.prisma.$transaction(async tx => {
+      let version = await tx.organizationTemplateVersion.findUnique({
+        where: {
+          OrgTemplateVersion_template_day_key: {
+            templateId,
+            dayKey,
+          },
+        },
+      });
+
+      if (!version) {
+        const max = await tx.organizationTemplateVersion.aggregate({
+          where: { templateId },
+          _max: { versionNo: true },
+        });
+        const nextNo = (max._max.versionNo ?? 0) + 1;
+
+        version = await tx.organizationTemplateVersion.create({
+          data: {
+            templateId,
+            versionNo: nextNo,
+            dayKey,
+            createdByUserId: actor.userId,
+            contentHash,
+          },
+        });
+      } else {
+        // If nothing changed, short-circuit (still return the current version).
+        if (version.contentHash && version.contentHash === contentHash) {
+          return { version, changed: false };
+        }
+
+        version = await tx.organizationTemplateVersion.update({
+          where: { id: version.id },
+          data: {
+            contentHash,
+            notes: null,
+          },
+        });
+      }
+
+      // 3) Replace version content (modules/articles/roles) to reflect “live copy”.
+      await tx.organizationTemplateModule.deleteMany({
+        where: { templateVersionId: version.id },
+      });
+      await tx.organizationTemplateArticle.deleteMany({
+        where: { templateVersionId: version.id },
+      });
+      await tx.organizationTemplateRolePermission.deleteMany({
+        where: {
+          templateRoleProfile: {
+            templateVersionId: version.id,
+          },
+        },
+      });
+      await tx.organizationTemplateRoleProfile.deleteMany({
+        where: { templateVersionId: version.id },
+      });
+
+      await tx.organizationTemplateModule.createMany({
+        data: moduleCatalog.map(m => ({
+          id: undefined as any,
+          templateVersionId: version.id,
+          moduleCode: m.moduleCode,
+          enabled: m.enabled,
+          configJson: (m as any).configJson ?? null,
+        })),
+      });
+
+      await tx.organizationTemplateArticle.createMany({
+        data: systemArticles.map(a => ({
+          id: undefined as any,
+          templateVersionId: version.id,
+          slug: a.slug,
+          title: a.title,
+          body: a.body,
+          sortOrder: a.sortOrder,
+          active: a.active,
+        })),
+      });
+
+      // Create role profiles + permissions
+      for (const rp of templateRoles) {
+        const createdProfile = await tx.organizationTemplateRoleProfile.create({
+          data: {
+            templateVersionId: version.id,
+            code: rp.code,
+            label: rp.label,
+            description: rp.description,
+            sortOrder: rp.sortOrder,
+            active: rp.active,
+          },
+        });
+
+        if (rp.permissions.length) {
+          await tx.organizationTemplateRolePermission.createMany({
+            data: rp.permissions.map(p => ({
+              templateRoleProfileId: createdProfile.id,
+              resourceCode: p.resourceCode as string,
+              canView: p.canView,
+              canAdd: p.canAdd,
+              canEdit: p.canEdit,
+              canDelete: p.canDelete,
+              canViewAll: p.canViewAll,
+              canApprove: p.canApprove,
+              canManageSettings: p.canManageSettings,
+            })),
+          });
+        }
+      }
+
+      // Set current version
+      await tx.organizationTemplate.update({
+        where: { id: templateId },
+        data: { currentVersionId: version.id },
+      });
+
+      return { version, changed: true };
+    });
+
+    return {
+      templateId,
+      dayKey,
+      versionId: result.version.id,
+      versionNo: result.version.versionNo,
+      changed: result.changed,
+    };
+  }
+
+  private async mergeTemplateRolesIntoCompany(companyId: string, templateVersionId: string) {
+    const [templateProfiles, resources] = await Promise.all([
+      this.prisma.organizationTemplateRoleProfile.findMany({
+        where: { templateVersionId, active: true },
+        include: { permissions: true },
+        orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+      }),
+      this.prisma.permissionResource.findMany({
+        where: { active: true },
+        select: { id: true, code: true },
+      }),
+    ]);
+
+    const resourceIdByCode = new Map(resources.map(r => [r.code, r.id]));
+
+    let profilesAdded = 0;
+    let permissionsAdded = 0;
+
+    for (const tp of templateProfiles) {
+      let profile = await this.prisma.roleProfile.findFirst({
+        where: { companyId, code: tp.code, active: true },
+      });
+
+      if (!profile) {
+        profile = await this.prisma.roleProfile.create({
+          data: {
+            companyId,
+            code: tp.code,
+            label: tp.label,
+            description: tp.description,
+            isStandard: true,
+            active: tp.active,
+            sourceProfileId: tp.id,
+          },
+        });
+        profilesAdded += 1;
+      }
+
+      for (const perm of tp.permissions) {
+        const resourceId = resourceIdByCode.get(perm.resourceCode);
+        if (!resourceId) continue;
+
+        const existing = await this.prisma.rolePermission.findFirst({
+          where: { profileId: profile.id, resourceId },
+          select: { id: true },
+        });
+
+        if (existing) continue;
+
+        await this.prisma.rolePermission.create({
+          data: {
+            profileId: profile.id,
+            resourceId,
+            canView: perm.canView,
+            canAdd: perm.canAdd,
+            canEdit: perm.canEdit,
+            canDelete: perm.canDelete,
+            canViewAll: perm.canViewAll,
+            canApprove: perm.canApprove,
+            canManageSettings: perm.canManageSettings,
+          },
+        });
+        permissionsAdded += 1;
+      }
+    }
+
+    return { profilesAdded, permissionsAdded };
+  }
+
+  async provisionCompanyFromTemplate(
+    actor: AuthenticatedUser,
+    params: { name: string; templateId: string }
+  ) {
+    const name = (params.name || "").trim();
+    if (!name) throw new Error("Company name is required");
+
+    const template = await this.prisma.organizationTemplate.findUnique({
+      where: { id: params.templateId },
+      select: { id: true, currentVersionId: true },
+    });
+    if (!template) throw new Error("Template not found");
+    if (!template.currentVersionId) {
+      throw new Error("Template has no current version. Run sync-from-system first.");
+    }
+
+    const created = await this.prisma.company.create({
+      data: {
+        name,
+        kind: CompanyKind.ORGANIZATION,
+        templateId: template.id,
+        templateVersionId: template.currentVersionId,
+      },
+      select: {
+        id: true,
+        name: true,
+        kind: true,
+        templateId: true,
+        templateVersionId: true,
+      },
+    });
+
+    await this.ensureSuperAdminsHaveMembership(created.id);
+
+    const seed = await this.mergeTemplateRolesIntoCompany(
+      created.id,
+      template.currentVersionId,
+    );
+
+    await this.audit(actor, "ADMIN_PROVISION_COMPANY_FROM_TEMPLATE", { companyId: created.id });
+
+    return {
+      company: created,
+      seeded: seed,
+    };
+  }
+
+  async reconcileCompanyToLatestTemplate(actor: AuthenticatedUser, companyId: string) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, templateId: true, templateVersionId: true },
+    });
+    if (!company) throw new Error("Company not found");
+    if (!company.templateId) throw new Error("Company is not attached to a template");
+
+    const template = await this.prisma.organizationTemplate.findUnique({
+      where: { id: company.templateId },
+      select: { id: true, currentVersionId: true },
+    });
+    if (!template || !template.currentVersionId) {
+      throw new Error("Template has no current version");
+    }
+
+    const prevVersionId = company.templateVersionId;
+
+    // modulesChanged summary (based on template versions)
+    let modulesChanged = 0;
+    if (prevVersionId && prevVersionId !== template.currentVersionId) {
+      const [prev, next] = await Promise.all([
+        this.prisma.organizationTemplateModule.findMany({
+          where: { templateVersionId: prevVersionId },
+          select: { moduleCode: true, enabled: true },
+        }),
+        this.prisma.organizationTemplateModule.findMany({
+          where: { templateVersionId: template.currentVersionId },
+          select: { moduleCode: true, enabled: true },
+        }),
+      ]);
+
+      const prevMap = new Map(prev.map(m => [m.moduleCode, m.enabled]));
+      for (const m of next) {
+        if (!prevMap.has(m.moduleCode)) {
+          modulesChanged += 1;
+          continue;
+        }
+        if (prevMap.get(m.moduleCode) !== m.enabled) modulesChanged += 1;
+      }
+    }
+
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        templateVersionId: template.currentVersionId,
+      },
+    });
+
+    const seed = await this.mergeTemplateRolesIntoCompany(companyId, template.currentVersionId);
+
+    await this.audit(actor, "ADMIN_RECONCILE_COMPANY_TEMPLATE", { companyId });
+
+    return {
+      companyId,
+      previousVersionId: prevVersionId,
+      currentVersionId: template.currentVersionId,
+      modulesChanged,
+      profilesAdded: seed.profilesAdded,
+      permissionsAdded: seed.permissionsAdded,
+    };
   }
 
   async backfillSuperAdminMemberships(actor: AuthenticatedUser) {
@@ -103,6 +603,23 @@ export class AdminService {
           }
         }
       }
+    });
+  }
+
+  async listCompanyProjects(companyId: string, actor: AuthenticatedUser) {
+    await this.audit(actor, "ADMIN_LIST_COMPANY_PROJECTS", { companyId });
+
+    return this.prisma.project.findMany({
+      where: { companyId },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        city: true,
+        state: true,
+        createdAt: true,
+      },
+      orderBy: { name: "asc" },
     });
   }
 

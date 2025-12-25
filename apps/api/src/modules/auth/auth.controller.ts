@@ -26,6 +26,19 @@ export class AuthController {
     return this.auth.login(dto);
   }
 
+  // Public: request a password reset link by email.
+  // Always returns ok=true to avoid user enumeration.
+  @Post("request-password-reset")
+  requestPasswordReset(@Body("email") email: string) {
+    return this.auth.requestPasswordReset(email);
+  }
+
+  // Public: reset password using a one-time token sent to email.
+  @Post("reset-password")
+  resetPassword(@Body("token") token: string, @Body("password") password: string) {
+    return this.auth.resetPasswordWithToken(token, password);
+  }
+
   @Post("refresh")
   refresh(@Body("refreshToken") refreshToken: string) {
     return this.auth.refresh(refreshToken);

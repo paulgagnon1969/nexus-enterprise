@@ -16,7 +16,7 @@ Right now, your default "golden path" stack is:
 - Cloud SQL proxy:
   
   ```bash
-  cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-prod-postgres
+  cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2
   ```
 
 - API dev server:
@@ -52,7 +52,7 @@ Logical environments:
    - Used for final verification before prod.
    - Not strictly required yet; you can treat **dev DB** as your non-prod environment for now.
 
-3. **Prod DB** (`nexus-prod-postgres`)
+3. **Prod DB** (`nexusprod-v2`)
    - Real / canonical data.
    - Only receive changes that have:
      - Been applied and verified on dev DB first.
@@ -92,7 +92,7 @@ All reads/writes now go to **nexus-dev-postgres**, not prod.
 1. Start proxy to **prod** instance:
    
    ```bash
-   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-prod-postgres
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2
    ```
 
 2. Use the prod `DATABASE_URL`:
@@ -149,7 +149,7 @@ Once you’re happy with the migration on dev:
 1. Start proxy to **prod** instance:
    
    ```bash
-   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-prod-postgres
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2
    ```
 
 2. From `packages/database`:
@@ -188,7 +188,7 @@ Examples:
    - Run them only against **dev DB**.
 
 2. Once a script is trustworthy and idempotent:
-   - Re-run it against prod only when needed, with `DATABASE_URL` pointed at prod and the Cloud SQL proxy targeting `nexus-prod-postgres`.
+   - Re-run it against prod only when needed, with `DATABASE_URL` pointed at prod and the Cloud SQL proxy targeting `nexusprod-v2`.
 
 Always double-check `DATABASE_URL` before running anything that writes.
 
@@ -214,7 +214,7 @@ Or see what the running API process is using (look for `DATABASE_URL=` in `ps ew
 ### Before pushing schema changes to prod
 
 1. Commit migration files under `packages/database/prisma/migrations`.
-2. Start proxy to **prod DB** (`nexus-prod-postgres`).
+2. Start proxy to **prod DB** (`nexusprod-v2`).
 3. Run `prisma migrate deploy` with prod `DATABASE_URL`.
 4. Optionally restart any long-running prod services (if/when you have a deployed API hitting prod).
 
