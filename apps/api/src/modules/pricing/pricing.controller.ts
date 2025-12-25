@@ -31,99 +31,154 @@ export class PricingController {
   @UseGuards(JwtAuthGuard)
   @Post("price-list/import")
   async uploadPriceList(@Req() req: FastifyRequest) {
-    const anyReq: any = req as any;
-    const user = anyReq.user as AuthenticatedUser | undefined;
+    // Temporary debug logging to trace Golden pricelist uploads in dev.
+    // Remove or downgrade to proper logging once the pipeline is stable.
+    // eslint-disable-next-line no-console
+    console.log("[pricing] uploadPriceList: incoming request");
 
-    if (!user) {
-      throw new BadRequestException("Missing user in request context");
-    }
+    try {
+      const anyReq: any = req as any;
+      const user = anyReq.user as AuthenticatedUser | undefined;
 
-    const level = getEffectiveRoleLevel({
-      globalRole: user.globalRole ?? null,
-      role: user.role ?? null,
-      profileCode: user.profileCode ?? null,
-    });
-
-    // Require OWNER (90) / ADMIN (80) or SUPER_ADMIN (100) for now.
-    if (level < 80) {
-      throw new BadRequestException(
-        "You do not have permission to upload the Golden price list.",
-      );
-    }
-
-    const fastReq: any = req as any;
-    const parts = fastReq.parts?.();
-    if (!parts) {
-      throw new BadRequestException("Multipart support is not configured");
-    }
-
-    let filePart:
-      | {
-          filename: string;
-          mimetype: string;
-          toBuffer: () => Promise<Buffer>;
-        }
-      | undefined;
-
-    for await (const part of parts) {
-      if (part.type === "file" && part.fieldname === "file") {
-        filePart = part;
+      if (!user) {
+        throw new BadRequestException("Missing user in request context");
       }
-    }
 
-    if (!filePart) {
-      throw new BadRequestException("No file uploaded");
-    }
+      const level = getEffectiveRoleLevel({
+        globalRole: user.globalRole ?? null,
+        role: user.role ?? null,
+        profileCode: user.profileCode ?? null,
+      });
+      // eslint-disable-next-line no-console
+      console.log("[pricing] uploadPriceList: user=%s level=%d", user.email, level);
 
-    if (!filePart.mimetype.includes("csv")) {
-      throw new BadRequestException("Only CSV uploads are supported for price lists");
-    }
+      // Require OWNER (90) / ADMIN (80) or SUPER_ADMIN (100) for now.
+      if (level < 80) {
+        throw new BadRequestException(
+          "You do not have permission to upload the Golden price list.",
+        );
+      }
 
-    const uploadsRoot = path.resolve(process.cwd(), "uploads/pricing");
-    if (!fs.existsSync(uploadsRoot)) {
-      fs.mkdirSync(uploadsRoot, { recursive: true });
-    }
+      const fastReq: any = req as any;
+      const parts = fastReq.parts?.();
+      if (!parts) {
+        throw new BadRequestException("Multipart support is not configured");
+      }
+      // eslint-disable-next-line no-console
+      console.log("[pricing] uploadPriceList: starting to read multipart parts");
 
-    const fileBuffer = await filePart.toBuffer();
-    const ext = path.extname(filePart.filename || "") || ".csv";
-    const fileName = `pricelist-${Date.now()}${ext}`;
-    const destPath = path.join(uploadsRoot, fileName);
+      let filePart:
+        | {
+            filename: string;
+            mimetype: string;
+            toBuffer: () => Promise<Buffer>;
+          }
+        | undefined;
 
-    fs.writeFileSync(destPath, fileBuffer);
+      for await (const part of parts) {
+        // eslint-disable-next-line no-console
+        console.log(
+          "[pricing] uploadPriceList: saw part fieldname=%s type=%s mimetype=%s",
+          (part as any).fieldname,
+          part.type,
+          (part as any).mimetype,
+        );
+        if (part.type === "file" && part.fieldname === "file") {
+          filePart = part;
+          // We only expect a single file field named "file" for this endpoint.
+          // Break out of the iterator so Fastify can finalize the multipart
+          // request instead of us hanging waiting for more parts.
+          break;
+        }
+      }
+      // eslint-disable-next-line no-console
+      console.log(
+        "[pricing] uploadPriceList: finished reading parts (hasFile=%s)",
+        !!filePart,
+      );
 
-    const companyId = user.companyId;
-    const createdByUserId = user.userId;
+      if (!filePart) {
+        throw new BadRequestException("No file uploaded");
+      }
 
-    if (!companyId || !createdByUserId) {
-      throw new BadRequestException("Missing company context for price list import");
-    }
+      if (!filePart.mimetype.includes("csv")) {
+        throw new BadRequestException("Only CSV uploads are supported for price lists");
+      }
 
-    // Create an async ImportJob so the heavy CSV processing runs in the worker.
-    const importJob = await this.prisma.importJob.create({
-      data: {
+      const uploadsRoot = path.resolve(process.cwd(), "uploads/pricing");
+      if (!fs.existsSync(uploadsRoot)) {
+        fs.mkdirSync(uploadsRoot, { recursive: true });
+      }
+
+      // eslint-disable-next-line no-console
+      console.log("[pricing] uploadPriceList: calling filePart.toBuffer()...");
+      const fileBuffer = await filePart.toBuffer();
+      // eslint-disable-next-line no-console
+      console.log("[pricing] uploadPriceList: toBuffer() resolved, size=%d", fileBuffer.length);
+      const ext = path.extname(filePart.filename || "") || ".csv";
+      const fileName = `pricelist-${Date.now()}${ext}`;
+      const destPath = path.join(uploadsRoot, fileName);
+
+      fs.writeFileSync(destPath, fileBuffer);
+      // eslint-disable-next-line no-console
+      console.log(
+        "[pricing] uploadPriceList: wrote CSV to %s (%d bytes)",
+        destPath,
+        fileBuffer.length,
+      );
+
+      const companyId = user.companyId;
+      const createdByUserId = user.userId;
+
+      if (!companyId || !createdByUserId) {
+        throw new BadRequestException("Missing company context for price list import");
+      }
+
+      // Create an async ImportJob so the heavy CSV processing runs in the worker.
+      const importJob = await this.prisma.importJob.create({
+        data: {
+          companyId,
+          projectId: null,
+          createdByUserId,
+          type: ImportJobType.PRICE_LIST,
+          csvPath: destPath,
+        },
+      });
+      // eslint-disable-next-line no-console
+      console.log(
+        "[pricing] uploadPriceList: created ImportJob %s for company %s",
+        importJob.id,
         companyId,
-        projectId: null,
-        createdByUserId,
-        type: ImportJobType.PRICE_LIST,
-        csvPath: destPath,
-      },
-    });
+      );
 
-    const queue = getImportQueue();
-    await queue.add(
-      "process",
-      { importJobId: importJob.id },
-      {
-        attempts: 1,
-        removeOnComplete: 1000,
-        removeOnFail: 1000,
-      },
-    );
+      // Fire-and-forget enqueue so the HTTP request returns quickly even if
+      // Redis is slow or temporarily unavailable. Any enqueue error will be
+      // logged on the server.
+      const queue = getImportQueue();
+      queue
+        .add(
+          "process",
+          { importJobId: importJob.id },
+          {
+            attempts: 1,
+            removeOnComplete: 1000,
+            removeOnFail: 1000,
+          },
+        )
+        .catch(err => {
+          // eslint-disable-next-line no-console
+          console.error("[pricing] failed to enqueue Golden price list import", err);
+        });
 
-    return {
-      ok: true,
-      jobId: importJob.id,
-    };
+      return {
+        ok: true,
+        jobId: importJob.id,
+      };
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[pricing] uploadPriceList: error", err);
+      throw err;
+    }
   }
 
   // Anyone authenticated can see which Golden price list is active; RBAC is enforced on upload.
@@ -231,16 +286,23 @@ export class PricingController {
       },
     });
 
+    // Fire-and-forget enqueue; log any failure but do not block the client
+    // response while Redis/BullMQ connect.
     const queue = getImportQueue();
-    await queue.add(
-      "process",
-      { importJobId: importJob.id },
-      {
-        attempts: 1,
-        removeOnComplete: 1000,
-        removeOnFail: 1000,
-      },
-    );
+    queue
+      .add(
+        "process",
+        { importJobId: importJob.id },
+        {
+          attempts: 1,
+          removeOnComplete: 1000,
+          removeOnFail: 1000,
+        },
+      )
+      .catch(err => {
+        // eslint-disable-next-line no-console
+        console.error("[pricing] failed to enqueue Golden components import", err);
+      });
 
     return {
       ok: true,

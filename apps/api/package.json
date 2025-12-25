@@ -3,8 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
-    "worker:dev": "ts-node-dev --respawn --transpile-only src/worker.ts",
+    "dev": "nodemon --watch src --ext ts --exec ts-node src/main.ts",
+    "worker:dev": "nodemon --watch src --ext ts --exec ts-node src/worker.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "worker": "node dist/worker.js",
@@ -37,7 +37,8 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/nodemailer": "^6.4.17",
-    "ts-node-dev": "^2.0.0",
+    "nodemon": "^3.1.11",
+    "ts-node": "^10.9.2",
     "typescript": "^5.5.0"
   }
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { PageCard } from "../../ui-shell";
 
@@ -22,9 +23,9 @@ interface ProjectDto {
 export default function SystemOrganizationPage({
   params,
 }: {
-  params: { companyId: string };
+  params: Promise<{ companyId: string }>;
 }) {
-  const { companyId } = params;
+  const { companyId } = React.use(params);
 
   const [company, setCompany] = useState<CompanyDto | null>(null);
   const [projects, setProjects] = useState<ProjectDto[]>([]);

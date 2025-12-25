@@ -81,6 +81,20 @@ type GoldenItemWithComponents = {
   components: GoldenComponent[];
 };
 
+type ImportJobDto = {
+  id: string;
+  companyId: string;
+  projectId: string | null;
+  createdByUserId: string;
+  type: string;
+  status: string;
+  progress: number;
+  message: string | null;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+};
+
 export default function FinancialPage() {
   const [activeSection, setActiveSection] = useState<FinancialSection>("PRICELIST_TREE");
   const [uploading, setUploading] = useState(false);
@@ -105,6 +119,9 @@ export default function FinancialPage() {
   const [goldenTableError, setGoldenTableError] = useState<string | null>(null);
   const [loadingGoldenTable, setLoadingGoldenTable] = useState(false);
   const [goldenHistory, setGoldenHistory] = useState<GoldenPriceUpdateLogEntry[]>([]);
+
+  const [pendingImports, setPendingImports] = useState<Record<string, number>>({});
+  const [pendingError, setPendingError] = useState<string | null>(null);
   const [goldenHistoryError, setGoldenHistoryError] = useState<string | null>(null);
   const [loadingGoldenHistory, setLoadingGoldenHistory] = useState(false);
 
@@ -113,6 +130,237 @@ export default function FinancialPage() {
   const [loadingComponents, setLoadingComponents] = useState(false);
   const [componentsActivityFilter, setComponentsActivityFilter] = useState<string>("");
 
+  // Estimated seconds remaining for Golden uploads (client-side heuristic).
+  const [priceListEta, setPriceListEta] = useState<number | null>(null);
+  const [componentsEta, setComponentsEta] = useState<number | null>(null);
+
+  // Last Golden-related import jobs (so we can poll status after enqueue).
+  const [priceListJob, setPriceListJob] = useState<ImportJobDto | null>(null);
+  const [componentsJob, setComponentsJob] = useState<ImportJobDto | null>(null);
+
+  // Helper: refresh Golden price list-related views after a job completes.
+  async function refreshGoldenPriceListViews() {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    // Current Golden summary
+    try {
+      const priceListRes = await fetch(`${API_BASE}/pricing/price-list/current`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (priceListRes.ok) {
+        const json = await priceListRes.json();
+        if (!json) {
+          setCurrentGolden(null);
+        } else {
+          setCurrentGolden({
+            id: json.id,
+            label: json.label,
+            revision: json.revision,
+            effectiveDate: json.effectiveDate ?? null,
+            itemCount: json.itemCount ?? 0,
+          });
+        }
+        setSummaryError(null);
+      } else {
+        const text = await priceListRes.text().catch(() => "");
+        setSummaryError(
+          `Failed to load current price list (${priceListRes.status}) ${text}`,
+        );
+      }
+    } catch (err: any) {
+      setSummaryError(err?.message ?? "Failed to load current price list.");
+    }
+
+    // Golden price list table
+    setLoadingGoldenTable(true);
+    try {
+      const tableRes = await fetch(`${API_BASE}/pricing/price-list/table`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!tableRes.ok) {
+        const text = await tableRes.text().catch(() => "");
+        throw new Error(
+          `Failed to load Golden price list table (${tableRes.status}) ${text}`,
+        );
+      }
+      const json = (await tableRes.json()) as {
+        priceList?: {
+          id: string;
+          label: string;
+          revision: number;
+          itemCount: number;
+        } | null;
+        rows?: GoldenPriceListRow[];
+      };
+      setGoldenRows(json.rows ?? []);
+      setGoldenTableError(null);
+    } catch (err: any) {
+      setGoldenTableError(err?.message ?? "Failed to load Golden price list table.");
+    } finally {
+      setLoadingGoldenTable(false);
+    }
+
+    // Golden price update history
+    setLoadingGoldenHistory(true);
+    try {
+      const historyRes = await fetch(`${API_BASE}/pricing/price-list/history`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!historyRes.ok) {
+        const text = await historyRes.text().catch(() => "");
+        throw new Error(
+          `Failed to load Golden price list history (${historyRes.status}) ${text}`,
+        );
+      }
+      const json = (await historyRes.json()) as GoldenPriceUpdateLogEntry[];
+      setGoldenHistory(Array.isArray(json) ? json : []);
+      setGoldenHistoryError(null);
+    } catch (err: any) {
+      setGoldenHistoryError(
+        err?.message ?? "Failed to load Golden price list history.",
+      );
+    } finally {
+      setLoadingGoldenHistory(false);
+    }
+
+    // Pending imports summary
+    try {
+      const pendingRes = await fetch(`${API_BASE}/import-jobs/pending`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (pendingRes.ok) {
+        const json = (await pendingRes.json()) as Record<string, number>;
+        setPendingImports(json || {});
+        setPendingError(null);
+      } else if (pendingRes.status !== 404) {
+        const text = await pendingRes.text().catch(() => "");
+        setPendingError(
+          `Unable to load pending imports (${pendingRes.status}) ${text}`,
+        );
+      }
+    } catch (err: any) {
+      setPendingError(err?.message ?? "Unable to load pending imports.");
+    }
+  }
+
+  // Helper: refresh Golden components view after a components job completes.
+  async function refreshGoldenComponentsView() {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    // Pending imports summary
+    try {
+      const pendingRes = await fetch(`${API_BASE}/import-jobs/pending`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (pendingRes.ok) {
+        const json = (await pendingRes.json()) as Record<string, number>;
+        setPendingImports(json || {});
+        setPendingError(null);
+      } else if (pendingRes.status !== 404) {
+        const text = await pendingRes.text().catch(() => "");
+        setPendingError(
+          `Unable to load pending imports (${pendingRes.status}) ${text}`,
+        );
+      }
+    } catch (err: any) {
+      setPendingError(err?.message ?? "Unable to load pending imports.");
+    }
+
+    // Golden components
+    setLoadingComponents(true);
+    try {
+      const componentsRes = await fetch(`${API_BASE}/pricing/price-list/components`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      });
+      if (!componentsRes.ok) {
+        const text = await componentsRes.text().catch(() => "");
+        throw new Error(
+          `Failed to load Golden components (${componentsRes.status}) ${text}`,
+        );
+      }
+      const json = (await componentsRes.json()) as {
+        priceList?: { id: string; label: string; revision: number } | null;
+        items?: GoldenItemWithComponents[];
+      };
+      setComponentsItems(json.items ?? []);
+      setComponentsError(null);
+    } catch (err: any) {
+      setComponentsError(err?.message ?? "Failed to load Golden components.");
+    } finally {
+      setLoadingComponents(false);
+    }
+  }
+
+  // Global 1-second tick that decrements any active ETAs.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const id = window.setInterval(() => {
+      setPriceListEta(prev => (prev != null && prev > 0 ? prev - 1 : prev));
+      setComponentsEta(prev => (prev != null && prev > 0 ? prev - 1 : prev));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // Poll Golden price list job while it is QUEUED/RUNNING.
+  useEffect(() => {
+    if (!priceListJob || !priceListJob.id) return;
+    if (priceListJob.status === "SUCCEEDED" || priceListJob.status === "FAILED") return;
+
+    const intervalId = window.setInterval(() => {
+      void pollImportJob(priceListJob.id, async job => {
+        setPriceListJob(job);
+        if (job.status === "SUCCEEDED") {
+          setPriceListEta(null);
+          setUploading(false);
+          await refreshGoldenPriceListViews();
+        }
+        if (job.status === "FAILED") {
+          setPriceListEta(null);
+          setUploading(false);
+        }
+      });
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+  }, [priceListJob?.id, priceListJob?.status]);
+
+  // Poll Golden components job while it is QUEUED/RUNNING.
+  useEffect(() => {
+    if (!componentsJob || !componentsJob.id) return;
+    if (componentsJob.status === "SUCCEEDED" || componentsJob.status === "FAILED") return;
+
+    const intervalId = window.setInterval(() => {
+      void pollImportJob(componentsJob.id, async job => {
+        setComponentsJob(job);
+        if (job.status === "SUCCEEDED") {
+          setComponentsEta(null);
+          setUploading(false);
+          await refreshGoldenComponentsView();
+        }
+        if (job.status === "FAILED") {
+          setComponentsEta(null);
+          setUploading(false);
+        }
+      });
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+  }, [componentsJob?.id, componentsJob?.status]);
+
   useEffect(() => {
     setMessage(null);
     setError(null);
@@ -120,6 +368,7 @@ export default function FinancialPage() {
     setGoldenTableError(null);
     setGoldenHistoryError(null);
     setComponentsError(null);
+    setPendingError(null);
 
     const token =
       typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
@@ -185,6 +434,28 @@ export default function FinancialPage() {
         setDivisionError(err?.message ?? "Failed to load division mapping.");
       } finally {
         setLoadingDivisionMapping(false);
+      }
+
+      // Pending import jobs summary (company-wide)
+      try {
+        const pendingRes = await fetch(`${API_BASE}/import-jobs/pending`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (pendingRes.ok) {
+          const json = (await pendingRes.json()) as Record<string, number>;
+          setPendingImports(json || {});
+        } else if (pendingRes.status !== 404) {
+          const text = await pendingRes.text().catch(() => "");
+          setPendingError(
+            `Unable to load pending imports (${pendingRes.status}) ${text}`,
+          );
+        }
+      } catch (err: any) {
+        setPendingError(err?.message ?? "Unable to load pending imports.");
       }
 
       // Golden price list table
@@ -279,6 +550,43 @@ export default function FinancialPage() {
     })();
   }, []);
 
+  function estimateSecondsFromFileSize(bytes: number): number {
+    const mb = bytes / (1024 * 1024);
+    if (mb <= 1) return 60; // under 1 minute
+    if (mb <= 5) return 3 * 60; // about 1–3 minutes
+    if (mb <= 20) return 6 * 60; // about 3–6 minutes
+    return 10 * 60; // large file, up to ~10 minutes
+  }
+
+  function formatEta(seconds: number): string {
+    if (seconds <= 0) return "~0s";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (mins <= 0) return `${secs}s`;
+    return `${mins}m ${secs.toString().padStart(2, "0")}s`;
+  }
+
+  // Poll a single import job until it reaches a terminal state.
+  async function pollImportJob(jobId: string, onUpdate: (job: ImportJobDto) => void) {
+    const token =
+      typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/import-jobs/${jobId}`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) return;
+      const job = (await res.json()) as ImportJobDto;
+      onUpdate(job);
+    } catch {
+      // ignore transient polling errors
+    }
+  }
+
   async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setMessage(null);
@@ -292,6 +600,11 @@ export default function FinancialPage() {
     }
 
     const file = fileInput.files[0];
+    if (file && file.size) {
+      setPriceListEta(estimateSecondsFromFileSize(file.size));
+    } else {
+      setPriceListEta(null);
+    }
     const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
     if (!token) {
       setError("Missing access token. Please log in again.");
@@ -327,6 +640,18 @@ export default function FinancialPage() {
         setMessage(
           `Golden price list import started (job ${json.jobId}). You can go about your business; this may take a few minutes. Refresh this page later to see the updated Golden list.`,
         );
+        // Start tracking this job so we can show status.
+        setPriceListJob({
+          id: json.jobId,
+          companyId: "",
+          projectId: null,
+          createdByUserId: "",
+          type: "PRICE_LIST",
+          status: "QUEUED",
+          progress: 0,
+          message: null,
+          createdAt: new Date().toISOString(),
+        });
       } else {
         setMessage(
           `Imported Golden Price List revision ${json.revision} with ${json.itemCount} items.`,
@@ -354,6 +679,11 @@ export default function FinancialPage() {
     }
 
     const file = fileInput.files[0];
+    if (file && file.size) {
+      setComponentsEta(estimateSecondsFromFileSize(file.size));
+    } else {
+      setComponentsEta(null);
+    }
     const token =
       typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
     if (!token) {
@@ -389,6 +719,17 @@ export default function FinancialPage() {
         setMessage(
           `Queued Golden Components import as job ${json.jobId}. You can continue working while it processes.`,
         );
+        setComponentsJob({
+          id: json.jobId,
+          companyId: "",
+          projectId: null,
+          createdByUserId: "",
+          type: "PRICE_LIST_COMPONENTS",
+          status: "QUEUED",
+          progress: 0,
+          message: null,
+          createdAt: new Date().toISOString(),
+        });
       } else {
         setMessage(
           `Imported Golden components for ${json.itemCount} items (${json.componentCount} components).`,
@@ -410,6 +751,33 @@ export default function FinancialPage() {
         Central place for cross-project financial views and configuration. Project-level
         financials are still available per job under the <strong>FINANCIAL</strong> tab.
       </p>
+
+      {/* Pending imports summary */}
+      <div
+        style={{
+          marginBottom: 12,
+          padding: 8,
+          borderRadius: 6,
+          border: "1px solid #e5e7eb",
+          background: "#f9fafb",
+          fontSize: 12,
+        }}
+      >
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>Pending imports</div>
+        {pendingError ? (
+          <div style={{ color: "#b91c1c" }}>{pendingError}</div>
+        ) : Object.keys(pendingImports).length === 0 ? (
+          <div style={{ color: "#6b7280" }}>No queued or running imports for this company.</div>
+        ) : (
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {Object.entries(pendingImports).map(([type, count]) => (
+              <li key={type}>
+                {type}: <strong>{count}</strong>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {/* Sub-menu within Financial */}
       <div
@@ -542,6 +910,25 @@ export default function FinancialPage() {
               </button>
             </form>
 
+            {priceListEta != null && (
+              <p style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
+                {priceListEta > 0 && uploading
+                  ? `Est. time remaining (approx): ${formatEta(priceListEta)}`
+                  : uploading
+                  ? "Taking longer than expected… still uploading to server."
+                  : "Upload complete; background processing will finish shortly."}
+              </p>
+            )}
+            {priceListJob && (
+              <p style={{ marginTop: 2, fontSize: 11, color: "#4b5563" }}>
+                Golden price list job {priceListJob.id}: {priceListJob.status}
+                {typeof priceListJob.progress === "number"
+                  ? ` (${priceListJob.progress}% )`
+                  : ""}
+                {priceListJob.message ? ` – ${priceListJob.message}` : ""}
+              </p>
+            )}
+
             {message && (
               <p style={{ marginTop: 8, fontSize: 12, color: "#16a34a" }}>{message}</p>
             )}
@@ -593,6 +980,32 @@ export default function FinancialPage() {
                 {uploading ? "Uploading…" : "Upload Golden Components"}
               </button>
             </form>
+
+            {componentsEta != null && (
+              <p style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
+                {componentsEta > 0 && uploading
+                  ? `Est. time remaining (approx): ${formatEta(componentsEta)}`
+                  : uploading
+                  ? "Taking longer than expected… still uploading to server."
+                  : "Upload complete; background processing will finish shortly."}
+              </p>
+            )}
+            {componentsJob && (
+              <p style={{ marginTop: 2, fontSize: 11, color: "#4b5563" }}>
+                Golden components job {componentsJob.id}: {componentsJob.status}
+                {typeof componentsJob.progress === "number"
+                  ? ` (${componentsJob.progress}% )`
+                  : ""}
+                {componentsJob.message ? ` – ${componentsJob.message}` : ""}
+              </p>
+            )}
+
+            {message && (
+              <p style={{ marginTop: 8, fontSize: 12, color: "#16a34a" }}>{message}</p>
+            )}
+            {error && (
+              <p style={{ marginTop: 8, fontSize: 12, color: "#b91c1c" }}>{error}</p>
+            )}
           </div>
 
           <div
@@ -1041,10 +1454,12 @@ export default function FinancialPage() {
           {!loadingComponents && !componentsError && (
             <div
               style={{
-                maxHeight: 420,
+                maxHeight: "70vh",
+                minHeight: "40vh",
                 overflow: "auto",
                 border: "1px solid #e5e7eb",
                 borderRadius: 6,
+                background: "#ffffff",
               }}
             >
               <table

@@ -70,7 +70,27 @@ export class ImportJobsService {
     return this.prisma.importJob.findMany({
       where: { projectId, companyId },
       orderBy: { createdAt: "desc" },
-      take: 50
+      take: 50,
     });
+  }
+
+  async summarizePendingForCompany(companyId: string) {
+    const pending = await this.prisma.importJob.findMany({
+      where: {
+        companyId,
+        status: { in: [ImportJobStatus.QUEUED, ImportJobStatus.RUNNING] },
+      },
+      select: {
+        type: true,
+      },
+    });
+
+    const counts: Record<string, number> = {};
+    for (const job of pending) {
+      const key = job.type;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+
+    return counts;
   }
 }

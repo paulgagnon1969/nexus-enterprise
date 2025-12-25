@@ -30,12 +30,12 @@ export class RedisService implements OnModuleDestroy {
   constructor() {
     const url = process.env.REDIS_URL;
     const nodeEnv = process.env.NODE_ENV || "development";
+    const useRealRedisInDev = process.env.REDIS_USE_REAL === "true";
 
-    // In non-production environments, always fall back to the no-op client so
-    // that missing/unstable Redis does not break local dev flows (e.g. login).
-    // To use a real Redis in dev/staging, we can revisit this guard or add a
-    // dedicated flag later.
-    if (nodeEnv !== "production") {
+    // In non-production environments, default to the no-op client so that
+    // missing/unstable Redis does not break local dev flows (e.g. login).
+    // To exercise real Redis in dev/staging, opt-in via REDIS_USE_REAL=true.
+    if (nodeEnv !== "production" && !useRealRedisInDev) {
       this.client = new NoopRedis();
       return;
     }

@@ -22,6 +22,7 @@ model Company {
   templateVersion           OrganizationTemplateVersion? @relation("CompanyTemplateVersion", fields: [templateVersionId], references: [id])
   invites                   CompanyInvite[]
   memberships               CompanyMembership[]
+  goldenPriceUpdates        GoldenPriceUpdateLog[]
   importJobs                ImportJob[]
   moduleOverrides           OrganizationModuleOverride[]
   parcels                   Parcel[]
@@ -35,7 +36,6 @@ model Company {
   tagAssignments            TagAssignment[]
   tasks                     Task[]
   userPortfolios            UserPortfolio[]
-  goldenPriceUpdates        GoldenPriceUpdateLog[]
 }
 
 model OrganizationTemplate {
@@ -145,27 +145,27 @@ model OrganizationModuleOverride {
 }
 
 model User {
-  id                        String              @id @default(cuid())
-  email                     String              @unique
+  id                        String                 @id @default(cuid())
+  email                     String                 @unique
   passwordHash              String
-  createdAt                 DateTime            @default(now())
-  updatedAt                 DateTime            @updatedAt
-  globalRole                GlobalRole          @default(NONE)
-  userType                  UserType            @default(INTERNAL)
-  reputationOverallAvg      Float               @default(2)
-  reputationOverallCount    Int                 @default(0)
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+  globalRole                GlobalRole             @default(NONE)
+  userType                  UserType               @default(INTERNAL)
+  reputationOverallAvg      Float                  @default(2)
+  reputationOverallCount    Int                    @default(0)
   reputationOverallOverride Int?
   firstName                 String?
   lastName                  String?
   acceptedInvites           CompanyInvite[]
   memberships               CompanyMembership[]
   createdDailyLogs          DailyLog[]
-  createdImportJobs         ImportJob[]         @relation("ImportJobCreatedBy")
+  goldenPriceUpdates        GoldenPriceUpdateLog[]
+  createdImportJobs         ImportJob[]            @relation("ImportJobCreatedBy")
   onboardingSessions        OnboardingSession[]
   projectMemberships        ProjectMembership[]
-  assignedTasks             Task[]              @relation("TaskAssignee")
+  assignedTasks             Task[]                 @relation("TaskAssignee")
   portfolios                UserPortfolio[]
-  goldenPriceUpdates        GoldenPriceUpdateLog[]
 }
 
 model UserPortfolio {
@@ -301,6 +301,7 @@ model Project {
   componentSummaries   ComponentSummary[]
   dailyLogs            DailyLog[]
   estimateVersions     EstimateVersion[]
+  goldenPriceUpdates   GoldenPriceUpdateLog[]
   importJobs           ImportJob[]
   parcels              Parcel[]
   petlEditSessions     PetlEditSession[]
@@ -313,7 +314,6 @@ model Project {
   componentAllocations SowComponentAllocation[]
   sowLogicalItems      SowLogicalItem[]
   tasks                Task[]
-  goldenPriceUpdates   GoldenPriceUpdateLog[]
 }
 
 model Parcel {
@@ -453,7 +453,7 @@ model ProjectFinancialSnapshot {
 /// Each row records how many items were updated and the average
 /// price deltas, along with the project, estimate, and user.
 model GoldenPriceUpdateLog {
-  id                String   @id @default(cuid())
+  id                String          @id @default(cuid())
   companyId         String
   projectId         String
   estimateVersionId String
@@ -461,12 +461,11 @@ model GoldenPriceUpdateLog {
   updatedCount      Int
   avgDelta          Float
   avgPercentDelta   Float
-  createdAt         DateTime @default(now())
-
-  company          Company         @relation(fields: [companyId], references: [id])
-  project          Project         @relation(fields: [projectId], references: [id])
-  estimateVersion  EstimateVersion @relation(fields: [estimateVersionId], references: [id])
-  user             User?           @relation(fields: [userId], references: [id])
+  createdAt         DateTime        @default(now()) @db.Timestamptz(6)
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  estimateVersion   EstimateVersion @relation(fields: [estimateVersionId], references: [id], onDelete: Cascade)
+  project           Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user              User?           @relation(fields: [userId], references: [id])
 
   @@index([companyId, createdAt], map: "GoldenPriceUpdateLog_company_created_idx")
   @@index([projectId, createdAt], map: "GoldenPriceUpdateLog_project_created_idx")
@@ -510,12 +509,12 @@ model EstimateVersion {
   allocationRules      ComponentAllocationRule[]
   componentSummaries   ComponentSummary[]
   project              Project                   @relation(fields: [projectId], references: [id])
+  goldenPriceUpdates   GoldenPriceUpdateLog[]
   rawComponentRows     RawComponentRow[]
   rawRows              RawXactRow[]
   sows                 Sow[]
   componentAllocations SowComponentAllocation[]
   sowItems             SowItem[]
-  goldenPriceUpdates   GoldenPriceUpdateLog[]
 
   @@index([projectId, sequenceNo], map: "EstimateVersion_project_sequence_idx")
 }
@@ -1039,7 +1038,7 @@ model ImportJob {
   finishedAt        DateTime?
   company           Company         @relation(fields: [companyId], references: [id])
   createdBy         User            @relation("ImportJobCreatedBy", fields: [createdByUserId], references: [id])
-  project           Project?        @relation(fields: [projectId], references: [id])
+  project           Project?        @relation(fields: [projectId], references: [id], onDelete: Restrict)
 
   @@index([companyId, createdAt], map: "ImportJob_company_created_idx")
   @@index([projectId, createdAt], map: "ImportJob_project_created_idx")
@@ -1048,16 +1047,16 @@ model ImportJob {
 
 /// Global price list metadata (e.g. canonical Xactimate price list revisions).
 model PriceList {
-  id            String         @id @default(cuid())
-  kind          PriceListKind  @default(GOLDEN)
+  id            String          @id @default(cuid())
+  kind          PriceListKind   @default(GOLDEN)
   code          String?
   label         String
   revision      Int
   effectiveDate DateTime?
-  currency      String?        @default("USD")
-  isActive      Boolean        @default(false)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  currency      String?         @default("USD")
+  isActive      Boolean         @default(false)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
   items         PriceListItem[]
 
   @@index([kind, isActive, revision], map: "PriceList_kind_active_revision_idx")
@@ -1065,7 +1064,7 @@ model PriceList {
 
 /// Individual price list items (e.g. CAT/SEL codes and unit prices).
 model PriceListItem {
-  id                 String              @id @default(cuid())
+  id                 String               @id @default(cuid())
   priceListId        String
   lineNo             Int?
   groupCode          String?
@@ -1075,28 +1074,28 @@ model PriceListItem {
   sel                String?
   unit               String?
   unitPrice          Float?
-  lastKnownUnitPrice Float?
   coverage           String?
   activity           String?
   owner              String?
   sourceVendor       String?
   sourceDate         DateTime?
   rawJson            Json?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  lastKnownUnitPrice Float?
   canonicalKeyHash   String?
   divisionCode       String?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  priceList          PriceList          @relation(fields: [priceListId], references: [id])
-  division           Division?          @relation(fields: [divisionCode], references: [code])
   components         PriceListComponent[]
+  division           Division?            @relation(fields: [divisionCode], references: [code])
+  priceList          PriceList            @relation(fields: [priceListId], references: [id])
 
+  @@unique([priceListId, canonicalKeyHash], map: "PriceListItem_priceList_canonical_hash_key")
   @@index([priceListId, cat, sel], map: "PriceListItem_priceList_cat_sel_idx")
   @@index([divisionCode], map: "PriceListItem_division_code_idx")
-  @@unique([priceListId, canonicalKeyHash], map: "PriceListItem_priceList_canonical_hash_key")
 }
 
 model PriceListComponent {
-  id              String         @id @default(cuid())
+  id              String        @id @default(cuid())
   priceListItemId String
   componentCode   String
   description     String?
@@ -1104,22 +1103,22 @@ model PriceListComponent {
   material        Float?
   labor           Float?
   equipment       Float?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  priceListItem   PriceListItem  @relation(fields: [priceListItemId], references: [id])
+  createdAt       DateTime      @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
+  priceListItem   PriceListItem @relation(fields: [priceListItemId], references: [id], onDelete: Cascade)
 
+  @@unique([priceListItemId, componentCode], name: "PLComponent_item_code_key", map: "PLComponent_item_code_key")
   @@index([priceListItemId], map: "PriceListComponent_item_idx")
   @@index([componentCode], map: "PriceListComponent_code_idx")
-  @@unique([priceListItemId, componentCode], name: "PLComponent_item_code_key")
 }
 
 /// Standard CSI-style construction divisions (01–16) used for
 /// organizing revenue, cost, and work by building system.
 model Division {
-  id             String           @id @default(cuid())
-  code           String           @unique
+  id             String          @id @default(cuid())
+  code           String          @unique
   name           String
-  sortOrder      Int              @default(0)
+  sortOrder      Int             @default(0)
   catMappings    CatDivision[]
   priceListItems PriceListItem[]
 }
