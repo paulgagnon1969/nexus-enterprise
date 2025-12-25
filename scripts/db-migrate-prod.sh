@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run Prisma migrations against a production database.
+# Run Prisma migrations against the production database.
 #
-# Usage:
-#   export DATABASE_URL="postgresql://postgres:${PROD_DB_PASSWORD}@34.29.118.171:5432/nexus_db"
+# Usage (recommended):
+#   export ProdDATABASE_URL="postgresql://postgres:<PROD_DB_PASSWORD>@34.27.95.130:5432/nexus_db"
+#   export DATABASE_URL="$ProdDATABASE_URL"
 #   ./scripts/db-migrate-prod.sh
 #
 # Notes:
 # - Uses `prisma migrate deploy` (non-interactive, production-safe)
-# - Never commits secrets; DATABASE_URL must be provided via environment variable
+# - Never commits secrets; DATABASE_URL/ProdDATABASE_URL must be provided via environment variables
 
 if [[ -z "${DATABASE_URL:-}" ]]; then
   echo "DATABASE_URL is not set. Export it in your shell before running this script." >&2

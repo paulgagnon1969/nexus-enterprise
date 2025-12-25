@@ -3,8 +3,8 @@ import { TaskService } from "./task.service";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { Roles } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { CreateTaskDto, UpdateTaskStatusDto } from "./dto/task.dto";
-import { Role, TaskStatus, TaskPriority } from "@prisma/client";
+import { CreateTaskDto, UpdateTaskStatusDto, TaskPriorityEnum, TaskStatusEnum } from "./dto/task.dto";
+import { Role } from "@prisma/client";
 
 @Controller("tasks")
 export class TaskController {
@@ -15,9 +15,9 @@ export class TaskController {
   list(
     @Req() req: any,
     @Query("projectId") projectId?: string,
-    @Query("status") status?: TaskStatus,
+    @Query("status") status?: TaskStatusEnum,
     @Query("assigneeId") assigneeId?: string,
-    @Query("priority") priority?: TaskPriority,
+    @Query("priority") priority?: TaskPriorityEnum,
     @Query("overdueOnly") overdueOnly?: string
   ) {
     const actor = req.user as AuthenticatedUser;

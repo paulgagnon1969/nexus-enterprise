@@ -101,7 +101,9 @@ export async function allocateComponentsForEstimate(options: {
   // Clear previous allocations for this estimate so we can re-run safely
   await prisma.sowComponentAllocation.deleteMany({ where: { estimateVersionId } });
 
-  const allocations: Prisma.SowComponentAllocationCreateManyInput[] = [];
+  // Use a broad type here to avoid tight coupling to generated Prisma input aliases,
+  // which can change across Prisma versions.
+  const allocations: any[] = [];
 
   let matchedComponents = 0;
   let unmatchedComponents = 0;
@@ -134,12 +136,12 @@ export async function allocateComponentsForEstimate(options: {
     matchedComponents++;
 
     // Use RCV as the primary allocation basis, fall back to Item Amount.
-    const basisValues = candidates.map((item) => {
+    const basisValues = candidates.map((item: any) => {
       const basis = item.rcvAmount ?? item.itemAmount ?? 0;
       return basis > 0 ? basis : 0;
     });
 
-    let basisTotal = basisValues.reduce((sum, v) => sum + v, 0);
+    let basisTotal = basisValues.reduce((sum: number, v: number) => sum + v, 0);
     const useEqualSplit = basisTotal <= 0;
 
     if (useEqualSplit) {
@@ -151,7 +153,7 @@ export async function allocateComponentsForEstimate(options: {
     const total = comp.total ?? null;
     const quantity = comp.quantity ?? null;
 
-    candidates.forEach((item, index) => {
+    candidates.forEach((item: any, index: number) => {
       const weight = basisValues[index] ?? 0;
       if (weight <= 0 || basisTotal <= 0) {
         return;

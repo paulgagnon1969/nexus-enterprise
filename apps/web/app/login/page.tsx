@@ -33,7 +33,25 @@ export default function LoginPage() {
       localStorage.setItem("refreshToken", data.refreshToken);
       localStorage.setItem("companyId", data.company.id);
 
-      window.location.href = "/projects";
+      // Route by user context:
+      // - APPLICANT: candidate portal
+      // - SUPER_ADMIN: Nexus System
+      // - everyone else: project workspace
+      try {
+        const meRes = await fetch(`${API_BASE}/users/me`, {
+          headers: { Authorization: `Bearer ${data.accessToken}` },
+        });
+        const me = meRes.ok ? await meRes.json() : null;
+        if (me?.userType === "APPLICANT") {
+          window.location.href = "/candidate";
+        } else if (me?.globalRole === "SUPER_ADMIN") {
+          window.location.href = "/system";
+        } else {
+          window.location.href = "/projects";
+        }
+      } catch {
+        window.location.href = "/projects";
+      }
     } catch (err) {
       setError("Network error");
     } finally {
@@ -144,6 +162,12 @@ export default function LoginPage() {
             {submitting ? "Signing in..." : "Sign in"}
           </button>
         </form>
+
+        <div style={{ marginTop: 12, fontSize: 12 }}>
+          <a href="/reset-password" style={{ color: "#2563eb", textDecoration: "none" }}>
+            Forgot password?
+          </a>
+        </div>
 
         <p
           style={{
