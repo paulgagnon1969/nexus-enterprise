@@ -11,9 +11,8 @@ LOG_DIR="$REPO_ROOT/logs"
 
 mkdir -p "$LOG_DIR"
 
-# In local dev, clear any inherited REDIS_URL so RedisService falls back to
-# the NoopRedis client and features depending on Redis degrade gracefully.
-unset REDIS_URL
+# In local dev we now expect a real Redis (e.g. Homebrew on localhost:6379)
+# so keep REDIS_URL intact for BullMQ import jobs.
 
 # 1) Ensure web .env.local points to local API
 WEB_ENV="$REPO_ROOT/apps/web/.env.local"
@@ -28,19 +27,20 @@ fi
 # Uses a dedicated service account key for stable local auth. Set
 # CLOUD_SQL_PROXY_CREDENTIAL_FILE in your shell (e.g. ~/.zshrc):
 #   export CLOUD_SQL_PROXY_CREDENTIAL_FILE="$HOME/.gcp-keys/nexus-dev-proxy-key.json"
-if pgrep -f "cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres" >/dev/null 2>&1; then
+# Updated to use the new dev instance (nexusdev-v2) on port 5434.
+if pgrep -f "cloud-sql-proxy --port=5434 nexus-enterprise-480610:us-central1:nexusdev-v2" >/dev/null 2>&1; then
   echo "[dev-start] Cloud SQL proxy already running" | tee -a "$LOG_DIR/dev-start.log"
 else
-  echo "[dev-start] Starting Cloud SQL proxy on 127.0.0.1:5433 (dev instance)" | tee -a "$LOG_DIR/dev-start.log"
+  echo "[dev-start] Starting Cloud SQL proxy on 127.0.0.1:5434 (dev instance nexusdev-v2)" | tee -a "$LOG_DIR/dev-start.log"
   if [[ -z "${CLOUD_SQL_PROXY_CREDENTIAL_FILE:-}" ]]; then
     echo "[dev-start] WARNING: CLOUD_SQL_PROXY_CREDENTIAL_FILE is not set; falling back to Application Default Credentials" | tee -a "$LOG_DIR/dev-start.log"
-    nohup /opt/homebrew/bin/cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres \
+    nohup /opt/homebrew/bin/cloud-sql-proxy --port=5434 nexus-enterprise-480610:us-central1:nexusdev-v2 \
       > "$LOG_DIR/cloud-sql-proxy.log" 2>&1 &
   else
     nohup /opt/homebrew/bin/cloud-sql-proxy \
-      --port=5433 \
+      --port=5434 \
       --credential_file="$CLOUD_SQL_PROXY_CREDENTIAL_FILE" \
-      nexus-enterprise-480610:us-central1:nexus-dev-postgres \
+      nexus-enterprise-480610:us-central1:nexusdev-v2 \
       > "$LOG_DIR/cloud-sql-proxy.log" 2>&1 &
   fi
   echo "[dev-start] Waiting 5 seconds for Cloud SQL proxy to initialize..." | tee -a "$LOG_DIR/dev-start.log"
@@ -58,7 +58,7 @@ else
       echo "[dev-start] DEV_DB_PASSWORD is not set. Export it in your shell before running this script." | tee -a "$LOG_DIR/dev-start.log"
       exit 1
     fi
-    export DATABASE_URL="postgresql://postgres:${DEV_DB_PASSWORD}@127.0.0.1:5433/nexus_db"
+    export DATABASE_URL="postgresql://postgres:${DEV_DB_PASSWORD}@127.0.0.1:5434/nexus_db"
     nohup bash ./scripts/dev-api-cloud-db.sh \
       > "$LOG_DIR/api-dev.log" 2>&1 &
   )
@@ -77,7 +77,7 @@ else
       echo "[dev-start] DEV_DB_PASSWORD is not set. Export it in your shell before running this script." | tee -a "$LOG_DIR/dev-start.log"
       exit 1
     fi
-    export DATABASE_URL="postgresql://postgres:${DEV_DB_PASSWORD}@127.0.0.1:5433/nexus_db"
+    export DATABASE_URL="postgresql://postgres:${DEV_DB_PASSWORD}@127.0.0.1:5434/nexus_db"
     cd "$REPO_ROOT/apps/api"
     nohup /usr/local/bin/npm run worker:dev \
       > "$LOG_DIR/api-worker-dev.log" 2>&1 &

@@ -63,6 +63,12 @@ export class ProjectImportJobsController {
 export class ImportJobsController {
   constructor(private readonly jobs: ImportJobsService) {}
 
+  @Get("pending")
+  async pending(@Req() req: any) {
+    const user = req.user as AuthenticatedUser;
+    return this.jobs.summarizePendingForCompany(user.companyId);
+  }
+
   @Get(":jobId")
   async getOne(@Req() req: any, @Param("jobId") jobId: string) {
     const user = req.user as AuthenticatedUser;
