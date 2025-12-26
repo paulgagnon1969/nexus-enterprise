@@ -190,6 +190,9 @@ export async function getCurrentGoldenPriceList() {
     currency: priceList.currency,
     isActive: priceList.isActive,
     itemCount,
+    // When the Golden was imported into Nexus (upload timestamp),
+    // distinct from the effective date embedded in the Xactimate data.
+    createdAt: priceList.createdAt,
   };
 }
 
