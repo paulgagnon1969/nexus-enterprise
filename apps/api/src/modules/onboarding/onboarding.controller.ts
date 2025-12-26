@@ -15,6 +15,7 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 import type { FastifyRequest } from "fastify";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
 
 @Controller("onboarding")
 export class OnboardingController {
@@ -81,35 +82,16 @@ export class OnboardingController {
   async uploadDocument(@Param("token") token: string, @Req() req: FastifyRequest) {
     // Fastify-native multipart parsing.
     // The web app sends `type` + `file` in a multipart/form-data payload.
-    let type: "PHOTO" | "GOV_ID" | "OTHER" | undefined;
-    let filePart:
-      | {
-          filename: string;
-          mimetype: string;
-          toBuffer: () => Promise<Buffer>;
-        }
-      | undefined;
+    const { file: filePart, fields } = await readSingleFileFromMultipart(req, {
+      fieldName: "file",
+      captureFields: ["type"],
+    });
 
-    // `req.parts()` is provided by @fastify/multipart
-    const parts = (req as any).parts?.();
-    if (!parts) {
-      throw new BadRequestException("Multipart support is not configured");
-    }
-
-    for await (const part of parts) {
-      if (part.type === "file" && part.fieldname === "file") {
-        filePart = part;
-      } else if (part.type === "field" && part.fieldname === "type") {
-        type = String(part.value) as any;
-      }
-    }
+    const rawType = fields["type"];
+    const type = rawType as "PHOTO" | "GOV_ID" | "OTHER" | undefined;
 
     if (!type || (type !== "PHOTO" && type !== "GOV_ID" && type !== "OTHER")) {
       throw new BadRequestException("Invalid or missing document type");
-    }
-
-    if (!filePart) {
-      throw new BadRequestException("No file uploaded");
     }
 
     // Store under uploads/onboarding similar to daily logs

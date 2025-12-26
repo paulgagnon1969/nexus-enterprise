@@ -56,6 +56,16 @@ type GoldenPriceUpdateLogEntry = {
   userName: string | null;
 };
 
+// Recent Golden price list uploads (PriceList revisions).
+type GoldenUploadSummary = {
+  id: string;
+  label: string;
+  revision: number;
+  effectiveDate?: string | null;
+  uploadedAt?: string | null;
+  itemCount: number;
+};
+
 type GoldenComponent = {
   id: string;
   priceListItemId: string;
@@ -65,6 +75,8 @@ type GoldenComponent = {
   material: number | null;
   labor: number | null;
   equipment: number | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
 type GoldenItemWithComponents = {
@@ -120,6 +132,10 @@ export default function FinancialPage() {
   const [goldenTableError, setGoldenTableError] = useState<string | null>(null);
   const [loadingGoldenTable, setLoadingGoldenTable] = useState(false);
   const [goldenHistory, setGoldenHistory] = useState<GoldenPriceUpdateLogEntry[]>([]);
+
+  const [goldenUploads, setGoldenUploads] = useState<GoldenUploadSummary[]>([]);
+  const [goldenUploadsError, setGoldenUploadsError] = useState<string | null>(null);
+  const [loadingGoldenUploads, setLoadingGoldenUploads] = useState(false);
 
   const [pendingImports, setPendingImports] = useState<Record<string, number>>({});
   const [pendingError, setPendingError] = useState<string | null>(null);
@@ -228,6 +244,30 @@ export default function FinancialPage() {
       );
     } finally {
       setLoadingGoldenHistory(false);
+    }
+
+    // Recent Golden uploads summary
+    setLoadingGoldenUploads(true);
+    try {
+      const uploadsRes = await fetch(`${API_BASE}/pricing/price-list/uploads`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!uploadsRes.ok) {
+        const text = await uploadsRes.text().catch(() => "");
+        throw new Error(
+          `Failed to load Golden uploads (${uploadsRes.status}) ${text}`,
+        );
+      }
+      const json = (await uploadsRes.json()) as GoldenUploadSummary[];
+      setGoldenUploads(Array.isArray(json) ? json : []);
+      setGoldenUploadsError(null);
+    } catch (err: any) {
+      setGoldenUploadsError(
+        err?.message ?? "Failed to load Golden uploads.",
+      );
+    } finally {
+      setLoadingGoldenUploads(false);
     }
 
     // Pending imports summary
@@ -518,6 +558,33 @@ export default function FinancialPage() {
         );
       } finally {
         setLoadingGoldenHistory(false);
+      }
+
+      // Golden uploads summary
+      setLoadingGoldenUploads(true);
+      try {
+        const uploadsRes = await fetch(`${API_BASE}/pricing/price-list/uploads`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!uploadsRes.ok) {
+          const text = await uploadsRes.text().catch(() => "");
+          throw new Error(
+            `Failed to load Golden uploads (${uploadsRes.status}) ${text}`,
+          );
+        }
+
+        const json = (await uploadsRes.json()) as GoldenUploadSummary[];
+        setGoldenUploads(Array.isArray(json) ? json : []);
+      } catch (err: any) {
+        setGoldenUploadsError(
+          err?.message ?? "Failed to load Golden uploads.",
+        );
+      } finally {
+        setLoadingGoldenUploads(false);
       }
 
       // Golden components (all ACTs by default)
@@ -847,14 +914,17 @@ export default function FinancialPage() {
       {activeSection === "PRICELIST_TREE" && (
         <section style={{ marginBottom: 24 }}>
           <h3 style={{ fontSize: 14, fontWeight: 600, margin: "8px 0" }}>
-            Pricelist Tree – Golden Price List
+            Pricelist Tree – Golden PETL (Price List) & Components
           </h3>
           <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 8 }}>
-            Import the master Xactimate price list as the current <strong>Golden Price List</strong>.
+            Import the master Xactimate price list as the current
+            <strong> Golden PETL (Price List)</strong>, then layer
+            <strong> Golden Components</strong> on top. The PETL upload controls the
+            <em>line items</em> (CAT/SEL rows and unit prices). The Components upload
+            controls the <em>breakdown</em> for those PETL rows (materials, labor,
+            equipment) and can be revised independently.
             Only <strong>OWNER</strong>/<strong>ADMIN</strong> roles (or Nexus Super Admins)
-            can upload a new Golden price list. The latest imported Golden list becomes
-            the active default used for new estimates and quotations. Older Golden
-            revisions are kept for history but marked inactive.
+            can upload a new Golden price list or components.
           </p>
           <div
             style={{
@@ -868,7 +938,7 @@ export default function FinancialPage() {
           >
             {currentGolden ? (
               <p style={{ margin: 0, fontSize: 12, color: "#374151" }}>
-                Current Golden: <strong>{currentGolden.label}</strong> (rev.
+                Current Golden PETL (Price List): <strong>{currentGolden.label}</strong> (rev.
                 {" "}
                 <strong>{currentGolden.revision}</strong>) with
                 {" "}
@@ -900,135 +970,384 @@ export default function FinancialPage() {
             )}
           </div>
 
+          {/* Upload + recent Golden uploads (side by side) */}
           <div
             style={{
-              padding: 12,
-              borderRadius: 8,
-              border: "1px dashed #d1d5db",
-              background: "#f9fafb",
-              fontSize: 13,
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1fr)",
+              gap: 12,
               marginBottom: 12,
             }}
           >
-            <form onSubmit={handleUpload}>
-              <label style={{ display: "block", marginBottom: 6 }}>
-                <span style={{ display: "block", marginBottom: 4 }}>Upload CSV</span>
-                <input type="file" name="file" accept=".csv,text/csv" />
-              </label>
-              <button
-                type="submit"
-                disabled={uploading}
-                style={{
-                  marginTop: 8,
-                  padding: "6px 10px",
-                  borderRadius: 4,
-                  border: "1px solid #0f172a",
-                  backgroundColor: uploading ? "#e5e7eb" : "#0f172a",
-                  color: uploading ? "#4b5563" : "#f9fafb",
-                  fontSize: 12,
-                  cursor: uploading ? "default" : "pointer",
-                }}
-              >
-                {uploading ? "Uploading…" : "Upload Golden Price List"}
-              </button>
-            </form>
+            {/* Golden PETL upload */}
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 8,
+                border: "1px dashed #d1d5db",
+                background: "#f9fafb",
+                fontSize: 13,
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                Upload Golden PETL (master Xactimate price list)
+              </div>
+              <form onSubmit={handleUpload}>
+                <label style={{ display: "block", marginBottom: 6 }}>
+                  <span style={{ display: "block", marginBottom: 4 }}>
+                    Upload PETL CSV (Xactimate master price list)
+                  </span>
+                  <input type="file" name="file" accept=".csv,text/csv" />
+                </label>
+                <button
+                  type="submit"
+                  disabled={uploading}
+                  style={{
+                    marginTop: 8,
+                    padding: "6px 10px",
+                    borderRadius: 4,
+                    border: "1px solid #0f172a",
+                    backgroundColor: uploading ? "#e5e7eb" : "#0f172a",
+                    color: uploading ? "#4b5563" : "#f9fafb",
+                    fontSize: 12,
+                    cursor: uploading ? "default" : "pointer",
+                  }}
+                >
+                  {uploading ? "Uploading…" : "Upload Golden PETL"}
+                </button>
+              </form>
 
-            {priceListEta != null && (
-              <p style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
-                {priceListEta > 0 && uploading
-                  ? `Est. time remaining (approx): ${formatEta(priceListEta)}`
-                  : uploading
-                  ? "Taking longer than expected… still uploading to server."
-                  : "Upload complete; background processing will finish shortly."}
-              </p>
-            )}
-            {priceListJob && (
-              <p style={{ marginTop: 2, fontSize: 11, color: "#4b5563" }}>
-                Golden price list job {priceListJob.id}: {priceListJob.status}
-                {typeof priceListJob.progress === "number"
-                  ? ` (${priceListJob.progress}% )`
-                  : ""}
-                {priceListJob.message ? ` – ${priceListJob.message}` : ""}
-              </p>
-            )}
+              {priceListEta != null && (
+                <p style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
+                  {priceListEta > 0 && uploading
+                    ? `Est. time remaining (approx): ${formatEta(priceListEta)}`
+                    : uploading
+                    ? "Taking longer than expected… still uploading to server."
+                    : "Upload complete; background processing will finish shortly."}
+                </p>
+              )}
+              {priceListJob && (
+                <p style={{ marginTop: 2, fontSize: 11, color: "#4b5563" }}>
+                  Golden price list job {priceListJob.id}: {priceListJob.status}
+                  {typeof priceListJob.progress === "number"
+                    ? ` (${priceListJob.progress}% )`
+                    : ""}
+                  {priceListJob.message ? ` – ${priceListJob.message}` : ""}
+                </p>
+              )}
 
-            {message && (
-              <p style={{ marginTop: 8, fontSize: 12, color: "#16a34a" }}>{message}</p>
-            )}
-            {error && (
-              <p style={{ marginTop: 8, fontSize: 12, color: "#b91c1c" }}>{error}</p>
-            )}
+              {message && (
+                <p style={{ marginTop: 8, fontSize: 12, color: "#16a34a" }}>{message}</p>
+              )}
+              {error && (
+                <p style={{ marginTop: 8, fontSize: 12, color: "#b91c1c" }}>{error}</p>
+              )}
+            </div>
+
+            {/* Recent Golden uploads (last 10) */}
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 8,
+                border: "1px dashed #d1d5db",
+                background: "#f9fafb",
+                fontSize: 13,
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                Recent Golden PETL uploads (last 10)
+              </div>
+              {goldenUploadsError ? (
+                <div style={{ fontSize: 11, color: "#b91c1c" }}>{goldenUploadsError}</div>
+              ) : goldenUploads.length === 0 ? (
+                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                  No prior Golden uploads recorded yet.
+                </div>
+              ) : (
+                <div
+                  style={{
+                    maxHeight: 120,
+                    overflowY: "auto",
+                    borderRadius: 4,
+                    border: "1px solid #e5e7eb",
+                    background: "#ffffff",
+                    padding: 4,
+                    marginTop: 2,
+                  }}
+                >
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: 11,
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ background: "#f9fafb" }}>
+                        <th
+                          style={{
+                            textAlign: "left",
+                            padding: "2px 4px",
+                            width: 90,
+                          }}
+                        >
+                          Uploaded
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "left",
+                            padding: "2px 4px",
+                            width: 90,
+                          }}
+                        >
+                          Effective
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "left",
+                            padding: "2px 4px",
+                            width: 40,
+                          }}
+                        >
+                          Rev
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "right",
+                            padding: "2px 4px",
+                            width: 70,
+                          }}
+                        >
+                          Items
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "left",
+                            padding: "2px 4px",
+                          }}
+                        >
+                          Label
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {goldenUploads.map((u) => {
+                        const isCurrent = u.id === currentGolden?.id;
+                        return (
+                          <tr key={u.id}>
+                            <td
+                              style={{
+                                padding: "2px 4px",
+                                borderTop: "1px solid #f3f4f6",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {u.uploadedAt
+                                ? new Date(u.uploadedAt).toLocaleDateString()
+                                : "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "2px 4px",
+                                borderTop: "1px solid #f3f4f6",
+                                whiteSpace: "nowrap",
+                                color: "#6b7280",
+                              }}
+                            >
+                              {u.effectiveDate
+                                ? new Date(u.effectiveDate).toLocaleDateString()
+                                : "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "2px 4px",
+                                borderTop: "1px solid #f3f4f6",
+                                textAlign: "left",
+                                fontWeight: isCurrent ? 600 : 400,
+                              }}
+                            >
+                              {u.revision}
+                            </td>
+                            <td
+                              style={{
+                                padding: "2px 4px",
+                                borderTop: "1px solid #f3f4f6",
+                                textAlign: "right",
+                              }}
+                            >
+                              {u.itemCount.toLocaleString()}
+                            </td>
+                            <td
+                              style={{
+                                padding: "2px 4px",
+                                borderTop: "1px solid #f3f4f6",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {u.label}
+                              {isCurrent && (
+                                <span style={{ color: "#16a34a" }}>
+                                  {" "}(current)
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Components upload */}
+          {/* Components upload + status */}
           <div
             style={{
-              padding: 12,
-              borderRadius: 8,
-              border: "1px dashed #d1d5db",
-              background: "#f9fafb",
-              fontSize: 13,
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1fr)",
+              gap: 12,
+              marginBottom: 12,
             }}
           >
-            <h4 style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 600 }}>
-              Upload Golden Components (per ACT)
-            </h4>
-            <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
-              Upload an ACT-specific components report (e.g. Materials, Labor, R/R). The
-              file must include Cat, Sel, Activity, Desc, Component Code, Qty, Material,
-              Labor, and Equipment columns. Components are attached to matching Golden
-              line items using the (Cat, Sel, Activity, Description) key.
-            </p>
-            <form onSubmit={handleComponentsUpload}>
-              <label style={{ display: "block", marginBottom: 6 }}>
-                <span style={{ display: "block", marginBottom: 4 }}>
-                  Upload Components CSV
-                </span>
-                <input type="file" name="componentsFile" accept=".csv,text/csv" />
-              </label>
-              <button
-                type="submit"
-                disabled={uploading}
-                style={{
-                  marginTop: 8,
-                  padding: "6px 10px",
-                  borderRadius: 4,
-                  border: "1px solid #0f172a",
-                  backgroundColor: uploading ? "#e5e7eb" : "#0f172a",
-                  color: uploading ? "#4b5563" : "#f9fafb",
-                  fontSize: 12,
-                  cursor: uploading ? "default" : "pointer",
-                }}
-              >
-                {uploading ? "Uploading…" : "Upload Golden Components"}
-              </button>
-            </form>
-
-            {componentsEta != null && (
-              <p style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
-                {componentsEta > 0 && uploading
-                  ? `Est. time remaining (approx): ${formatEta(componentsEta)}`
-                  : uploading
-                  ? "Taking longer than expected… still uploading to server."
-                  : "Upload complete; background processing will finish shortly."}
+            {/* Golden Components upload */}
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 8,
+                border: "1px dashed #d1d5db",
+                background: "#f9fafb",
+                fontSize: 13,
+              }}
+            >
+              <h4 style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 600 }}>
+                Upload Golden Components (per ACT)
+              </h4>
+              <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
+                Upload an ACT-specific components report (e.g. Materials, Labor, R/R). The
+                file must include Cat, Sel, Activity, Desc, Component Code, Qty, Material,
+                Labor, and Equipment columns. Components are attached to matching Golden
+                PETL line items using the (Cat, Sel, Activity, Description) key.
               </p>
-            )}
-            {componentsJob && (
-              <p style={{ marginTop: 2, fontSize: 11, color: "#4b5563" }}>
-                Golden components job {componentsJob.id}: {componentsJob.status}
-                {typeof componentsJob.progress === "number"
-                  ? ` (${componentsJob.progress}% )`
-                  : ""}
-                {componentsJob.message ? ` – ${componentsJob.message}` : ""}
-              </p>
-            )}
+              <form onSubmit={handleComponentsUpload}>
+                <label style={{ display: "block", marginBottom: 6 }}>
+                  <span style={{ display: "block", marginBottom: 4 }}>
+                    Upload Components CSV (ACT-specific Xactimate report)
+                  </span>
+                  <input type="file" name="componentsFile" accept=".csv,text/csv" />
+                </label>
+                <button
+                  type="submit"
+                  disabled={uploading}
+                  style={{
+                    marginTop: 8,
+                    padding: "6px 10px",
+                    borderRadius: 4,
+                    border: "1px solid #0f172a",
+                    backgroundColor: uploading ? "#e5e7eb" : "#0f172a",
+                    color: uploading ? "#4b5563" : "#f9fafb",
+                    fontSize: 12,
+                    cursor: uploading ? "default" : "pointer",
+                  }}
+                >
+                  {uploading ? "Uploading…" : "Upload Golden Components"}
+                </button>
+              </form>
 
-            {message && (
-              <p style={{ marginTop: 8, fontSize: 12, color: "#16a34a" }}>{message}</p>
-            )}
-            {error && (
-              <p style={{ marginTop: 8, fontSize: 12, color: "#b91c1c" }}>{error}</p>
-            )}
+              {componentsEta != null && (
+                <p style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
+                  {componentsEta > 0 && uploading
+                    ? `Est. time remaining (approx): ${formatEta(componentsEta)}`
+                    : uploading
+                    ? "Taking longer than expected… still uploading to server."
+                    : "Upload complete; background processing will finish shortly."}
+                </p>
+              )}
+              {componentsJob && (
+                <p style={{ marginTop: 2, fontSize: 11, color: "#4b5563" }}>
+                  Golden components job {componentsJob.id}: {componentsJob.status}
+                  {typeof componentsJob.progress === "number"
+                    ? ` (${componentsJob.progress}% )`
+                    : ""}
+                  {componentsJob.message ? ` – ${componentsJob.message}` : ""}
+                </p>
+              )}
+
+              {message && (
+                <p style={{ marginTop: 8, fontSize: 12, color: "#16a34a" }}>{message}</p>
+              )}
+              {error && (
+                <p style={{ marginTop: 8, fontSize: 12, color: "#b91c1c" }}>{error}</p>
+              )}
+            </div>
+
+            {/* Components status card */}
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 8,
+                border: "1px dashed #d1d5db",
+                background: "#f9fafb",
+                fontSize: 13,
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                Golden Components coverage (per current PETL)
+              </div>
+              {loadingComponents ? (
+                <div style={{ fontSize: 11, color: "#6b7280" }}>Loading components…</div>
+              ) : componentsItems.length === 0 ? (
+                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                  No Golden components have been imported yet for the current Golden PETL.
+                </div>
+              ) : (
+                (() => {
+                  const itemsWithComponents = componentsItems.length;
+                  const totalComponents = componentsItems.reduce(
+                    (sum, item) => sum + (item.components?.length ?? 0),
+                    0,
+                  );
+                  let lastUploadLabel = "";
+                  const timestamps: number[] = [];
+                  for (const item of componentsItems) {
+                    for (const c of item.components ?? []) {
+                      if (c.createdAt) {
+                        const t = new Date(c.createdAt).getTime();
+                        if (!Number.isNaN(t)) timestamps.push(t);
+                      }
+                    }
+                  }
+                  if (timestamps.length) {
+                    const maxTs = Math.max(...timestamps);
+                    lastUploadLabel = new Date(maxTs).toLocaleDateString();
+                  }
+
+                  return (
+                    <div style={{ fontSize: 11, color: "#374151" }}>
+                      <p style={{ margin: 0 }}>
+                        Items with components: <strong>{itemsWithComponents}</strong>
+                        {currentGolden?.itemCount != null && (
+                          <>
+                            {" "}of <strong>{currentGolden.itemCount}</strong> Golden PETL
+                            line items
+                          </>
+                        )}
+                      </p>
+                      <p style={{ margin: "4px 0 0" }}>
+                        Total Golden Components: <strong>{totalComponents.toLocaleString()}</strong>
+                      </p>
+                      {lastUploadLabel && (
+                        <p style={{ margin: "4px 0 0", color: "#6b7280" }}>
+                          Last components upload: {lastUploadLabel}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()
+              )}
+            </div>
           </div>
 
           <div
