@@ -10,7 +10,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { Role, GlobalRole } from "@prisma/client";
-import { ImportJobType } from "@repo/database";
 import { getEffectiveRoleLevel } from "../auth/auth.guards";
 import {
   importPriceListFromFile,
@@ -18,8 +17,8 @@ import {
   getCurrentGoldenPriceListTable,
 } from "./pricing.service";
 import { PrismaService } from "../../infra/prisma/prisma.service";
-import { getImportQueue } from "../../infra/queue/import-queue";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
+import { importGoldenComponentsFromFile } from "@repo/database";
 
 @Controller("pricing")
 export class PricingController {
@@ -134,46 +133,15 @@ export class PricingController {
         throw new BadRequestException("Missing company context for price list import");
       }
 
-      // Create an async ImportJob so the heavy CSV processing runs in the worker.
-      const importJob = await this.prisma.importJob.create({
-        data: {
-          companyId,
-          projectId: null,
-          createdByUserId,
-          type: ImportJobType.PRICE_LIST,
-          csvPath: destPath,
-        },
-      });
-      // eslint-disable-next-line no-console
-      console.log(
-        "[pricing] uploadPriceList: created ImportJob %s for company %s",
-        importJob.id,
-        companyId,
-      );
+      // For now, process the Golden price list import synchronously in this
+      // request instead of relying on the background worker/Redis. This avoids
+      // cross-service filesystem and Redis connectivity issues in Cloud Run.
+      const result = await importPriceListFromFile(destPath);
 
-      // Fire-and-forget enqueue so the HTTP request returns quickly even if
-      // Redis is slow or temporarily unavailable. Any enqueue error will be
-      // logged on the server.
-      const queue = getImportQueue();
-      queue
-        .add(
-          "process",
-          { importJobId: importJob.id },
-          {
-            attempts: 1,
-            removeOnComplete: 1000,
-            removeOnFail: 1000,
-          },
-        )
-        .catch(err => {
-          // eslint-disable-next-line no-console
-          console.error("[pricing] failed to enqueue Golden price list import", err);
-        });
-
-      return {
-        ok: true,
-        jobId: importJob.id,
-      };
+      // Optionally, we could persist an ImportJob record here marked SUCCEEDED
+      // for audit/history, but the Financial UI already handles the direct
+      // result shape (revision + itemCount) without a jobId.
+      return result;
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("[pricing] uploadPriceList: error", err);
@@ -276,38 +244,11 @@ export class PricingController {
       );
     }
 
-    const importJob = await this.prisma.importJob.create({
-      data: {
-        companyId,
-        projectId: null,
-        createdByUserId,
-        type: ImportJobType.PRICE_LIST_COMPONENTS,
-        csvPath: destPath,
-      },
-    });
+    // Process Golden components synchronously here to avoid depending on the
+    // background worker/Redis in Cloud Run for this path.
+    const result = await importGoldenComponentsFromFile(destPath);
 
-    // Fire-and-forget enqueue; log any failure but do not block the client
-    // response while Redis/BullMQ connect.
-    const queue = getImportQueue();
-    queue
-      .add(
-        "process",
-        { importJobId: importJob.id },
-        {
-          attempts: 1,
-          removeOnComplete: 1000,
-          removeOnFail: 1000,
-        },
-      )
-      .catch(err => {
-        // eslint-disable-next-line no-console
-        console.error("[pricing] failed to enqueue Golden components import", err);
-      });
-
-    return {
-      ok: true,
-      jobId: importJob.id,
-    };
+    return result;
   }
 
   // Division mapping lookup: returns CSI divisions and Cat -> Division mappings

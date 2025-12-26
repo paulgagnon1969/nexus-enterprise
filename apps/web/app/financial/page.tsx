@@ -106,6 +106,7 @@ export default function FinancialPage() {
         label: string;
         revision: number;
         effectiveDate?: string | null;
+        uploadedAt?: string | null;
         itemCount: number;
       }
     | null
@@ -160,6 +161,7 @@ export default function FinancialPage() {
             label: json.label,
             revision: json.revision,
             effectiveDate: json.effectiveDate ?? null,
+            uploadedAt: json.createdAt ?? null,
             itemCount: json.itemCount ?? 0,
           });
         }
@@ -399,6 +401,7 @@ export default function FinancialPage() {
             label: json.label,
             revision: json.revision,
             effectiveDate: json.effectiveDate ?? null,
+            uploadedAt: json.createdAt ?? null,
             itemCount: json.itemCount ?? 0,
           });
         }
@@ -653,9 +656,16 @@ export default function FinancialPage() {
           createdAt: new Date().toISOString(),
         });
       } else {
+        const todayLabel = new Date().toLocaleDateString();
         setMessage(
-          `Imported Golden Price List revision ${json.revision} with ${json.itemCount} items.`,
+          `Your upload is complete. The new Golden Pricelist revision ${json.revision} is now active as of ${todayLabel}.`,
         );
+        // Clear any previous ETA/job tracking and immediately refresh the
+        // Golden views so the new revision/row counts appear without a
+        // full page reload.
+        setPriceListEta(null);
+        setPriceListJob(null);
+        await refreshGoldenPriceListViews();
       }
 
       form.reset();
@@ -734,6 +744,11 @@ export default function FinancialPage() {
         setMessage(
           `Imported Golden components for ${json.itemCount} items (${json.componentCount} components).`,
         );
+        // Clear ETA/job tracking and refresh the components view so the
+        // new components are visible without a manual reload.
+        setComponentsEta(null);
+        setComponentsJob(null);
+        await refreshGoldenComponentsView();
       }
 
       form.reset();
@@ -862,6 +877,14 @@ export default function FinancialPage() {
                   <>
                     {" "}effective{": "}
                     {new Date(currentGolden.effectiveDate).toLocaleDateString()}
+                  </>
+                )}
+                {currentGolden.uploadedAt && (
+                  <>
+                    {" "}(uploaded
+                    {" "}
+                    {new Date(currentGolden.uploadedAt).toLocaleDateString()}
+                    )
                   </>
                 )}
               </p>

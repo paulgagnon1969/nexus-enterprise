@@ -1,10 +1,12 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -42,15 +44,25 @@ export default function LoginPage() {
           headers: { Authorization: `Bearer ${data.accessToken}` },
         });
         const me = meRes.ok ? await meRes.json() : null;
+
+        if (me) {
+          if (me.globalRole) {
+            localStorage.setItem("globalRole", me.globalRole);
+          }
+          if (me.userType) {
+            localStorage.setItem("userType", me.userType);
+          }
+        }
+
         if (me?.userType === "APPLICANT") {
-          window.location.href = "/candidate";
+          router.push("/candidate");
         } else if (me?.globalRole === "SUPER_ADMIN") {
-          window.location.href = "/system";
+          router.push("/system");
         } else {
-          window.location.href = "/projects";
+          router.push("/projects");
         }
       } catch {
-        window.location.href = "/projects";
+        router.push("/projects");
       }
     } catch (err) {
       setError("Network error");

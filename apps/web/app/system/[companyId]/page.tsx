@@ -48,29 +48,22 @@ export default function SystemOrganizationPage({
         setLoading(true);
         setError(null);
 
-        const [companiesRes, projectsRes] = await Promise.all([
-          fetch(`${API_BASE}/admin/companies`, {
+        const projectsRes = await fetch(
+          `${API_BASE}/admin/companies/${companyId}/projects`,
+          {
             headers: { Authorization: `Bearer ${token}` },
-          }),
-          fetch(`${API_BASE}/admin/companies/${companyId}/projects`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-        ]);
+          },
+        );
 
-        if (!companiesRes.ok) {
-          throw new Error(`Failed to load organizations (${companiesRes.status})`);
-        }
         if (!projectsRes.ok) {
           throw new Error(`Failed to load jobs (${projectsRes.status})`);
         }
 
-        const companiesJson = await companiesRes.json();
         const projectsJson = await projectsRes.json();
-
-        const companies: CompanyDto[] = Array.isArray(companiesJson) ? companiesJson : [];
-        setCompany(companies.find(c => c.id === companyId) ?? null);
-
         setProjects(Array.isArray(projectsJson) ? projectsJson : []);
+
+        // Fallback heading if we don't have the company object yet; avoids an extra /admin/companies call.
+        setCompany(prev => prev ?? { id: companyId, name: companyId });
       } catch (e: any) {
         setError(e?.message ?? "Failed to load organization");
       } finally {

@@ -90,6 +90,12 @@ export default function SystemLayout({ children }: { children: ReactNode }) {
       return;
     }
 
+    const cachedGlobalRole = window.localStorage.getItem("globalRole");
+    if (cachedGlobalRole === "SUPER_ADMIN") {
+      setIsSuperAdmin(true);
+      return;
+    }
+
     fetch(`${API_BASE}/users/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
