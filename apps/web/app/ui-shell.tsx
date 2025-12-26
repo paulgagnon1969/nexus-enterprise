@@ -224,38 +224,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           </nav>
         </div>
         <div className="app-header-right">
-          {/* People / user management (hide for applicant pool accounts) */}
-          {userType !== "APPLICANT" && (
-            <button
-              type="button"
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  window.location.href = "/company/users";
-                }
-              }}
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: "50%",
-              border: "1px solid #e5e7eb",
-              background: "#f9fafb",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              marginRight: 8,
-              cursor: "pointer",
-              padding: 0,
-            }}
-            title="Company users & roles"
-          >
-            <img
-              src="/people-icon-users.jpg"
-              alt="Company users"
-              style={{ width: 20, height: "auto", display: "block" }}
-            />
-            </button>
-          )}
-
           {/* User menu */}
           <div style={{ position: "relative" }}>
             <UserMenu onLogout={handleLogout} />
@@ -275,6 +243,7 @@ export function PageCard({ children }: { children: ReactNode }) {
 
 function CompanySwitcher() {
   const [memberships, setMemberships] = useState<UserMeResponse["memberships"]>([]);
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
   const [currentCompanyId, setCurrentCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState(false);
@@ -290,12 +259,45 @@ function CompanySwitcher() {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(res => (res.ok ? res.json() : null))
-      .then((json: UserMeResponse | null) => {
-        if (!json || !Array.isArray(json.memberships)) return;
-        setMemberships(json.memberships);
-        // If no companyId in localStorage, default to first membership
-        if (!window.localStorage.getItem("companyId") && json.memberships[0]) {
-          const firstId = json.memberships[0].companyId;
+      .then(async (json: UserMeResponse | null) => {
+        if (!json) return;
+
+        const membershipCompanies = Array.isArray(json.memberships)
+          ? json.memberships.map(m => ({
+              id: m.companyId,
+              name: m.company?.name ?? m.companyId,
+            }))
+          : [];
+
+        setMemberships(json.memberships ?? []);
+
+        let visibleCompanies = membershipCompanies;
+
+        // SUPER_ADMIN should see all organizations, even if they weren't the creator.
+        if (json.globalRole === "SUPER_ADMIN") {
+          try {
+            const adminRes = await fetch(`${API_BASE}/admin/companies`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (adminRes.ok) {
+              const all = await adminRes.json();
+              if (Array.isArray(all) && all.length) {
+                visibleCompanies = all.map((c: any) => ({
+                  id: c.id,
+                  name: c.name ?? c.id,
+                }));
+              }
+            }
+          } catch {
+            // fall back to membershipCompanies on error
+          }
+        }
+
+        setCompanies(visibleCompanies);
+
+        // If no companyId in localStorage, default to the first visible company.
+        if (!window.localStorage.getItem("companyId") && visibleCompanies[0]) {
+          const firstId = visibleCompanies[0].id;
           window.localStorage.setItem("companyId", firstId);
           setCurrentCompanyId(firstId);
         }
@@ -303,13 +305,13 @@ function CompanySwitcher() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading && !memberships.length) {
+  if (loading && !companies.length) {
     return (
       <span style={{ fontSize: 11, color: "#6b7280" }}>Loading companies…</span>
     );
   }
 
-  if (!memberships.length || !currentCompanyId) {
+  if (!companies.length || !currentCompanyId) {
     return null;
   }
 
@@ -364,9 +366,9 @@ function CompanySwitcher() {
           backgroundColor: switching ? "#e5e7eb" : "#ffffff",
         }}
       >
-        {memberships.map((m) => (
-          <option key={m.companyId} value={m.companyId}>
-            {m.company?.name ?? m.companyId}
+        {companies.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
           </option>
         ))}
       </select>
@@ -403,11 +405,13 @@ function getUserDisplayName(me: UserMeResponse | null) {
 function UserMenu({ onLogout }: { onLogout: () => void }) {
   const [open, setOpen] = React.useState(false);
   const [me, setMe] = React.useState<UserMeResponse | null>(null);
+  const [canManageCompany, setCanManageCompany] = React.useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const token = window.localStorage.getItem("accessToken");
     if (!token) return;
+    const currentCompanyId = window.localStorage.getItem("companyId");
 
     fetch(`${API_BASE}/users/me`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -416,6 +420,19 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
       .then((json: UserMeResponse | null) => {
         if (!json) return;
         setMe(json);
+
+        const isSuperAdmin = (json.globalRole ?? null) === "SUPER_ADMIN";
+        let canManage = isSuperAdmin;
+        if (currentCompanyId && Array.isArray(json.memberships) && json.memberships.length) {
+          const membership = json.memberships.find(m => m.companyId === currentCompanyId);
+          if (membership) {
+            const role = membership.role;
+            if (role === "OWNER" || role === "ADMIN") {
+              canManage = true;
+            }
+          }
+        }
+        setCanManageCompany(!!canManage);
       })
       .catch(() => {
         // ignore
@@ -507,6 +524,27 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
           >
             Roles &amp; Permissions
           </button>
+
+          {canManageCompany && (
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = "/settings/company";
+              }}
+              style={{
+                width: "100%",
+                padding: "6px 8px",
+                fontSize: 13,
+                textAlign: "left",
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+              }}
+            >
+              Company settings
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => {

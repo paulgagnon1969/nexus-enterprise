@@ -79,6 +79,9 @@ export class ImportJobsService {
       where: {
         companyId,
         status: { in: [ImportJobStatus.QUEUED, ImportJobStatus.RUNNING] },
+        // Only show long-running Xactimate imports in the pending summary. Golden
+        // PETL / Components now run synchronously and should not appear here.
+        type: { in: [ImportJobType.XACT_RAW, ImportJobType.XACT_COMPONENTS] },
       },
       select: {
         type: true,
