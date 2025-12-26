@@ -255,12 +255,42 @@ export async function importGoldenComponentsFromFile(csvPath: string) {
     return { priceListId: priceList.id, itemCount: 0, componentCount: 0 };
   }
 
+  // Aggregate by (priceListItemId, componentCode) to avoid hitting the
+  // unique constraint on PriceListComponent and to keep the component set
+  // per item consistent with the latest file. If the CSV contains multiple
+  // rows that would generate the same (item, code) pair, we SUM their
+  // quantities and cost buckets so the persisted component row reflects the
+  // total for that CATSEL + component code.
+  const aggregatedByKey = new Map<string, PendingComponent>();
+  for (const c of components) {
+    const key = `${c.priceListItemId}||${c.componentCode}`;
+    const existing = aggregatedByKey.get(key);
+    if (!existing) {
+      aggregatedByKey.set(key, { ...c });
+    } else {
+      const q1 = existing.quantity ?? 0;
+      const q2 = c.quantity ?? 0;
+      const m1 = existing.material ?? 0;
+      const m2 = c.material ?? 0;
+      const l1 = existing.labor ?? 0;
+      const l2 = c.labor ?? 0;
+      const e1 = existing.equipment ?? 0;
+      const e2 = c.equipment ?? 0;
+      existing.quantity = q1 + q2;
+      existing.material = m1 + m2;
+      existing.labor = l1 + l2;
+      existing.equipment = e1 + e2;
+    }
+  }
+  const uniqueComponents = Array.from(aggregatedByKey.values());
+
   if (debug) {
     // eslint-disable-next-line no-console
     console.log(
-      "[golden-components] inserting components: touchedItems=%d components=%d",
+      "[golden-components] inserting components: touchedItems=%d components=%d (unique=%d)",
       touchedItemIds.size,
       components.length,
+      uniqueComponents.length,
     );
   }
 
@@ -274,15 +304,15 @@ export async function importGoldenComponentsFromFile(csvPath: string) {
     });
 
     const chunkSize = 500;
-    for (let i = 0; i < components.length; i += chunkSize) {
-      const chunk = components.slice(i, i + chunkSize);
-      await tx.priceListComponent.createMany({ data: chunk });
+    for (let i = 0; i < uniqueComponents.length; i += chunkSize) {
+      const chunk = uniqueComponents.slice(i, i + chunkSize);
+      await tx.priceListComponent.createMany({ data: chunk, skipDuplicates: true });
     }
   });
 
   return {
     priceListId: priceList.id,
     itemCount: touchedItemIds.size,
-    componentCount: components.length,
+    componentCount: uniqueComponents.length,
   };
 }

@@ -146,6 +146,7 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
   - `api-contracts/` for HTTP/tRPC contracts.
   - `onboarding/` for setup guides and runbooks.
 - `docs/onboarding/README.md` contains additional app-level notes (including legacy references to `admin`, `mobile`, and tRPC migration plans). Treat these as context, not necessarily an exact reflection of the current filesystem.
+- `docs/onboarding/ui-performance-sop.md` defines UI performance standards and patterns (memoization, lazy-loading, profiling). Follow this when adding or modifying pages in `apps/web`.
 - `docs/architecture/ncc-overview.md` and `docs/data/Migrate Nexus API from Laravel to Node+tRPC and align monorepo structure.md` describe the desired future architecture:
   - Monorepo with `apps` (web, admin, mobile, api, ncc), `packages` (ui, types, config, database, email), `infra` (docker, terraform, github, scripts), and `docs`.
   - Node + tRPC backend in `apps/api` using Prisma and shared packages.

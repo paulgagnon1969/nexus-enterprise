@@ -97,19 +97,25 @@ function ResetPasswordPageInner() {
         </p>
 
         <form onSubmit={saveNewPassword} style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-          <label style={{ fontSize: 14 }}>
+          <label style={{ fontSize: 14 }} htmlFor="reset-new-password">
             New password (min 8 characters)
             <input
+              id="reset-new-password"
+              name="newPassword"
               type="password"
+              autoComplete="new-password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db" }}
             />
           </label>
-          <label style={{ fontSize: 14 }}>
+          <label style={{ fontSize: 14 }} htmlFor="reset-confirm-password">
             Confirm password
             <input
+              id="reset-confirm-password"
+              name="confirmPassword"
               type="password"
+              autoComplete="new-password"
               value={confirm}
               onChange={e => setConfirm(e.target.value)}
               style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db" }}
@@ -152,10 +158,13 @@ function ResetPasswordPageInner() {
       </p>
 
       <form onSubmit={requestReset} style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-        <label style={{ fontSize: 14 }}>
+        <label style={{ fontSize: 14 }} htmlFor="reset-email">
           Email
           <input
+            id="reset-email"
+            name="email"
             type="email"
+            autoComplete="email"
             value={email}
             onChange={e => setEmail(e.target.value)}
             style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db" }}

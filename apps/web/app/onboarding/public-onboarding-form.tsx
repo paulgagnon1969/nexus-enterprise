@@ -347,75 +347,99 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
         <h2 style={{ fontSize: 16, marginBottom: 8 }}>Your information</h2>
         <form onSubmit={handleProfileSubmit} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", gap: 8 }}>
-            <label style={{ fontSize: 14, flex: 1 }}>
+            <label style={{ fontSize: 14, flex: 1 }} htmlFor="onboarding-first-name">
               First name
               <input
+                id="onboarding-first-name"
+                name="firstName"
                 type="text"
+                autoComplete="given-name"
                 value={firstName}
                 onChange={e => setFirstName(e.target.value)}
                 style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
               />
             </label>
-            <label style={{ fontSize: 14, flex: 1 }}>
+            <label style={{ fontSize: 14, flex: 1 }} htmlFor="onboarding-last-name">
               Last name
               <input
+                id="onboarding-last-name"
+                name="lastName"
                 type="text"
+                autoComplete="family-name"
                 value={lastName}
                 onChange={e => setLastName(e.target.value)}
                 style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
               />
             </label>
           </div>
-          <label style={{ fontSize: 14 }}>
+          <label style={{ fontSize: 14 }} htmlFor="onboarding-phone">
             Mobile phone
             <input
+              id="onboarding-phone"
+              name="phone"
               type="tel"
+              autoComplete="tel"
               value={phone}
               onChange={e => setPhone(e.target.value)}
               style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
             />
           </label>
-          <label style={{ fontSize: 14 }}>
+          <label style={{ fontSize: 14 }} htmlFor="onboarding-dob">
             Date of birth
             <input
+              id="onboarding-dob"
+              name="dob"
               type="date"
+              autoComplete="bday"
               value={dob}
               onChange={e => setDob(e.target.value)}
               style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
             />
           </label>
-          <label style={{ fontSize: 14 }}>
+          <label style={{ fontSize: 14 }} htmlFor="onboarding-address-line1">
             Address line 1
             <input
+              id="onboarding-address-line1"
+              name="addressLine1"
               type="text"
+              autoComplete="address-line1"
               value={addressLine1}
               onChange={e => setAddressLine1(e.target.value)}
               style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
             />
           </label>
-          <label style={{ fontSize: 14 }}>
+          <label style={{ fontSize: 14 }} htmlFor="onboarding-address-line2">
             Address line 2 (optional)
             <input
+              id="onboarding-address-line2"
+              name="addressLine2"
               type="text"
+              autoComplete="address-line2"
               value={addressLine2}
               onChange={e => setAddressLine2(e.target.value)}
               style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
             />
           </label>
           <div style={{ display: "flex", gap: 8 }}>
-            <label style={{ fontSize: 14, flex: 1 }}>
+            <label style={{ fontSize: 14, flex: 1 }} htmlFor="onboarding-city">
               City
               <input
+                id="onboarding-city"
+                name="city"
                 type="text"
+                autoComplete="address-level2"
                 value={city}
                 onChange={e => setCity(e.target.value)}
                 style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
               />
             </label>
-            <label style={{ fontSize: 14, width: 120 }}>
+            <label style={{ fontSize: 14, width: 120 }} htmlFor="onboarding-state">
               State
               <input
+                id="onboarding-state"
+                name="state"
                 type="text"
+                autoComplete="address-level1"
                 value={state}
                 onChange={e => setState(e.target.value)}
                 placeholder="FL"
@@ -424,19 +448,25 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
             </label>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <label style={{ fontSize: 14, flex: 1 }}>
+            <label style={{ fontSize: 14, flex: 1 }} htmlFor="onboarding-postal-code">
               Postal code
               <input
+                id="onboarding-postal-code"
+                name="postalCode"
                 type="text"
+                autoComplete="postal-code"
                 value={postalCode}
                 onChange={e => setPostalCode(e.target.value)}
                 style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
               />
             </label>
-            <label style={{ fontSize: 14, width: 160 }}>
+            <label style={{ fontSize: 14, width: 160 }} htmlFor="onboarding-country">
               Country
               <input
+                id="onboarding-country"
+                name="country"
                 type="text"
+                autoComplete="country"
                 value={country}
                 onChange={e => setCountry(e.target.value)}
                 style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
@@ -470,7 +500,13 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input type="file" accept="image/*" onChange={e => setPhotoFile(e.target.files?.[0] ?? null)} />
+            <input
+              id="onboarding-photo"
+              name="photo"
+              type="file"
+              accept="image/*"
+              onChange={e => setPhotoFile(e.target.files?.[0] ?? null)}
+            />
             <button
               type="button"
               onClick={handleUploadPhoto}
@@ -490,7 +526,13 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
           </div>
 
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input type="file" accept="image/*" onChange={e => setGovIdFile(e.target.files?.[0] ?? null)} />
+            <input
+              id="onboarding-gov-id"
+              name="govId"
+              type="file"
+              accept="image/*"
+              onChange={e => setGovIdFile(e.target.files?.[0] ?? null)}
+            />
             <button
               type="button"
               onClick={handleUploadGovId}
@@ -533,6 +575,8 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <span style={{ fontWeight: 600 }}>Functional area:</span>
             <select
+              id="skills-category-filter"
+              name="categoryFilter"
               value={categoryFilter}
               onChange={e => {
                 const next = e.target.value;
@@ -559,6 +603,8 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <span style={{ fontWeight: 600 }}>Trade:</span>
             <select
+              id="skills-trade-filter"
+              name="tradeFilter"
               value={tradeFilter}
               onChange={e => setTradeFilter(e.target.value)}
               style={{
@@ -581,6 +627,8 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <span style={{ fontWeight: 600 }}>Search:</span>
             <input
+              id="skills-search"
+              name="skillSearch"
               value={skillSearch}
               onChange={e => setSkillSearch(e.target.value)}
               placeholder="Find a skill…"

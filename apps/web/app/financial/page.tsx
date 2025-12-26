@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { PageCard } from "../ui-shell";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -110,16 +110,28 @@ type ImportJobDto = {
 export default function FinancialPage() {
   const [activeSection, setActiveSection] = useState<FinancialSection>("PRICELIST_TREE");
   const [uploading, setUploading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [currentGolden, setCurrentGolden] = useState<
+  const [priceListUploadMessage, setPriceListUploadMessage] = useState<string | null>(null);
+  const [priceListUploadError, setPriceListUploadError] = useState<string | null>(null);
+  const [componentsUploadMessage, setComponentsUploadMessage] = useState<string | null>(null);
+  const [componentsUploadError, setComponentsUploadError] = useState<string | null>(null);
+
+  const [priceListFileName, setPriceListFileName] = useState<string | null>(null);
+  const [componentsFileName, setComponentsFileName] = useState<string | null>(null);
+  type CurrentGolden = {
+    id: string;
+    label: string;
+    revision: number;
+    effectiveDate?: string | null;
+    uploadedAt?: string | null;
+    itemCount: number;
+  } | null;
+
+  const [currentGolden, setCurrentGolden] = useState<CurrentGolden>(null);
+  const [lastPriceListUpload, setLastPriceListUpload] = useState<
     | {
-        id: string;
-        label: string;
-        revision: number;
-        effectiveDate?: string | null;
-        uploadedAt?: string | null;
-        itemCount: number;
+        at: string | null;
+        byName: string | null;
+        byEmail: string | null;
       }
     | null
   >(null);
@@ -146,6 +158,14 @@ export default function FinancialPage() {
   const [componentsError, setComponentsError] = useState<string | null>(null);
   const [loadingComponents, setLoadingComponents] = useState(false);
   const [componentsActivityFilter, setComponentsActivityFilter] = useState<string>("");
+  const [lastComponentsUpload, setLastComponentsUpload] = useState<
+    | {
+        at: string | null;
+        byName: string | null;
+        byEmail: string | null;
+      }
+    | null
+  >(null);
 
   // Estimated seconds remaining for Golden uploads (client-side heuristic).
   const [priceListEta, setPriceListEta] = useState<number | null>(null);
@@ -171,6 +191,7 @@ export default function FinancialPage() {
         const json = await priceListRes.json();
         if (!json) {
           setCurrentGolden(null);
+          setLastPriceListUpload(null);
         } else {
           setCurrentGolden({
             id: json.id,
@@ -180,6 +201,15 @@ export default function FinancialPage() {
             uploadedAt: json.createdAt ?? null,
             itemCount: json.itemCount ?? 0,
           });
+          if (json.lastPriceListUpload) {
+            setLastPriceListUpload({
+              at: json.lastPriceListUpload.at ?? null,
+              byName: json.lastPriceListUpload.byName ?? null,
+              byEmail: json.lastPriceListUpload.byEmail ?? null,
+            });
+          } else {
+            setLastPriceListUpload(null);
+          }
         }
         setSummaryError(null);
       } else {
@@ -337,8 +367,22 @@ export default function FinancialPage() {
       const json = (await componentsRes.json()) as {
         priceList?: { id: string; label: string; revision: number } | null;
         items?: GoldenItemWithComponents[];
+        lastComponentsUpload?: {
+          at?: string | null;
+          byName?: string | null;
+          byEmail?: string | null;
+        } | null;
       };
       setComponentsItems(json.items ?? []);
+      setLastComponentsUpload(
+        json.lastComponentsUpload
+          ? {
+              at: json.lastComponentsUpload.at ?? null,
+              byName: json.lastComponentsUpload.byName ?? null,
+              byEmail: json.lastComponentsUpload.byEmail ?? null,
+            }
+          : null,
+      );
       setComponentsError(null);
     } catch (err: any) {
       setComponentsError(err?.message ?? "Failed to load Golden components.");
@@ -404,8 +448,10 @@ export default function FinancialPage() {
   }, [componentsJob?.id, componentsJob?.status]);
 
   useEffect(() => {
-    setMessage(null);
-    setError(null);
+    setPriceListUploadMessage(null);
+    setPriceListUploadError(null);
+    setComponentsUploadMessage(null);
+    setComponentsUploadError(null);
     setDivisionError(null);
     setGoldenTableError(null);
     setGoldenHistoryError(null);
@@ -435,6 +481,7 @@ export default function FinancialPage() {
         const json = await priceListRes.json();
         if (!json) {
           setCurrentGolden(null);
+          setLastPriceListUpload(null);
         } else {
           setCurrentGolden({
             id: json.id,
@@ -444,6 +491,15 @@ export default function FinancialPage() {
             uploadedAt: json.createdAt ?? null,
             itemCount: json.itemCount ?? 0,
           });
+          if (json.lastPriceListUpload) {
+            setLastPriceListUpload({
+              at: json.lastPriceListUpload.at ?? null,
+              byName: json.lastPriceListUpload.byName ?? null,
+              byEmail: json.lastPriceListUpload.byEmail ?? null,
+            });
+          } else {
+            setLastPriceListUpload(null);
+          }
         }
       } catch (err: any) {
         setSummaryError(err?.message ?? "Failed to load current price list.");
@@ -609,9 +665,23 @@ export default function FinancialPage() {
         const json = (await componentsRes.json()) as {
           priceList?: { id: string; label: string; revision: number } | null;
           items?: GoldenItemWithComponents[];
+          lastComponentsUpload?: {
+            at?: string | null;
+            byName?: string | null;
+            byEmail?: string | null;
+          } | null;
         };
 
         setComponentsItems(json.items ?? []);
+        setLastComponentsUpload(
+          json.lastComponentsUpload
+            ? {
+                at: json.lastComponentsUpload.at ?? null,
+                byName: json.lastComponentsUpload.byName ?? null,
+                byEmail: json.lastComponentsUpload.byEmail ?? null,
+              }
+            : null,
+        );
       } catch (err: any) {
         setComponentsError(err?.message ?? "Failed to load Golden components.");
       } finally {
@@ -659,25 +729,32 @@ export default function FinancialPage() {
 
   async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setMessage(null);
-    setError(null);
+    setPriceListUploadMessage(null);
+    setPriceListUploadError(null);
 
     const form = e.currentTarget;
     const fileInput = form.elements.namedItem("file") as HTMLInputElement | null;
     if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
-      setError("Please choose a CSV file to upload.");
+      setPriceListUploadError("Please choose a CSV file to upload.");
       return;
     }
 
     const file = fileInput.files[0];
-    if (file && file.size) {
-      setPriceListEta(estimateSecondsFromFileSize(file.size));
+    if (file) {
+      setPriceListFileName(file.name);
+      setPriceListUploadMessage("Uploading GOLDEN Price List (PETL)…");
+      if (file.size) {
+        setPriceListEta(estimateSecondsFromFileSize(file.size));
+      } else {
+        setPriceListEta(null);
+      }
     } else {
+      setPriceListFileName(null);
       setPriceListEta(null);
     }
     const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
     if (!token) {
-      setError("Missing access token. Please log in again.");
+      setPriceListUploadError("Missing access token. Please log in again.");
       return;
     }
 
@@ -707,8 +784,8 @@ export default function FinancialPage() {
       const json: any = await res.json();
 
       if (json.jobId) {
-        setMessage(
-          `Golden price list import started (job ${json.jobId}). You can go about your business; this may take a few minutes. Refresh this page later to see the updated Golden list.`,
+        setPriceListUploadMessage(
+          `Golden Price List (PETL) import started as job ${json.jobId}. You can go about your business; this may take a few minutes. Refresh this page later to see the updated Golden list.`,
         );
         // Start tracking this job so we can show status.
         setPriceListJob({
@@ -724,8 +801,8 @@ export default function FinancialPage() {
         });
       } else {
         const todayLabel = new Date().toLocaleDateString();
-        setMessage(
-          `Your upload is complete. The new Golden Pricelist revision ${json.revision} is now active as of ${todayLabel}.`,
+        setPriceListUploadMessage(
+          `Golden Price List (PETL) upload complete. Revision ${json.revision} is now active as of ${todayLabel}.`,
         );
         // Clear any previous ETA/job tracking and immediately refresh the
         // Golden views so the new revision/row counts appear without a
@@ -736,8 +813,9 @@ export default function FinancialPage() {
       }
 
       form.reset();
+      setPriceListFileName(null);
     } catch (err: any) {
-      setError(err?.message ?? "Price list upload failed.");
+      setPriceListUploadError(err?.message ?? "Golden Price List (PETL) upload failed.");
     } finally {
       setUploading(false);
     }
@@ -745,26 +823,33 @@ export default function FinancialPage() {
 
   async function handleComponentsUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setMessage(null);
-    setError(null);
+    setComponentsUploadMessage(null);
+    setComponentsUploadError(null);
 
     const form = e.currentTarget;
     const fileInput = form.elements.namedItem("componentsFile") as HTMLInputElement | null;
     if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
-      setError("Please choose a components CSV file to upload.");
+      setComponentsUploadError("Please choose a components CSV file to upload.");
       return;
     }
 
     const file = fileInput.files[0];
-    if (file && file.size) {
-      setComponentsEta(estimateSecondsFromFileSize(file.size));
+    if (file) {
+      setComponentsFileName(file.name);
+      setComponentsUploadMessage("Uploading GOLDEN Components list…");
+      if (file.size) {
+        setComponentsEta(estimateSecondsFromFileSize(file.size));
+      } else {
+        setComponentsEta(null);
+      }
     } else {
+      setComponentsFileName(null);
       setComponentsEta(null);
     }
     const token =
       typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
     if (!token) {
-      setError("Missing access token. Please log in again.");
+      setComponentsUploadError("Missing access token. Please log in again.");
       return;
     }
 
@@ -793,8 +878,8 @@ export default function FinancialPage() {
 
       const json: any = await res.json();
       if (json.jobId) {
-        setMessage(
-          `Queued Golden Components import as job ${json.jobId}. You can continue working while it processes.`,
+        setComponentsUploadMessage(
+          `GOLDEN Components list import started as job ${json.jobId}. You can continue working while it processes.`,
         );
         setComponentsJob({
           id: json.jobId,
@@ -808,8 +893,8 @@ export default function FinancialPage() {
           createdAt: new Date().toISOString(),
         });
       } else {
-        setMessage(
-          `Imported Golden components for ${json.itemCount} items (${json.componentCount} components).`,
+        setComponentsUploadMessage(
+          `GOLDEN Components list upload complete for ${json.itemCount} items (${json.componentCount} components).`,
         );
         // Clear ETA/job tracking and refresh the components view so the
         // new components are visible without a manual reload.
@@ -819,8 +904,9 @@ export default function FinancialPage() {
       }
 
       form.reset();
+      setComponentsFileName(null);
     } catch (err: any) {
-      setError(err?.message ?? "Components upload failed.");
+      setComponentsUploadError(err?.message ?? "GOLDEN Components list upload failed.");
     } finally {
       setUploading(false);
     }
@@ -888,8 +974,10 @@ export default function FinancialPage() {
             type="button"
             onClick={() => {
               setActiveSection(tab.id);
-              setMessage(null);
-              setError(null);
+              setPriceListUploadMessage(null);
+              setPriceListUploadError(null);
+              setComponentsUploadMessage(null);
+              setComponentsUploadError(null);
             }}
             style={{
               padding: "4px 8px",
@@ -937,27 +1025,43 @@ export default function FinancialPage() {
             }}
           >
             {currentGolden ? (
-              <p style={{ margin: 0, fontSize: 12, color: "#374151" }}>
-                Current Golden PETL (Price List): <strong>{currentGolden.label}</strong> (rev.
-                {" "}
-                <strong>{currentGolden.revision}</strong>) with
-                {" "}
-                <strong>{currentGolden.itemCount}</strong> items
-                {currentGolden.effectiveDate && (
-                  <>
-                    {" "}effective{": "}
-                    {new Date(currentGolden.effectiveDate).toLocaleDateString()}
-                  </>
+              <>
+                <p style={{ margin: 0, fontSize: 12, color: "#374151" }}>
+                  Current Golden PETL (Price List): <strong>{currentGolden.label}</strong> (rev.
+                  {" "}
+                  <strong>{currentGolden.revision}</strong>) with
+                  {" "}
+                  <strong>{currentGolden.itemCount}</strong> items
+                  {currentGolden.effectiveDate && (
+                    <>
+                      {" "}effective{": "}
+                      {new Date(currentGolden.effectiveDate).toLocaleDateString()}
+                    </>
+                  )}
+                  {currentGolden.uploadedAt && (
+                    <>
+                      {" "}(uploaded
+                      {" "}
+                      {new Date(currentGolden.uploadedAt).toLocaleDateString()}
+                      )
+                    </>
+                  )}
+                </p>
+                {lastPriceListUpload?.at && (
+                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "#6b7280" }}>
+                    Last PETL upload: {new Date(lastPriceListUpload.at).toLocaleString()}
+                    {lastPriceListUpload.byName || lastPriceListUpload.byEmail ? (
+                      <>
+                        {" "}by
+                        {" "}
+                        <strong>
+                          {lastPriceListUpload.byName || lastPriceListUpload.byEmail}
+                        </strong>
+                      </>
+                    ) : null}
+                  </p>
                 )}
-                {currentGolden.uploadedAt && (
-                  <>
-                    {" "}(uploaded
-                    {" "}
-                    {new Date(currentGolden.uploadedAt).toLocaleDateString()}
-                    )
-                  </>
-                )}
-              </p>
+              </>
             ) : (
               <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>
                 No active Golden price list found yet.
@@ -998,6 +1102,22 @@ export default function FinancialPage() {
                     Upload PETL CSV (Xactimate master price list)
                   </span>
                   <input type="file" name="file" accept=".csv,text/csv" />
+                  {priceListFileName && (
+                    <div
+                      style={{
+                        marginTop: 4,
+                        fontSize: 11,
+                        color: "#4b5563",
+                        padding: "2px 4px",
+                        borderRadius: 4,
+                        background: "#eef2ff",
+                        overflowX: "auto",
+                        whiteSpace: "pre",
+                      }}
+                    >
+                      Selected file: {priceListFileName}
+                    </div>
+                  )}
                 </label>
                 <button
                   type="submit"
@@ -1036,11 +1156,15 @@ export default function FinancialPage() {
                 </p>
               )}
 
-              {message && (
-                <p style={{ marginTop: 8, fontSize: 12, color: "#16a34a" }}>{message}</p>
+              {priceListUploadMessage && (
+                <p style={{ marginTop: 8, fontSize: 12, color: "#16a34a" }}>
+                  {priceListUploadMessage}
+                </p>
               )}
-              {error && (
-                <p style={{ marginTop: 8, fontSize: 12, color: "#b91c1c" }}>{error}</p>
+              {priceListUploadError && (
+                <p style={{ marginTop: 8, fontSize: 12, color: "#b91c1c" }}>
+                  {priceListUploadError}
+                </p>
               )}
             </div>
 
@@ -1223,7 +1347,7 @@ export default function FinancialPage() {
               }}
             >
               <h4 style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 600 }}>
-                Upload Golden Components (per ACT)
+                Upload Golden Components (per CODE / CATSEL)
               </h4>
               <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
                 Upload an ACT-specific components report (e.g. Materials, Labor, R/R). The
@@ -1237,6 +1361,22 @@ export default function FinancialPage() {
                     Upload Components CSV (ACT-specific Xactimate report)
                   </span>
                   <input type="file" name="componentsFile" accept=".csv,text/csv" />
+                  {componentsFileName && (
+                    <div
+                      style={{
+                        marginTop: 4,
+                        fontSize: 11,
+                        color: "#4b5563",
+                        padding: "2px 4px",
+                        borderRadius: 4,
+                        background: "#eef2ff",
+                        overflowX: "auto",
+                        whiteSpace: "pre",
+                      }}
+                    >
+                      Selected file: {componentsFileName}
+                    </div>
+                  )}
                 </label>
                 <button
                   type="submit"
@@ -1275,79 +1415,26 @@ export default function FinancialPage() {
                 </p>
               )}
 
-              {message && (
-                <p style={{ marginTop: 8, fontSize: 12, color: "#16a34a" }}>{message}</p>
+              {componentsUploadMessage && (
+                <p style={{ marginTop: 8, fontSize: 12, color: "#16a34a" }}>
+                  {componentsUploadMessage}
+                </p>
               )}
-              {error && (
-                <p style={{ marginTop: 8, fontSize: 12, color: "#b91c1c" }}>{error}</p>
+              {componentsUploadError && (
+                <p style={{ marginTop: 8, fontSize: 12, color: "#b91c1c" }}>
+                  {componentsUploadError}
+                </p>
               )}
             </div>
 
             {/* Components status card */}
-            <div
-              style={{
-                padding: 12,
-                borderRadius: 8,
-                border: "1px dashed #d1d5db",
-                background: "#f9fafb",
-                fontSize: 13,
-              }}
-            >
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                Golden Components coverage (per current PETL)
-              </div>
-              {loadingComponents ? (
-                <div style={{ fontSize: 11, color: "#6b7280" }}>Loading components…</div>
-              ) : componentsItems.length === 0 ? (
-                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                  No Golden components have been imported yet for the current Golden PETL.
-                </div>
-              ) : (
-                (() => {
-                  const itemsWithComponents = componentsItems.length;
-                  const totalComponents = componentsItems.reduce(
-                    (sum, item) => sum + (item.components?.length ?? 0),
-                    0,
-                  );
-                  let lastUploadLabel = "";
-                  const timestamps: number[] = [];
-                  for (const item of componentsItems) {
-                    for (const c of item.components ?? []) {
-                      if (c.createdAt) {
-                        const t = new Date(c.createdAt).getTime();
-                        if (!Number.isNaN(t)) timestamps.push(t);
-                      }
-                    }
-                  }
-                  if (timestamps.length) {
-                    const maxTs = Math.max(...timestamps);
-                    lastUploadLabel = new Date(maxTs).toLocaleDateString();
-                  }
-
-                  return (
-                    <div style={{ fontSize: 11, color: "#374151" }}>
-                      <p style={{ margin: 0 }}>
-                        Items with components: <strong>{itemsWithComponents}</strong>
-                        {currentGolden?.itemCount != null && (
-                          <>
-                            {" "}of <strong>{currentGolden.itemCount}</strong> Golden PETL
-                            line items
-                          </>
-                        )}
-                      </p>
-                      <p style={{ margin: "4px 0 0" }}>
-                        Total Golden Components: <strong>{totalComponents.toLocaleString()}</strong>
-                      </p>
-                      {lastUploadLabel && (
-                        <p style={{ margin: "4px 0 0", color: "#6b7280" }}>
-                          Last components upload: {lastUploadLabel}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })()
-              )}
-            </div>
+            <GoldenComponentsCoverageCard
+              loadingComponents={loadingComponents}
+              componentsItems={componentsItems}
+              currentItemCount={currentGolden?.itemCount ?? null}
+              lastComponentsUpload={lastComponentsUpload}
+              onViewDetails={() => setActiveSection("GOLDEN_COMPONENTS")}
+            />
           </div>
 
           <div
@@ -1360,354 +1447,17 @@ export default function FinancialPage() {
             }}
           >
             {/* Raw Golden price list table with division codes */}
-            <div
-              style={{
-                borderRadius: 8,
-                border: "1px solid #e5e7eb",
-                background: "#ffffff",
-                fontSize: 12,
-                display: "flex",
-                flexDirection: "column",
-                maxHeight: "70vh",
-              }}
-            >
-            <div
-              style={{
-                padding: 8,
-                borderBottom: "1px solid #e5e7eb",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 600 }}>Golden Price List – Raw Table</div>
-                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                  Showing Cat/Sel rows with mapped construction divisions. This is a
-                  read-only view of the master Xactimate file.
-                </div>
-              </div>
-              <div style={{ fontSize: 11, color: "#6b7280" }}>
-                {loadingGoldenTable
-                  ? "Loading rows…"
-                  : goldenRows.length
-                  ? `${goldenRows.length.toLocaleString()} items`
-                  : "No rows loaded"}
-              </div>
-            </div>
-
-            {goldenTableError && (
-              <div style={{ padding: 8, fontSize: 11, color: "#b91c1c" }}>
-                {goldenTableError}
-              </div>
-            )}
-
-            {!goldenTableError && (
-              <div
-                style={{
-                  flex: 1,
-                  overflow: "auto",
-                  borderTop: "1px solid #f3f4f6",
-                }}
-              >
-                <table
-                  style={{
-                    width: "100%",
-                    borderCollapse: "collapse",
-                    fontSize: 11,
-                  }}
-                >
-                  <thead style={{ position: "sticky", top: 0, background: "#f9fafb" }}>
-                    <tr>
-                      <th style={{ textAlign: "left", padding: "4px 6px", width: 60 }}>
-                        Line
-                      </th>
-                      <th style={{ textAlign: "left", padding: "4px 6px", width: 70 }}>
-                        Cat
-                      </th>
-                      <th style={{ textAlign: "left", padding: "4px 6px", width: 70 }}>
-                        Sel
-                      </th>
-                      <th style={{ textAlign: "left", padding: "4px 6px" }}>
-                        Description
-                      </th>
-                      <th style={{ textAlign: "left", padding: "4px 6px", width: 60 }}>
-                        Unit
-                      </th>
-                      <th style={{ textAlign: "right", padding: "4px 6px", width: 90 }}>
-                        Last known price
-                      </th>
-                      <th style={{ textAlign: "right", padding: "4px 6px", width: 90 }}>
-                        Unit price
-                      </th>
-                      <th style={{ textAlign: "left", padding: "4px 6px", width: 80 }}>
-                        Division
-                      </th>
-                      <th style={{ textAlign: "left", padding: "4px 6px", width: 180 }}>
-                        Division name
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {goldenRows.map((row) => (
-                      <tr key={`${row.lineNo ?? 0}-${row.cat ?? ""}-${row.sel ?? ""}`}>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                            whiteSpace: "nowrap",
-                            color: "#6b7280",
-                          }}
-                        >
-                          {row.lineNo ?? ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {row.cat ?? ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                          }}
-                        >
-                          {row.sel ?? ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                          }}
-                        >
-                          {row.description ?? ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                          }}
-                        >
-                          {row.unit ?? ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                            textAlign: "right",
-                            color: "#6b7280",
-                          }}
-                        >
-                          {row.lastKnownUnitPrice != null
-                            ? `$${row.lastKnownUnitPrice.toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}`
-                            : ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                            textAlign: "right",
-                          }}
-                        >
-                          {row.unitPrice != null
-                            ? `$${row.unitPrice.toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}`
-                            : ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {row.divisionCode ?? ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                          }}
-                        >
-                          {row.divisionName ?? ""}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+            <GoldenPriceListTable
+              goldenRows={goldenRows}
+              loadingGoldenTable={loadingGoldenTable}
+              goldenTableError={goldenTableError}
+            />
           {/* Golden price list revision log */}
-          <div
-              style={{
-                borderRadius: 8,
-                border: "1px solid #e5e7eb",
-                background: "#ffffff",
-                fontSize: 12,
-                maxHeight: "70vh",
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
-              <div
-                style={{
-                  padding: 8,
-                  borderBottom: "1px solid #e5e7eb",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: 600 }}>Golden Price List – Revision Log</div>
-                  <div style={{ fontSize: 11, color: "#6b7280" }}>
-                    History of Golden repricing events from Xact RAW estimate imports.
-                  </div>
-                </div>
-                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                  {loadingGoldenHistory
-                    ? "Loading…"
-                    : goldenHistory.length
-                    ? `${goldenHistory.length} updates`
-                    : "No updates yet"}
-                </div>
-              </div>
-
-              {goldenHistoryError && (
-                <div style={{ padding: 8, fontSize: 11, color: "#b91c1c" }}>
-                  {goldenHistoryError}
-                </div>
-              )}
-
-              {!goldenHistoryError && (
-                <div
-                  style={{
-                    flex: 1,
-                    overflow: "auto",
-                    borderTop: "1px solid #f3f4f6",
-                  }}
-                >
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "collapse",
-                      fontSize: 11,
-                    }}
-                  >
-                    <thead style={{ background: "#f9fafb" }}>
-                      <tr>
-                        <th style={{ textAlign: "left", padding: "4px 6px", width: 120 }}>
-                          When
-                        </th>
-                        <th style={{ textAlign: "left", padding: "4px 6px" }}>
-                          Project
-                        </th>
-                        <th style={{ textAlign: "left", padding: "4px 6px" }}>
-                          Estimate
-                        </th>
-                        <th style={{ textAlign: "right", padding: "4px 6px", width: 70 }}>
-                          Items
-                        </th>
-                        <th style={{ textAlign: "right", padding: "4px 6px", width: 80 }}>
-                          Avg Δ
-                        </th>
-                        <th style={{ textAlign: "right", padding: "4px 6px", width: 80 }}>
-                          Avg Δ %
-                        </th>
-                        <th style={{ textAlign: "left", padding: "4px 6px", width: 120 }}>
-                          By
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {goldenHistory.map((entry) => {
-                        const when = new Date(entry.createdAt);
-                        const whenLabel = when.toLocaleString();
-                        const avgDeltaLabel = `$${entry.avgDelta.toFixed(2)}`;
-                        const avgPctLabel = `${(entry.avgPercentDelta * 100).toFixed(1)}%`;
-                        return (
-                          <tr key={entry.id}>
-                            <td
-                              style={{
-                                padding: "4px 6px",
-                                borderTop: "1px solid #f3f4f6",
-                                whiteSpace: "nowrap",
-                                color: "#6b7280",
-                              }}
-                            >
-                              {whenLabel}
-                            </td>
-                            <td
-                              style={{
-                                padding: "4px 6px",
-                                borderTop: "1px solid #f3f4f6",
-                              }}
-                            >
-                              {entry.projectName}
-                            </td>
-                            <td
-                              style={{
-                                padding: "4px 6px",
-                                borderTop: "1px solid #f3f4f6",
-                                color: "#6b7280",
-                              }}
-                            >
-                              {entry.estimateLabel ?? entry.estimateVersionId}
-                            </td>
-                            <td
-                              style={{
-                                padding: "4px 6px",
-                                borderTop: "1px solid #f3f4f6",
-                                textAlign: "right",
-                              }}
-                            >
-                              {entry.updatedCount.toLocaleString()}
-                            </td>
-                            <td
-                              style={{
-                                padding: "4px 6px",
-                                borderTop: "1px solid #f3f4f6",
-                                textAlign: "right",
-                              }}
-                            >
-                              {avgDeltaLabel}
-                            </td>
-                            <td
-                              style={{
-                                padding: "4px 6px",
-                                borderTop: "1px solid #f3f4f6",
-                                textAlign: "right",
-                              }}
-                            >
-                              {avgPctLabel}
-                            </td>
-                            <td
-                              style={{
-                                padding: "4px 6px",
-                                borderTop: "1px solid #f3f4f6",
-                                color: "#6b7280",
-                              }}
-                            >
-                              {entry.userName ?? "—"}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+          <GoldenPriceListHistory
+            goldenHistory={goldenHistory}
+            goldenHistoryError={goldenHistoryError}
+            loadingGoldenHistory={loadingGoldenHistory}
+          />
           </div>
         </section>
       )}
@@ -1794,170 +1544,7 @@ export default function FinancialPage() {
             <p style={{ fontSize: 12, color: "#b91c1c" }}>{componentsError}</p>
           )}
           {!loadingComponents && !componentsError && (
-            <div
-              style={{
-                maxHeight: "70vh",
-                minHeight: "40vh",
-                overflow: "auto",
-                border: "1px solid #e5e7eb",
-                borderRadius: 6,
-                background: "#ffffff",
-              }}
-            >
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: 11,
-                }}
-              >
-                <thead style={{ background: "#f9fafb" }}>
-                  <tr>
-                    <th style={{ padding: "4px 6px", textAlign: "left", width: 60 }}>
-                      Cat
-                    </th>
-                    <th style={{ padding: "4px 6px", textAlign: "left", width: 60 }}>
-                      Sel
-                    </th>
-                    <th style={{ padding: "4px 6px", textAlign: "left", width: 60 }}>
-                      ACT
-                    </th>
-                    <th style={{ padding: "4px 6px", textAlign: "left", width: 80 }}>
-                      Division
-                    </th>
-                    <th style={{ padding: "4px 6px", textAlign: "left" }}>
-                      Line description
-                    </th>
-                    <th style={{ padding: "4px 6px", textAlign: "left", width: 120 }}>
-                      Component
-                    </th>
-                    <th style={{ padding: "4px 6px", textAlign: "right", width: 70 }}>
-                      Qty
-                    </th>
-                    <th style={{ padding: "4px 6px", textAlign: "right", width: 80 }}>
-                      Material
-                    </th>
-                    <th style={{ padding: "4px 6px", textAlign: "right", width: 80 }}>
-                      Labor
-                    </th>
-                    <th style={{ padding: "4px 6px", textAlign: "right", width: 80 }}>
-                      Equip
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {componentsItems.flatMap((item) =>
-                    item.components.map((comp) => (
-                      <tr key={`${item.id}-${comp.id}`}>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {item.cat ?? ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                          }}
-                        >
-                          {item.sel ?? ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                          }}
-                        >
-                          {item.activity ?? ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                          }}
-                        >
-                          {item.divisionCode ?? ""} {item.divisionName
-                            ? `– ${item.divisionName}`
-                            : ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                          }}
-                        >
-                          {item.description ?? ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                          }}
-                        >
-                          {comp.componentCode}
-                          {comp.description ? ` – ${comp.description}` : ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                            textAlign: "right",
-                          }}
-                        >
-                          {comp.quantity ?? ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                            textAlign: "right",
-                          }}
-                        >
-                          {comp.material != null
-                            ? comp.material.toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })
-                            : ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                            textAlign: "right",
-                          }}
-                        >
-                          {comp.labor != null
-                            ? comp.labor.toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })
-                            : ""}
-                        </td>
-                        <td
-                          style={{
-                            padding: "4px 6px",
-                            borderTop: "1px solid #f3f4f6",
-                            textAlign: "right",
-                          }}
-                        >
-                          {comp.equipment != null
-                            ? comp.equipment.toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })
-                            : ""}
-                        </td>
-                      </tr>
-                    )),
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <GoldenComponentsTable componentsItems={componentsItems} />
           )}
         </section>
       )}
@@ -2014,7 +1601,619 @@ export default function FinancialPage() {
           </p>
         </section>
       )}
+}
 
+type GoldenComponentsCoverageProps = {
+  loadingComponents: boolean;
+  componentsItems: GoldenItemWithComponents[];
+  currentItemCount: number | null;
+  lastComponentsUpload: {
+    at: string | null;
+    byName: string | null;
+    byEmail: string | null;
+  } | null;
+  onViewDetails: () => void;
+};
+
+const GoldenComponentsCoverageCard = memo(function GoldenComponentsCoverageCard({
+  loadingComponents,
+  componentsItems,
+  currentItemCount,
+  lastComponentsUpload,
+  onViewDetails,
+}: GoldenComponentsCoverageProps) {
+  const { itemsWithComponents, totalComponents } = useMemo(() => {
+    const itemsWithComponents = componentsItems.length;
+    const totalComponents = componentsItems.reduce(
+      (sum, item) => sum + (item.components?.length ?? 0),
+      0,
+    );
+    return { itemsWithComponents, totalComponents };
+  }, [componentsItems]);
+
+  let lastUploadLabel: string | null = null;
+  let lastUploadBy: string | null = null;
+  if (lastComponentsUpload?.at) {
+    lastUploadLabel = new Date(lastComponentsUpload.at).toLocaleString();
+    lastUploadBy = lastComponentsUpload.byName || lastComponentsUpload.byEmail || null;
+  }
+
+  return (
+    <div
+      style={{
+        padding: 12,
+        borderRadius: 8,
+        border: "1px dashed #d1d5db",
+        background: "#f9fafb",
+        fontSize: 13,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 4,
+        }}
+      >
+        <div style={{ fontWeight: 600 }}>
+          Golden Components coverage (per current PETL)
+        </div>
+        <button
+          type="button"
+          onClick={onViewDetails}
+          style={{
+            fontSize: 11,
+            padding: "2px 8px",
+            borderRadius: 999,
+            border: "1px solid #d1d5db",
+            background: "#ffffff",
+            color: "#374151",
+            cursor: "pointer",
+          }}
+        >
+          View details
+        </button>
+      </div>
+      {loadingComponents ? (
+        <div style={{ fontSize: 11, color: "#6b7280" }}>Loading components…</div>
+      ) : componentsItems.length === 0 ? (
+        <div style={{ fontSize: 11, color: "#6b7280" }}>
+          No Golden components have been imported yet for the current Golden PETL.
+        </div>
+      ) : (
+        <div style={{ fontSize: 11, color: "#374151" }}>
+          <p style={{ margin: 0 }}>
+            Items with components: <strong>{itemsWithComponents}</strong>
+            {currentItemCount != null && (
+              <>
+                {" "}of <strong>{currentItemCount}</strong> Golden PETL line items
+              </>
+            )}
+          </p>
+          <p style={{ margin: "4px 0 0" }}>
+            Total Golden Components: <strong>{totalComponents.toLocaleString()}</strong>
+            {totalComponents === 0 && (
+              <span style={{ color: "#6b7280" }}>
+                {" "}- Components = 0 when there is no inventory in stock
+              </span>
+            )}
+          </p>
+          {lastUploadLabel && (
+            <p style={{ margin: "4px 0 0", color: "#6b7280" }}>
+              Last components upload: {lastUploadLabel}
+              {lastUploadBy && (
+                <>
+                  {" "}by <strong>{lastUploadBy}</strong>
+                </>
+              )}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
+type GoldenPriceListTableProps = {
+  goldenRows: GoldenPriceListRow[];
+  loadingGoldenTable: boolean;
+  goldenTableError: string | null;
+};
+
+const GoldenPriceListTable = memo(function GoldenPriceListTable({
+  goldenRows,
+  loadingGoldenTable,
+  goldenTableError,
+}: GoldenPriceListTableProps) {
+  return (
+    <div
+      style={{
+        borderRadius: 8,
+        border: "1px solid #e5e7eb",
+        background: "#ffffff",
+        fontSize: 12,
+        display: "flex",
+        flexDirection: "column",
+        maxHeight: "70vh",
+      }}
+    >
+      <div
+        style={{
+          padding: 8,
+          borderBottom: "1px solid #e5e7eb",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <div>
+          <div style={{ fontWeight: 600 }}>Golden Price List – Raw Table</div>
+          <div style={{ fontSize: 11, color: "#6b7280" }}>
+            Showing Cat/Sel rows with mapped construction divisions. This is a read-only
+            view of the master Xactimate file.
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: "#6b7280" }}>
+          {loadingGoldenTable
+            ? "Loading rows…"
+            : goldenRows.length
+            ? `${goldenRows.length.toLocaleString()} items`
+            : "No rows loaded"}
+        </div>
+      </div>
+
+      {goldenTableError && (
+        <div style={{ padding: 8, fontSize: 11, color: "#b91c1c" }}>{goldenTableError}</div>
+      )}
+
+      {!goldenTableError && (
+        <div
+          style={{
+            flex: 1,
+            overflow: "auto",
+            borderTop: "1px solid #f3f4f6",
+          }}
+        >
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontSize: 11,
+            }}
+          >
+            <thead style={{ position: "sticky", top: 0, background: "#f9fafb" }}>
+              <tr>
+                <th style={{ textAlign: "left", padding: "4px 6px", width: 60 }}>Line</th>
+                <th style={{ textAlign: "left", padding: "4px 6px", width: 70 }}>Cat</th>
+                <th style={{ textAlign: "left", padding: "4px 6px", width: 70 }}>Sel</th>
+                <th style={{ textAlign: "left", padding: "4px 6px" }}>Description</th>
+                <th style={{ textAlign: "left", padding: "4px 6px", width: 60 }}>Unit</th>
+                <th style={{ textAlign: "right", padding: "4px 6px", width: 90 }}>
+                  Last known price
+                </th>
+                <th style={{ textAlign: "right", padding: "4px 6px", width: 90 }}>
+                  Unit price
+                </th>
+                <th style={{ textAlign: "left", padding: "4px 6px", width: 80 }}>Division</th>
+                <th style={{ textAlign: "left", padding: "4px 6px", width: 180 }}>
+                  Division name
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {goldenRows.map((row) => (
+                <tr key={`${row.lineNo ?? 0}-${row.cat ?? ""}-${row.sel ?? ""}`}>
+                  <td
+                    style={{
+                      padding: "4px 6px",
+                      borderTop: "1px solid #f3f4f6",
+                      whiteSpace: "nowrap",
+                      color: "#6b7280",
+                    }}
+                  >
+                    {row.lineNo ?? ""}
+                  </td>
+                  <td
+                    style={{
+                      padding: "4px 6px",
+                      borderTop: "1px solid #f3f4f6",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {row.cat ?? ""}
+                  </td>
+                  <td
+                    style={{
+                      padding: "4px 6px",
+                      borderTop: "1px solid #f3f4f6",
+                    }}
+                  >
+                    {row.sel ?? ""}
+                  </td>
+                  <td
+                    style={{
+                      padding: "4px 6px",
+                      borderTop: "1px solid #f3f4f6",
+                    }}
+                  >
+                    {row.description ?? ""}
+                  </td>
+                  <td
+                    style={{
+                      padding: "4px 6px",
+                      borderTop: "1px solid #f3f4f6",
+                    }}
+                  >
+                    {row.unit ?? ""}
+                  </td>
+                  <td
+                    style={{
+                      padding: "4px 6px",
+                      borderTop: "1px solid #f3f4f6",
+                      textAlign: "right",
+                      color: "#6b7280",
+                    }}
+                  >
+                    {row.lastKnownUnitPrice != null
+                      ? `$${row.lastKnownUnitPrice.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}`
+                      : ""}
+                  </td>
+                  <td
+                    style={{
+                      padding: "4px 6px",
+                      borderTop: "1px solid #f3f4f6",
+                      textAlign: "right",
+                    }}
+                  >
+                    {row.unitPrice != null
+                      ? `$${row.unitPrice.toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}`
+                      : ""}
+                  </td>
+                  <td
+                    style={{
+                      padding: "4px 6px",
+                      borderTop: "1px solid #f3f4f6",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {row.divisionCode ?? ""}
+                  </td>
+                  <td
+                    style={{
+                      padding: "4px 6px",
+                      borderTop: "1px solid #f3f4f6",
+                    }}
+                  >
+                    {row.divisionName ?? ""}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+});
+
+type GoldenPriceListHistoryProps = {
+  goldenHistory: GoldenPriceUpdateLogEntry[];
+  goldenHistoryError: string | null;
+  loadingGoldenHistory: boolean;
+};
+
+const GoldenPriceListHistory = memo(function GoldenPriceListHistory({
+  goldenHistory,
+  goldenHistoryError,
+  loadingGoldenHistory,
+}: GoldenPriceListHistoryProps) {
+  return (
+    <div
+      style={{
+        borderRadius: 8,
+        border: "1px solid #e5e7eb",
+        background: "#ffffff",
+        fontSize: 12,
+        maxHeight: "70vh",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <div
+        style={{
+          padding: 8,
+          borderBottom: "1px solid #e5e7eb",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <div>
+          <div style={{ fontWeight: 600 }}>Golden Price List – Revision Log</div>
+          <div style={{ fontSize: 11, color: "#6b7280" }}>
+            History of Golden repricing events from Xact RAW estimate imports.
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: "#6b7280" }}>
+          {loadingGoldenHistory
+            ? "Loading…"
+            : goldenHistory.length
+            ? `${goldenHistory.length} updates`
+            : "No updates yet"}
+        </div>
+      </div>
+
+      {goldenHistoryError && (
+        <div style={{ padding: 8, fontSize: 11, color: "#b91c1c" }}>{goldenHistoryError}</div>
+      )}
+
+      {!goldenHistoryError && (
+        <div
+          style={{
+            flex: 1,
+            overflow: "auto",
+            borderTop: "1px solid #f3f4f6",
+          }}
+        >
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontSize: 11,
+            }}
+          >
+            <thead style={{ background: "#f9fafb" }}>
+              <tr>
+                <th style={{ textAlign: "left", padding: "4px 6px", width: 120 }}>When</th>
+                <th style={{ textAlign: "left", padding: "4px 6px" }}>Project</th>
+                <th style={{ textAlign: "left", padding: "4px 6px" }}>Estimate</th>
+                <th style={{ textAlign: "right", padding: "4px 6px", width: 70 }}>Items</th>
+                <th style={{ textAlign: "right", padding: "4px 6px", width: 80 }}>Avg Δ</th>
+                <th style={{ textAlign: "right", padding: "4px 6px", width: 80 }}>Avg Δ %</th>
+                <th style={{ textAlign: "left", padding: "4px 6px", width: 120 }}>By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {goldenHistory.map((entry) => {
+                const when = new Date(entry.createdAt);
+                const whenLabel = when.toLocaleString();
+                const avgDeltaLabel = `$${entry.avgDelta.toFixed(2)}`;
+                const avgPctLabel = `${(entry.avgPercentDelta * 100).toFixed(1)}%`;
+                return (
+                  <tr key={entry.id}>
+                    <td
+                      style={{
+                        padding: "4px 6px",
+                        borderTop: "1px solid #f3f4f6",
+                        whiteSpace: "nowrap",
+                        color: "#6b7280",
+                      }}
+                    >
+                      {whenLabel}
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 6px",
+                        borderTop: "1px solid #f3f4f6",
+                      }}
+                    >
+                      {entry.projectName}
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 6px",
+                        borderTop: "1px solid #f3f4f6",
+                        color: "#6b7280",
+                      }}
+                    >
+                      {entry.estimateLabel ?? entry.estimateVersionId}
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 6px",
+                        borderTop: "1px solid #f3f4f6",
+                        textAlign: "right",
+                      }}
+                    >
+                      {entry.updatedCount.toLocaleString()}
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 6px",
+                        borderTop: "1px solid #f3f4f6",
+                        textAlign: "right",
+                      }}
+                    >
+                      {avgDeltaLabel}
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 6px",
+                        borderTop: "1px solid #f3f4f6",
+                        textAlign: "right",
+                      }}
+                    >
+                      {avgPctLabel}
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 6px",
+                        borderTop: "1px solid #f3f4f6",
+                        color: "#6b7280",
+                      }}
+                    >
+                      {entry.userName ?? "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+});
+
+type GoldenComponentsTableProps = {
+  componentsItems: GoldenItemWithComponents[];
+};
+
+const GoldenComponentsTable = memo(function GoldenComponentsTable({
+  componentsItems,
+}: GoldenComponentsTableProps) {
+  return (
+    <div
+      style={{
+        maxHeight: "70vh",
+        minHeight: "40vh",
+        overflow: "auto",
+        border: "1px solid #e5e7eb",
+        borderRadius: 6,
+        background: "#ffffff",
+      }}
+    >
+      <table
+        style={{
+          width: "100%",
+          borderCollapse: "collapse",
+          fontSize: 11,
+        }}
+      >
+        <thead style={{ background: "#f9fafb" }}>
+          <tr>
+            <th style={{ padding: "4px 6px", textAlign: "left", width: 60 }}>Cat</th>
+            <th style={{ padding: "4px 6px", textAlign: "left", width: 60 }}>Sel</th>
+            <th style={{ padding: "4px 6px", textAlign: "left", width: 60 }}>ACT</th>
+            <th style={{ padding: "4px 6px", textAlign: "left", width: 80 }}>Division</th>
+            <th style={{ padding: "4px 6px", textAlign: "left" }}>Line description</th>
+            <th style={{ padding: "4px 6px", textAlign: "left", width: 120 }}>Component</th>
+            <th style={{ padding: "4px 6px", textAlign: "right", width: 70 }}>Qty</th>
+            <th style={{ padding: "4px 6px", textAlign: "right", width: 80 }}>Material</th>
+            <th style={{ padding: "4px 6px", textAlign: "right", width: 80 }}>Labor</th>
+            <th style={{ padding: "4px 6px", textAlign: "right", width: 80 }}>Equip</th>
+          </tr>
+        </thead>
+        <tbody>
+          {componentsItems.flatMap((item) =>
+            item.components.map((comp) => (
+              <tr key={`${item.id}-${comp.id}`}>
+                <td
+                  style={{
+                    padding: "4px 6px",
+                    borderTop: "1px solid #f3f4f6",
+                    fontWeight: 600,
+                  }}
+                >
+                  {item.cat ?? ""}
+                </td>
+                <td
+                  style={{
+                    padding: "4px 6px",
+                    borderTop: "1px solid #f3f4f6",
+                  }}
+                >
+                  {item.sel ?? ""}
+                </td>
+                <td
+                  style={{
+                    padding: "4px 6px",
+                    borderTop: "1px solid #f3f4f6",
+                  }}
+                >
+                  {item.activity ?? ""}
+                </td>
+                <td
+                  style={{
+                    padding: "4px 6px",
+                    borderTop: "1px solid #f3f4f6",
+                  }}
+                >
+                  {item.divisionCode ?? ""} {item.divisionName ? `– ${item.divisionName}` : ""}
+                </td>
+                <td
+                  style={{
+                    padding: "4px 6px",
+                    borderTop: "1px solid #f3f4f6",
+                  }}
+                >
+                  {item.description ?? ""}
+                </td>
+                <td
+                  style={{
+                    padding: "4px 6px",
+                    borderTop: "1px solid #f3f4f6",
+                  }}
+                >
+                  {comp.componentCode}
+                  {comp.description ? ` – ${comp.description}` : ""}
+                </td>
+                <td
+                  style={{
+                    padding: "4px 6px",
+                    borderTop: "1px solid #f3f4f6",
+                    textAlign: "right",
+                  }}
+                >
+                  {comp.quantity ?? ""}
+                </td>
+                <td
+                  style={{
+                    padding: "4px 6px",
+                    borderTop: "1px solid #f3f4f6",
+                    textAlign: "right",
+                  }}
+                >
+                  {comp.material != null
+                    ? comp.material.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })
+                    : ""}
+                </td>
+                <td
+                  style={{
+                    padding: "4px 6px",
+                    borderTop: "1px solid #f3f4f6",
+                    textAlign: "right",
+                  }}
+                >
+                  {comp.labor != null
+                    ? comp.labor.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })
+                    : ""}
+                </td>
+                <td
+                  style={{
+                    padding: "4px 6px",
+                    borderTop: "1px solid #f3f4f6",
+                    textAlign: "right",
+                  }}
+                >
+                  {comp.equipment != null
+                    ? comp.equipment.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })
+                    : ""}
+                </td>
+              </tr>
+            )),
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+});
       {/* Payroll */}
       {activeSection === "PAYROLL" && (
         <section style={{ marginBottom: 24 }}>
@@ -2055,83 +2254,119 @@ export default function FinancialPage() {
             up to division-level financial views.
           </p>
 
-        {/* 16 CSI divisions */}
-        {loadingDivisionMapping && !divisions.length && (
-          <p style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
-            Loading division mapping...
-          </p>
-        )}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 12,
-            marginBottom: 16,
-          }}
-        >
-          {(divisions.length
-            ? divisions
-            : [
-                { code: "01", name: "General Requirements", sortOrder: 1 },
-                { code: "02", name: "Existing Conditions/Site Work", sortOrder: 2 },
-                { code: "03", name: "Concrete", sortOrder: 3 },
-                { code: "04", name: "Masonry", sortOrder: 4 },
-                { code: "05", name: "Metals", sortOrder: 5 },
-                { code: "06", name: "Wood, Plastics, and Composites", sortOrder: 6 },
-                { code: "07", name: "Thermal and Moisture Protection", sortOrder: 7 },
-                { code: "08", name: "Openings (Doors and Windows)", sortOrder: 8 },
-                { code: "09", name: "Finishes", sortOrder: 9 },
-                { code: "10", name: "Specialties", sortOrder: 10 },
-                { code: "11", name: "Equipment", sortOrder: 11 },
-                { code: "12", name: "Furnishings", sortOrder: 12 },
-                { code: "13", name: "Special Construction", sortOrder: 13 },
-                { code: "14", name: "Conveying Equipment", sortOrder: 14 },
-                { code: "15", name: "Mechanical (HVAC, Plumbing)", sortOrder: 15 },
-                { code: "16", name: "Electrical", sortOrder: 16 },
-              ]
-          ).map((div) => (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1.3fr) minmax(0, 1fr)",
+              gap: 16,
+              alignItems: "stretch",
+            }}
+          >
+            {/* 16 CSI divisions */}
             <div
-              key={div.code}
               style={{
                 border: "1px solid #e5e7eb",
                 borderRadius: 6,
                 padding: 8,
                 background: "#f9fafb",
                 fontSize: 12,
+                display: "flex",
+                flexDirection: "column",
+                maxHeight: "60vh",
               }}
             >
-              <div style={{ fontWeight: 600 }}>Division {div.code}</div>
-              <div>{div.name}</div>
+              {loadingDivisionMapping && !divisions.length && (
+                <p style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
+                  Loading division mapping...
+                </p>
+              )}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: 12,
+                  marginBottom: 8,
+                  overflowY: "auto",
+                  paddingRight: 4,
+                }}
+              >
+                {(divisions.length
+                  ? divisions
+                  : [
+                      { code: "01", name: "General Requirements", sortOrder: 1 },
+                      { code: "02", name: "Existing Conditions/Site Work", sortOrder: 2 },
+                      { code: "03", name: "Concrete", sortOrder: 3 },
+                      { code: "04", name: "Masonry", sortOrder: 4 },
+                      { code: "05", name: "Metals", sortOrder: 5 },
+                      { code: "06", name: "Wood, Plastics, and Composites", sortOrder: 6 },
+                      { code: "07", name: "Thermal and Moisture Protection", sortOrder: 7 },
+                      { code: "08", name: "Openings (Doors and Windows)", sortOrder: 8 },
+                      { code: "09", name: "Finishes", sortOrder: 9 },
+                      { code: "10", name: "Specialties", sortOrder: 10 },
+                      { code: "11", name: "Equipment", sortOrder: 11 },
+                      { code: "12", name: "Furnishings", sortOrder: 12 },
+                      { code: "13", name: "Special Construction", sortOrder: 13 },
+                      { code: "14", name: "Conveying Equipment", sortOrder: 14 },
+                      { code: "15", name: "Mechanical (HVAC, Plumbing)", sortOrder: 15 },
+                      { code: "16", name: "Electrical", sortOrder: 16 },
+                    ]
+                ).map((div) => (
+                  <div
+                    key={div.code}
+                    style={{
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 6,
+                      padding: 8,
+                      background: "#ffffff",
+                      fontSize: 12,
+                    }}
+                  >
+                    <div style={{ fontWeight: 600 }}>Division {div.code}</div>
+                    <div>{div.name}</div>
+                  </div>
+                ))}
+              </div>
+
+              {divisionError && (
+                <p style={{ fontSize: 11, color: "#b91c1c", marginBottom: 4 }}>
+                  {divisionError}
+                </p>
+              )}
             </div>
-          ))}
-        </div>
 
-        {divisionError && (
-          <p style={{ fontSize: 11, color: "#b91c1c", marginBottom: 8 }}>
-            {divisionError}
-          </p>
-        )}
-
-        {/* Cat → Division mapping table */}
-        <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
-          Xactimate <strong>Cat</strong> codes mapped to divisions. This is the lookup
-          used to roll up estimate revenue by construction division.
-        </p>
-        <div
-            style={{
-              maxHeight: 260,
-              overflowY: "auto",
-              border: "1px solid #e5e7eb",
-              borderRadius: 6,
-            }}
-          >
-            <table
+            {/* Cat → Division mapping table */}
+            <div
               style={{
-                width: "100%",
-                borderCollapse: "collapse",
+                border: "1px solid #e5e7eb",
+                borderRadius: 6,
+                padding: 8,
+                background: "#ffffff",
                 fontSize: 12,
+                maxHeight: "60vh",
+                display: "flex",
+                flexDirection: "column",
               }}
             >
+              <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
+                Xactimate <strong>Cat</strong> codes mapped to divisions. This is the lookup
+                used to roll up estimate revenue by construction division.
+              </p>
+              <div
+                style={{
+                  flex: 1,
+                  maxHeight: "100%",
+                  overflowY: "auto",
+                  borderRadius: 4,
+                  border: "1px solid #e5e7eb",
+                }}
+              >
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: 12,
+                  }}
+                >
               <thead style={{ background: "#f9fafb" }}>
                 <tr>
                   <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>

@@ -108,9 +108,24 @@ export class PricingController {
       // cross-service filesystem and Redis connectivity issues in Cloud Run.
       const result = await importPriceListFromFile(destPath);
 
-      // Optionally, we could persist an ImportJob record here marked SUCCEEDED
-      // for audit/history, but the Financial UI already handles the direct
-      // result shape (revision + itemCount) without a jobId.
+      // Record a completed ImportJob so the UI can show "last PETL upload" with
+      // a timestamp and user, parallel to the Golden Components path.
+      await this.prisma.importJob.create({
+        data: {
+          companyId,
+          projectId: null,
+          createdByUserId,
+          type: "PRICE_LIST",
+          status: "SUCCEEDED",
+          progress: 100,
+          message: `Imported Golden PETL (Price List) revision ${result.revision} with ${result.itemCount} items.`,
+          csvPath: destPath,
+          resultJson: result as any,
+          startedAt: new Date(),
+          finishedAt: new Date(),
+        },
+      });
+
       return result;
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -122,9 +137,44 @@ export class PricingController {
   // Anyone authenticated can see which Golden price list is active; RBAC is enforced on upload.
   @UseGuards(JwtAuthGuard)
   @Post("price-list/current")
-  async currentGolden() {
+  async currentGolden(@Req() req: FastifyRequest) {
+    const anyReq: any = req as any;
+    const user = anyReq.user as AuthenticatedUser | undefined;
+
     const current = await getCurrentGoldenPriceList();
-    return current;
+    if (!current || !user?.companyId) {
+      return current;
+    }
+
+    const lastJob = await this.prisma.importJob.findFirst({
+      where: {
+        companyId: user.companyId,
+        type: "PRICE_LIST",
+        status: "SUCCEEDED",
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        createdBy: {
+          select: { firstName: true, lastName: true, email: true },
+        },
+      },
+    });
+
+    const lastPriceListUpload = lastJob
+      ? {
+          at: (lastJob.finishedAt ?? lastJob.createdAt) ?? lastJob.createdAt,
+          byName: lastJob.createdBy
+            ? `${lastJob.createdBy.firstName ?? ""} ${lastJob.createdBy.lastName ?? ""}`.trim() ||
+              lastJob.createdBy.email
+            : null,
+          byEmail: lastJob.createdBy?.email ?? null,
+        }
+      : null;
+
+    return {
+      ...current,
+      lastPriceListUpload,
+    };
   }
 
   // Raw table view of the active Golden price list, including
@@ -208,6 +258,24 @@ export class PricingController {
     // background worker/Redis in Cloud Run for this path.
     const result = await importGoldenComponentsFromFile(destPath);
 
+    // Record a completed import job so the UI can show "last uploaded by" info
+    // even though we are not using the background worker for this path.
+    await this.prisma.importJob.create({
+      data: {
+        companyId,
+        projectId: null,
+        createdByUserId,
+        type: "PRICE_LIST_COMPONENTS",
+        status: "SUCCEEDED",
+        progress: 100,
+        message: `Imported Golden components for ${result.itemCount} items (${result.componentCount} components).`,
+        csvPath: destPath,
+        resultJson: result as any,
+        startedAt: new Date(),
+        finishedAt: new Date(),
+      },
+    });
+
     return result;
   }
 
@@ -259,7 +327,7 @@ export class PricingController {
     });
 
     if (!priceList) {
-      return { priceList: null, items: [] };
+      return { priceList: null, items: [], lastComponentsUpload: null };
     }
 
     const where: any = { priceListId: priceList.id };
@@ -281,6 +349,37 @@ export class PricingController {
       ],
     });
 
+    // Look up the most recent components import job for this company so the
+    // UI can show "last uploaded by" with a timestamp.
+    const lastJob = await this.prisma.importJob.findFirst({
+      where: {
+        companyId: user.companyId,
+        type: "PRICE_LIST_COMPONENTS",
+        status: "SUCCEEDED",
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        createdBy: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    const lastComponentsUpload = lastJob
+      ? {
+          at: (lastJob.finishedAt ?? lastJob.createdAt) ?? lastJob.createdAt,
+          byName: lastJob.createdBy
+            ? `${lastJob.createdBy.firstName ?? ""} ${lastJob.createdBy.lastName ?? ""}`.trim() ||
+              lastJob.createdBy.email
+            : null,
+          byEmail: lastJob.createdBy?.email ?? null,
+        }
+      : null;
+
     return {
       priceList: {
         id: priceList.id,
@@ -300,6 +399,7 @@ export class PricingController {
         divisionName: it.division?.name ?? null,
         components: it.components,
       })),
+      lastComponentsUpload,
     };
   }
 

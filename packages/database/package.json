@@ -17,12 +17,14 @@
     "import:pricelist-components": "ts-node src/run-import-pricelist-components.ts"
   },
   "dependencies": {
-    "@prisma/client": "^6.0.0",
+    "@prisma/client": "^7.0.0",
+    "@prisma/adapter-pg": "^7.0.0",
+    "pg": "^8.13.0",
     "csv-parse": "^6.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "prisma": "^6.0.0",
+    "prisma": "^7.0.0",
     "typescript": "^5.5.0"
   }
 }

@@ -39,10 +39,13 @@ function AcceptInviteForm() {
       <h1>Accept Invite</h1>
       {!token && <p>Missing invite token in URL.</p>}
       <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: "0.5rem", maxWidth: 320 }}>
-        <label>
+        <label htmlFor="accept-password">
           Password
           <input
+            id="accept-password"
+            name="password"
             type="password"
+            autoComplete="new-password"
             value={password}
             onChange={e => setPassword(e.target.value)}
             style={{ width: "100%" }}

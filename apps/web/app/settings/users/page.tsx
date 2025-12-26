@@ -230,8 +230,11 @@ export default function CompanyUsersPage() {
           style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}
         >
           <input
+            id="company-invite-email"
+            name="inviteEmail"
             type="email"
             placeholder="user@example.com"
+            autoComplete="email"
             value={inviteEmail}
             onChange={(e) => setInviteEmail(e.target.value)}
             style={{
@@ -243,6 +246,8 @@ export default function CompanyUsersPage() {
             }}
           />
           <select
+            id="company-invite-role"
+            name="inviteRole"
             value={inviteRole}
             onChange={(e) => setInviteRole(e.target.value)}
             style={{
