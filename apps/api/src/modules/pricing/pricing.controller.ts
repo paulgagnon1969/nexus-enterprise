@@ -15,10 +15,12 @@ import {
   importPriceListFromFile,
   getCurrentGoldenPriceList,
   getCurrentGoldenPriceListTable,
+  getGoldenPriceListUploads,
 } from "./pricing.service";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { importGoldenComponentsFromFile } from "@repo/database";
+import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
 
 @Controller("pricing")
 export class PricingController {
@@ -58,47 +60,15 @@ export class PricingController {
         );
       }
 
-      const fastReq: any = req as any;
-      const parts = fastReq.parts?.();
-      if (!parts) {
-        throw new BadRequestException("Multipart support is not configured");
-      }
-      // eslint-disable-next-line no-console
-      console.log("[pricing] uploadPriceList: starting to read multipart parts");
-
-      let filePart:
-        | {
-            filename: string;
-            mimetype: string;
-            toBuffer: () => Promise<Buffer>;
-          }
-        | undefined;
-
-      for await (const part of parts) {
-        // eslint-disable-next-line no-console
-        console.log(
-          "[pricing] uploadPriceList: saw part fieldname=%s type=%s mimetype=%s",
-          (part as any).fieldname,
-          part.type,
-          (part as any).mimetype,
-        );
-        if (part.type === "file" && part.fieldname === "file") {
-          filePart = part;
-          // We only expect a single file field named "file" for this endpoint.
-          // Break out of the iterator so Fastify can finalize the multipart
-          // request instead of us hanging waiting for more parts.
-          break;
-        }
-      }
+      // Use shared helper to read the single CSV file from multipart.
+      const { file: filePart } = await readSingleFileFromMultipart(req, {
+        fieldName: "file",
+      });
       // eslint-disable-next-line no-console
       console.log(
         "[pricing] uploadPriceList: finished reading parts (hasFile=%s)",
         !!filePart,
       );
-
-      if (!filePart) {
-        throw new BadRequestException("No file uploaded");
-      }
 
       if (!filePart.mimetype.includes("csv")) {
         throw new BadRequestException("Only CSV uploads are supported for price lists");
@@ -166,6 +136,15 @@ export class PricingController {
     return table;
   }
 
+  // Recent Golden price list uploads (by PriceList.createdAt), so the
+  // Financial page can show an "N latest uploads" panel.
+  @UseGuards(JwtAuthGuard)
+  @Post("price-list/uploads")
+  async goldenUploads() {
+    const uploads = await getGoldenPriceListUploads(10);
+    return uploads;
+  }
+
   // Import Golden price list component breakdowns from a CSV file. This will
   // create a PRICE_LIST_COMPONENTS ImportJob that is processed by the worker.
   // The CSV is expected to contain Cat, Sel, Activity, Desc, Component Code,
@@ -193,29 +172,10 @@ export class PricingController {
       );
     }
 
-    const fastReq: any = req as any;
-    const parts = fastReq.parts?.();
-    if (!parts) {
-      throw new BadRequestException("Multipart support is not configured");
-    }
-
-    let filePart:
-      | {
-          filename: string;
-          mimetype: string;
-          toBuffer: () => Promise<Buffer>;
-        }
-      | undefined;
-
-    for await (const part of parts) {
-      if (part.type === "file" && part.fieldname === "file") {
-        filePart = part;
-      }
-    }
-
-    if (!filePart) {
-      throw new BadRequestException("No file uploaded");
-    }
+    // Use shared helper to read the single CSV file from multipart.
+    const { file: filePart } = await readSingleFileFromMultipart(req, {
+      fieldName: "file",
+    });
 
     if (!filePart.mimetype.includes("csv")) {
       throw new BadRequestException(
