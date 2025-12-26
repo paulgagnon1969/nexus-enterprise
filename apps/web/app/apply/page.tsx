@@ -117,10 +117,13 @@ function ApplyPageInner() {
 
       <form onSubmit={start} style={{ marginTop: 16, width: "100%", maxWidth: 520 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <label style={{ fontSize: 14, width: "100%", textAlign: "left" }}>
+          <label style={{ fontSize: 14, width: "100%", textAlign: "left" }} htmlFor="apply-email">
             Email
             <input
+              id="apply-email"
+              name="email"
               type="email"
+              autoComplete="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
               style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db" }}
@@ -128,10 +131,13 @@ function ApplyPageInner() {
             />
           </label>
 
-          <label style={{ fontSize: 14, width: "100%", textAlign: "left" }}>
+          <label style={{ fontSize: 14, width: "100%", textAlign: "left" }} htmlFor="apply-password">
             Password (min 8 characters)
             <input
+              id="apply-password"
+              name="password"
               type="password"
+              autoComplete="new-password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db" }}
@@ -139,10 +145,13 @@ function ApplyPageInner() {
             />
           </label>
 
-          <label style={{ fontSize: 14, width: "100%", textAlign: "left" }}>
+          <label style={{ fontSize: 14, width: "100%", textAlign: "left" }} htmlFor="apply-confirm-password">
             Confirm password
             <input
+              id="apply-confirm-password"
+              name="confirmPassword"
               type="password"
+              autoComplete="new-password"
               value={passwordConfirm}
               onChange={e => setPasswordConfirm(e.target.value)}
               style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db" }}
