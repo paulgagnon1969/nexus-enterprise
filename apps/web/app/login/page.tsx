@@ -99,7 +99,10 @@ export default function LoginPage() {
           <label style={{ fontSize: 14 }}>
             <span style={{ display: "block", marginBottom: 4 }}>Email</span>
             <input
+              id="login-email"
+              name="email"
               type="email"
+              autoComplete="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
               style={{
@@ -121,7 +124,10 @@ export default function LoginPage() {
               }}
             >
               <input
+                id="login-password"
+                name="password"
                 type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 style={{

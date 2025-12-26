@@ -196,6 +196,38 @@ export async function getCurrentGoldenPriceList() {
   };
 }
 
+// List recent Golden price list uploads (by PriceList.createdAt),
+// so the UI can show an "N latest uploads" panel.
+export async function getGoldenPriceListUploads(limit: number) {
+  const lists = await prisma.priceList.findMany({
+    where: { kind: "GOLDEN" },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+
+  if (!lists.length) return [];
+
+  const counts: Record<string, number> = {};
+  for (const pl of lists) {
+    // Small N (e.g. 10), so individual counts are acceptable.
+    // If this ever becomes a bottleneck, we can switch to groupBy.
+    // eslint-disable-next-line no-await-in-loop
+    const count = await prisma.priceListItem.count({
+      where: { priceListId: pl.id },
+    });
+    counts[pl.id] = count;
+  }
+
+  return lists.map(pl => ({
+    id: pl.id,
+    label: pl.label,
+    revision: pl.revision,
+    effectiveDate: pl.effectiveDate,
+    uploadedAt: pl.createdAt,
+    itemCount: counts[pl.id] ?? 0,
+  }));
+}
+
 // Return a raw table view of the active Golden price list, with
 // division codes attached where Cat -> Division mappings exist.
 export async function getCurrentGoldenPriceListTable() {
