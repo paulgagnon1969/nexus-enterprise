@@ -1,0 +1,193 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;\f1\fswiss\fcharset0 Helvetica-Bold;}
+{\colortbl;\red255\green255\blue255;\red251\green2\blue7;}
+{\*\expandedcolortbl;;\cssrgb\c100000\c14913\c0;}
+\margl1440\margr1440\vieww13700\viewh35200\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs36 \cf2 \
+.zshrc now contains a clearly marked place for the Nexus dev DB password.\cf0 \
+\
+
+\f1\b \cf2 \'95  ./start-dev.sh 
+\f0\b0 \cf0 - will always pass the \'93Check that DEV_DB_PASSWORD is set\'94 step.\
+\'95  scripts/dev-start.sh will always be able to construct a valid DATABASE_URL.
+\fs24 \
+\
+\
+lsof -ti:5434,8000,3000 - will do a startup sanity check\
+
+\fs36 \cf2 \
+
+\f1\b Text dialog below to get us to the commands above:
+\f0\b0 \
+
+\fs24 \cf0 \
+**Files Read:**\
+\
+**/Users/pg/nexus-enterprise/start-dev.sh**\
+```\
+#!/usr/bin/env zsh\
+\
+set -euo pipefail\
+\
+REPO_DIR="$HOME/nexus-enterprise"\
+COMPOSE_FILE="$REPO_DIR/infra/docker/docker-compose.yml"\
+\
+echo "=== HARD RESET: killing dev processes and restarting Nexus dev (Cloud SQL nexusdev-v2) ==="\
+\
+echo "\uc0\u8594  Killing anything on ports 3000, 8000, 5432, 6380\'85"\
+for PORT in 3000 8000 5432 6380; do\
+  if lsof -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then\
+    echo "  - Port $PORT in use, killing processes..."\
+    lsof -iTCP:$PORT -sTCP:LISTEN -t | xargs kill -9 || true\
+  else\
+    echo "  - Port $PORT is free."\
+  fi\
+done\
+\
+echo "\uc0\u8594  Killing common Node dev processes (node/next/nodemon/ts-node-dev)\'85"\
+pkill -f "next dev" 2>/dev/null || true\
+pkill -f "nodemon" 2>/dev/null || true\
+pkill -f "ts-node-dev" 2>/dev/null || true\
+pkill -f "node .*apps/api" 2>/dev/null || true\
+pkill -f "node .*apps/web" 2>/dev/null || true\
+\
+echo "\uc0\u8594  Changing to repo: $REPO_DIR"\
+cd "$REPO_DIR"\
+\
+echo "\uc0\u8594  Stopping Docker infra (if running)\'85"\
+if [ -f "$COMPOSE_FILE" ]; then\
+  docker compose -f "$COMPOSE_FILE" down || true\
+else\
+  echo "  \uc0\u9888 \u65039  Compose file not found at $COMPOSE_FILE"\
+fi\
+\
+echo "\uc0\u8594  Delegating dev startup to scripts/dev-start.sh (Cloud SQL on 5434)\'85"\
+if [[ -z "$\{DEV_DB_PASSWORD:-\}" ]]; then\
+  echo "  \uc0\u9888 \u65039  DEV_DB_PASSWORD is not set. Export it before running start-dev.sh (e.g. export DEV_DB_PASSWORD='<your_dev_db_password>')." >&2\
+  exit 1\
+fi\
+\
+bash "$REPO_DIR/scripts/dev-start.sh"\
+\
+echo "=== Dev environment started via scripts/dev-start.sh (API :8000, Web :3000, DB nexusdev-v2 on :5434) ==="\
+\
+```\
+\
+\
+\
+
+\f1\b When you run:
+\f0\b0 \
+\
+```bash\
+cd ~/nexus-enterprise\
+./start-dev.sh\
+```\
+this is what happens step by step:\
+\
+
+\f1\b ### 1. Hard reset of ports and Node dev processes
+\f0\b0 \
+\
+```bash path="/Users/pg/nexus-enterprise/start-dev.sh" start=8 end=18\
+echo "=== HARD RESET: killing dev processes and restarting Nexus dev (Cloud SQL nexusdev-v2) ==="\
+\
+echo "\uc0\u8594  Killing anything on ports 3000, 8000, 5432, 6380\'85"\
+for PORT in 3000 8000 5432 6380; do\
+  if lsof -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then\
+    echo "  - Port $PORT in use, killing processes..."\
+    lsof -iTCP:$PORT -sTCP:LISTEN -t | xargs kill -9 || true\
+  else\
+    echo "  - Port $PORT is free."\
+  fi\
+done\
+```\
+- For each of ports **3000, 8000, 5432, 6380**:\
+  - If something is listening on that port, it prints a message and sends `kill -9` to all PIDs on that port (force kill).\
+  - If nothing is there, it says the port is free.\
+- Then it kills common Node dev processes by pattern:\
+\
+```bash path="/Users/pg/nexus-enterprise/start-dev.sh" start=20 end=25\
+echo "\uc0\u8594  Killing common Node dev processes (node/next/nodemon/ts-node-dev)\'85"\
+pkill -f "next dev" 2>/dev/null || true\
+pkill -f "nodemon" 2>/dev/null || true\
+pkill -f "ts-node-dev" 2>/dev/null || true\
+pkill -f "node .*apps/api" 2>/dev/null || true\
+pkill -f "node .*apps/web" 2>/dev/null || true\
+```\
+- This ensures no stale Next/Nodemon/ts-node-dev or app-specific Node processes are left running.\
+\
+
+\f1\b ### 2. Switch into the repo and stop Docker infra
+\f0\b0 \
+\
+```bash path="/Users/pg/nexus-enterprise/start-dev.sh" start=27 end=35\
+echo "\uc0\u8594  Changing to repo: $REPO_DIR"\
+cd "$REPO_DIR"\
+\
+echo "\uc0\u8594  Stopping Docker infra (if running)\'85"\
+if [ -f "$COMPOSE_FILE" ]; then\
+  docker compose -f "$COMPOSE_FILE" down || true\
+else\
+  echo "  \uc0\u9888 \u65039  Compose file not found at $COMPOSE_FILE"\
+fi\
+```\
+- `REPO_DIR` is `$HOME/nexus-enterprise`.\
+- It `cd`s there.\
+- If `infra/docker/docker-compose.yml` exists, it runs:\
+\
+```bash\
+  docker compose -f infra/docker/docker-compose.yml down\
+```\
+  to stop Postgres/Redis containers (if they\'92re running).  \
+  If Docker isn\'92t running, you\'92ll see a warning, but the script continues.\
+\
+
+\f1\b ### 3. Check that `DEV_DB_PASSWORD` is set
+\f0\b0 \
+\
+```bash path="/Users/pg/nexus-enterprise/start-dev.sh" start=37 end=41\
+echo "\uc0\u8594  Delegating dev startup to scripts/dev-start.sh (Cloud SQL on 5434)\'85"\
+if [[ -z "$\{DEV_DB_PASSWORD:-\}" ]]; then\
+  echo "  \uc0\u9888 \u65039  DEV_DB_PASSWORD is not set. Export it before running start-dev.sh (e.g. export DEV_DB_PASSWORD='<your_dev_db_password>')." >&2\
+  exit 1\
+fi\
+```\
+- If `DEV_DB_PASSWORD` is **not** set in your environment:\
+  - It prints a warning and **exits** (no dev stack is started).\
+- If it **is** set:\
+  - It proceeds to the next step.\
+\
+
+\f1\b ### 4. Delegate to `scripts/dev-start.sh`\
+
+\f0\b0 \
+```bash path="/Users/pg/nexus-enterprise/start-dev.sh" start=43 end=45\
+bash "$REPO_DIR/scripts/dev-start.sh"\
+\
+echo "=== Dev environment started via scripts/dev-start.sh (API :8000, Web :3000, DB nexusdev-v2 on :5434) ==="\
+```\
+At this point, `scripts/dev-start.sh` does the rest:\
+\
+- Verifies:\
+  - `cloud-sql-proxy` is on `PATH`.\
+  - `npm` is on `PATH`.\
+  - (If no credential file is set) `gcloud` project is `nexus-enterprise-480610` (otherwise it exits with an error and a fix).\
+- Ensures `apps/web/.env.local` points to `http://localhost:8000`.\
+- Starts (or reuses) **Cloud SQL Auth Proxy** to `nexusdev-v2` on `127.0.0.1:5434` using your `gcloud` Application Default Credentials.\
+- Exports `DATABASE_URL` pointing at `postgres://postgres:$\{DEV_DB_PASSWORD\}@127.0.0.1:5434/nexus_db`.\
+- Starts, in the background:\
+  - API dev server (Nest, `npm run dev` in `apps/api`) listening on `http://localhost:8000`.\
+  - API worker (`npm run worker:dev` in `apps/api`).\
+  - Web dev server (`npm run dev` in `apps/web`) listening on `http://localhost:3000`.\
+\
+So, **after `./start-dev.sh` completes successfully**, you should have:\
+\
+- Cloud SQL proxy \uc0\u8594  `nexusdev-v2` on `127.0.0.1:5434`.\
+- API \uc0\u8594  `http://localhost:8000`.\
+- Web \uc0\u8594  `http://localhost:3000`.\
+- Worker running for background jobs.\
+\
+If you want, next we can run `./start-dev.sh` once more and cross-check with `lsof` + the logs to confirm everything lines up with that description in your current session.}

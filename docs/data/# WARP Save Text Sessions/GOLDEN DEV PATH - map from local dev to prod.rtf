@@ -1,0 +1,3280 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww22580\viewh27860\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 ok, lets take a step back,we had a great process and then wehad a problem getting to the postgres_db...  Lets look at where all our assets are and whats trying to connect to what?  The Data and API shoudl flow like this... Develop locally, but work with the GCP database and API.  We push the new api and data structure via github to Vercel, then promote the code to prod after testing.  I want to map that process, chek into every step to make sure we have passwords and a fast path to deploy the app\
+\
+Suggest new conversation rejected for message\
+\
+\
+\
+**File Glob Results:**\
+\
+- **/Users/pg/nexus-enterprise/Dockerfile**\
+- **/Users/pg/nexus-enterprise/docs/README.md**\
+- **/Users/pg/nexus-enterprise/docs/api-contracts/README.md**\
+- **/Users/pg/nexus-enterprise/docs/architecture/README.md**\
+- **/Users/pg/nexus-enterprise/docs/onboarding/README.md**\
+- **/Users/pg/nexus-enterprise/packages/database/prisma/schema.prisma**\
+\
+\
+\
+\
+**Files Read:**\
+\
+**/Users/pg/nexus-enterprise/package.json**\
+```\
+\{\
+  "name": "nexus-enterprise",\
+  "version": "1.0.0",\
+  "private": true,\
+  "description": "",\
+  "main": "index.js",\
+  "scripts": \{\
+    "dev": "turbo dev",\
+    "dev:api": "turbo dev --filter=api",\
+    "dev:all": "turbo dev --parallel",\
+    "dev:clean": "bash ./scripts/dev-clean.sh",\
+    "build": "turbo build",\
+    "lint": "turbo lint",\
+    "check-types": "turbo run check-types",\
+    "format": "prettier --write ."\
+  \},\
+  "workspaces": [\
+    "apps/*",\
+    "packages/*"\
+  ],\
+  "keywords": [],\
+  "author": "",\
+  "license": "ISC",\
+  "type": "commonjs",\
+  "packageManager": "npm@10.0.0",\
+  "devDependencies": \{\
+    "@types/passport-jwt": "^4.0.1",\
+    "eslint": "^9.39.1",\
+    "prettier": "^3.7.4",\
+    "turbo": "^2.6.1",\
+    "typescript": "^5.9.3"\
+  \},\
+  "dependencies": \{\
+    "@nestjs/common": "^11.1.9",\
+    "@nestjs/core": "^11.1.9",\
+    "@nestjs/platform-express": "^11.1.9",\
+    "@nestjs/platform-fastify": "^11.1.9"\
+  \}\
+\}\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/apps/api/package.json**\
+```\
+\{\
+  "name": "api",\
+  "version": "0.0.1",\
+  "private": true,\
+  "scripts": \{\
+    "dev": "ts-node-dev --respawn --transpile-only src/main.ts",\
+    "worker:dev": "ts-node-dev --respawn --transpile-only src/worker.ts",\
+    "build": "tsc -p tsconfig.build.json",\
+    "start": "node dist/main.js",\
+    "worker": "node dist/worker.js",\
+    "check-types": "tsc -p tsconfig.json --noEmit",\
+    "lint": "echo 'lint disabled'"\
+  \},\
+  "dependencies": \{\
+    "@fastify/multipart": "^9.0.0",\
+    "@fastify/static": "^8.3.0",\
+    "@nestjs/common": "^11.0.0",\
+    "@nestjs/config": "^4.0.0",\
+    "@nestjs/core": "^11.0.0",\
+    "@nestjs/jwt": "^11.0.0",\
+    "@nestjs/passport": "^11.0.0",\
+    "@nestjs/platform-fastify": "^11.0.0",\
+    "@prisma/client": "^6.0.0",\
+    "@repo/database": "0.0.1",\
+    "argon2": "^0.41.1",\
+    "bullmq": "^5.58.0",\
+    "class-transformer": "^0.5.1",\
+    "class-validator": "^0.14.1",\
+    "fastify": "^5.0.0",\
+    "ioredis": "^5.4.0",\
+    "nodemailer": "^6.9.15",\
+    "passport": "^0.7.0",\
+    "passport-jwt": "^4.0.1",\
+    "reflect-metadata": "^0.2.0",\
+    "rxjs": "^7.8.0"\
+  \},\
+  "devDependencies": \{\
+    "@types/node": "^22.0.0",\
+    "@types/nodemailer": "^6.4.17",\
+    "ts-node-dev": "^2.0.0",\
+    "typescript": "^5.5.0"\
+  \}\
+\}\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/apps/web/package.json**\
+```\
+\{\
+  "name": "web",\
+  "version": "0.0.1",\
+  "private": true,\
+  "scripts": \{\
+    "dev": "next dev -p 3000",\
+    "build": "next build",\
+    "start": "next start",\
+    "lint": "echo 'lint disabled'",\
+    "check-types": "tsc --noEmit"\
+  \},\
+  "dependencies": \{\
+    "next": "14.2.0",\
+    "react": "18.2.0",\
+    "react-dom": "18.2.0"\
+  \},\
+  "devDependencies": \{\
+    "@types/react": "18.2.37",\
+    "@types/react-dom": "18.2.15",\
+    "typescript": "^5.5.0"\
+  \}\
+\}\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/packages/database/prisma/schema.prisma**\
+```\
+generator client \{\
+  provider = "prisma-client-js"\
+\}\
+\
+datasource db \{\
+  provider = "postgresql"\
+  url      = env("DATABASE_URL")\
+\}\
+\
+model Company \{\
+  id                        String                       @id @default(cuid())\
+  name                      String\
+  createdAt                 DateTime                     @default(now())\
+  updatedAt                 DateTime                     @updatedAt\
+  reputationOverallAvg      Float                        @default(2)\
+  reputationOverallCount    Int                          @default(0)\
+  reputationOverallOverride Int?\
+  kind                      CompanyKind                  @default(ORGANIZATION)\
+  templateId                String?\
+  templateVersionId         String?\
+  template                  OrganizationTemplate?        @relation("CompanyTemplate", fields: [templateId], references: [id])\
+  templateVersion           OrganizationTemplateVersion? @relation("CompanyTemplateVersion", fields: [templateVersionId], references: [id])\
+  invites                   CompanyInvite[]\
+  memberships               CompanyMembership[]\
+  importJobs                ImportJob[]\
+  moduleOverrides           OrganizationModuleOverride[]\
+  parcels                   Parcel[]\
+  projects                  Project[]\
+  buildings                 ProjectBuilding[]\
+  projectMemberships        ProjectMembership[]\
+  particles                 ProjectParticle[]\
+  units                     ProjectUnit[]\
+  roleProfiles              RoleProfile[]\
+  tags                      Tag[]\
+  tagAssignments            TagAssignment[]\
+  tasks                     Task[]\
+  userPortfolios            UserPortfolio[]\
+\}\
+\
+model OrganizationTemplate \{\
+  id               String                        @id @default(cuid())\
+  code             String                        @unique\
+  label            String\
+  description      String?\
+  active           Boolean                       @default(true)\
+  createdAt        DateTime                      @default(now())\
+  updatedAt        DateTime                      @updatedAt\
+  currentVersionId String?                       @unique\
+  companies        Company[]                     @relation("CompanyTemplate")\
+  currentVersion   OrganizationTemplateVersion?  @relation("TemplateCurrentVersion", fields: [currentVersionId], references: [id])\
+  versions         OrganizationTemplateVersion[]\
+\}\
+\
+model OrganizationTemplateVersion \{\
+  id                        String                            @id @default(cuid())\
+  templateId                String\
+  versionNo                 Int\
+  dayKey                    String\
+  label                     String?\
+  notes                     String?\
+  contentHash               String?\
+  createdAt                 DateTime                          @default(now())\
+  createdByUserId           String?\
+  companiesUsingThisVersion Company[]                         @relation("CompanyTemplateVersion")\
+  currentForTemplate        OrganizationTemplate?             @relation("TemplateCurrentVersion")\
+  articles                  OrganizationTemplateArticle[]\
+  modules                   OrganizationTemplateModule[]\
+  roleProfiles              OrganizationTemplateRoleProfile[]\
+  template                  OrganizationTemplate              @relation(fields: [templateId], references: [id])\
+\
+  @@unique([templateId, dayKey], name: "OrgTemplateVersion_template_day_key")\
+  @@unique([templateId, versionNo], name: "OrgTemplateVersion_template_version_no")\
+  @@index([templateId], map: "OrgTemplateVersion_template_idx")\
+\}\
+\
+model OrganizationTemplateModule \{\
+  id                String                      @id @default(cuid())\
+  templateVersionId String\
+  moduleCode        String\
+  enabled           Boolean                     @default(true)\
+  configJson        Json?\
+  templateVersion   OrganizationTemplateVersion @relation(fields: [templateVersionId], references: [id])\
+\
+  @@unique([templateVersionId, moduleCode], name: "OrgTemplateModule_version_module_key")\
+  @@index([templateVersionId], map: "OrgTemplateModule_version_idx")\
+\}\
+\
+model OrganizationTemplateArticle \{\
+  id                String                      @id @default(cuid())\
+  templateVersionId String\
+  slug              String\
+  title             String\
+  body              String\
+  sortOrder         Int                         @default(0)\
+  active            Boolean                     @default(true)\
+  templateVersion   OrganizationTemplateVersion @relation(fields: [templateVersionId], references: [id])\
+\
+  @@unique([templateVersionId, slug], name: "OrgTemplateArticle_version_slug_key")\
+  @@index([templateVersionId], map: "OrgTemplateArticle_version_idx")\
+\}\
+\
+model OrganizationTemplateRoleProfile \{\
+  id                String                               @id @default(cuid())\
+  templateVersionId String\
+  code              String\
+  label             String\
+  description       String?\
+  sortOrder         Int                                  @default(0)\
+  active            Boolean                              @default(true)\
+  permissions       OrganizationTemplateRolePermission[]\
+  templateVersion   OrganizationTemplateVersion          @relation(fields: [templateVersionId], references: [id])\
+\
+  @@unique([templateVersionId, code], name: "OrgTemplateRoleProfile_version_code_key")\
+  @@index([templateVersionId], map: "OrgTemplateRoleProfile_version_idx")\
+\}\
+\
+model OrganizationTemplateRolePermission \{\
+  id                    String                          @id @default(cuid())\
+  templateRoleProfileId String\
+  resourceCode          String\
+  canView               Boolean                         @default(false)\
+  canAdd                Boolean                         @default(false)\
+  canEdit               Boolean                         @default(false)\
+  canDelete             Boolean                         @default(false)\
+  canViewAll            Boolean                         @default(false)\
+  canApprove            Boolean                         @default(false)\
+  canManageSettings     Boolean                         @default(false)\
+  templateRoleProfile   OrganizationTemplateRoleProfile @relation(fields: [templateRoleProfileId], references: [id])\
+\
+  @@unique([templateRoleProfileId, resourceCode], name: "OrgTemplateRolePermission_profile_resource_key")\
+  @@index([templateRoleProfileId], map: "OrgTemplateRolePermission_profile_idx")\
+\}\
+\
+model OrganizationModuleOverride \{\
+  id         String  @id @default(cuid())\
+  companyId  String\
+  moduleCode String\
+  enabled    Boolean\
+  configJson Json?\
+  company    Company @relation(fields: [companyId], references: [id])\
+\
+  @@unique([companyId, moduleCode], name: "OrgModuleOverride_company_module_key")\
+  @@index([companyId], map: "OrgModuleOverride_company_idx")\
+\}\
+\
+model User \{\
+  id                        String              @id @default(cuid())\
+  email                     String              @unique\
+  passwordHash              String\
+  createdAt                 DateTime            @default(now())\
+  updatedAt                 DateTime            @updatedAt\
+  globalRole                GlobalRole          @default(NONE)\
+  userType                  UserType            @default(INTERNAL)\
+  reputationOverallAvg      Float               @default(2)\
+  reputationOverallCount    Int                 @default(0)\
+  reputationOverallOverride Int?\
+  firstName                 String?\
+  lastName                  String?\
+  acceptedInvites           CompanyInvite[]\
+  memberships               CompanyMembership[]\
+  createdDailyLogs          DailyLog[]\
+  createdImportJobs         ImportJob[]         @relation("ImportJobCreatedBy")\
+  onboardingSessions        OnboardingSession[]\
+  projectMemberships        ProjectMembership[]\
+  assignedTasks             Task[]              @relation("TaskAssignee")\
+  portfolios                UserPortfolio[]\
+\}\
+\
+model UserPortfolio \{\
+  id        String           @id @default(cuid())\
+  companyId String\
+  userId    String\
+  headline  String?\
+  bio       String?\
+  photoUrl  String?\
+  createdAt DateTime         @default(now())\
+  updatedAt DateTime         @updatedAt\
+  company   Company          @relation(fields: [companyId], references: [id])\
+  user      User             @relation(fields: [userId], references: [id])\
+  hr        UserPortfolioHr?\
+\
+  @@unique([companyId, userId], name: "UserPortfolio_company_user_key")\
+  @@index([companyId], map: "UserPortfolio_company_idx")\
+  @@index([userId], map: "UserPortfolio_user_idx")\
+\}\
+\
+model UserPortfolioHr \{\
+  id               String        @id @default(cuid())\
+  portfolioId      String        @unique\
+  encryptedJson    Bytes\
+  ssnLast4         String?\
+  itinLast4        String?\
+  bankAccountLast4 String?\
+  bankRoutingLast4 String?\
+  updatedAt        DateTime      @updatedAt\
+  portfolio        UserPortfolio @relation(fields: [portfolioId], references: [id])\
+\}\
+\
+model CompanyMembership \{\
+  userId    String\
+  companyId String\
+  createdAt DateTime     @default(now())\
+  role      Role\
+  profileId String?\
+  company   Company      @relation(fields: [companyId], references: [id])\
+  profile   RoleProfile? @relation(fields: [profileId], references: [id])\
+  user      User         @relation(fields: [userId], references: [id])\
+\
+  @@id([userId, companyId])\
+\}\
+\
+model CompanyInvite \{\
+  id             String    @id @default(cuid())\
+  companyId      String\
+  email          String\
+  role           Role\
+  token          String    @unique\
+  expiresAt      DateTime\
+  acceptedAt     DateTime?\
+  acceptedUserId String?\
+  createdAt      DateTime  @default(now())\
+  acceptedUser   User?     @relation(fields: [acceptedUserId], references: [id])\
+  company        Company   @relation(fields: [companyId], references: [id])\
+\}\
+\
+/// Feature / capability that can be secured via roles (e.g. project_management.daily_logs).\
+model PermissionResource \{\
+  id              String           @id @default(cuid())\
+  code            String           @unique\
+  label           String\
+  section         String\
+  sortOrder       Int              @default(0)\
+  active          Boolean          @default(true)\
+  rolePermissions RolePermission[]\
+\}\
+\
+/// NCC standard or custom per-company permission profile.\
+model RoleProfile \{\
+  id              String              @id @default(cuid())\
+  companyId       String?\
+  code            String\
+  label           String\
+  description     String?\
+  isStandard      Boolean             @default(false)\
+  active          Boolean             @default(true)\
+  sourceProfileId String?\
+  createdAt       DateTime            @default(now())\
+  createdBy       String?\
+  updatedAt       DateTime            @updatedAt\
+  members         CompanyMembership[]\
+  permissions     RolePermission[]\
+  company         Company?            @relation(fields: [companyId], references: [id])\
+\
+  @@index([companyId], map: "RoleProfile_company_idx")\
+\}\
+\
+/// Mapping between a RoleProfile and a PermissionResource with specific actions.\
+model RolePermission \{\
+  id                String             @id @default(cuid())\
+  profileId         String\
+  resourceId        String\
+  canView           Boolean            @default(false)\
+  canAdd            Boolean            @default(false)\
+  canEdit           Boolean            @default(false)\
+  canDelete         Boolean            @default(false)\
+  canViewAll        Boolean            @default(false)\
+  canApprove        Boolean            @default(false)\
+  canManageSettings Boolean            @default(false)\
+  profile           RoleProfile        @relation(fields: [profileId], references: [id])\
+  resource          PermissionResource @relation(fields: [resourceId], references: [id])\
+\
+  @@index([profileId], map: "RolePermission_profile_idx")\
+  @@index([resourceId], map: "RolePermission_resource_idx")\
+\}\
+\
+model Project \{\
+  id                   String                    @id @default(cuid())\
+  companyId            String\
+  name                 String\
+  status               String                    @default("active")\
+  createdAt            DateTime                  @default(now())\
+  updatedAt            DateTime                  @updatedAt\
+  addressLine1         String\
+  addressLine2         String?\
+  city                 String\
+  country              String?                   @default("US")\
+  createdByUserId      String?\
+  geocodedAt           DateTime?\
+  latitude             Float?\
+  longitude            Float?\
+  postalCode           String?\
+  primaryContactEmail  String?\
+  primaryContactName   String?\
+  primaryContactPhone  String?\
+  state                String\
+  /// Optional external claim / file ID used to link imports\
+  externalId           String?                   @unique\
+  allocationRules      ComponentAllocationRule[]\
+  componentSummaries   ComponentSummary[]\
+  dailyLogs            DailyLog[]\
+  estimateVersions     EstimateVersion[]\
+  importJobs           ImportJob[]\
+  parcels              Parcel[]\
+  petlEditSessions     PetlEditSession[]\
+  company              Company                   @relation(fields: [companyId], references: [id])\
+  buildings            ProjectBuilding[]\
+  memberships          ProjectMembership[]\
+  particles            ProjectParticle[]\
+  units                ProjectUnit[]\
+  sows                 Sow[]\
+  componentAllocations SowComponentAllocation[]\
+  sowLogicalItems      SowLogicalItem[]\
+  tasks                Task[]\
+\}\
+\
+model Parcel \{\
+  id                String           @id @default(cuid())\
+  name              String\
+  parcelCode        String?\
+  status            ParcelStatus     @default(PLANNED)\
+  areaSqFt          Float?\
+  zoning            String?\
+  companyId         String\
+  projectId         String\
+  createdAt         DateTime         @default(now())\
+  updatedAt         DateTime         @updatedAt\
+  projectParticleId String?\
+  company           Company          @relation(fields: [companyId], references: [id])\
+  project           Project          @relation(fields: [projectId], references: [id])\
+  projectParticle   ProjectParticle? @relation(fields: [projectParticleId], references: [id])\
+\}\
+\
+/// Global list of job / project statuses (e.g. Open, Closed, Warranty).\
+model JobStatus \{\
+  id        String  @id @default(cuid())\
+  code      String  @unique\
+  label     String\
+  sortOrder Int     @default(0)\
+  active    Boolean @default(true)\
+\}\
+\
+model ProjectMembership \{\
+  userId     String\
+  projectId  String\
+  companyId  String\
+  role       ProjectRole\
+  createdAt  DateTime                @default(now())\
+  scope      ProjectParticipantScope @default(OWNER_MEMBER)\
+  visibility ProjectVisibilityLevel  @default(FULL)\
+  company    Company                 @relation(fields: [companyId], references: [id])\
+  project    Project                 @relation(fields: [projectId], references: [id])\
+  user       User                    @relation(fields: [userId], references: [id])\
+\
+  @@id([userId, projectId])\
+\}\
+\
+model ProjectBuilding \{\
+  id        String            @id @default(cuid())\
+  companyId String\
+  projectId String\
+  code      String?\
+  name      String\
+  createdAt DateTime          @default(now())\
+  updatedAt DateTime          @updatedAt\
+  company   Company           @relation(fields: [companyId], references: [id])\
+  project   Project           @relation(fields: [projectId], references: [id])\
+  particles ProjectParticle[]\
+  units     ProjectUnit[]\
+\}\
+\
+model ProjectUnit \{\
+  id           String            @id @default(cuid())\
+  companyId    String\
+  projectId    String\
+  buildingId   String?\
+  externalCode String?\
+  label        String\
+  floor        Int?\
+  createdAt    DateTime          @default(now())\
+  updatedAt    DateTime          @updatedAt\
+  particles    ProjectParticle[]\
+  building     ProjectBuilding?  @relation(fields: [buildingId], references: [id])\
+  company      Company           @relation(fields: [companyId], references: [id])\
+  project      Project           @relation(fields: [projectId], references: [id])\
+\
+  @@unique([projectId, label], name: "ProjectUnit_projectId_label_key")\
+\}\
+\
+model ProjectParticle \{\
+  id                       String              @id @default(cuid())\
+  companyId                String\
+  projectId                String\
+  buildingId               String?\
+  unitId                   String?\
+  type                     ProjectParticleType @default(ROOM)\
+  name                     String\
+  fullLabel                String\
+  externalGroupCode        String?\
+  externalGroupDescription String?\
+  parentParticleId         String?\
+  createdAt                DateTime            @default(now())\
+  updatedAt                DateTime            @updatedAt\
+  parcels                  Parcel[]\
+  building                 ProjectBuilding?    @relation(fields: [buildingId], references: [id])\
+  company                  Company             @relation(fields: [companyId], references: [id])\
+  parentParticle           ProjectParticle?    @relation("ProjectParticleParent", fields: [parentParticleId], references: [id])\
+  childParticles           ProjectParticle[]   @relation("ProjectParticleParent")\
+  project                  Project             @relation(fields: [projectId], references: [id])\
+  unit                     ProjectUnit?        @relation(fields: [unitId], references: [id])\
+  sowItems                 SowItem[]\
+  sowLogicalItems          SowLogicalItem[]\
+  tasks                    Task[]\
+\}\
+\
+model AdminAuditLog \{\
+  id              String     @id @default(cuid())\
+  actorId         String\
+  actorEmail      String\
+  actorGlobalRole GlobalRole\
+  action          String\
+  targetCompanyId String?\
+  targetUserId    String?\
+  metadata        Json?\
+  createdAt       DateTime   @default(now())\
+\}\
+\
+model ProjectFinancialSnapshot \{\
+  id                   String   @id @default(cuid())\
+  projectId            String\
+  estimateVersionId    String\
+  totalRcvClaim        Float\
+  totalAcvClaim        Float\
+  workCompleteRcv      Float\
+  acvReturn            Float\
+  opRate               Float\
+  acvOP                Float\
+  totalDueWorkBillable Float\
+  depositRate          Float\
+  depositBaseline      Float\
+  billedToDate         Float\
+  duePayable           Float\
+  dueAmount            Float\
+  snapshotDate         DateTime\
+  computedAt           DateTime @default(now())\
+\
+  @@index([projectId, estimateVersionId, snapshotDate], map: "ProjectFinancialSnapshot_project_estimate_date_idx")\
+\}\
+\
+model Task \{\
+  id                String           @id @default(cuid())\
+  title             String\
+  description       String?\
+  status            TaskStatus       @default(TODO)\
+  dueDate           DateTime?\
+  companyId         String\
+  projectId         String\
+  assigneeId        String?\
+  createdAt         DateTime         @default(now())\
+  updatedAt         DateTime         @updatedAt\
+  priority          TaskPriority     @default(MEDIUM)\
+  projectParticleId String?\
+  assignee          User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])\
+  company           Company          @relation(fields: [companyId], references: [id])\
+  project           Project          @relation(fields: [projectId], references: [id])\
+  projectParticle   ProjectParticle? @relation(fields: [projectParticleId], references: [id])\
+\}\
+\
+model EstimateVersion \{\
+  id                   String                    @id @default(cuid())\
+  projectId            String\
+  sourceType           String\
+  fileName             String\
+  storedPath           String\
+  estimateKind         String\
+  sequenceNo           Int\
+  defaultPayerType     String\
+  description          String?\
+  status               String\
+  errorMessage         String?\
+  importedByUserId     String?\
+  importedAt           DateTime?\
+  createdAt            DateTime                  @default(now())\
+  updatedAt            DateTime                  @updatedAt\
+  allocationRules      ComponentAllocationRule[]\
+  componentSummaries   ComponentSummary[]\
+  project              Project                   @relation(fields: [projectId], references: [id])\
+  rawComponentRows     RawComponentRow[]\
+  rawRows              RawXactRow[]\
+  sows                 Sow[]\
+  componentAllocations SowComponentAllocation[]\
+  sowItems             SowItem[]\
+\
+  @@index([projectId, sequenceNo], map: "EstimateVersion_project_sequence_idx")\
+\}\
+\
+model RawXactRow \{\
+  id                 String          @id @default(cuid())\
+  estimateVersionId  String\
+  lineNo             Int\
+  groupCode          String?\
+  groupDescription   String?\
+  desc               String?\
+  age                Float?\
+  condition          String?\
+  qty                Float?\
+  itemAmount         Float?\
+  reportedCost       Float?\
+  unitCost           Float?\
+  unit               String?\
+  coverage           String?\
+  activity           String?\
+  workersWage        Float?\
+  laborBurden        Float?\
+  laborOverhead      Float?\
+  material           Float?\
+  equipment          Float?\
+  marketConditions   Float?\
+  laborMinimum       Float?\
+  salesTax           Float?\
+  rcv                Float?\
+  life               Int?\
+  depreciationType   String?\
+  depreciationAmount Float?\
+  recoverable        Boolean?\
+  acv                Float?\
+  tax                Float?\
+  replaceFlag        Boolean?\
+  cat                String?\
+  sel                String?\
+  owner              String?\
+  originalVendor     String?\
+  sourceName         String?\
+  sourceDate         DateTime?\
+  note1              String?\
+  adjSource          String?\
+  rawRowJson         Json?\
+  createdAt          DateTime        @default(now())\
+  updatedAt          DateTime        @updatedAt\
+  estimateVersion    EstimateVersion @relation(fields: [estimateVersionId], references: [id])\
+  sowItems           SowItem[]\
+\
+  @@index([estimateVersionId, lineNo], map: "RawXactRow_estimate_line_idx")\
+\}\
+\
+model RawComponentRow \{\
+  id                          String          @id @default(cuid())\
+  estimateVersionId           String\
+  code                        String?\
+  description                 String?\
+  taxStatus                   String?\
+  contractorSuppliedRaw       String?\
+  quantityRaw                 String?\
+  unitRaw                     String?\
+  unitPriceRaw                String?\
+  totalRaw                    String?\
+  requestThirdPartyPricingRaw String?\
+  rawRowJson                  Json?\
+  createdAt                   DateTime        @default(now())\
+  updatedAt                   DateTime        @updatedAt\
+  estimateVersion             EstimateVersion @relation(fields: [estimateVersionId], references: [id])\
+\
+  @@index([estimateVersionId], map: "RawComponentRow_estimate_idx")\
+\}\
+\
+model ComponentSummary \{\
+  id                       String                   @id @default(cuid())\
+  projectId                String\
+  estimateVersionId        String\
+  code                     String\
+  description              String?\
+  taxStatus                String?\
+  contractorSupplied       Boolean?\
+  quantity                 Float?\
+  unit                     String?\
+  unitPrice                Float?\
+  total                    Float?\
+  requestThirdPartyPricing Boolean?\
+  createdAt                DateTime                 @default(now())\
+  updatedAt                DateTime                 @updatedAt\
+  estimateVersion          EstimateVersion          @relation(fields: [estimateVersionId], references: [id])\
+  project                  Project                  @relation(fields: [projectId], references: [id])\
+  allocations              SowComponentAllocation[]\
+\
+  @@index([projectId, estimateVersionId, code], map: "ComponentSummary_project_estimate_code_idx")\
+\}\
+\
+model SowComponentAllocation \{\
+  id                 String            @id @default(cuid())\
+  projectId          String\
+  estimateVersionId  String\
+  sowItemId          String\
+  componentSummaryId String?\
+  code               String\
+  quantity           Float?\
+  total              Float?\
+  allocationBasis    String?\
+  createdAt          DateTime          @default(now())\
+  updatedAt          DateTime          @updatedAt\
+  componentSummary   ComponentSummary? @relation(fields: [componentSummaryId], references: [id])\
+  estimateVersion    EstimateVersion   @relation(fields: [estimateVersionId], references: [id])\
+  project            Project           @relation(fields: [projectId], references: [id])\
+  sowItem            SowItem           @relation(fields: [sowItemId], references: [id])\
+\
+  @@index([projectId, estimateVersionId, code], map: "SowComponentAllocation_project_estimate_code_idx")\
+  @@index([sowItemId], map: "SowComponentAllocation_sowItem_idx")\
+\}\
+\
+model ComponentAllocationRule \{\
+  id                 String           @id @default(cuid())\
+  projectId          String\
+  estimateVersionId  String?\
+  componentCode      String\
+  targetCategoryCode String?\
+  targetActivity     String?\
+  active             Boolean          @default(true)\
+  createdAt          DateTime         @default(now())\
+  updatedAt          DateTime         @updatedAt\
+  estimateVersion    EstimateVersion? @relation(fields: [estimateVersionId], references: [id])\
+  project            Project          @relation(fields: [projectId], references: [id])\
+\
+  @@index([projectId, componentCode], map: "ComponentAllocationRule_project_code_idx")\
+  @@index([estimateVersionId], map: "ComponentAllocationRule_estimate_idx")\
+\}\
+\
+model Sow \{\
+  id                String          @id @default(cuid())\
+  projectId         String\
+  estimateVersionId String\
+  sourceType        String\
+  totalAmount       Float?\
+  createdAt         DateTime        @default(now())\
+  updatedAt         DateTime        @updatedAt\
+  estimateVersion   EstimateVersion @relation(fields: [estimateVersionId], references: [id])\
+  project           Project         @relation(fields: [projectId], references: [id])\
+  items             SowItem[]\
+\}\
+\
+model SowLogicalItem \{\
+  id                String          @id @default(cuid())\
+  projectId         String\
+  projectParticleId String\
+  signatureHash     String\
+  createdAt         DateTime        @default(now())\
+  updatedAt         DateTime        @updatedAt\
+  items             SowItem[]\
+  project           Project         @relation(fields: [projectId], references: [id])\
+  projectParticle   ProjectParticle @relation(fields: [projectParticleId], references: [id])\
+\}\
+\
+model SowItem \{\
+  id                   String                   @id @default(cuid())\
+  sowId                String\
+  estimateVersionId    String\
+  rawRowId             String\
+  logicalItemId        String\
+  projectParticleId    String\
+  lineNo               Int\
+  description          String\
+  qty                  Float?\
+  unit                 String?\
+  unitCost             Float?\
+  itemAmount           Float?\
+  rcvAmount            Float?\
+  acvAmount            Float?\
+  depreciationAmount   Float?\
+  salesTaxAmount       Float?\
+  categoryCode         String?\
+  selectionCode        String?\
+  activity             String?\
+  materialAmount       Float?\
+  equipmentAmount      Float?\
+  payerType            String\
+  performed            Boolean                  @default(false)\
+  eligibleForAcvRefund Boolean                  @default(false)\
+  acvRefundAmount      Float?\
+  percentComplete      Float                    @default(0)\
+  createdAt            DateTime                 @default(now())\
+  updatedAt            DateTime                 @updatedAt\
+  isAcvOnly            Boolean                  @default(false)\
+  petlEditChanges      PetlEditChange[]\
+  componentAllocations SowComponentAllocation[]\
+  estimateVersion      EstimateVersion          @relation(fields: [estimateVersionId], references: [id])\
+  logicalItem          SowLogicalItem           @relation(fields: [logicalItemId], references: [id])\
+  projectParticle      ProjectParticle          @relation(fields: [projectParticleId], references: [id])\
+  rawRow               RawXactRow               @relation(fields: [rawRowId], references: [id])\
+  sow                  Sow                      @relation(fields: [sowId], references: [id])\
+\
+  @@index([estimateVersionId, projectParticleId], map: "SowItem_estimate_particle_idx")\
+  @@index([projectParticleId], map: "SowItem_particle_idx")\
+  @@index([categoryCode, selectionCode], map: "SowItem_cat_sel_idx")\
+\}\
+\
+/// Generic nickname / alias model for projects and particles.\
+model NameAlias \{\
+  id           String   @id @default(cuid())\
+  /// 'project' | 'particle' (extendable later)\
+  entityType   String\
+  /// ID of the underlying entity (Project.id, ProjectParticle.id, ...)\
+  entityId     String\
+  /// The original name we are aliasing from (for audit / display of Xactimate source names).\
+  originalName String\
+  /// The human-friendly nickname.\
+  nickname     String\
+  /// Exactly one current alias per (entityType, entityId) should be true.\
+  isCurrent    Boolean  @default(true)\
+  createdBy    String?\
+  createdAt    DateTime @default(now())\
+\}\
+\
+/// Global tag dictionary per company (project groups, room tags, etc.).\
+model Tag \{\
+  id              String          @id @default(cuid())\
+  companyId       String\
+  code            String\
+  label           String\
+  color           String?\
+  sortOrder       Int             @default(0)\
+  active          Boolean         @default(true)\
+  createdByUserId String?\
+  createdAt       DateTime        @default(now())\
+  updatedAt       DateTime        @updatedAt\
+  company         Company         @relation(fields: [companyId], references: [id])\
+  assignments     TagAssignment[]\
+\
+  @@unique([companyId, code], name: "Tag_company_code_key")\
+\}\
+\
+/// Attach tags to arbitrary entities (projects, particles, tasks, parcels, ...).\
+model TagAssignment \{\
+  id              String   @id @default(cuid())\
+  tagId           String\
+  companyId       String\
+  /// 'project' | 'particle' | 'task' | 'parcel' | ...\
+  entityType      String\
+  entityId        String\
+  createdByUserId String?\
+  createdAt       DateTime @default(now())\
+  company         Company  @relation(fields: [companyId], references: [id])\
+  tag             Tag      @relation(fields: [tagId], references: [id])\
+\
+  @@index([companyId, entityType, entityId], map: "TagAssignment_entity_idx")\
+  @@index([companyId, tagId], map: "TagAssignment_tag_idx")\
+\}\
+\
+model PetlEditSession \{\
+  id        String           @id @default(cuid())\
+  userId    String?\
+  projectId String\
+  source    String           @default("ncc-petl-ui")\
+  meta      Json?\
+  startedAt DateTime\
+  endedAt   DateTime\
+  createdAt DateTime         @default(now())\
+  updatedAt DateTime         @updatedAt\
+  changes   PetlEditChange[]\
+  project   Project          @relation(fields: [projectId], references: [id])\
+\}\
+\
+model PetlEditChange \{\
+  id          String          @id @default(cuid())\
+  sessionId   String\
+  sowItemId   String\
+  field       String\
+  oldValue    Float?\
+  newValue    Float?\
+  effectiveAt DateTime\
+  createdAt   DateTime        @default(now())\
+  updatedAt   DateTime        @updatedAt\
+  session     PetlEditSession @relation(fields: [sessionId], references: [id])\
+  sowItem     SowItem         @relation(fields: [sowItemId], references: [id])\
+\}\
+\
+model DailyLog \{\
+  id                   String               @id @default(cuid())\
+  projectId            String\
+  createdById          String\
+  logDate              DateTime\
+  title                String?\
+  tagsJson             String?\
+  weatherSummary       String?\
+  crewOnSite           String?\
+  workPerformed        String?\
+  issues               String?\
+  safetyIncidents      String?\
+  manpowerOnsite       String?\
+  personOnsite         String?\
+  confidentialNotes    String?\
+  shareInternal        Boolean              @default(true)\
+  shareSubs            Boolean              @default(false)\
+  shareClient          Boolean              @default(false)\
+  sharePrivate         Boolean              @default(false)\
+  notifyUserIdsJson    String?\
+  createdAt            DateTime             @default(now())\
+  updatedAt            DateTime             @updatedAt\
+  effectiveShareClient Boolean              @default(false)\
+  status               DailyLogStatus       @default(SUBMITTED)\
+  createdBy            User                 @relation(fields: [createdById], references: [id])\
+  project              Project              @relation(fields: [projectId], references: [id])\
+  attachments          DailyLogAttachment[]\
+\
+  @@index([projectId], map: "DailyLog_project_idx")\
+\}\
+\
+model DailyLogAttachment \{\
+  id         String   @id @default(cuid())\
+  dailyLogId String\
+  fileUrl    String\
+  fileName   String?\
+  mimeType   String?\
+  sizeBytes  Int?\
+  createdAt  DateTime @default(now())\
+  dailyLog   DailyLog @relation(fields: [dailyLogId], references: [id])\
+\
+  @@index([dailyLogId], map: "DailyLogAttachment_log_idx")\
+\}\
+\
+model OnboardingSession \{\
+  id                      String                  @id @default(cuid())\
+  companyId               String\
+  email                   String\
+  token                   String                  @unique\
+  status                  OnboardingStatus        @default(NOT_STARTED)\
+  checklistJson           String?\
+  assignedHiringManagerId String?\
+  createdAt               DateTime                @default(now())\
+  updatedAt               DateTime                @updatedAt\
+  userId                  String?\
+  bankInfo                OnboardingBankInfo?\
+  documents               OnboardingDocument[]\
+  profile                 OnboardingProfile?\
+  user                    User?                   @relation(fields: [userId], references: [id])\
+  skillRatings            OnboardingSkillRating[]\
+\
+  @@index([companyId, createdAt], map: "OnboardingSession_company_created_idx")\
+  @@index([userId], map: "OnboardingSession_user_idx")\
+\}\
+\
+model OnboardingProfile \{\
+  id           String            @id @default(cuid())\
+  sessionId    String            @unique\
+  firstName    String?\
+  lastName     String?\
+  phone        String?\
+  addressLine1 String?\
+  addressLine2 String?\
+  city         String?\
+  state        String?\
+  postalCode   String?\
+  country      String?\
+  dob          DateTime?\
+  session      OnboardingSession @relation(fields: [sessionId], references: [id])\
+\}\
+\
+model OnboardingDocument \{\
+  id        String                 @id @default(cuid())\
+  sessionId String\
+  type      OnboardingDocumentType\
+  fileUrl   String\
+  fileName  String?\
+  mimeType  String?\
+  sizeBytes Int?\
+  createdAt DateTime               @default(now())\
+  session   OnboardingSession      @relation(fields: [sessionId], references: [id])\
+\
+  @@index([sessionId], map: "OnboardingDocument_session_idx")\
+\}\
+\
+model OnboardingBankInfo \{\
+  id                  String            @id @default(cuid())\
+  sessionId           String            @unique\
+  accountHolderName   String?\
+  routingNumberMasked String?\
+  accountNumberMasked String?\
+  bankName            String?\
+  createdAt           DateTime          @default(now())\
+  session             OnboardingSession @relation(fields: [sessionId], references: [id])\
+\}\
+\
+model OnboardingSkillRating \{\
+  id        String            @id @default(cuid())\
+  sessionId String\
+  skillId   String\
+  level     Int\
+  updatedAt DateTime          @updatedAt\
+  session   OnboardingSession @relation(fields: [sessionId], references: [id])\
+\
+  @@unique([sessionId, skillId], name: "OnboardingSkillRating_session_skill_key")\
+\}\
+\
+model SkillCategory \{\
+  id        String  @id @default(cuid())\
+  code      String  @unique\
+  label     String\
+  sortOrder Int     @default(0)\
+  active    Boolean @default(true)\
+\}\
+\
+model SkillDefinition \{\
+  id          String  @id @default(cuid())\
+  categoryId  String\
+  code        String  @unique\
+  label       String\
+  description String?\
+  sortOrder   Int     @default(0)\
+  active      Boolean @default(true)\
+  tradeLabel  String?\
+\}\
+\
+model UserSkillRating \{\
+  id                  String   @id @default(cuid())\
+  userId              String\
+  skillId             String\
+  selfLevel           Int\
+  selfLevelLabel      String?\
+  yearsExperience     Int?\
+  notes               String?\
+  employerAvgLevel    Float?\
+  employerRatingCount Int?\
+  adminOverrideLevel  Int?\
+  updatedAt           DateTime @updatedAt\
+  clientAvgLevel      Float?\
+  clientRatingCount   Int?\
+\
+  @@unique([userId, skillId], name: "UserSkillRating_user_skill_key")\
+\}\
+\
+model EmployerSkillRating \{\
+  id            String   @id @default(cuid())\
+  userId        String\
+  skillId       String\
+  companyId     String\
+  ratedByUserId String?\
+  level         Int\
+  levelLabel    String?\
+  comment       String?\
+  createdAt     DateTime @default(now())\
+  updatedAt     DateTime @updatedAt\
+\
+  @@index([userId, skillId], map: "EmployerSkillRating_user_skill_idx")\
+  @@index([companyId], map: "EmployerSkillRating_company_idx")\
+\}\
+\
+model ClientSkillRating \{\
+  id              String   @id @default(cuid())\
+  userId          String\
+  skillId         String\
+  clientCompanyId String?\
+  ratedByUserId   String?\
+  level           Int\
+  levelLabel      String?\
+  comment         String?\
+  createdAt       DateTime @default(now())\
+  updatedAt       DateTime @updatedAt\
+\
+  @@index([userId, skillId], map: "ClientSkillRating_user_skill_idx")\
+  @@index([clientCompanyId], map: "ClientSkillRating_company_idx")\
+\}\
+\
+model UserSkillSuggestion \{\
+  id            String   @id @default(cuid())\
+  userId        String\
+  label         String\
+  categoryLabel String?\
+  description   String?\
+  status        String   @default("PENDING")\
+  createdAt     DateTime @default(now())\
+  updatedAt     DateTime @updatedAt\
+\
+  @@index([userId], map: "UserSkillSuggestion_user_idx")\
+  @@index([status])\
+\}\
+\
+model ReputationRating \{\
+  id                String                     @id @default(cuid())\
+  subjectType       ReputationSubjectType\
+  subjectUserId     String?\
+  subjectCompanyId  String?\
+  raterUserId       String?\
+  raterCompanyId    String?\
+  sourceType        ReputationSourceType\
+  dimension         ReputationDimension        @default(OVERALL)\
+  score             Int\
+  comment           String?\
+  moderationStatus  ReputationModerationStatus @default(PENDING)\
+  moderatedByUserId String?\
+  moderatedAt       DateTime?\
+  moderatorNote     String?\
+  isActive          Boolean                    @default(true)\
+  createdAt         DateTime                   @default(now())\
+  updatedAt         DateTime                   @updatedAt\
+\
+  @@index([subjectUserId], map: "ReputationRating_subject_user_idx")\
+  @@index([subjectCompanyId], map: "ReputationRating_subject_company_idx")\
+\}\
+\
+model ImportJob \{\
+  id                String          @id @default(cuid())\
+  companyId         String\
+  projectId         String\
+  createdByUserId   String\
+  type              ImportJobType\
+  status            ImportJobStatus @default(QUEUED)\
+  progress          Int             @default(0)\
+  message           String?\
+  csvPath           String?\
+  estimateVersionId String?\
+  resultJson        Json?\
+  errorJson         Json?\
+  createdAt         DateTime        @default(now())\
+  updatedAt         DateTime        @updatedAt\
+  startedAt         DateTime?\
+  finishedAt        DateTime?\
+  company           Company         @relation(fields: [companyId], references: [id])\
+  createdBy         User            @relation("ImportJobCreatedBy", fields: [createdByUserId], references: [id])\
+  project           Project         @relation(fields: [projectId], references: [id])\
+\
+  @@index([companyId, createdAt], map: "ImportJob_company_created_idx")\
+  @@index([projectId, createdAt], map: "ImportJob_project_created_idx")\
+  @@index([status, createdAt], map: "ImportJob_status_created_idx")\
+\}\
+\
+enum GlobalRole \{\
+  NONE\
+  SUPER_ADMIN\
+  SUPPORT\
+\}\
+\
+enum CompanyKind \{\
+  SYSTEM\
+  ORGANIZATION\
+\}\
+\
+enum UserType \{\
+  INTERNAL\
+  CLIENT\
+  APPLICANT\
+\}\
+\
+enum ImportJobType \{\
+  XACT_RAW\
+  XACT_COMPONENTS\
+\}\
+\
+enum ImportJobStatus \{\
+  QUEUED\
+  RUNNING\
+  SUCCEEDED\
+  FAILED\
+\}\
+\
+enum Role \{\
+  OWNER\
+  ADMIN\
+  MEMBER\
+  CLIENT\
+\}\
+\
+enum ParcelStatus \{\
+  PLANNED\
+  ACTIVE\
+  ON_HOLD\
+  COMPLETE\
+\}\
+\
+enum ProjectRole \{\
+  OWNER\
+  MANAGER\
+  COLLABORATOR\
+  VIEWER\
+\}\
+\
+enum ProjectParticipantScope \{\
+  OWNER_MEMBER\
+  COLLABORATOR_MEMBER\
+  EXTERNAL_CONTACT\
+\}\
+\
+enum ProjectVisibilityLevel \{\
+  FULL\
+  LIMITED\
+  READ_ONLY\
+\}\
+\
+enum ProjectParticleType \{\
+  ROOM\
+  ZONE\
+  EXTERIOR\
+\}\
+\
+enum TaskStatus \{\
+  TODO\
+  IN_PROGRESS\
+  BLOCKED\
+  DONE\
+\}\
+\
+enum TaskPriority \{\
+  LOW\
+  MEDIUM\
+  HIGH\
+  CRITICAL\
+\}\
+\
+enum DailyLogStatus \{\
+  SUBMITTED\
+  APPROVED\
+  REJECTED\
+\}\
+\
+enum OnboardingStatus \{\
+  NOT_STARTED\
+  IN_PROGRESS\
+  SUBMITTED\
+  UNDER_REVIEW\
+  APPROVED\
+  REJECTED\
+\}\
+\
+enum OnboardingDocumentType \{\
+  PHOTO\
+  GOV_ID\
+  OTHER\
+\}\
+\
+enum ReputationSubjectType \{\
+  USER\
+  COMPANY\
+\}\
+\
+enum ReputationSourceType \{\
+  EMPLOYER_ON_WORKER\
+  WORKER_ON_EMPLOYER\
+  CLIENT_ON_COMPANY\
+  COMPANY_ON_CLIENT\
+  MODERATOR_ADJUSTMENT\
+\}\
+\
+enum ReputationDimension \{\
+  OVERALL\
+  SAFETY\
+  PAYMENT\
+  COMMUNICATION\
+  QUALITY\
+\}\
+\
+enum ReputationModerationStatus \{\
+  PENDING\
+  APPROVED\
+  REJECTED\
+\}\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/Dockerfile**\
+```\
+# Dockerfile for Nexus Enterprise monorepo API service\
+# Builds and runs the NestJS API on Cloud Run (or any Docker runtime)\
+\
+FROM node:20-alpine\
+\
+# Create app directory\
+WORKDIR /app\
+\
+# Install root dependencies (workspace-aware)\
+# Copy only manifest files first for better Docker layer caching\
+COPY package*.json ./\
+COPY tsconfig.json ./\
+COPY turbo.json ./\
+COPY apps/api/package.json ./apps/api/package.json\
+COPY packages/database/package.json ./packages/database/package.json\
+\
+RUN npm ci\
+\
+# Copy the rest of the repository\
+COPY . .\
+\
+# Generate Prisma client for the shared database package\
+RUN npm run prisma:generate --workspace @repo/database\
+\
+# Build the API app (TypeScript -> dist) via Turborepo, filtering to the api app\
+RUN npm run build -- --filter=api\
+\
+# Ensure our working directory is the API app for runtime\
+WORKDIR /app/apps/api\
+\
+# Runtime configuration\
+ENV NODE_ENV=production\
+# Cloud Run will inject PORT; default to 8080 for local runs\
+ENV PORT=8080\
+\
+EXPOSE 8080\
+\
+# Start the NestJS API\
+CMD ["node", "dist/main.js"]\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/docs/architecture/README.md**\
+```\
+# Architecture\
+\
+Add high-level diagrams and descriptions of the Nexus Connect system here.\
+```\
+\
+**/Users/pg/nexus-enterprise/docs/onboarding/README.md**\
+```\
+# Onboarding\
+\
+Step-by-step instructions for getting a local environment running and understanding the codebase.\
+\
+## Running apps\
+\
+### Web\
+- From repo root: `npm run dev:web`\
+- Production build: `npx turbo run build --filter=web`\
+\
+### Admin\
+- From repo root: `npm run dev:admin`\
+- Production build: `npx turbo run build --filter=admin`\
+\
+### API (Node + tRPC)\
+- From repo root: `npm run dev:api`\
+\
+### Mobile (Expo)\
+- From `apps/mobile`: `npm run start`\
+- Note: The mobile app is validated via Expo dev (`npm run start`), not a CI build. The root CI pipeline currently builds web, admin, and the Node API; mobile is expected to run interactively via Expo.\
+\
+```\
+\
+\
+\
+\
+\
+**Grep Results:**\
+\
+- **/Users/pg/nexus-enterprise/apps/web/app/view-as-role-switcher.tsx**\
+- **/Users/pg/nexus-enterprise/packages/database/prisma/schema.prisma**\
+- **/Users/pg/nexus-enterprise/scripts/db-migrate-cloud.sh**\
+- **/Users/pg/nexus-enterprise/apps/web/app/onboarding/public-onboarding-form.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/projects/layout.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/admin/reputation/page.tsx**\
+- **/Users/pg/nexus-enterprise/scripts/dev-start.sh**\
+- **/Users/pg/nexus-enterprise/scripts/dev-restart-cloud.sh**\
+- **/Users/pg/nexus-enterprise/docs/data/20251130.0223 - PG WARP - summarize the ncc app architecture and workflow.sb-8483940b-WFlWIL**\
+- **/Users/pg/nexus-enterprise/apps/web/app/company/users/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/company/users/[userId]/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/api/projects/[projectId]/import-xact-components/route.ts**\
+- **/Users/pg/nexus-enterprise/apps/web/app/projects/import/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/api/src/app.module.ts**\
+- **/Users/pg/nexus-enterprise/docs/onboarding/envs-and-migrations.md**\
+- **/Users/pg/nexus-enterprise/apps/web/app/settings/users/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/login/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/settings/skills/page.tsx**\
+- **/Users/pg/nexus-enterprise/docs/data/Migrate Nexus API from Laravel to Node+tRPC and align monorepo structure.md**\
+- **/Users/pg/nexus-enterprise/apps/web/app/reset-password/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/onboarding/page.tsx**\
+- **/Users/pg/nexus-enterprise/docs/onboarding/dev-stack.md**\
+- **/Users/pg/nexus-enterprise/apps/web/app/system/[companyId]/page.tsx**\
+- **/Users/pg/nexus-enterprise/scripts/dev-api-cloud-db.sh**\
+- **/Users/pg/nexus-enterprise/apps/web/app/projects/[id]/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/api/projects/[projectId]/import-xact/route.ts**\
+- **/Users/pg/nexus-enterprise/apps/web/app/system/layout.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/company/trades/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/settings/profile/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/settings/roles/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/projects/[id]/room-summary/page.tsx**\
+- **/Users/pg/nexus-enterprise/WARP.md**\
+- **/Users/pg/nexus-enterprise/apps/web/app/ui-shell.tsx**\
+- **/Users/pg/nexus-enterprise/scripts/db-migrate-prod.sh**\
+- **/Users/pg/nexus-enterprise/scripts/deploy-api.sh**\
+- **/Users/pg/nexus-enterprise/apps/web/app/system/templates/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/admin/skills-review/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/accept-invite/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/apply/page.tsx**\
+- **/Users/pg/nexus-enterprise/apps/web/app/system/templates/[id]/page.tsx**\
+\
+\
+\
+\
+**Files Read:**\
+\
+**/Users/pg/nexus-enterprise/scripts/dev-api-cloud-db.sh**\
+```\
+#!/usr/bin/env bash\
+set -euo pipefail\
+\
+# Run the local API (apps/api) dev server against Cloud SQL.\
+#\
+# Usage:\
+#   export DATABASE_URL="postgresql://postgres:<PASSWORD>@<CLOUD_SQL_IP>:5432/nexus_db"\
+#   ./scripts/dev-api-cloud-db.sh\
+#\
+# Note: DATABASE_URL is not stored in this repo; you must set it in your shell.\
+\
+if [[ -z "$\{DATABASE_URL:-\}" ]]; then\
+  echo "DATABASE_URL is not set. Export it in your shell before running this script." >&2\
+  exit 1\
+fi\
+\
+ROOT_DIR="$(cd "$(dirname "$\{BASH_SOURCE[0]\}")/.." && pwd)"\
+cd "$ROOT_DIR/apps/api"\
+\
+echo "[dev-api-cloud-db] Using DATABASE_URL pointed at Cloud SQL."\
+npm run dev\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/scripts/db-migrate-cloud.sh**\
+```\
+#!/usr/bin/env bash\
+set -euo pipefail\
+\
+# Run Prisma migrations (packages/database) against Cloud SQL.\
+#\
+# Usage:\
+#   export DATABASE_URL="postgresql://postgres:<PASSWORD>@<CLOUD_SQL_IP>:5432/nexus_db"\
+#   ./scripts/db-migrate-cloud.sh\
+#\
+# Note: DATABASE_URL is not stored in this repo; you must set it in your shell.\
+\
+if [[ -z "$\{DATABASE_URL:-\}" ]]; then\
+  echo "DATABASE_URL is not set. Export it in your shell before running this script." >&2\
+  exit 1\
+fi\
+\
+ROOT_DIR="$(cd "$(dirname "$\{BASH_SOURCE[0]\}")/.." && pwd)"\
+cd "$ROOT_DIR/packages/database"\
+\
+echo "[db-migrate-cloud] Running Prisma migrations against Cloud SQL..."\
+npm run prisma:migrate\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/scripts/db-migrate-prod.sh**\
+```\
+#!/usr/bin/env bash\
+set -euo pipefail\
+\
+# Run Prisma migrations against a production database.\
+#\
+# Usage:\
+#   export DATABASE_URL="postgresql://postgres:$\{PROD_DB_PASSWORD\}@34.29.118.171:5432/nexus_db"\
+#   ./scripts/db-migrate-prod.sh\
+#\
+# Notes:\
+# - Uses `prisma migrate deploy` (non-interactive, production-safe)\
+# - Never commits secrets; DATABASE_URL must be provided via environment variable\
+\
+if [[ -z "$\{DATABASE_URL:-\}" ]]; then\
+  echo "DATABASE_URL is not set. Export it in your shell before running this script." >&2\
+  exit 1\
+fi\
+\
+ROOT_DIR="$(cd "$(dirname "$\{BASH_SOURCE[0]\}")/.." && pwd)"\
+cd "$ROOT_DIR/packages/database"\
+\
+echo "[db-migrate-prod] Running Prisma migrate deploy..."\
+# Use local Prisma from this workspace\
+npx prisma migrate deploy\
+\
+echo "[db-migrate-prod] Done."\
+```\
+\
+**/Users/pg/nexus-enterprise/scripts/deploy-api.sh**\
+```\
+#!/usr/bin/env bash\
+set -euo pipefail\
+\
+# Deploy the Nexus API (apps/api) to Cloud Run.\
+#\
+# Usage:\
+#   ./scripts/deploy-api.sh\
+#\
+# Prereqs:\
+#   - gcloud CLI installed and authenticated\
+#   - You have access to project nexus-enterprise-480610\
+#   - Cloud Run service "nexus-api" already configured with DATABASE_URL env var\
+\
+PROJECT_ID="nexus-enterprise-480610"\
+REGION="us-central1"\
+SERVICE="nexus-api"\
+IMAGE="us-docker.pkg.dev/$\{PROJECT_ID\}/nexus-api/nexus-api"\
+\
+ROOT_DIR="$(cd "$(dirname "$\{BASH_SOURCE[0]\}")/.." && pwd)"\
+cd "$ROOT_DIR"\
+\
+echo "[deploy-api] Using project: $PROJECT_ID"\
+gcloud config set project "$PROJECT_ID" >/dev/null\
+\
+echo "[deploy-api] Building image with Cloud Build..."\
+gcloud builds submit \\\
+  --tag "$IMAGE" \\\
+  --project "$PROJECT_ID"\
+\
+echo "[deploy-api] Deploying to Cloud Run service: $SERVICE ($REGION)"\
+gcloud run deploy "$SERVICE" \\\
+  --image "$IMAGE" \\\
+  --platform managed \\\
+  --region "$REGION" \\\
+  --project "$PROJECT_ID" \\\
+  --allow-unauthenticated\
+\
+echo "[deploy-api] Done. Check the Cloud Run URL in the gcloud output above."\
+```\
+\
+**/Users/pg/nexus-enterprise/docs/onboarding/dev-stack.md**\
+```\
+# Nexus Dev Stack: Golden Path\
+\
+This doc describes the **minimal set of processes and steps** to get a healthy local dev stack running for Nexus, plus how to debug the most common failures.\
+\
+The core idea: you need **three local processes** talking to a **single database** via Cloud SQL.\
+\
+- Cloud SQL proxy \uc0\u8594  connects to Cloud SQL (prod or dev)\
+- API dev server \uc0\u8594  NestJS on `http://localhost:8000`\
+- Web dev server \uc0\u8594  Next.js on `http://localhost:3000`\
+\
+If these three are healthy, the UI and login will work.\
+\
+---\
+\
+## 0. Prereqs\
+\
+- `gcloud` installed and authenticated (ADC set up).\
+- `cloud-sql-proxy` installed.\
+- This repo checked out at `~/nexus-enterprise`.\
+\
+Cloud SQL instances (names from GCP):\
+\
+- `nexusprod-v2`\
+- `nexus-dev-postgres`\
+\
+The examples below assume **prod** database for day-to-day testing. Swap to `nexus-dev-postgres` when you want a safer dev DB.\
+\
+---\
+\
+## 1. Start / confirm Cloud SQL proxy\
+\
+In a terminal:\
+\
+```bash\
+cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2\
+```\
+\
+Leave this running. When ready, you should see output like:\
+\
+- `Listening on 127.0.0.1:5433`\
+- `The proxy has started successfully and is ready for new connections!`\
+\
+If this is already running from another tab/window, you **do not** need to start it again.\
+\
+To check quickly:\
+\
+```bash\
+lsof -ti:5433\
+```\
+\
+If you see a PID, the proxy is up.\
+\
+---\
+\
+## 2. Start / reset the API dev server (NestJS)\
+\
+From the repo root:\
+\
+```bash\
+cd /Users/pg/nexus-enterprise\
+\
+# Optional but recommended if things feel stuck.\
+npm run dev:clean   # kills anything on ports 3000 and 8000\
+\
+# Start API pointing at the DB via the proxy\
+export DATABASE_URL="postgresql://postgres:NEXUS_2025_PROD-v2@127.0.0.1:5433/nexus_db"\
+bash ./scripts/dev-api-cloud-db.sh\
+```\
+\
+You want to see:\
+\
+- Nest startup logs\
+- `Nest application successfully started`\
+- `API listening on http://localhost:8000`\
+\
+If the process exits or shows a stack trace, **stop here** and fix the API/DB issue before touching the web app.\
+\
+---\
+\
+## 3. Verify API health\
+\
+In another terminal:\
+\
+```bash\
+cd /Users/pg/nexus-enterprise\
+curl -i http://localhost:8000/health\
+```\
+\
+Healthy output looks like:\
+\
+```http\
+HTTP/1.1 200 OK\
+...\
+\{"ok":true,"dbTime":"2025-..","redis":"PONG"\}\
+```\
+\
+If you see `500 Internal Server Error` here, **do not** debug login or UI yet. `/health` must be 200 before anything else is meaningful.\
+\
+Common meanings:\
+\
+- `200 OK` \uc0\u8594  API + DB + Redis client are all healthy.\
+- `500` \uc0\u8594  something inside the API is throwing (Prisma, DB, etc.). Fix this first.\
+- `curl: (7) Failed to connect` \uc0\u8594  API process is not running or crashed. Restart with step 2.\
+\
+---\
+\
+## 4. Start / confirm the web dev server (Next.js)\
+\
+Only after `/health` returns 200:\
+\
+```bash\
+cd /Users/pg/nexus-enterprise/apps/web\
+npm run dev\
+```\
+\
+You want to see something like:\
+\
+- `ready - started server on 0.0.0.0:3000`\
+\
+Quick check:\
+\
+```bash\
+lsof -ti:3000\
+```\
+\
+If a PID shows up, web dev server is listening.\
+\
+Then open:\
+\
+- `http://localhost:3000`\
+\
+You should see the login page.\
+\
+---\
+\
+## 5. Accounts to use\
+\
+### Superadmin (cross-tenant admin)\
+\
+Use this for:\
+\
+- Switching between multiple organizations\
+- Using `/admin/*` endpoints\
+- Seeding / impersonation / role testing\
+\
+**Credentials:**\
+\
+- Email: `pg.superadmin@ncc.local`\
+- Password: (whatever latest dev password you set via `/auth/bootstrap-superadmin`)\
+\
+If you ever forget the password, you can reset it via:\
+\
+```bash\
+curl -i http://localhost:8000/auth/bootstrap-superadmin \\\
+  -H "Content-Type: application/json" \\\
+  -d '\{"email":"pg.superadmin@ncc.local","password":"NEW_PASSWORD"\}'\
+```\
+\
+As long as the email matches the existing SUPER_ADMIN, this is idempotent and just updates the password.\
+\
+### Paul (tenant-level user)\
+\
+Use this to see what a normal tenant user sees.\
+\
+**Credentials:**\
+\
+- Email: `paul@nfsgrp.com`\
+- Password: `PaulDev!2025`\
+\
+If this ever stops working, the password can be reset directly in the DB using a small Node script (see history) or an admin helper we may add in the future.\
+\
+---\
+\
+## 6. Quick status checks (what\'92s running?)\
+\
+From anywhere:\
+\
+```bash\
+lsof -ti:5433,8000,3000\
+```\
+\
+Interpretation:\
+\
+- PID on **5433** \uc0\u8594  Cloud SQL proxy is running.\
+- PID on **8000** \uc0\u8594  API dev server is running.\
+- PID on **3000** \uc0\u8594  Web dev server is running.\
+\
+If things feel weird:\
+\
+```bash\
+cd /Users/pg/nexus-enterprise\
+npm run dev:clean   # kills processes on 8000 and 3000 (API + web)\
+```\
+\
+This does **not** kill the Cloud SQL proxy on 5433. After that, redo:\
+\
+1. Start API (`bash ./scripts/dev-api-cloud-db.sh`)\
+2. Confirm `/health` is 200\
+3. Start web (`npm run dev` in `apps/web`)\
+\
+---\
+\
+## 7. Interpreting login errors (browser)\
+\
+In Chrome/Edge DevTools \uc0\u8594  Network, click the `login` request (to `/auth/login`).\
+\
+### 401 Unauthorized\
+\
+- Status: `401`\
+- Body: `\{"message":"Invalid credentials"\}`\
+\
+Meaning:\
+\
+- Email exists, but password does **not** match that user\'92s `passwordHash`.\
+\
+Fix:\
+\
+- Double-check you\'92re typing the right password.\
+- For dev accounts (like `pg.superadmin@ncc.local`), reset the password via `/auth/bootstrap-superadmin` as shown above.\
+\
+### 500 Internal Server Error\
+\
+- Status: `500`\
+- Body: `\{"statusCode":500,"message":"Internal server error"\}`\
+\
+Meaning:\
+\
+- The API threw an exception **after** receiving the request.\
+- Often indicates a DB/Prisma or infra problem.\
+\
+Fix:\
+\
+1. Check `/health`:\
+   \
+   ```bash\
+   curl -i http://localhost:8000/health\
+   ```\
+\
+2. If `/health` is also 500 or unreachable, focus on fixing API/DB (steps 2\'963 above) before debugging login.\
+\
+### Network error / cannot reach `localhost:8000`\
+\
+- DevTools shows something like `ERR_CONNECTION_REFUSED`.\
+\
+Meaning:\
+\
+- API process is not listening on 8000 (crashed or never started).\
+\
+Fix:\
+\
+1. Check:\
+   \
+   ```bash\
+   lsof -ti:8000\
+   ```\
+\
+   - If no PID, API is not running.\
+\
+2. Restart API:\
+   \
+   ```bash\
+   cd /Users/pg/nexus-enterprise\
+   npm run dev:clean   # optional but safe\
+   export DATABASE_URL="postgresql://postgres:NEXUS_2025_PROD-v2@127.0.0.1:5433/nexus_db"\
+   bash ./scripts/dev-api-cloud-db.sh\
+   ```\
+\
+3. Confirm `/health` is 200, then retry login.\
+\
+---\
+\
+## 8. Minimal daily workflow\
+\
+After a reboot or when sitting down to work on Nexus:\
+\
+1. **Start proxy (once)**\
+   \
+   ```bash\
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2\
+   ```\
+\
+2. **Start API**\
+   \
+   ```bash\
+   cd /Users/pg/nexus-enterprise\
+   export DATABASE_URL="postgresql://postgres:NEXUS_2025_PROD-v2@127.0.0.1:5433/nexus_db"\
+   bash ./scripts/dev-api-cloud-db.sh\
+   ```\
+\
+3. **Check health**\
+   \
+   ```bash\
+   curl -i http://localhost:8000/health\
+   ```\
+\
+4. **Start web**\
+   \
+   ```bash\
+   cd /Users/pg/nexus-enterprise/apps/web\
+   npm run dev\
+   ```\
+\
+5. **Log in** as either superadmin or Paul and do your work.\
+\
+If any step fails, use the health + lsof checks above to see which layer is broken (proxy, API, or web) and fix that layer first.\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/docs/onboarding/envs-and-migrations.md**\
+```\
+# Nexus Environments & Migrations: Mental Model\
+\
+This doc explains **which database you are talking to** during development, and how to safely move changes from **dev \uc0\u8594  (optional test) \u8594  prod**.\
+\
+The key is to separate:\
+\
+- **Code changes** (TypeScript/React/Nest) \uc0\u8594  live only in your local repo until deployed.\
+- **Database changes** (Prisma migrations / data updates) \uc0\u8594  affect whichever Cloud SQL instance your `DATABASE_URL` points to.\
+\
+---\
+\
+## 1. Current environment wiring (as used in dev-stack)\
+\
+Right now, your default "golden path" stack is:\
+\
+- Cloud SQL proxy:\
+  \
+  ```bash\
+  cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2\
+  ```\
+\
+- API dev server:\
+  \
+  ```bash\
+  export DATABASE_URL="postgresql://postgres:NEXUS_2025_PROD-v2@127.0.0.1:5433/nexus_db"\
+  bash ./scripts/dev-api-cloud-db.sh\
+  ```\
+\
+This means:\
+\
+- **All Prisma queries and writes from the API** go to the **prod Cloud SQL instance**.\
+- Any scripts you run with the same `DATABASE_URL` (e.g. `npx prisma migrate deploy`) will also hit prod.\
+\
+You have a **dev** Cloud SQL instance (`nexus-dev-postgres`) that we can and should use for day-to-day schema work and more experimental testing.\
+\
+---\
+\
+## 2. Target model: dev \uc0\u8594  test \u8594  prod\
+\
+Logical environments:\
+\
+1. **Dev DB** (`nexus-dev-postgres`)\
+   - Safe place to:\
+     - Create and test new Prisma models/migrations\
+     - Run import scripts (Xact CSV, Simple PETL, price lists)\
+     - Try destructive changes\
+   - Can be reset/reseeded more aggressively.\
+\
+2. **(Optional) Test / Staging DB**\
+   - Could be a separate Cloud SQL instance or schema.\
+   - Mirrors prod structure with sanitized or copied data.\
+   - Used for final verification before prod.\
+   - Not strictly required yet; you can treat **dev DB** as your non-prod environment for now.\
+\
+3. **Prod DB** (`nexusprod-v2`)\
+   - Real / canonical data.\
+   - Only receive changes that have:\
+     - Been applied and verified on dev DB first.\
+     - Been reviewed from a migration / backup standpoint.\
+\
+---\
+\
+## 3. How to point local dev at **dev DB** vs **prod DB**\
+\
+### 3.1 Using the dev DB (recommended for everyday work)\
+\
+1. Start proxy to **dev** instance:\
+   \
+   ```bash\
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres\
+   ```\
+\
+2. In another terminal, start API with `DATABASE_URL` pointing at dev:\
+   \
+   ```bash\
+   cd /Users/pg/nexus-enterprise\
+   export DATABASE_URL="postgresql://postgres:<DEV_PASSWORD>@127.0.0.1:5433/nexus_db"\
+   bash ./scripts/dev-api-cloud-db.sh\
+   ```\
+\
+3. Start web dev as usual:\
+   \
+   ```bash\
+   cd /Users/pg/nexus-enterprise/apps/web\
+   npm run dev\
+   ```\
+\
+All reads/writes now go to **nexus-dev-postgres**, not prod.\
+\
+### 3.2 Using the prod DB (only when you really intend to)\
+\
+1. Start proxy to **prod** instance:\
+   \
+   ```bash\
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2\
+   ```\
+\
+2. Use the prod `DATABASE_URL`:\
+   \
+   ```bash\
+   export DATABASE_URL="postgresql://postgres:NEXUS_2025_PROD-v2@127.0.0.1:5433/nexus_db"\
+   bash ./scripts/dev-api-cloud-db.sh\
+   ```\
+\
+Only use this when you explicitly want to:\
+\
+- Inspect prod data behavior\
+- Debug issues that only appear with real data\
+\
+For schema changes, **never start on prod**; always go Dev \uc0\u8594  Prod.\
+\
+---\
+\
+## 4. Prisma migration workflow (Dev \uc0\u8594  Prod)\
+\
+Prisma migrations live under:\
+\
+- `packages/database/prisma/schema.prisma`\
+- `packages/database/prisma/migrations/*`\
+\
+### 4.1 Create & apply a new migration on **dev DB**\
+\
+1. Ensure your stack is pointed at **dev DB** (see section 3.1) and the proxy is running to `nexus-dev-postgres`.\
+\
+2. From `packages/database`:\
+   \
+   ```bash\
+   cd /Users/pg/nexus-enterprise/packages/database\
+\
+   # Point Prisma CLI at dev DB\
+   export DATABASE_URL="postgresql://postgres:<DEV_PASSWORD>@127.0.0.1:5433/nexus_db"\
+\
+   # Edit prisma/schema.prisma as needed\
+   # Then create + apply a new migration on dev:\
+   npx prisma migrate dev --name add_some_feature --schema ./prisma/schema.prisma\
+   ```\
+\
+This will:\
+\
+- Update the dev DB schema.\
+- Create a new folder under `prisma/migrations/*` tracked in git.\
+\
+3. Verify behavior via API + web pointed at dev DB.\
+\
+### 4.2 Apply the same migrations to **prod DB**\
+\
+Once you\'92re happy with the migration on dev:\
+\
+1. Start proxy to **prod** instance:\
+   \
+   ```bash\
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2\
+   ```\
+\
+2. From `packages/database`:\
+   \
+   ```bash\
+   cd /Users/pg/nexus-enterprise/packages/database\
+\
+   export DATABASE_URL="postgresql://postgres:NEXUS_2025_PROD-v2@127.0.0.1:5433/nexus_db"\
+\
+   # Apply all existing migrations to prod (no new ones created)\
+   npx prisma migrate deploy --schema ./prisma/schema.prisma\
+   ```\
+\
+This will:\
+\
+- Look at the migrations already in git.\
+- Apply any pending ones to the prod DB.\
+\
+**Important:** Do **not** run `prisma migrate dev` against prod. Always use `migrate dev` on dev DB and `migrate deploy` on prod DB.\
+\
+---\
+\
+## 5. Data-manipulation scripts (imports, password resets, etc.)\
+\
+Any Node / ts-node script or ad-hoc Node snippet that uses `PrismaClient` or `@repo/database` will talk to **whatever DB `DATABASE_URL` is set to**.\
+\
+Examples:\
+\
+- Importing an Xactimate CSV into PETL\
+- Importing a price list into `ComponentCatalog` / `ComponentPrice`\
+- Manual password resets using a Node script\
+\
+### Safe practice\
+\
+1. For **experiments** or new scripts:\
+   - Run them only against **dev DB**.\
+\
+2. Once a script is trustworthy and idempotent:\
+   - Re-run it against prod only when needed, with `DATABASE_URL` pointed at prod and the Cloud SQL proxy targeting `nexusprod-v2`.\
+\
+Always double-check `DATABASE_URL` before running anything that writes.\
+\
+You can quickly echo it:\
+\
+```bash\
+echo "$DATABASE_URL"\
+```\
+\
+Or see what the running API process is using (look for `DATABASE_URL=` in `ps eww <PID>` for the API PID).\
+\
+---\
+\
+## 6. Recommended day-to-day flow\
+\
+### Normal development (UI + API + schema work)\
+\
+1. Start proxy to **dev DB** (`nexus-dev-postgres`).\
+2. Start API with `DATABASE_URL` pointing at dev.\
+3. Run Prisma migrations with `prisma migrate dev` against dev DB.\
+4. Start web dev server; build and test features.\
+\
+### Before pushing schema changes to prod\
+\
+1. Commit migration files under `packages/database/prisma/migrations`.\
+2. Start proxy to **prod DB** (`nexusprod-v2`).\
+3. Run `prisma migrate deploy` with prod `DATABASE_URL`.\
+4. Optionally restart any long-running prod services (if/when you have a deployed API hitting prod).\
+\
+### When in doubt\
+\
+- If something looks scary, point everything at **dev DB** first.\
+- Use `lsof -ti:5433,8000,3000` and `/health` to confirm what\'92s actually running.\
+- Confirm `DATABASE_URL` before running migrations or scripts.\
+\
+This model keeps day-to-day development safe on dev DB while still letting you intentionally propagate known-good changes to prod when you\'92re ready.\
+```\
+\
+**/Users/pg/nexus-enterprise/apps/api/src/app.module.ts**\
+```\
+import \{ Module \} from "@nestjs/common";\
+import \{ ConfigModule \} from "@nestjs/config";\
+import \{ HealthModule \} from "./modules/health/health.module";\
+import \{ PrismaModule \} from "./infra/prisma/prisma.module";\
+import \{ RedisModule \} from "./infra/redis/redis.module";\
+import \{ AuthModule \} from "./modules/auth/auth.module";\
+import \{ CompanyModule \} from "./modules/company/company.module";\
+import \{ UserModule \} from "./modules/user/user.module";\
+import \{ ProjectModule \} from "./modules/project/project.module";\
+import \{ AdminModule \} from "./modules/admin/admin.module";\
+import \{ CommonModule \} from "./common/common.module";\
+import \{ TaskModule \} from "./modules/task/task.module";\
+import \{ ParcelModule \} from "./modules/parcel/parcel.module";\
+import \{ DevController \} from "./modules/dev/dev.controller";\
+import \{ JobStatusModule \} from "./modules/job-status/job-status.module";\
+import \{ TagModule \} from "./modules/tag/tag.module";\
+import \{ RolesModule \} from "./modules/roles/roles.module";\
+import \{ DailyLogModule \} from "./modules/daily-log/daily-log.module";\
+import \{ OnboardingModule \} from "./modules/onboarding/onboarding.module";\
+import \{ SkillsModule \} from "./modules/skills/skills.module";\
+import \{ ReputationModule \} from "./modules/reputation/reputation.module";\
+import \{ ImportJobsModule \} from "./modules/import-jobs/import-jobs.module";\
+\
+@Module(\{\
+  imports: [\
+    ConfigModule.forRoot(\{\
+      isGlobal: true,\
+      // Look for env files both in the workspace root and this app directory\
+      // so DATABASE_URL / REDIS_URL are visible in dev regardless of cwd.\
+      envFilePath: [".env", "../../.env"]\
+    \}),\
+    CommonModule,\
+    PrismaModule,\
+    RedisModule,\
+    HealthModule,\
+    AuthModule,\
+    CompanyModule,\
+    UserModule,\
+    ProjectModule,\
+    TaskModule,\
+    ParcelModule,\
+    AdminModule,\
+    JobStatusModule,\
+    TagModule,\
+    RolesModule,\
+    DailyLogModule,\
+    OnboardingModule,\
+    SkillsModule,\
+    ReputationModule,\
+    ImportJobsModule\
+  ],\
+  controllers: [DevController]\
+\})\
+export class AppModule \{\}\
+\
+```\
+\
+\
+\
+\
+\
+**Files Read:**\
+\
+**/Users/pg/nexus-enterprise/apps/web/app/login/page.tsx**\
+```\
+"use client";\
+\
+import \{ FormEvent, useState \} from "react";\
+\
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";\
+\
+export default function LoginPage() \{\
+  const [email, setEmail] = useState("");\
+  const [password, setPassword] = useState("");\
+  const [showPassword, setShowPassword] = useState(false);\
+  const [error, setError] = useState<string | null>(null);\
+  const [submitting, setSubmitting] = useState(false);\
+\
+  async function onSubmit(e: FormEvent) \{\
+    e.preventDefault();\
+    setError(null);\
+    setSubmitting(true);\
+\
+    try \{\
+      const res = await fetch(`$\{API_BASE\}/auth/login`, \{\
+        method: "POST",\
+        headers: \{ "Content-Type": "application/json" \},\
+        body: JSON.stringify(\{ email, password \})\
+      \});\
+\
+      if (!res.ok) \{\
+        setError("Login failed");\
+        return;\
+      \}\
+\
+      const data = await res.json();\
+      localStorage.setItem("accessToken", data.accessToken);\
+      localStorage.setItem("refreshToken", data.refreshToken);\
+      localStorage.setItem("companyId", data.company.id);\
+\
+      // Route by user context:\
+      // - APPLICANT: candidate portal\
+      // - SUPER_ADMIN: Nexus System\
+      // - everyone else: project workspace\
+      try \{\
+        const meRes = await fetch(`$\{API_BASE\}/users/me`, \{\
+          headers: \{ Authorization: `Bearer $\{data.accessToken\}` \},\
+        \});\
+        const me = meRes.ok ? await meRes.json() : null;\
+        if (me?.userType === "APPLICANT") \{\
+          window.location.href = "/candidate";\
+        \} else if (me?.globalRole === "SUPER_ADMIN") \{\
+          window.location.href = "/system";\
+        \} else \{\
+          window.location.href = "/projects";\
+        \}\
+      \} catch \{\
+        window.location.href = "/projects";\
+      \}\
+    \} catch (err) \{\
+      setError("Network error");\
+    \} finally \{\
+      setSubmitting(false);\
+    \}\
+  \}\
+\
+  return (\
+    <div\
+      style=\{\{\
+        display: "flex",\
+        justifyContent: "center",\
+        alignItems: "flex-start",\
+        paddingTop: "32px",\
+      \}\}\
+    >\
+      <div className="app-card" style=\{\{ maxWidth: 400, width: "100%" \}\}>\
+        <div style=\{\{ textAlign: "center", marginBottom: 16 \}\}>\
+          <img\
+            src="/nexus-logo-login.gif"\
+            alt="Nexus logo animation"\
+            style=\{\{ maxWidth: "260px", width: "100%", height: "auto" \}\}\
+          />\
+        </div>\
+        <h1 style=\{\{ marginTop: 0, marginBottom: 16, fontSize: 24 \}\}>Sign in</h1>\
+        <p style=\{\{ marginTop: 0, marginBottom: 24, color: "#6b7280", fontSize: 14 \}\}>\
+          Use your Nexus Enterprise account to continue.\
+        </p>\
+        <form\
+          onSubmit=\{onSubmit\}\
+          style=\{\{ display: "flex", flexDirection: "column", gap: 12 \}\}\
+        >\
+          <label style=\{\{ fontSize: 14 \}\}>\
+            <span style=\{\{ display: "block", marginBottom: 4 \}\}>Email</span>\
+            <input\
+              type="email"\
+              value=\{email\}\
+              onChange=\{e => setEmail(e.target.value)\}\
+              style=\{\{\
+                width: "100%",\
+                padding: "8px 10px",\
+                borderRadius: 6,\
+                border: "1px solid #d1d5db",\
+                fontSize: 14\
+              \}\}\
+            />\
+          </label>\
+          <label style=\{\{ fontSize: 14 \}\}>\
+            <span style=\{\{ display: "block", marginBottom: 4 \}\}>Password</span>\
+            <div\
+              style=\{\{\
+                position: "relative",\
+                display: "flex",\
+                alignItems: "center",\
+              \}\}\
+            >\
+              <input\
+                type=\{showPassword ? "text" : "password"\}\
+                value=\{password\}\
+                onChange=\{e => setPassword(e.target.value)\}\
+                style=\{\{\
+                  width: "100%",\
+                  padding: "8px 34px 8px 10px",\
+                  borderRadius: 6,\
+                  border: "1px solid #d1d5db",\
+                  fontSize: 14,\
+                \}\}\
+              />\
+              <button\
+                type="button"\
+                onClick=\{() => setShowPassword(v => !v)\}\
+                style=\{\{\
+                  position: "absolute",\
+                  right: 8,\
+                  top: "50%",\
+                  transform: "translateY(-50%)",\
+                  border: "none",\
+                  background: "transparent",\
+                  padding: 0,\
+                  cursor: "pointer",\
+                  fontSize: 11,\
+                  color: "#6b7280",\
+                \}\}\
+                aria-label=\{showPassword ? "Hide password" : "Show password"\}\
+              >\
+                \{showPassword ? "Hide" : "Show"\}\
+              </button>\
+            </div>\
+          </label>\
+          \{error && (\
+            <p style=\{\{ color: "#b91c1c", fontSize: 13, margin: 0 \}\}>\{error\}</p>\
+          )\}\
+          <button\
+            type="submit"\
+            disabled=\{submitting\}\
+            style=\{\{\
+              marginTop: 8,\
+              padding: "8px 12px",\
+              borderRadius: 6,\
+              border: "none",\
+              backgroundColor: "#2563eb",\
+              color: "white",\
+              fontWeight: 500,\
+              cursor: submitting ? "default" : "pointer",\
+              opacity: submitting ? 0.8 : 1\
+            \}\}\
+          >\
+            \{submitting ? "Signing in..." : "Sign in"\}\
+          </button>\
+        </form>\
+\
+        <div style=\{\{ marginTop: 12, fontSize: 12 \}\}>\
+          <a href="/reset-password" style=\{\{ color: "#2563eb", textDecoration: "none" \}\}>\
+            Forgot password?\
+          </a>\
+        </div>\
+\
+        <p\
+          style=\{\{\
+            marginTop: 16,\
+            marginBottom: 0,\
+            fontSize: 12,\
+            color: "#6b7280",\
+          \}\}\
+        >\
+          If you&apos;ve been logged out unexpectedly, your security token has\
+          expired. Simply sign in again to get a fresh, secure session.\
+        </p>\
+\
+        \{process.env.NODE_ENV === "development" && (\
+          <div\
+            style=\{\{\
+              marginTop: 24,\
+              padding: 12,\
+              borderRadius: 6,\
+              background: "#020617",\
+              border: "1px solid #f97316",\
+              color: "#f9fafb",\
+              fontSize: 12,\
+            \}\}\
+          >\
+            <div style=\{\{ fontWeight: 600, marginBottom: 4 \}\}>\
+              Dev server reset helper\
+            </div>\
+            <p style=\{\{ marginTop: 0, marginBottom: 8 \}\}>\
+              If you see connection errors to <code>localhost:8000</code> or\
+              <code> localhost:3000</code>, reset the dev servers from your\
+              terminal, then refresh this page and sign in again.\
+            </p>\
+            <p style=\{\{ marginTop: 0, marginBottom: 8, opacity: 0.85 \}\}>\
+              This helper is for developers only; if everything is working,\
+              you can safely ignore it.\
+            </p>\
+            <pre\
+              style=\{\{\
+                margin: 0,\
+                padding: 8,\
+                borderRadius: 4,\
+                background: "#0f172a",\
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \\"Liberation Mono\\", \\"Courier New\\", monospace",\
+                overflowX: "auto",\
+              \}\}\
+            >\
+              cd /Users/pg/nexus-enterprise\
+\{"\\n"\}npm run dev:clean\
+            </pre>\
+          </div>\
+        )\}\
+      </div>\
+    </div>\
+  );\
+\}\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/apps/web/app/page.tsx**\
+```\
+"use client";\
+\
+import \{ useEffect \} from "react";\
+\
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";\
+\
+export default function HomePage() \{\
+  useEffect(() => \{\
+    if (typeof window === "undefined") return;\
+\
+    const token = window.localStorage.getItem("accessToken");\
+    if (!token) \{\
+      window.location.href = "/login";\
+      return;\
+    \}\
+\
+    fetch(`$\{API_BASE\}/users/me`, \{\
+      headers: \{ Authorization: `Bearer $\{token\}` \},\
+    \})\
+      .then(res => (res.ok ? res.json() : null))\
+      .then((me: any) => \{\
+        if (me?.userType === "APPLICANT") \{\
+          window.location.href = "/candidate";\
+        \} else if (me?.globalRole === "SUPER_ADMIN") \{\
+          window.location.href = "/system";\
+        \} else \{\
+          window.location.href = "/projects";\
+        \}\
+      \})\
+      .catch(() => \{\
+        window.location.href = "/projects";\
+      \});\
+  \}, []);\
+\
+  return null;\
+\}\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/apps/web/app/ui-shell.tsx**\
+```\
+"use client";\
+\
+import React, \{ ReactNode, useEffect, useState \} from "react";\
+import Link from "next/link";\
+import \{ usePathname \} from "next/navigation";\
+import NavDropdown from "./components/nav-dropdown";\
+\
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";\
+\
+interface UserMeResponse \{\
+  id: string;\
+  email: string;\
+  firstName?: string | null;\
+  lastName?: string | null;\
+  globalRole?: string;\
+  userType?: string;\
+  memberships: \{\
+    companyId: string;\
+    role: string;\
+    company: \{\
+      id: string;\
+      name: string;\
+    \};\
+  \}[];\
+\}\
+\
+export function AppShell(\{ children \}: \{ children: ReactNode \}) \{\
+  const pathname = usePathname();\
+  const [globalRole, setGlobalRole] = useState<string | null>(null);\
+  const [userType, setUserType] = useState<string | null>(null);\
+\
+  const path = pathname ?? "/";\
+  const isAuthRoute = path === "/login" || path.startsWith("/accept-invite");\
+  const isPublicRoute =\
+    path === "/apply" ||\
+    path.startsWith("/apply/") ||\
+    path.startsWith("/onboarding/") ||\
+    path === "/reset-password" ||\
+    path.startsWith("/reset-password/");\
+\
+\
+  // On first load in this browser tab, clear any stale tokens and send the\
+  // user to the login screen, so deep links don't silently use expired auth.\
+  useEffect(() => \{\
+    if (typeof window === "undefined") return;\
+\
+    // Public routes (recruiting / onboarding) should never force logout.\
+    if (isPublicRoute) return;\
+\
+    const alreadyHandled = window.sessionStorage.getItem("nexusInitialLogoutDone");\
+    if (alreadyHandled === "1") return;\
+\
+    // Mark as handled so we only do this once per tab session.\
+    window.sessionStorage.setItem("nexusInitialLogoutDone", "1");\
+\
+    if (!isAuthRoute) \{\
+      window.localStorage.removeItem("accessToken");\
+      window.localStorage.removeItem("refreshToken");\
+      window.localStorage.removeItem("companyId");\
+      window.location.href = "/login";\
+    \}\
+  \}, [isAuthRoute, isPublicRoute]);\
+\
+  const handleLogout = () => \{\
+    if (typeof window === "undefined") return;\
+    localStorage.removeItem("accessToken");\
+    localStorage.removeItem("refreshToken");\
+    localStorage.removeItem("companyId");\
+    window.location.href = "/login";\
+  \};\
+\
+  const isActive = (href: string) => \{\
+    if (href === "/") return pathname === "/";\
+    return pathname?.startsWith(href);\
+  \};\
+\
+  if (isPublicRoute) \{\
+    return (\
+      <main style=\{\{ minHeight: "100vh", background: "#ffffff" \}\}>\{children\}</main>\
+    );\
+  \}\
+\
+  useEffect(() => \{\
+    if (typeof window === "undefined") return;\
+    const token = window.localStorage.getItem("accessToken");\
+    if (!token) return;\
+\
+    fetch(`$\{API_BASE\}/users/me`, \{\
+      headers: \{ Authorization: `Bearer $\{token\}` \},\
+    \})\
+      .then(res => (res.ok ? res.json() : null))\
+      .then((json: UserMeResponse | null) => \{\
+        if (!json) return;\
+        setGlobalRole(json.globalRole ?? null);\
+        setUserType(json.userType ?? null);\
+      \})\
+      .catch(() => \{\
+        // ignore\
+      \});\
+  \}, []);\
+\
+  const noMainScroll =\
+    // Pages that manage their own internal scroll panes\
+    path.startsWith("/company/users/") ||\
+    path === "/settings/skills";\
+\
+  return (\
+    <div className="app-shell">\
+      <header className="app-header">\
+        <div className="app-header-left">\
+          <div className="app-logo">\
+            <img\
+              src="/nexus-logo-mark.png"\
+              alt="Nexus Fortified Structures logo"\
+              className="app-logo-img"\
+            />\
+            <div className="app-logo-text">\
+              <div className="app-logo-title">NEXUS</div>\
+              <div className="app-logo-subtitle">Fortified Structures</div>\
+            </div>\
+          </div>\
+\
+          \{/* Company switcher (hide for applicant pool accounts) */\}\
+          \{userType !== "APPLICANT" && (\
+            <div style=\{\{ marginLeft: 16, marginRight: 8 \}\}>\
+              <CompanySwitcher />\
+            </div>\
+          )\}\
+\
+          <nav className="app-nav">\
+            \{globalRole === "SUPER_ADMIN" && (\
+              <Link\
+                href="/system"\
+                className=\{\
+                  "app-nav-link" +\
+                  (isActive("/system") ? " app-nav-link-active" : "")\
+                \}\
+              >\
+                Nexus System\
+              </Link>\
+            )\}\
+\
+            \{userType === "APPLICANT" ? (\
+              <Link\
+                href="/candidate"\
+                className=\{\
+                  "app-nav-link" +\
+                  (isActive("/candidate") ? " app-nav-link-active" : "")\
+                \}\
+              >\
+                Candidate\
+              </Link>\
+            ) : (\
+              <>\
+                \{/* Proj Overview = main project workspace (current /projects section) */\}\
+                <Link\
+                  href="/projects"\
+                  className=\{\
+                    "app-nav-link" +\
+                    (isActive("/projects") ? " app-nav-link-active" : "")\
+                  \}\
+                >\
+                  Proj Overview\
+                </Link>\
+\
+            \{/* Placeholder tabs matching Buildertrend-style menu (without Sales) */\}\
+            <Link\
+              href="/project-management"\
+              className=\{\
+                "app-nav-link" +\
+                (isActive("/project-management") ? " app-nav-link-active" : "")\
+              \}\
+            >\
+              Project Management\
+            </Link>\
+            <Link\
+              href="/files"\
+              className=\{\
+                "app-nav-link" +\
+                (isActive("/files") ? " app-nav-link-active" : "")\
+              \}\
+            >\
+              Files\
+            </Link>\
+            <Link\
+              href="/messaging"\
+              className=\{\
+                "app-nav-link" +\
+                (isActive("/messaging") ? " app-nav-link-active" : "")\
+              \}\
+            >\
+              Messaging\
+            </Link>\
+            <Link\
+              href="/financial"\
+              className=\{\
+                "app-nav-link" +\
+                (isActive("/financial") ? " app-nav-link-active" : "")\
+              \}\
+            >\
+              Financial Overview\
+            </Link>\
+            <Link\
+              href="/reports"\
+              className=\{\
+                "app-nav-link" +\
+                (isActive("/reports") ? " app-nav-link-active" : "")\
+              \}\
+            >\
+              Reports\
+            </Link>\
+            <NavDropdown\
+              label="People"\
+              active=\{path.startsWith("/company/")\}\
+              items=\{[\
+                \{ label: "Worker Profiles", href: "/company/users" \},\
+                \{ label: "Prospective Candidates", href: "/company/users?tab=candidates" \},\
+                \{ label: "Open Trades Profile", href: "/company/trades" \},\
+                \{ label: "Client Profiles", href: "/company/clients" \},\
+              ]\}\
+            />\
+              </>\
+            )\}\
+          </nav>\
+        </div>\
+        <div className="app-header-right">\
+          \{/* People / user management (hide for applicant pool accounts) */\}\
+          \{userType !== "APPLICANT" && (\
+            <button\
+              type="button"\
+              onClick=\{() => \{\
+                if (typeof window !== "undefined") \{\
+                  window.location.href = "/company/users";\
+                \}\
+              \}\}\
+            style=\{\{\
+              width: 32,\
+              height: 32,\
+              borderRadius: "50%",\
+              border: "1px solid #e5e7eb",\
+              background: "#f9fafb",\
+              display: "flex",\
+              alignItems: "center",\
+              justifyContent: "center",\
+              marginRight: 8,\
+              cursor: "pointer",\
+              padding: 0,\
+            \}\}\
+            title="Company users & roles"\
+          >\
+            <img\
+              src="/people-icon-users.jpg"\
+              alt="Company users"\
+              style=\{\{ width: 20, height: "auto", display: "block" \}\}\
+            />\
+            </button>\
+          )\}\
+\
+          \{/* User menu */\}\
+          <div style=\{\{ position: "relative" \}\}>\
+            <UserMenu onLogout=\{handleLogout\} />\
+          </div>\
+        </div>\
+      </header>\
+      <main className="app-main" style=\{noMainScroll ? \{ overflow: "hidden" \} : undefined\}>\
+        \{children\}\
+      </main>\
+    </div>\
+  );\
+\}\
+\
+export function PageCard(\{ children \}: \{ children: ReactNode \}) \{\
+  return <div className="app-card">\{children\}</div>;\
+\}\
+\
+function CompanySwitcher() \{\
+  const [memberships, setMemberships] = useState<UserMeResponse["memberships"]>([]);\
+  const [currentCompanyId, setCurrentCompanyId] = useState<string | null>(null);\
+  const [loading, setLoading] = useState(false);\
+  const [switching, setSwitching] = useState(false);\
+\
+  useEffect(() => \{\
+    if (typeof window === "undefined") return;\
+    const token = window.localStorage.getItem("accessToken");\
+    if (!token) return;\
+    setCurrentCompanyId(window.localStorage.getItem("companyId"));\
+\
+    setLoading(true);\
+    fetch(`$\{API_BASE\}/users/me`, \{\
+      headers: \{ Authorization: `Bearer $\{token\}` \},\
+    \})\
+      .then(res => (res.ok ? res.json() : null))\
+      .then((json: UserMeResponse | null) => \{\
+        if (!json || !Array.isArray(json.memberships)) return;\
+        setMemberships(json.memberships);\
+        // If no companyId in localStorage, default to first membership\
+        if (!window.localStorage.getItem("companyId") && json.memberships[0]) \{\
+          const firstId = json.memberships[0].companyId;\
+          window.localStorage.setItem("companyId", firstId);\
+          setCurrentCompanyId(firstId);\
+        \}\
+      \})\
+      .finally(() => setLoading(false));\
+  \}, []);\
+\
+  if (loading && !memberships.length) \{\
+    return (\
+      <span style=\{\{ fontSize: 11, color: "#6b7280" \}\}>Loading companies\'85</span>\
+    );\
+  \}\
+\
+  if (!memberships.length || !currentCompanyId) \{\
+    return null;\
+  \}\
+\
+  const handleChange: React.ChangeEventHandler<HTMLSelectElement> = async (e) => \{\
+    const nextCompanyId = e.target.value;\
+    if (!nextCompanyId || nextCompanyId === currentCompanyId) return;\
+    if (typeof window === "undefined") return;\
+\
+    const token = window.localStorage.getItem("accessToken");\
+    if (!token) return;\
+\
+    try \{\
+      setSwitching(true);\
+      const res = await fetch(`$\{API_BASE\}/auth/switch-company`, \{\
+        method: "POST",\
+        headers: \{\
+          "Content-Type": "application/json",\
+          Authorization: `Bearer $\{token\}`,\
+        \},\
+        body: JSON.stringify(\{ companyId: nextCompanyId \}),\
+      \});\
+      if (!res.ok) \{\
+        // Soft-fail; keep current company\
+        return;\
+      \}\
+      const json: any = await res.json();\
+      if (json.accessToken && json.refreshToken && json.company?.id) \{\
+        window.localStorage.setItem("accessToken", json.accessToken);\
+        window.localStorage.setItem("refreshToken", json.refreshToken);\
+        window.localStorage.setItem("companyId", json.company.id);\
+        setCurrentCompanyId(json.company.id);\
+        // Reload app context under new company\
+        window.location.href = "/projects";\
+      \}\
+    \} finally \{\
+      setSwitching(false);\
+    \}\
+  \};\
+\
+  return (\
+    <label style=\{\{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11 \}\}>\
+      <span style=\{\{ color: "#6b7280" \}\}>Company:</span>\
+      <select\
+        value=\{currentCompanyId ?? ""\}\
+        onChange=\{handleChange\}\
+        disabled=\{switching\}\
+        style=\{\{\
+          padding: "2px 6px",\
+          borderRadius: 4,\
+          border: "1px solid #d1d5db",\
+          fontSize: 11,\
+          backgroundColor: switching ? "#e5e7eb" : "#ffffff",\
+        \}\}\
+      >\
+        \{memberships.map((m) => (\
+          <option key=\{m.companyId\} value=\{m.companyId\}>\
+            \{m.company?.name ?? m.companyId\}\
+          </option>\
+        ))\}\
+      </select>\
+    </label>\
+  );\
+\}\
+\
+function getUserInitials(me: UserMeResponse | null) \{\
+  const first = me?.firstName?.trim() ?? "";\
+  const last = me?.lastName?.trim() ?? "";\
+\
+  const a = first[0];\
+  const b = last[0];\
+  if (a && b) return (a + b).toUpperCase();\
+  if (a) return a.toUpperCase();\
+\
+  // Fallback: derive something stable from email.\
+  const localPart = (me?.email ?? "").split("@")[0] ?? "";\
+  const parts = localPart.split(/[._\\s-]+/).filter(Boolean);\
+  const e1 = parts[0]?.[0];\
+  const e2 = parts.length > 1 ? parts[1]?.[0] : parts[0]?.[1];\
+\
+  const out = `$\{e1 ?? "U"\}$\{e2 ?? ""\}`.toUpperCase();\
+  return out.length >= 2 ? out.slice(0, 2) : out;\
+\}\
+\
+function getUserDisplayName(me: UserMeResponse | null) \{\
+  const first = me?.firstName?.trim();\
+  const last = me?.lastName?.trim();\
+  const full = [first, last].filter(Boolean).join(" ");\
+  return full || me?.email || "Account";\
+\}\
+\
+function UserMenu(\{ onLogout \}: \{ onLogout: () => void \}) \{\
+  const [open, setOpen] = React.useState(false);\
+  const [me, setMe] = React.useState<UserMeResponse | null>(null);\
+\
+  useEffect(() => \{\
+    if (typeof window === "undefined") return;\
+    const token = window.localStorage.getItem("accessToken");\
+    if (!token) return;\
+\
+    fetch(`$\{API_BASE\}/users/me`, \{\
+      headers: \{ Authorization: `Bearer $\{token\}` \},\
+    \})\
+      .then(res => (res.ok ? res.json() : null))\
+      .then((json: UserMeResponse | null) => \{\
+        if (!json) return;\
+        setMe(json);\
+      \})\
+      .catch(() => \{\
+        // ignore\
+      \});\
+  \}, []);\
+\
+  const initials = getUserInitials(me);\
+  const displayName = getUserDisplayName(me);\
+\
+  return (\
+    <div style=\{\{ position: "relative" \}\}>\
+      <button\
+        type="button"\
+        onClick=\{() => setOpen(o => !o)\}\
+        style=\{\{\
+          width: 32,\
+          height: 32,\
+          borderRadius: "50%",\
+          border: "1px solid #e5e7eb",\
+          background: "#f9fafb",\
+          display: "flex",\
+          alignItems: "center",\
+          justifyContent: "center",\
+          fontSize: 12,\
+          fontWeight: 600,\
+          cursor: "pointer",\
+        \}\}\
+      >\
+        \{initials\}\
+      </button>\
+      \{open && (\
+        <div\
+          style=\{\{\
+            position: "absolute",\
+            right: 0,\
+            marginTop: 8,\
+            minWidth: 200,\
+            background: "#ffffff",\
+            borderRadius: 6,\
+            boxShadow: "0 4px 12px rgba(15,23,42,0.16)",\
+            border: "1px solid #e5e7eb",\
+            padding: 8,\
+            zIndex: 50,\
+          \}\}\
+        >\
+          <div\
+            style=\{\{\
+              padding: "6px 8px",\
+              fontSize: 13,\
+              fontWeight: 600,\
+              borderBottom: "1px solid #e5e7eb",\
+              marginBottom: 4,\
+            \}\}\
+          >\
+            \{displayName\}\
+          </div>\
+          <button\
+            type="button"\
+            onClick=\{() => \{\
+              window.location.href = "/settings/profile";\
+            \}\}\
+            style=\{\{\
+              width: "100%",\
+              padding: "6px 8px",\
+              fontSize: 13,\
+              textAlign: "left",\
+              border: "none",\
+              background: "transparent",\
+              cursor: "pointer",\
+            \}\}\
+          >\
+            See/Edit Profile\
+          </button>\
+\
+          <button\
+            type="button"\
+            onClick=\{() => \{\
+              window.location.href = "/settings/roles";\
+            \}\}\
+            style=\{\{\
+              width: "100%",\
+              padding: "6px 8px",\
+              fontSize: 13,\
+              textAlign: "left",\
+              border: "none",\
+              background: "transparent",\
+              cursor: "pointer",\
+            \}\}\
+          >\
+            Roles &amp; Permissions\
+          </button>\
+          <button\
+            type="button"\
+            onClick=\{() => \{\
+              window.location.href = "/settings/skills";\
+            \}\}\
+            style=\{\{\
+              width: "100%",\
+              padding: "6px 8px",\
+              fontSize: 13,\
+              textAlign: "left",\
+              border: "none",\
+              background: "transparent",\
+              cursor: "pointer",\
+            \}\}\
+          >\
+            My skills matrix\
+          </button>\
+          <button\
+            type="button"\
+            onClick=\{onLogout\}\
+            style=\{\{\
+              width: "100%",\
+              padding: "6px 8px",\
+              fontSize: 13,\
+              textAlign: "left",\
+              border: "none",\
+              background: "transparent",\
+              cursor: "pointer",\
+              marginTop: 4,\
+            \}\}\
+          >\
+            Logout\
+          </button>\
+        </div>\
+      )\}\
+    </div>\
+  );\
+\}\
+\
+```\
+\
+\
+\
+You already have a pretty clear \'93golden path\'94 wired into this repo. Let\'92s map it from end to end and call out where passwords/URLs live and how to deploy quickly.\
+\
+---\
+\
+## 1. Assets and environments\
+\
+**Code (this repo)**\
+\
+- Monorepo with:\
+  - API: `apps/api` (NestJS, uses Prisma via `@repo/database`)\
+  - Web: `apps/web` (Next.js, talks to API via HTTP)\
+  - Database layer: `packages/database` (Prisma schema + migrations: `prisma/schema.prisma`)\
+\
+**Databases**\
+\
+- Cloud SQL (Postgres):\
+  - `nexus-dev-postgres` (dev DB)\
+  - `nexusprod-v2` (prod DB)\
+- Local Postgres (optional):\
+  - Docker Compose in `infra/docker/docker-compose.yml` exposes Postgres on `localhost:5432` with `nexus_user` / `nexus_password` / DB `nexus_db`. This is mostly for fully-local experiments.\
+\
+**Runtime services**\
+\
+- **Local API**: `apps/api`, runs on `http://localhost:8000`\
+- **Local web**: `apps/web`, runs on `http://localhost:3000`\
+- **Cloud Run API**: `nexus-api` service in GCP (Dockerized via the root `Dockerfile`, deployed by `scripts/deploy-api.sh`)\
+- **Vercel web**: builds and serves `apps/web` from GitHub\
+\
+**Key scripts**\
+\
+- `scripts/dev-api-cloud-db.sh` \'96 run local API pointed at Cloud SQL (via `DATABASE_URL`)\
+- `scripts/db-migrate-cloud.sh` \'96 run Prisma migrations against a Cloud SQL instance (dev or prod, depending on `DATABASE_URL`)\
+- `scripts/db-migrate-prod.sh` \'96 production-safe `prisma migrate deploy` against prod DB\
+- `scripts/deploy-api.sh` \'96 build Docker image via Cloud Build and deploy API to Cloud Run\
+\
+---\
+\
+## 2. Local development, but talking to **GCP database**\
+\
+### 2.1 Start the Cloud SQL proxy\
+\
+Pick **dev** or **prod**. For everyday work, use **dev**.\
+\
+**Dev DB (recommended):**\
+\
+```bash\
+cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres\
+```\
+**Prod DB (only when you explicitly want prod):**\
+\
+```bash\
+cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2\
+```\
+This makes Cloud SQL available at `127.0.0.1:5433`.\
+\
+### 2.2 Set `DATABASE_URL` to point at Cloud SQL\
+\
+In a new shell (same machine):\
+\
+```bash\
+export DATABASE_URL="postgresql://postgres:<DB_PASSWORD>@127.0.0.1:5433/nexus_db"\
+```\
+- Replace `<DB_PASSWORD>` with the **Cloud SQL** password (dev or prod, matching the instance the proxy is talking to).\
+- This is the canonical connection string used by:\
+  - Prisma (`packages/database`)\
+  - API (`apps/api` \uc0\u8594  `@repo/database`)\
+\
+You can quickly sanity check with:\
+\
+```bash\
+psql "$DATABASE_URL"\
+```\
+If it connects, credentials + proxy are good.\
+\
+### 2.3 Run local API against Cloud SQL\
+\
+Use the helper script:\
+\
+```bash\
+cd /Users/pg/nexus-enterprise\
+bash ./scripts/dev-api-cloud-db.sh\
+```\
+What this does:\
+\
+- Requires `DATABASE_URL` to be set (script will error if not).\
+- `cd` into `apps/api`\
+- Run `npm run dev` (NestJS dev server)\
+- Prisma inside the API uses the same `DATABASE_URL` \uc0\u8594  you\'92re now hitting Cloud SQL from local API.\
+\
+You can verify:\
+\
+```bash\
+curl -i http://localhost:8000/health\
+```\
+You want `HTTP/1.1 200 OK` and a JSON body with `ok: true`.\
+\
+### 2.4 Run local web against **local or Cloud Run API**\
+\
+The web app uses:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/web/app/login/page.tsx" start=5 end=5\
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";\
+```\
+So:\
+\
+- For **local API** (dev flow above), you can omit the env var; it will default to `http://localhost:8000`.\
+- For **remote API on Cloud Run**, set `NEXT_PUBLIC_API_BASE_URL` accordingly.\
+\
+Local web dev:\
+\
+```bash\
+cd /Users/pg/nexus-enterprise/apps/web\
+# For local API:\
+# export NEXT_PUBLIC_API_BASE_URL="http://localhost:8000"\
+# For Cloud Run API:\
+# export NEXT_PUBLIC_API_BASE_URL="https://<cloud-run-url>"\
+npm run dev\
+```\
+Then open `http://localhost:3000`.\
+\
+---\
+\
+## 3. Where all the passwords / secrets live\
+\
+### DB passwords (Cloud SQL)\
+\
+- **Not** stored in the repo (correct).\
+- You set them as env vars / shell exports:\
+  - Local dev + migrations: `export DATABASE_URL="postgresql://postgres:<DEV_OR_PROD_PASSWORD>@127.0.0.1:5433/nexus_db"`\
+  - Scripts use that, they do **not** read `.env` for Cloud SQL.\
+\
+Checklist:\
+\
+- [ ] Confirm you have the **dev** and **prod** DB passwords stored in a secure manager (1Password, etc.).\
+- [ ] Confirm you can `psql "$DATABASE_URL"` to both dev and prod via proxy.\
+\
+### API in Cloud Run\
+\
+- `scripts/deploy-api.sh` assumes the Cloud Run service `nexus-api` is **already configured** with `DATABASE_URL` in its env:\
+  - That `DATABASE_URL` should point directly to Cloud SQL (typically through a private connection or connector, often using `localhost` or a Cloud SQL connector string).\
+- You manage that via the GCP console or `gcloud run services update`.\
+\
+Checklist:\
+\
+- [ ] In Cloud Run service `nexus-api`, verify `DATABASE_URL` env var is set and uses the **prod** DB connection string.\
+- [ ] Optionally add `REDIS_URL`, `JWT_SECRET`, etc., as needed (not in this conversation, but they\'92ll be similar).\
+\
+### Web on Vercel\
+\
+- Needs to know where the API is:\
+\
+  - `NEXT_PUBLIC_API_BASE_URL="https://<cloud-run-url>"`\
+\
+- Add this in Vercel dashboard for each environment (Preview / Production).\
+\
+Checklist:\
+\
+- [ ] In Vercel \uc0\u8594  your project \u8594  Settings \u8594  Environment Variables:\
+  - Set `NEXT_PUBLIC_API_BASE_URL` to the **staging Cloud Run URL** for Preview.\
+  - Set `NEXT_PUBLIC_API_BASE_URL` to the **prod Cloud Run URL** for Production.\
+\
+---\
+\
+## 4. Schema / data structure changes (Prisma)\
+\
+Prisma lives in `packages/database/prisma/schema.prisma` and `prisma/migrations/*`.\
+\
+### 4.1 Dev: create + apply migration on **dev DB**\
+\
+1. Ensure proxy is pointed at `nexus-dev-postgres`.\
+2. In `packages/database`, set `DATABASE_URL` for **dev DB**:\
+\
+```bash\
+   cd /Users/pg/nexus-enterprise/packages/database\
+   export DATABASE_URL="postgresql://postgres:<DEV_PASSWORD>@127.0.0.1:5433/nexus_db"\
+```\
+3. Edit `prisma/schema.prisma` as needed.\
+4. Create + apply migration:\
+\
+```bash\
+   npx prisma migrate dev --name <migration_name> --schema ./prisma/schema.prisma\
+```\
+5. Verify behavior locally (API + web pointing at dev DB).\
+\
+### 4.2 Prod: apply migrations safely\
+\
+Once you\'92re happy with dev:\
+\
+1. Switch proxy to prod DB:\
+\
+```bash\
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2\
+```\
+2. Run the production migration script:\
+\
+```bash\
+   cd /Users/pg/nexus-enterprise\
+   export DATABASE_URL="postgresql://postgres:<PROD_PASSWORD>@127.0.0.1:5433/nexus_db"\
+   ./scripts/db-migrate-prod.sh\
+```\
+That script:\
+\
+- `cd`s into `packages/database`\
+- Runs `npx prisma migrate deploy` (no new migrations created, just applies existing ones)\
+\
+Checklist:\
+\
+- [ ] All schema changes committed under `packages/database/prisma/migrations`.\
+- [ ] `db-migrate-prod.sh` runs cleanly against prod DB.\
+\
+---\
+\
+## 5. API deployment path (code \uc0\u8594  Cloud Run)\
+\
+From repo root:\
+\
+```bash\
+cd /Users/pg/nexus-enterprise\
+./scripts/deploy-api.sh\
+```\
+This script:\
+\
+1. Sets GCP project `nexus-enterprise-480610`.\
+2. Uses Cloud Build to build the Docker image from the root `Dockerfile`.\
+3. Pushes to Artifact Registry.\
+4. Deploys to Cloud Run service `nexus-api` (region `us-central1`), `--allow-unauthenticated`.\
+\
+Before running this:\
+\
+- [ ] Ensure Cloud Run service `nexus-api` has correct `DATABASE_URL` (prod).\
+- [ ] Optionally have a **staging** Cloud Run service (e.g., `nexus-api-staging`) wired to dev DB for pre-prod tests; you can duplicate the script with different `SERVICE`/`IMAGE`.\
+\
+---\
+\
+## 6. Web deployment path (code \uc0\u8594  Vercel)\
+\
+Current pattern (implied):\
+\
+1. Push to GitHub main or a feature branch.\
+2. Vercel picks up the changes and:\
+   - Installs dependencies.\
+   - Builds `apps/web`.\
+3. Vercel serves the resulting Next.js app.\
+\
+To ensure it talks to the right API:\
+\
+- [ ] For Preview deployments: `NEXT_PUBLIC_API_BASE_URL = https://<staging-cloud-run-url>`\
+- [ ] For Production: `NEXT_PUBLIC_API_BASE_URL = https://<prod-cloud-run-url>`\
+\
+No DB passwords are ever in Vercel; only the API base URL.\
+\
+---\
+\
+## 7. \'93Fast path\'94 daily workflow (dev against GCP)\
+\
+Here\'92s the minimal loop you can memorize:\
+\
+```bash\
+# 1) Start Cloud SQL proxy (dev DB)\
+cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres\
+\
+# 2) Start API (new shell)\
+cd /Users/pg/nexus-enterprise\
+export DATABASE_URL="postgresql://postgres:<DEV_PASSWORD>@127.0.0.1:5433/nexus_db"\
+bash ./scripts/dev-api-cloud-db.sh\
+\
+# 3) Check health\
+curl -i http://localhost:8000/health\
+\
+# 4) Start web\
+cd /Users/pg/nexus-enterprise/apps/web\
+# Optional: export NEXT_PUBLIC_API_BASE_URL="http://localhost:8000"\
+npm run dev\
+```\
+When you\'92re ready to ship:\
+\
+```bash\
+# Apply migrations to prod (once)\
+cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2\
+cd /Users/pg/nexus-enterprise\
+export DATABASE_URL="postgresql://postgres:<PROD_PASSWORD>@127.0.0.1:5433/nexus_db"\
+./scripts/db-migrate-prod.sh\
+\
+# Deploy API to Cloud Run\
+./scripts/deploy-api.sh\
+\
+# Push to GitHub \uc0\u8594  Vercel builds web automatically\
+```\
+---\
+\
+If you\'92d like, next step I can:\
+\
+- Draft exact `DATABASE_URL` strings for *dev* and *prod* (with placeholders for passwords/IPs), and\
+- Produce a one-page \'93runbook\'94 version of the above you can keep in `docs/onboarding/` without any secrets.}

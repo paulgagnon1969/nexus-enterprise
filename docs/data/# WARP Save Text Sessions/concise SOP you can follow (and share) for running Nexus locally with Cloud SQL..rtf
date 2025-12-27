@@ -1,0 +1,171 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;\f1\fswiss\fcharset0 Helvetica-Bold;}
+{\colortbl;\red255\green255\blue255;\red251\green2\blue7;}
+{\*\expandedcolortbl;;\cssrgb\c100000\c14913\c0;}
+\margl1440\margr1440\vieww21040\viewh32400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 standard operating procedure\
+\
+Here\'92s a concise SOP you can follow (and share) for running Nexus locally with Cloud SQL.\
+\
+---\
+\
+## Local Dev SOP (Nexus + Cloud SQL)\
+\
+### 1. Prereqs (one-time / as needed)\
+\
+- `.env` at repo root:\
+\
+```bash\
+
+\f1\b NODE_ENV=development\
+PORT=8000\
+\
+DATABASE_URL="postgresql://postgres:<PASS>@127.0.0.1:5434/nexus_db?schema=public"\
+\
+REDIS_URL="redis://localhost:6380"\
+REDIS_USE_REAL=false\
+\
+JWT_ACCESS_SECRET="dev-access-secret"\
+JWT_REFRESH_SECRET="dev-refresh-secret"\
+JWT_ACCESS_TTL="3600s"\
+JWT_REFRESH_TTL="30d"\
+\
+WEB_BASE_URL="http://localhost:3000"
+\f0\b0 \
+```\
+- SUPER_ADMIN created once: - 
+\f1\b NO NEED TO DO AGAIN
+\f0\b0 \
+\
+```bash\
+curl -i http://localhost:8000/auth/bootstrap-superadmin \\\
+  -H "Content-Type: application/json" \\\
+  -d '\{\
+    "email": "Paul@nfsgrp.com",\
+    "password": "BoogerFace_Nex.22"\
+  \}'\
+```\
+(You\'92ve already done this; only repeat if DB is reset.) - 
+\f1\b NO NEED TO DO AGAIN
+\f0\b0 \
+\
+- DB schema in sync (when schema changes):\
+\
+```bash\
+cd packages/database\
+npm run prisma:migrate\
+```\
+---\
+\
+
+\f1\b\fs36 ### 2. Daily \'93start work\'94 routine
+\f0\b0\fs24 \
+\
+1. **Start Cloud SQL proxy** (so `127.0.0.1:5434` \uc0\u8594  Cloud SQL instance).\
+\
+2. **Start API dev server** (terminal 1):\
+\
+```bash\
+cd nexus-enterprise/apps/api\
+REDIS_USE_REAL=false npm run dev\
+```\
+Leave this running.\
+\
+3. **Start web app** (terminal 2):\
+\
+```bash\
+cd nexus-enterprise/apps/web\
+npm run dev\
+```\
+4. **Log in from web**\
+\
+- Go to `http://localhost:3000`\
+- Sign in with:\
+  - Email: `Paul@nfsgrp.com`\
+  - Password: `BoogerFace_Nex.22`\
+***********************\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f1\b\fs36 \cf0 ### 1) Start Cloud SQL proxy (DB)
+\f0\b0 \
+\
+Use whatever command you\'92ve already been using; it will look something like this (example):\
+\
+```bash\
+\cf2 cloud-sql-proxy \\\
+  nexus-enterprise-480610:us-central1:nexusdev-v2 \\\
+  --address=127.0.0.1 \\\
+  --port=5434\cf0 \
+```\
+Leave this running in its own terminal window.\
+\
+---\
+\
+
+\f1\b ### 2) Start the API (backend) on port 8000
+\f0\b0 \
+\
+New terminal:\
+\
+```bash\
+\cf2 cd /Users/pg/nexus-enterprise/apps/api\
+REDIS_USE_REAL=false npm run dev\cf0 \
+```\
+Leave this running. You should see:\
+\
+- `API listening on http://localhost:8000`\
+\
+---\
+\
+
+\f1\b ### 3) Start the web app (frontend) on port 3000
+\f0\b0 \
+\
+Another new terminal:\
+\
+```bash\
+\cf2 cd /Users/pg/nexus-enterprise/apps/web\
+npm run dev\cf0 \
+```\
+Then open `http://localhost:3000` in your browser and log in with:\
+\
+- Email: `Paul@nfsgrp.com`\
+- Password: `BoogerFace_Nex.22`\
+\
+That\'92s the full \'93start work\'94 routine:  \
+**proxy terminal + API terminal + web terminal**, all running in parallel.
+\fs24 \
+************************\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 ---\
+\
+### 3. Quick troubleshooting\
+\
+- If login spins:\
+  - Check API terminal is running (should show \'93API listening on http://localhost:8000\'94).\
+  - Check `curl`:\
+\
+```bash\
+    curl -i http://localhost:8000/auth/login \\\
+      -H "Content-Type: application/json" \\\
+      -d '\{\
+        "email": "Paul@nfsgrp.com",\
+        "password": "BoogerFace_Nex.22"\
+      \}'\
+```\
+- If you see Redis errors:\
+  - Ensure `REDIS_USE_REAL=false` (or prefix the command as above).\
+\
+If you\'92d like, next step can be to drop this SOP into your `docs/onboarding` so it\'92s written down for future you and teammates.\
+\
+2. Daily \'93start work\'94 routine - can you explicitely tell me what commands need ot be executed to peform start work?\
+\
+Here\'92s a concrete \'93start work\'94 command sequence you can follow every day.\
+\
+Assuming you\'92re starting from a fresh terminal:\
+\
+---\
+\
+}

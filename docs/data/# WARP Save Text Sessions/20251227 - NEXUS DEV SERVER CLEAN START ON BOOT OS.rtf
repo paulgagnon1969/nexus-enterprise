@@ -1,0 +1,437 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;\f1\fswiss\fcharset0 Helvetica-Bold;\f2\fnil\fcharset128 HiraginoSans-W3;
+\f3\fnil\fcharset0 LucidaGrande;}
+{\colortbl;\red255\green255\blue255;\red251\green2\blue7;}
+{\*\expandedcolortbl;;\cssrgb\c100000\c14913\c0;}
+\margl1440\margr1440\vieww8820\viewh15620\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 This is the latest clean start for dev as of 20251227\
+\
+\
+\
+\
+Diagnosing the clean startup led us to several incongruities:\
+************\
+ok, everything is working perfect.  How to we codify this and make it SOP perminently?\
+\
+We\'92ve already codified most of this in the scripts; what\'92s missing is a clear, one-page SOP for humans and maybe one or two guardrails in the scripts. Here\'92s how I\'92d lock it in.\
+\
+---\
+\
+## 1. Canonical local\uc0\u8209 dev SOP (Cloud SQL via `gcloud`)\
+\
+You can drop this (or a variant) into your onboarding docs as \'93Local Dev \'96 Cloud SQL SOP\'94:\
+
+\f1\b # Local Dev SOP \'96 Nexus Enterprise (Cloud SQL via gcloud)\
+\
+## One-time setup per machine\
+\
+1. Install tools\
+   - Google Cloud SDK (gcloud + cloud-sql-proxy in PATH)\
+   - Node + npm (matching project version)\
+   - Docker Desktop (for other infra, even though Cloud SQL is remote)\
+\
+2. Authenticate to GCP for dev\
+   # Log in for gcloud CLI and Application Default Credentials\
+   gcloud auth login\
+   gcloud auth application-default login\
+   gcloud config set project nexus-enterprise-480610\
+\
+3. Set dev DB password in your shell profile (DO NOT commit this anywhere)\
+   # In ~/.zshrc (example):\
+   export DEV_DB_PASSWORD='your-dev-db-password'\
+\
+   # Then reload:\
+   source ~/.zshrc\
+\
+## Daily dev workflow\
+\
+1. Open a terminal in the repo root:\
+   cd ~/nexus-enterprise\
+\
+2. Make sure no stale proxies are running:\
+   pkill -f cloud-sql-proxy || true\
+\
+3. Start the full dev stack:\
+   ./start-dev.sh\
+\
+   This will:\
+   - Kill anything on ports 3000, 8000, 5432, 6380\
+   - Stop local Docker infra (if running)\
+   - Start Cloud SQL Auth Proxy to nexusdev-v2 on 127.0.0.1:5434 using your gcloud ADC\
+   - Start API dev server on http://localhost:8000\
+   - Start API worker (BullMQ, imports)\
+   - Start web dev server on http://localhost:3000\
+\
+4. Troubleshooting\
+   - Cloud SQL proxy issues: check logs/cloud-sql-proxy.log\
+   - API issues: check logs/api-dev.log\
+   - Web issues: check logs/web-dev.log
+\f0\b0 \
+```text\
+# Local Dev SOP \'96 Nexus Enterprise (Cloud SQL via gcloud)\
+\
+## One-time setup per machine\
+\
+1. Install tools\
+   - Google Cloud SDK (gcloud + cloud-sql-proxy in PATH)\
+   - Node + npm (matching project version)\
+   - Docker Desktop (for other infra, even though Cloud SQL is remote)\
+\
+2. Authenticate to GCP for dev\
+   # Log in for gcloud CLI and Application Default Credentials\
+   gcloud auth login\
+   gcloud auth application-default login\
+   gcloud config set project nexus-enterprise-480610\
+\
+3. Set dev DB password in your shell profile (DO NOT commit this anywhere)\
+   # In ~/.zshrc (example):\
+   export DEV_DB_PASSWORD='your-dev-db-password'\
+\
+   # Then reload:\
+   source ~/.zshrc\
+\
+## Daily dev workflow\
+\
+1. Open a terminal in the repo root:\
+   cd ~/nexus-enterprise\
+\
+2. Make sure no stale proxies are running:\
+   pkill -f cloud-sql-proxy || true\
+\
+3. Start the full dev stack:\
+   ./start-dev.sh\
+\
+   This will:\
+   - Kill anything on ports 3000, 8000, 5432, 6380\
+   - Stop local Docker infra (if running)\
+   - Start Cloud SQL Auth Proxy to nexusdev-v2 on 127.0.0.1:5434 using your gcloud ADC\
+   - Start API dev server on http://localhost:8000\
+   - Start API worker (BullMQ, imports)\
+   - Start web dev server on http://localhost:3000\
+\
+4. Troubleshooting\
+   - Cloud SQL proxy issues: check logs/cloud-sql-proxy.log\
+   - API issues: check logs/api-dev.log\
+   - Web issues: check logs/web-dev.log\
+```\
+This makes the happy path explicit and matches exactly what your updated scripts do.\
+\
+---\
+\
+## 2. Optional script guardrail for `gcloud` project\
+\
+If you want to *enforce* using the right project, we can add a small check to `scripts/dev-start.sh`:\
+
+\f1\b # After the "Sanity checks" block in scripts/dev-start.sh:\
+\
+# Ensure gcloud project is correct when using ADC (no credential_file)\
+if [[ -z "$\{CLOUD_SQL_PROXY_CREDENTIAL_FILE:-\}" ]]; then\
+  GCLOUD_PROJECT="$(gcloud config get-value project 2>/dev/null || true)"\
+  if [[ "$GCLOUD_PROJECT" != "nexus-enterprise-480610" ]]; then\
+    echo "[dev-start] ERROR: gcloud project is '$GCLOUD_PROJECT', expected 'nexus-enterprise-480610'. Run:" | tee -a "$LOG_DIR/dev-start.log" >&2\
+    echo "  gcloud config set project nexus-enterprise-480610" | tee -a "$LOG_DIR/dev-start.log" >&2\
+    exit 1\
+  fi\
+fi
+\f0\b0 \
+\
+```bash\
+# After the "Sanity checks" block in scripts/dev-start.sh:\
+\
+# Ensure gcloud project is correct when using ADC (no credential_file)\
+if [[ -z "$\{CLOUD_SQL_PROXY_CREDENTIAL_FILE:-\}" ]]; then\
+  GCLOUD_PROJECT="$(gcloud config get-value project 2>/dev/null || true)"\
+  if [[ "$GCLOUD_PROJECT" != "nexus-enterprise-480610" ]]; then\
+    echo "[dev-start] ERROR: gcloud project is '$GCLOUD_PROJECT', expected 'nexus-enterprise-480610'. Run:" | tee -a "$LOG_DIR/dev-start.log" >&2\
+    echo "  gcloud config set project nexus-enterprise-480610" | tee -a "$LOG_DIR/dev-start.log" >&2\
+    exit 1\
+  fi\
+fi\
+```\
+That way:\
+\
+- If someone\'92s `gcloud` is pointed at the wrong project, the dev start fails loud and early with a clear fix.\
+\
+---\
+\
+## 3. What\'92s already codified in code\
+\
+You now have:\
+\
+- `start-dev.sh`\
+  - Hard reset of ports/processes.\
+  - Stops Docker infra.\
+  - Delegates to `scripts/dev-start.sh`.\
+\
+- `scripts/dev-start.sh`\
+  - Computes `REPO_ROOT` dynamically.\
+  - Validates `DEV_DB_PASSWORD`, `cloud-sql-proxy`, and `npm` are present.\
+  - Uses **ADC via `gcloud` by default**; only uses a JSON key if `CLOUD_SQL_PROXY_CREDENTIAL_FILE` is explicitly set.\
+  - Starts:\
+    - Cloud SQL proxy \uc0\u8594  `nexusdev-v2` on `127.0.0.1:5434`.\
+    - API dev server (via `scripts/dev-api-cloud-db.sh` and `DATABASE_URL`).\
+    - API worker.\
+    - Web dev server.\
+\
+So from here, \'93making it SOP permanently\'94 is mostly:\
+\
+1. Documenting the one\uc0\u8209 time setup and daily commands (snippet above).\
+2. Optionally adding the `gcloud` project sanity check.\
+\
+If you tell me where you keep onboarding docs (e.g. which file), I can draft the exact patch to insert this SOP text there.\
+\
+***********\
+\
+\
+\
+\
+\
+\
+Redis is up, but none of the Nexus dev services (proxy/API/worker/web) are currently listening.\
+\
+
+\f1\b CAUTION: We may have to reauthenticate GCP : 
+\fs48 OPTIONAL
+\f0\b0\fs24 \
+
+\f1\b\fs36 \cf2    gcloud auth login
+\f0\b0\fs24 \cf0 \
+\
+
+\f1\b To KILL ALL DEV SERVERS: 
+\fs48 OPTIONAL\
+MANUALLY CODED\
+
+\fs24 Stop Cloud:\
+\cf2 if pgrep -f "cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2" >/dev/null 2>&1; then\
+  log "Stopping Cloud SQL proxy on 127.0.0.1:5433"\
+  pkill -f "cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2" || true\
+else\
+  log "Cloud SQL proxy not running"\
+fi
+\fs48 \cf0 \
+\
+
+\fs24 Stop API:\
+\cf2 if pgrep -f "scripts/dev-api-cloud-db.sh" >/dev/null 2>&1; then\
+  log "Stopping API dev server (scripts/dev-api-cloud-db.sh)"\
+  pkill -f "scripts/dev-api-cloud-db.sh" || true\
+else\
+  log "API dev server not running"\
+fi\cf0 \
+\
+# 3) Stop web dev server (next dev -p 3000)\
+\cf2 if pgrep -f "next dev -p 3000" >/dev/null 2>&1; then\
+  log "Stopping web dev server (next dev -p 3000)"\
+  pkill -f "next dev -p 3000" || true\
+else\
+  log "Web dev server not running"\
+fi\cf0 \
+\
+Kill Cloud SQL\
+\
+pkill cloud-sql-proxy\
+\
+Check = \
+lsof -i :8000\
+lsof -i :5434\
+lsof -i :3000\
+\
+\
+\
+log "Done. Checked and stopped dev processes as needed."
+\fs48 \
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf2 cd ~/nexus-enterprise\
+export DEV_DB_PASSWORD='NEXUS_2025_DEV-v2'\
+./scripts/dev-stop.sh\cf0 \
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\b0\fs24 \cf0 \
+\
+To get back to dev from this state, follow the explicit sequence:\
+
+\f1\b \cf2 \
+1. **Terminal 1 \'96 start Cloud SQL proxy**
+\f0\b0 \cf0 \
+\
+```bash\
+
+\f1\b    cloud-sql-proxy nexus-enterprise-480610:us-central1:nexusdev-v2 \\\
+     --port=5434 --address=127.0.0.1
+\f0\b0 \
+```\
+
+\f1\b \cf2 2. **Terminal 2 \'96 API dev server**\
+
+\f0\b0 \cf0 \
+```bash\
+
+\f1\b    cd ~/nexus-enterprise\
+   npm run dev:api
+\f0\b0 \
+```\
+
+\f1\b \cf2 3. **Terminal 3 \'96 worker dev server**
+\f0\b0 \cf0 \
+\
+```bash\
+  
+\f1\b  cd ~/nexus-enterprise/apps/api\
+   npm run worker:dev
+\f0\b0 \
+```\
+
+\f1\b \cf2 4. **Terminal 4 \'96 web dev server**
+\f0\b0 \cf0 \
+\
+```bash\
+ 
+\f1\b   cd ~/nexus-enterprise\
+   npm run dev -- --filter=web
+\f0\b0 \
+```\
+After that, `http://localhost:3000` should load the app; if you want to double\uc0\u8209 check, you can run:\
+\
+```bash\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf2 lsof -i :3000\
+lsof -i :8000\
+lsof -i :5434\cf0 \
+```\
+\
+\
+**********************\
+Ok, the compromise seems most rational... Give me explicit instturction on what to launch when boot is over\
+\
+Got it. Given the compromise, here\'92s the **explicit, minimal sequence** to run after macOS finishes booting.\
+\
+Assumptions:\
+\
+- `dev-clean` LaunchAgent is already running at login and killing old dev processes; don\'92t worry about calling it manually.\
+- You want to start everything in interactive terminals so it stays up.\
+\
+---\
+\
+## After boot: what to launch\
+\
+#
+\f1\b ## 1) Ensure local Redis is up (once per machine)
+\f0\b0 \
+\
+You can make this a habit, or rely on `brew` to keep it running:\
+\
+```bash\
+# Start Redis via Homebrew (if not already running)\
+brew services start redis\
+\
+# Quick sanity check\
+redis-cli ping   # expect: PONG\
+```\
+Redis runs on `localhost:6379`, matching:\
+\
+```env\
+REDIS_URL="redis://localhost:6379"\
+REDIS_USE_REAL=true\
+```\
+---\
+\
+### 2) Start Cloud SQL proxy (Terminal 1)\
+\
+```bash\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f1\b \cf0 cloud-sql-proxy nexus-enterprise-480610:us-central1:nexusdev-v2 \\\
+  --port=5434 \\\
+  --address=127.0.0.1
+\f0\b0 \
+```\
+Leave this terminal open; it should log:\
+\
+```text\
+[nexus-enterprise-480610:us-central1:nexusdev-v2] Listening on 127.0.0.1:5434\
+The proxy has started successfully and is ready for new connections!\
+```\
+This connects your local dev stack to `nexusdev-v2` / `nexus_db`.\
+\
+---\
+\
+### 3) Start the API dev server (Terminal 2)\
+\
+```bash\
+
+\f1\b cd ~/nexus-enterprise\
+npm run dev:api
+\f0\b0 \
+```\
+You should see Nest logs and finally something like:\
+\
+```text\
+API listening on http://localhost:8000\
+```\
+---\
+\
+### 4) Start the worker dev server (Terminal 3)\
+\
+```bash\
+
+\f1\b cd ~/nexus-enterprise/apps/api\
+npm run worker:dev
+\f0\b0 \
+```\
+You should see:\
+\
+```text\
+[worker] started (queue=import-jobs)\
+```\
+This will process Golden price list imports and other ImportJobs in the background.\
+\
+---\
+\
+### 5) Start the web dev server (Terminal 4)\
+\
+```bash\
+
+\f1\b cd ~/nexus-enterprise\
+npm run dev -- --filter=web
+\f0\b0 \
+```\
+You should see Next.js boot:\
+\
+```text\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f2 \cf0 \'81\'a3
+\f0  Next.js 16.1.1 (Turbopack)\
+- Local:   http://localhost:3000\
+...\
+
+\f3 \uc0\u10003 
+\f0  Ready in ...\
+```\
+Now `http://localhost:3000` in your browser should load the app and login page, and all background import flows will work (API + worker + Redis + Cloud SQL).\
+\
+---\
+\
+If something doesn\'92t come up:\
+\
+- Check the relevant log:\
+\
+```bash\
+  tail -n 80 ~/Library/Logs/cloud-sql-nexusdev-v2.out\
+  tail -n 80 ~/Library/Logs/api-dev.out\
+  tail -n 80 ~/Library/Logs/worker-dev.out\
+  tail -n 80 ~/Library/Logs/web-dev.out\
+```\
+- And/or run:\
+\
+```bash\
+  lsof -i :3000\
+  lsof -i :8000\
+  lsof -i :5434\
+```\
+to see what\'92s actually listening.}

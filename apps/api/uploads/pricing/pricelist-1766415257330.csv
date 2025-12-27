@@ -1,0 +1,100 @@
+﻿#,Group Code,Group Description,Desc,Age,Condition,Qty,Item Amount,Reported Cost,Unit Cost,Unit,Coverage,Activity,Worker's Wage,Labor burden,Labor Overhead,Material,Equipment,Market Conditions,Labor Minimum,Sales Tax,RCV,Life,Depreciation Type,Depreciation Amount,Recoverable,ACV,Tax,Replace,Cat,Sel,Owner,Original Vendor,Date
+1,,,Anchor - twist in ground type,0,Average,1,164.31,0,164.31,EA,,Remove and Replace,50.33,24.64,67.94,21.4,0,0,ACCMN-A,1.71,199.22,150,Percent,0,Yes,199.22,Yes,No,ACC,ANCR,PAULGAGN,,11/2/20
+3,,,Anchor - two crossed rods driven into the ground,0,Average,1,179.11,0,179.11,EA,,Remove and Replace,53.51,26.48,70.76,26.85,0,1.51,ACCMN-A,2.15,217.54,150,Percent,0,Yes,217.54,Yes,No,ACC,ANCR+,PAULGAGN,,11/2/20
+4,,,Axle - electric brake (with springs),0,Average,1,710.08,0,710.08,EA,,Remove and Replace,184.52,93.32,233.88,198.36,0,0,ACCMN-A,15.87,871.15,150,Percent,0,Yes,871.15,Yes,No,ACC,BAXL,PAULGAGN,,11/2/20
+5,,,Accessories - Mobile Home (Bid Item),0,Average,1,0,0,0,EA,,Replace,0,0,0,0,0,0,None,0,0,0,Percent,0,Yes,0,Yes,No,ACC,BIDITM,PAULGAGN,,11/2/20
+6,,,Axle - drag (with springs) - no brakes,0,Average,1,551.61,0,551.61,EA,,Remove and Replace,141.35,72.88,172.08,165.3,0,0,ACCMN-A,13.22,677.81,150,Percent,0,Yes,677.81,Yes,No,ACC,DAXL,PAULGAGN,,11/2/20
+7,,,Axle hubs - brake type,0,Average,1,413.35,0,413.35,EA,,Remove and Replace,100.1,52.89,115.36,145,0,0,ACCMN-A,11.6,509.93,150,Percent,0,Yes,509.93,Yes,No,ACC,DAXL-,PAULGAGN,,11/2/20
+8,,,Equalizers,0,Average,1,425.02,0,425.02,EA,,Remove and Replace,120.6,63.06,142.36,99,0,0,ACCMN-A,7.92,519.54,150,Percent,0,Yes,519.54,Yes,No,ACC,EQL,PAULGAGN,,11/2/20
+9,,,"Hitch - ""A"" frame style with coupler",0,Average,1,233.97,0,233.97,EA,,Remove and Replace,62.67,31.8,78.9,60.6,0,0,ACCMN-A,4.85,286.6,150,Percent,0,Yes,286.6,Yes,No,ACC,HTCH,PAULGAGN,,11/2/20
+10,,,Axle hubs - drag type,0,Average,1,256.5,0,256.5,EA,,Remove and Replace,74.95,38.93,89.82,52.8,0,0,ACCMN-A,4.22,312.86,150,Percent,0,Yes,312.86,Yes,No,ACC,HUBS,PAULGAGN,,11/2/20
+11,,,I beam repair,0,Average,1,266.62,0,266.62,EA,,Replace,91.78,43.44,131.4,0,0,0,ACCMN-A,0,319.94,150,Percent,0,Yes,319.94,Yes,No,ACC,IBEAM,PAULGAGN,,11/2/20
+12,,,Mobile Home Repair - per hour,0,Average,1,119.98,0,119.98,HR,,Replace,41.3,19.55,59.13,0,0,0,ACCMN-A,0,143.98,150,Percent,0,Yes,143.98,Yes,No,ACC,LAB,PAULGAGN,,11/2/20
+13,,,Mobile Home - General Laborer - per hour,0,Average,1,77.07,0,77.07,HR,,Replace,31.01,18,28.06,0,0,0,ACCMN-A,0,92.49,150,Percent,0,Yes,92.49,Yes,No,ACC,LABL,PAULGAGN,,11/2/20
+14,,,Mobile Home Accessory - Labor Minimum,0,Average,1,299.96,0,299.96,EA,,Replace,103.25,48.88,147.83,0,0,0,ACCMN-A,0,359.96,0,Percent,0,Yes,359.96,Yes,No,ACC,MN,PAULGAGN,,11/2/20
+15,,,"Outrigger - up to 30"" long",0,Average,1,238.37,0,238.37,EA,,Remove and Replace,62.67,31.8,78.9,65,0,0,ACCMN-A,5.2,292.29,150,Percent,0,Yes,292.29,Yes,No,ACC,OTRG,PAULGAGN,,11/2/20
+16,,,Rim - doughnut type with no center,0,Average,1,212.11,0,212.11,EA,,Remove and Replace,58.79,29.96,73.36,50,0,0,ACCMN-A,4,259.33,150,Percent,0,Yes,259.33,Yes,No,ACC,RIM,PAULGAGN,,11/2/20
+17,,,Spring - mono or single leaf only,0,Average,1,260.45,0,260.45,EA,,Remove and Replace,71.54,36.38,89.67,62.86,0,0,ACCMN-A,5.03,318.56,150,Percent,0,Yes,318.56,Yes,No,ACC,SPNG,PAULGAGN,,11/2/20
+18,,,Tire - 7 x 14.5 or 8 x 14.5 mounted,0,Average,1,195.82,0,195.82,EA,,Remove and Replace,41.31,21.69,48.32,84.5,0,0,ACCMN-A,6.76,243.1,150,Percent,0,Yes,243.1,Yes,No,ACC,TIRE,PAULGAGN,,11/2/20
+19,,,Tire and rim/wheel - 7 x 14.5 or 8 x 14.5,0,Average,1,272.03,0,272.03,EA,,Remove and Replace,48.44,25.06,58.53,140,0,0,ACCMN-A,11.2,339.89,150,Percent,0,Yes,339.89,Yes,No,ACC,TIRE+,PAULGAGN,,11/2/20
+20,,,Tongue jack,0,Average,1,245.23,0,245.23,EA,,Remove and Replace,66.66,34.12,82.45,62,0,0,ACCMN-A,4.96,300.23,150,Percent,0,Yes,300.23,Yes,No,ACC,TNGJK,PAULGAGN,,11/2/20
+21,,,Acoustic ceiling tile,0,Average,0,0,0,6.51,SF,,Remove and Replace,1.44,0.72,2.66,1.69,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,AV,PAULGAGN,,11/2/20
+23,,,Acoustic ceiling tile - High grade,0,Average,0,0,0,7.33,SF,,Remove and Replace,1.44,0.72,2.66,2.51,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,AV+,PAULGAGN,,11/2/20
+24,,,Acoustic ceiling tile - Premium grade,0,Average,0,0,0,7.82,SF,,Remove and Replace,1.44,0.72,2.66,3,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,AV++,PAULGAGN,,11/2/20
+25,,,Tear off asbestos acoustic ceiling tile (no haul off),0,Average,0,0,0,7.86,SF,,Remove,2.06,0.97,4.59,0.24,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,AVARMV,PAULGAGN,,11/2/20
+26,,,Ceiling panel - w/battens & staples- mobile home,0,Average,0,0,0,5.67,SF,,Remove and Replace,1.2,0.6,2.3,1.57,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,AVM,PAULGAGN,,11/2/20
+27,,,Ceiling panel -High grade w/battens & staples- mobile home,0,Average,0,0,0,6.2,SF,,Remove and Replace,1.2,0.6,2.3,2.1,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,AVM+,PAULGAGN,,11/2/20
+28,,,Ceiling panel -glued w/no battens & staples- mobile home,0,Average,0,0,0,7.03,SF,,Remove and Replace,1.2,0.6,2.3,2.93,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,AVM++,PAULGAGN,,11/2/20
+29,,,Special - ballroom ceiling panels - Premium grade,0,Average,0,0,0,19.02,SF,,Remove and Replace,1.17,0.56,2.42,14.87,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,BALL++,PAULGAGN,,11/2/20
+30,,,Acoustical Treatments (Bid Item),0,Average,1,0,0,0,EA,,Replace,0,0,0,0,0,0,None,0,0,0,Percent,0,Yes,0,Yes,No,ACT,BIDITM,PAULGAGN,,11/2/20
+31,,,Batten for ceiling panel - mobile home,0,Average,0,0,0,3.89,LF,,Remove and Replace,0.99,0.49,1.92,0.49,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,BTN,PAULGAGN,,11/2/20
+32,,,Acoustical wall treatment - cloth - theater sound,0,Average,0,0,0,19.37,SF,,Remove and Replace,6.69,3.07,5,4.61,0,0,FNHMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,DRAPE,PAULGAGN,,11/2/20
+34,,,Acoustic ceiling tile furring,0,Average,0,0,0,1.84,SF,,Remove and Replace,0.47,0.24,0.76,0.37,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,FUR,PAULGAGN,,11/2/20
+35,,,Acoustical Treatments Installer - per hour,0,Average,0,0,0,150.87,HR,,Replace,40.78,19.14,90.95,0,0,0,ACTMN-A,0,0,0,Percent,0,Yes,0,Yes,No,ACT,LAB,PAULGAGN,,11/2/20
+36,,,Acoustical Treatments - General Laborer - per hour,0,Average,0,0,0,77.07,HR,,Replace,31.01,18,28.06,0,0,0,ACTMN-A,0,0,0,Percent,0,Yes,0,Yes,No,ACT,LABL,PAULGAGN,,11/2/20
+37,,,"Light diffusing panel (i.e., cracked ice)",0,Average,0,0,0,3.62,SF,,Remove and Replace,0.6,0.29,1.15,1.58,0,0,ACTMN-A,0,0,10,Percent,0,Yes,0,Yes,No,ACT,LP,PAULGAGN,,11/2/20
+38,,,"Light diffusing panel - High grade (i.e., mist white)",0,Average,0,0,0,3.9,SF,,Remove and Replace,0.6,0.29,1.15,1.86,0,0,ACTMN-A,0,0,10,Percent,0,Yes,0,Yes,No,ACT,LP+,PAULGAGN,,11/2/20
+39,,,"Light diffusing panel - Premium grade (i.e., egg crate)",0,Average,0,0,0,4.16,SF,,Remove and Replace,0.6,0.29,1.15,2.12,0,0,ACTMN-A,0,0,10,Percent,0,Yes,0,Yes,No,ACT,LP++,PAULGAGN,,11/2/20
+40,,,Acoustic Ceiling - Labor Minimum,0,Average,1,453.06,0,453.06,EA,,Replace,122.46,57.48,273.12,0,0,0,ACTMN-A,0,543.68,0,Percent,0,Yes,543.68,Yes,No,ACT,MN,PAULGAGN,,11/2/20
+41,,,Acoustical ceilings - metal tray type,0,Average,0,0,0,9.34,SF,,Remove and Replace,1.29,0.63,2.5,4.92,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,MTRAY,PAULGAGN,,11/2/20
+42,,,Suspended ceiling grid - 2' x 4',0,Average,0,0,0,2.92,SF,,Remove and Replace,0.66,0.32,1.3,0.64,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,SG,PAULGAGN,,11/2/20
+43,,,Suspended ceiling grid - High grade - 2' x 4',0,Average,0,0,0,3.14,SF,,Remove and Replace,0.66,0.32,1.3,0.86,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,SG+,PAULGAGN,,11/2/20
+44,,,Suspended ceiling grid - Premium grade - 2' x 4',0,Average,0,0,0,3.35,SF,,Remove and Replace,0.66,0.32,1.3,1.07,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,SG++,PAULGAGN,,11/2/20
+45,,,Suspended ceiling grid - 2' x 2',0,Average,0,0,0,3.34,SF,,Remove and Replace,0.72,0.35,1.42,0.85,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,SG2,PAULGAGN,,11/2/20
+46,,,Suspended ceiling grid - High grade - 2' x 2',0,Average,0,0,0,3.61,SF,,Remove and Replace,0.72,0.35,1.42,1.12,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,SG2+,PAULGAGN,,11/2/20
+47,,,Suspended ceiling grid - Premium grade - 2' x 2',0,Average,0,0,0,3.92,SF,,Remove and Replace,0.72,0.35,1.42,1.43,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,SG2++,PAULGAGN,,11/2/20
+48,,,Suspended ceiling grid - Detach & reset,0,Average,0,0,0,2.89,SF,,Replace,0.78,0.37,1.74,0,0,0,ACTMN-A,0,0,0,Percent,0,Yes,0,Yes,No,ACT,SG2RS,PAULGAGN,,11/2/20
+49,,,Suspended ceiling grid - Reset/realign,0,Average,0,0,0,2.68,SF,,Replace,0.72,0.34,1.61,0.01,0,0,ACTMN-A,0,0,0,Percent,0,Yes,0,Yes,No,ACT,SGRS,PAULGAGN,,11/2/20
+50,,,Suspended ceiling tile - 2' x 4',0,Average,0,0,0,3.09,SF,,Remove and Replace,0.53,0.26,0.99,1.31,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,ST,PAULGAGN,,11/2/20
+51,,,Suspended ceiling tile - Standard grade - 2' x 4',0,Average,0,0,0,2.63,SF,,Remove and Replace,0.53,0.26,0.99,0.85,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,ST-,PAULGAGN,,11/2/20
+52,,,Suspended ceiling tile - High grade - 2' x 4',0,Average,0,0,0,4.17,SF,,Remove and Replace,0.53,0.26,0.99,2.39,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,ST+,PAULGAGN,,11/2/20
+53,,,Suspended ceiling tile - Premium grade - 2' x 4',0,Average,0,0,0,5.49,SF,,Remove and Replace,0.53,0.26,0.99,3.71,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,ST++,PAULGAGN,,11/2/20
+54,,,Suspended ceiling tile - 2' x 2',0,Average,0,0,0,3.39,SF,,Remove and Replace,0.53,0.26,1,1.59,0,0.01,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,ST2,PAULGAGN,,11/2/20
+55,,,Suspended ceiling tile - Standard grade - 2' x 2',0,Average,0,0,0,2.74,SF,,Remove and Replace,0.53,0.26,1,0.94,0,0.01,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,ST2-,PAULGAGN,,11/2/20
+56,,,Suspended ceiling tile - High grade - 2' x 2',0,Average,0,0,0,4.2,SF,,Remove and Replace,0.53,0.26,1,2.17,0,0.24,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,ST2+,PAULGAGN,,11/2/20
+57,,,Suspended ceiling tile - Premium grade - 2' x 2',0,Average,0,0,0,6.36,SF,,Remove and Replace,0.53,0.26,1,4.56,0,0.01,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,ST2++,PAULGAGN,,11/2/20
+58,,,Suspended ceiling tile for clean room/kitchen - 2' x 4',0,Average,0,0,0,6.84,SF,,Remove and Replace,0.63,0.31,1.21,4.69,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,STCL,PAULGAGN,,11/2/20
+59,,,Suspended ceiling tile for clean room/kitchen - 2' x 2',0,Average,0,0,0,7.99,SF,,Remove and Replace,0.63,0.31,1.22,5.82,0,0.01,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,STCL2,PAULGAGN,,11/2/20
+60,,,Suspended ceiling system - 2' x 4',0,Average,0,0,0,5.96,SF,,Remove and Replace,1.17,0.58,2.27,1.94,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,STG,PAULGAGN,,11/2/20
+61,,,Suspended ceiling system - Standard grade - 2' x 4',0,Average,0,0,0,5.51,SF,,Remove and Replace,1.17,0.58,2.27,1.49,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,STG-,PAULGAGN,,11/2/20
+62,,,Suspended ceiling system - High grade - 2' x 4',0,Average,0,0,0,7.27,SF,,Remove and Replace,1.17,0.58,2.27,3.25,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,STG+,PAULGAGN,,11/2/20
+63,,,Suspended ceiling system - Premium grade - 2' x 4',0,Average,0,0,0,8.8,SF,,Remove and Replace,1.17,0.58,2.27,4.78,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,STG++,PAULGAGN,,11/2/20
+64,,,Suspended ceiling system - 2' x 2',0,Average,0,0,0,6.74,SF,,Remove and Replace,1.25,0.62,2.42,2.44,0,0.01,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,STG2,PAULGAGN,,11/2/20
+65,,,Suspended ceiling system - Standard grade - 2' x 2',0,Average,0,0,0,6.08,SF,,Remove and Replace,1.25,0.62,2.42,1.79,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,STG2-,PAULGAGN,,11/2/20
+66,,,Suspended ceiling system - High grade - 2' x 2',0,Average,0,0,0,7.82,SF,,Remove and Replace,1.25,0.62,2.42,3.29,0,0.24,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,STG2+,PAULGAGN,,11/2/20
+67,,,Suspended ceiling system - Premium grade - 2' x 2',0,Average,0,0,0,10.29,SF,,Remove and Replace,1.25,0.62,2.42,5.99,0,0.01,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,STG2++,PAULGAGN,,11/2/20
+68,,,Suspended ceiling system - 2' x 2' fabric covered,0,Average,0,0,0,16.9,SF,,Remove and Replace,1.25,0.62,2.42,12.61,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,STGF2,PAULGAGN,,11/2/20
+69,,,Suspended ceiling system - Linear metal strip,0,Average,0,0,0,20.61,SF,,Remove and Replace,4.04,1.91,8.81,5.85,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,STGLIN,PAULGAGN,,11/2/20
+70,,,Suspended ceiling tile - Detach & reset,0,Average,0,0,0,1.24,SF,,Replace,0.33,0.16,0.75,0,0,0,ACTMN-A,0,0,0,Percent,0,Yes,0,Yes,No,ACT,STRS,PAULGAGN,,11/2/20
+71,,,Tin ceiling cornice - embossed - unpainted,0,Average,0,0,0,6.78,LF,,Remove and Replace,0.88,0.44,1.7,3.76,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,TINCC,PAULGAGN,,11/2/20
+72,,,Tin ceiling cornice - embossed - factory painted,0,Average,0,0,0,7.96,LF,,Remove and Replace,0.88,0.44,1.7,4.94,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,TINCC+,PAULGAGN,,11/2/20
+73,,,Tin ceiling cornice - embossed - chrome/brass/copper,0,Average,0,0,0,13.31,LF,,Remove and Replace,0.88,0.44,1.7,10.29,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,TINCC++,PAULGAGN,,11/2/20
+74,,,Tin ceiling panel - embossed - unpainted,0,Average,0,0,0,5.93,SF,,Remove and Replace,0.6,0.3,1.12,3.91,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,TINCP,PAULGAGN,,11/2/20
+75,,,Tin ceiling panel - embossed - factory painted,0,Average,0,0,0,6.91,SF,,Remove and Replace,0.6,0.3,1.12,4.89,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,TINCP+,PAULGAGN,,11/2/20
+76,,,Tin ceiling panel - embossed - chrome/brass/copper,0,Average,0,0,0,11.63,SF,,Remove and Replace,0.6,0.3,1.12,9.61,0,0,ACTMN-A,0,0,150,Percent,0,Yes,0,Yes,No,ACT,TINCP++,PAULGAGN,,11/2/20
+77,,,Tin ceiling panel - embossed - Detach & reset,0,Average,0,0,0,1.73,SF,,Replace,0.47,0.22,1.04,0,0,0,ACTMN-A,0,0,0,Percent,0,Yes,0,Yes,No,ACT,TINCPRS,PAULGAGN,,11/2/20
+78,,,Gas can,0,Average,1,29,0,29,EA,,Replace,0,0,0,29,0,0,None,2.32,31.32,10,Percent,0,Yes,31.32,Yes,No,AMA,AAGC,PAULGAGN,,11/2/20
+79,,,Gas can - Standard grade,0,Average,1,16,0,16,EA,,Replace,0,0,0,16,0,0,None,1.28,17.28,10,Percent,0,Yes,17.28,Yes,No,AMA,AAGC-,PAULGAGN,,11/2/20
+80,,,Gas can - High grade,0,Average,1,55,0,55,EA,,Replace,0,0,0,55,0,0,None,4.4,59.4,10,Percent,0,Yes,59.4,Yes,No,AMA,AAGC+,PAULGAGN,,11/2/20
+81,,,Automobile Rim,0,Average,1,160,0,160,EA,,Replace,0,0,0,160,0,0,None,12.8,172.8,10,Percent,0,Yes,172.8,Yes,No,AMA,AAMR,PAULGAGN,,11/2/20
+82,,,Automobile Rim - Standard grade,0,Average,1,80,0,80,EA,,Replace,0,0,0,80,0,0,None,6.4,86.4,10,Percent,0,Yes,86.4,Yes,No,AMA,AAMR-,PAULGAGN,,11/2/20
+83,,,Automobile Rim - High grade,0,Average,1,540,0,540,EA,,Replace,0,0,0,540,0,0,None,43.2,583.2,10,Percent,0,Yes,583.2,Yes,No,AMA,AAMR+,PAULGAGN,,11/2/20
+84,,,Appearance allowance - AMA - Enter price,0,Average,1,0,0,0,EA,,Replace,0,0,0,0,0,0,None,0,0,0,Percent,0,Yes,0,Yes,No,AMA,ALLOW,PAULGAGN,,11/2/20
+85,,,Auto & motorcycle accessories - Enter price,0,Average,1,0,0,0,EA,,Replace,0,0,0,0,0,0,None,0,0,10,Percent,0,Yes,0,Yes,No,AMA,AMA,PAULGAGN,,11/2/20
+86,,,Automotive working parts - Enter price,0,Average,1,0,0,0,EA,,Replace,0,0,0,0,0,0,None,0,0,5,Percent,0,Yes,0,Yes,No,AMA,AMAP,PAULGAGN,,11/2/20
+87,,,Trailers - Enter price,0,Average,1,0,0,0,EA,,Replace,0,0,0,0,0,0,None,0,0,20,Percent,0,Yes,0,Yes,No,AMA,AMAT,PAULGAGN,,11/2/20
+88,,,Motorcycle / Scooter / ATV cover,0,Average,1,35,0,35,EA,,Replace,0,0,0,35,0,0,None,2.8,37.8,10,Percent,0,Yes,37.8,Yes,No,AMA,AMMC,PAULGAGN,,11/2/20
+89,,,Motorcycle / Scooter / ATV cover - Standard grade,0,Average,1,20,0,20,EA,,Replace,0,0,0,20,0,0,None,1.6,21.6,10,Percent,0,Yes,21.6,Yes,No,AMA,AMMC-,PAULGAGN,,11/2/20
+90,,,Motorcycle / Scooter / ATV cover - High grade,0,Average,1,115,0,115,EA,,Replace,0,0,0,115,0,0,None,9.2,124.2,10,Percent,0,Yes,124.2,Yes,No,AMA,AMMC+,PAULGAGN,,11/2/20
+91,,,Motorcycle / Scooter / ATV eyewear,0,Average,1,40,0,40,EA,,Replace,0,0,0,40,0,0,None,3.2,43.2,10,Percent,0,Yes,43.2,Yes,No,AMA,AMME,PAULGAGN,,11/2/20
+92,,,Motorcycle / Scooter / ATV eyewear - Standard grade,0,Average,1,15,0,15,EA,,Replace,0,0,0,15,0,0,None,1.2,16.2,10,Percent,0,Yes,16.2,Yes,No,AMA,AMME-,PAULGAGN,,11/2/20
+93,,,Motorcycle / Scooter / ATV eyewear - High grade,0,Average,1,117,0,117,EA,,Replace,0,0,0,117,0,0,None,9.36,126.36,10,Percent,0,Yes,126.36,Yes,No,AMA,AMME+,PAULGAGN,,11/2/20
+94,,,Motorcycle / Scooter / ATV gloves,0,Average,1,37,0,37,EA,,Replace,0,0,0,37,0,0,None,2.96,39.96,10,Percent,0,Yes,39.96,Yes,No,AMA,AMMG,PAULGAGN,,11/2/20
+95,,,Motorcycle / Scooter / ATV gloves - Standard grade,0,Average,1,18,0,18,EA,,Replace,0,0,0,18,0,0,None,1.44,19.44,10,Percent,0,Yes,19.44,Yes,No,AMA,AMMG-,PAULGAGN,,11/2/20
+96,,,Motorcycle / Scooter / ATV gloves - High grade,0,Average,1,120,0,120,EA,,Replace,0,0,0,120,0,0,None,9.6,129.6,10,Percent,0,Yes,129.6,Yes,No,AMA,AMMG+,PAULGAGN,,11/2/20
+97,,,Motorcycle / Scooter / ATV helmet,0,Average,1,166,0,166,EA,,Replace,0,0,0,166,0,0,None,13.28,179.28,10,Percent,0,Yes,179.28,Yes,No,AMA,AMMH,PAULGAGN,,11/2/20
+98,,,Motorcycle / Scooter / ATV helmet - Standard grade,0,Average,1,75,0,75,EA,,Replace,0,0,0,75,0,0,None,6,81,10,Percent,0,Yes,81,Yes,No,AMA,AMMH-,PAULGAGN,,11/2/20
+99,,,Motorcycle / Scooter / ATV helmet - High grade,0,Average,1,500,0,500,EA,,Replace,0,0,0,500,0,0,None,40,540,10,Percent,0,Yes,540,Yes,No,AMA,AMMH+,PAULGAGN,,11/2/20
+100,,,Vehicle tire - Enter price,0,Average,1,0,0,0,EA,,Replace,0,0,0,0,0,0,None,0,0,10,Percent,0,Yes,0,Yes,No,AMA,AMVT,PAULGAGN,,11/2/20
+101,,,Car bike carrier / rack,0,Average,1,200,0,200,EA,,Replace,0,0,0,200,0,0,None,16,216,10,Percent,0,Yes,216,Yes,No,AMA,BKC,PAULGAGN,,11/2/20
+102,,,Car bike carrier / rack - Standard grade,0,Average,1,70,0,70,EA,,Replace,0,0,0,70,0,0,None,5.6,75.6,10,Percent,0,Yes,75.6,Yes,No,AMA,BKC-,PAULGAGN,,11/2/20

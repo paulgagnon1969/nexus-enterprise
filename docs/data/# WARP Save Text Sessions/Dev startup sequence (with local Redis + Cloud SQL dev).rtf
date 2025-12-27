@@ -1,0 +1,208 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica-Bold;\f1\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;\red251\green2\blue7;}
+{\*\expandedcolortbl;;\cssrgb\c100000\c14913\c0;}
+\margl1440\margr1440\vieww15740\viewh31840\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\b\fs24 \cf0  you want an even more minimal \'93kill dev stack\'94 command that leaves Redis alone:\
+\
+```bash\
+pkill -f "ts-node src/main.ts" || true\
+pkill -f "ts-node src/worker.ts" || true\
+pkill -f "node dist/main.js" || true\
+pkill -f "node dist/worker.js" || true\
+pkill -f "cloud-sql-proxy" || true\
+```\
+Then your clean startup becomes:\
+\
+1. **Clean up anything stale**\
+\
+```bash\
+   # from any directory\
+   pkill -f "ts-node src/main.ts" || true\
+   pkill -f "ts-node src/worker.ts" || true\
+   pkill -f "node dist/main.js" || true\
+   pkill -f "node dist/worker.js" || true\
+   pkill -f "cloud-sql-proxy" || true\
+```\
+2. **Start Cloud SQL proxy (Terminal A)**\
+\
+```bash\
+   cloud-sql-proxy <INSTANCE_CONNECTION_NAME_FOR_nexusdev-v2> \\\
+     --port=5434 \\\
+     --address=127.0.0.1\
+```\
+3. **(If needed) start local Redis via Homebrew**\
+\
+```bash\
+   brew services start redis\
+   # or verify it's already running with: redis-cli ping\
+```\
+4. **API dev server (Terminal B)**\
+\
+```bash\
+   cd ~/nexus-enterprise\
+   npm run dev:api\
+```\
+5. **Worker dev server (Terminal C)**\
+\
+```bash\
+   cd ~/nexus-enterprise/apps/api\
+   npm run worker:dev\
+```\
+6. **Web dev server (Terminal D)**\
+\
+```bash\
+   cd ~/nexus-enterprise\
+   npm run dev -- --filter=web\
+```\
+If you want, we can codify that \'93kill all dev servers and restart\'94 into a small shell script (e.g. `scripts/dev-clean.sh`) so you can run:\
+\
+```bash\
+cd ~/nexus-enterprise\
+bash scripts/dev-clean.sh\
+```\
+and have it do the pkill + re\uc0\u8209 startup sequence in a predictable way.\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 ---
+\f1\b0 \
+\
+
+\f0\b \cf2 ## 3. Dev startup sequence (with local Redis + Cloud SQL dev)
+\f1\b0 \cf0 \
+\
+From a clean reboot:\
+\
+### Terminal A \'96 Cloud SQL proxy (for `nexus_db`)\
+\
+```bash\
+cloud-sql-proxy <INSTANCE_CONNECTION_NAME_FOR_nexusdev-v2> \\\
+  --port=5434 \\\
+  --address=127.0.0.1\
+```\
+- `<INSTANCE_CONNECTION_NAME_FOR_nexusdev-v2>` is the exact string from Cloud SQL \'93Instance connection name\'94.\
+- Leave this window open.\
+\
+### Terminal B \'96 API (uses Cloud SQL + local Redis)\
+\
+```bash\
+cd ~/nexus-enterprise\
+npm run dev:api\
+```\
+- Uses `DATABASE_URL=...5434/nexus_db`.\
+- Uses `REDIS_URL=redis://localhost:6379`.\
+\
+### Terminal C \'96 Worker (for background imports)\
+\
+```bash\
+cd ~/nexus-enterprise/apps/api\
+npm run worker:dev\
+```\
+- Connects to the same DB + Redis.\
+- Processes `ImportJob` queue (`import-jobs`).\
+\
+### Terminal D \'96 Web app\
+\
+```bash\
+cd ~/nexus-enterprise\
+npm run dev -- --filter=web\
+```\
+Then hit `http://localhost:3000`, log in, and your background import flows (`/pricing/price-list/import`, `/pricing/price-list/components/import`) will:\
+\
+- Enqueue jobs via Redis,\
+- Be processed by the worker,\
+- Write progress/errors into `ImportJob` rows.\
+\
+---\
+\
+## 4. Docker infra\
+\
+With this setup:\
+\
+- **No Docker is required for normal local dev.**\
+- You can ignore `infra/docker/docker-compose.yml` unless you explicitly need local Postgres/Redis for other experiments.\
+- If Docker Desktop auto\uc0\u8209 start is disabled (as you configured), you won\'92t have any hidden port hoggers.\
+\
+---\
+\
+If you\'92d like, next we can put this startup sequence into a short \'93Dev startup\'94 section in your docs so it\'92s easy to follow in the future and for other teammates.\
+\
+\
+
+\f0\b\fs36 for the clean reboot, lets add the first command to kill all servers and restart
+\f1\b0\fs24 \
+\
+Makes sense\'97you want a \'93panic button\'94 to tear down any stray dev processes before starting the clean sequence.\
+\
+On macOS, from **any** terminal, you can run this once to kill the usual suspects:\
+\
+```bash\
+pkill -f "ts-node src/main.ts" || true      # API dev server\
+pkill -f "ts-node src/worker.ts" || true    # worker:dev\
+pkill -f "node dist/main.js" || true       # compiled API\
+pkill -f "node dist/worker.js" || true     # compiled worker\
+pkill -f "cloud-sql-proxy" || true         # Cloud SQL proxies\
+pkill -f "redis-server" || true            # local redis (if you want to restart it)\
+```\
+You can trim that list if you want to leave `redis-server` running; e.g. drop the last line if you just want to kill app + proxy, not Redis itself.\
+\
+If you want an even more minimal \'93kill dev stack\'94 command that leaves Redis alone:\
+\
+```bash\
+pkill -f "ts-node src/main.ts" || true\
+pkill -f "ts-node src/worker.ts" || true\
+pkill -f "node dist/main.js" || true\
+pkill -f "node dist/worker.js" || true\
+pkill -f "cloud-sql-proxy" || true\
+```\
+Then your clean startup becomes:\
+\
+1. **Clean up anything stale**\
+\
+```bash\
+   # from any directory\
+   pkill -f "ts-node src/main.ts" || true\
+   pkill -f "ts-node src/worker.ts" || true\
+   pkill -f "node dist/main.js" || true\
+   pkill -f "node dist/worker.js" || true\
+   pkill -f "cloud-sql-proxy" || true\
+```\
+2. **Start Cloud SQL proxy (Terminal A)**\
+\
+```bash\
+   cloud-sql-proxy <INSTANCE_CONNECTION_NAME_FOR_nexusdev-v2> \\\
+     --port=5434 \\\
+     --address=127.0.0.1\
+```\
+3. **(If needed) start local Redis via Homebrew**\
+\
+```bash\
+   brew services start redis\
+   # or verify it's already running with: redis-cli ping\
+```\
+4. **API dev server (Terminal B)**\
+\
+```bash\
+   cd ~/nexus-enterprise\
+   npm run dev:api\
+```\
+5. **Worker dev server (Terminal C)**\
+\
+```bash\
+   cd ~/nexus-enterprise/apps/api\
+   npm run worker:dev\
+```\
+6. **Web dev server (Terminal D)**\
+\
+```bash\
+   cd ~/nexus-enterprise\
+   npm run dev -- --filter=web\
+```\
+If you want, we can codify that \'93kill all dev servers and restart\'94 into a small shell script (e.g. `scripts/dev-clean.sh`) so you can run:\
+\
+```bash\
+cd ~/nexus-enterprise\
+bash scripts/dev-clean.sh\
+```\
+and have it do the pkill + re\uc0\u8209 startup sequence in a predictable way.}

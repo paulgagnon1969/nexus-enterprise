@@ -1,0 +1,206 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww25360\viewh28040\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 yes,lets tighten dev-prod\
+\
+Here\'92s a tightened, current **Dev \uc0\u8594  Prod** runbook that matches how things are actually wired now (`nexus-dev-postgres` for dev, `nexusprod-v2` for prod, Cloud Run + Vercel).\
+\
+I\'92ll keep this as a single \'93source of truth\'94 you can follow every time.\
+\
+---\
+\
+## 0. Environment definitions\
+\
+- **Dev DB**: `nexus-dev-postgres` (Cloud SQL)\
+- **Prod DB**: `nexusprod-v2` (Cloud SQL)\
+- **Cloud Run (prod)**:\
+  - API: `nexus-api`\
+  - Worker: `nexus-worker`\
+- **Cloud Run (dev)**:\
+  - API dev: `nexus-api-dev`\
+- **Web (prod)**:\
+  - Vercel app (points to `https://nexus-api-979156454944.us-central1.run.app`)\
+\
+---\
+\
+## 1. Local dev: canonical startup (dev DB)\
+\
+Use this whenever you sit down to develop.\
+\
+```bash\
+cd ~/nexus-enterprise\
+\
+# 1) Ensure dev DB proxy is running (nexus-dev-postgres on 5433)\
+cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres\
+# leave this running in its own terminal\
+\
+# 2) In a new terminal: start clean dev env (API + worker + web)\
+export DEV_DB_PASSWORD='NEXUS_2025_DEV-v2'\
+./scripts/dev-clean-env.sh\
+```\
+- API dev: `http://localhost:8000`\
+- Web dev: `http://localhost:3000`\
+- Dev DB: `nexus-dev-postgres` via proxy on 5433.\
+\
+Check:\
+\
+```bash\
+curl -i http://localhost:8000/health\
+# expect 200 + \{"ok":true,"redis":"unreachable"\} in dev (no-op Redis)\
+```\
+---\
+\
+## 2. Normal dev workflow (code + schema)\
+\
+1. **Code changes** in `apps/api`, `apps/web`, `packages/database`, etc.\
+2. **Schema changes** (against dev DB only):\
+\
+```bash\
+   cd ~/nexus-enterprise/packages/database\
+\
+   export DATABASE_URL="postgresql://postgres:$\{DEV_DB_PASSWORD\}@127.0.0.1:5433/nexus_db"\
+\
+   # edit prisma/schema.prisma\
+\
+   npx prisma migrate dev --name <migration_name> --schema ./prisma/schema.prisma\
+```\
+3. Run tests / manual checks against dev stack (web at `http://localhost:3000`).\
+\
+Once you\'92re happy with behavior on **dev DB**, you\'92re allowed to go to prod.\
+\
+---\
+\
+## 3. Prod DB migrations (nexusprod-v2)\
+\
+**Only** when your Prisma migrations are ready to ship.\
+\
+1. Start Cloud SQL proxy to prod instance:\
+\
+```bash\
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2\
+   # leave running in its own terminal\
+```\
+2. Apply migrations with prod `DATABASE_URL`:\
+\
+```bash\
+   cd ~/nexus-enterprise\
+\
+   export DATABASE_URL="postgresql://postgres:<PROD_DB_PASSWORD>@127.0.0.1:5433/nexus_db"\
+\
+   ./scripts/db-migrate-prod.sh\
+```\
+   - This runs `prisma migrate deploy` in `packages/database` against **nexusprod-v2**.\
+   - Expect: \'93No pending migrations\'94 or a list of applied migrations and `[db-migrate-prod] Done.`\
+\
+---\
+\
+## 4. Deploy API to prod (`nexus-api`)\
+\
+From repo root:\
+\
+```bash\
+cd ~/nexus-enterprise\
+./scripts/deploy-api.sh\
+```\
+This:\
+\
+- Builds the Docker image with `turbo build --filter=api`.\
+- Pushes it to Artifact Registry.\
+- Deploys a new Cloud Run revision for `nexus-api` (already wired to `nexusprod-v2` + Redis).\
+\
+Verify:\
+\
+```bash\
+curl -i https://nexus-api-979156454944.us-central1.run.app/health\
+# expect 200 + \{"ok":true,"redis":"PONG"\}\
+```\
+If `/health` is not 200, **stop here** and fix API/DB before touching web or worker.\
+\
+---\
+\
+## 5. Deploy worker to prod (`nexus-worker`)\
+\
+Whenever API code or DB schema that the worker uses changes, bump the worker too:\
+\
+```bash\
+gcloud run deploy nexus-worker \\\
+  --image us-docker.pkg.dev/nexus-enterprise-480610/nexus-api/nexus-api \\\
+  --platform managed \\\
+  --region us-central1 \\\
+  --project nexus-enterprise-480610 \\\
+  --command node \\\
+  --args dist/worker-http.js\
+```\
+- Service is already wired to `nexusprod-v2` and `REDIS_URL=redis://10.53.145.123:6379`.\
+- This just moves it to the new image.\
+\
+---\
+\
+## 6. Web prod deploy (Vercel)\
+\
+Vercel is already configured to:\
+\
+- Pull from your Git branch.\
+- Build `apps/web`.\
+- Use `NEXT_PUBLIC_API_BASE_URL=https://nexus-api-979156454944.us-central1.run.app`.\
+\
+Typical flow:\
+\
+1. **Commit & push** your changes (API, web, database migrations, scripts).\
+2. Vercel automatically builds and deploys the web app.\
+3. Once the Vercel build is done, visit the prod URL and log in.\
+\
+---\
+\
+## 7. Post-deploy smoke tests (prod)\
+\
+After each release, run this minimal checklist:\
+\
+1. **API health (prod)**\
+\
+```bash\
+   curl -i https://nexus-api-979156454944.us-central1.run.app/health\
+   # Must be 200 and redis: "PONG"\
+```\
+2. **Direct login (prod)**\
+\
+```bash\
+   curl -i "https://nexus-api-979156454944.us-central1.run.app/auth/login" \\\
+     -H "Content-Type: application/json" \\\
+     -d '\{\
+       "email": "paul@nfsgrp.com",\
+       "password": "<PROD_PASSWORD>"\
+     \}'\
+```\
+   - Expect 200/201 and JSON with `user`, `company`, `accessToken`, `refreshToken`.\
+\
+3. **Web login (prod)**\
+\
+   - Open Vercel URL \uc0\u8594  `/login`.\
+   - Log in as `paul@nfsgrp.com` with prod password.\
+   - Confirm dashboard loads and basic navigation works.\
+\
+4. **Worker sanity (optional but good)**\
+\
+   - Kick off a small import or background job you trust.\
+   - Confirm it moves from QUEUED \uc0\u8594  RUNNING \u8594  SUCCEEDED in the DB.\
+\
+---\
+\
+## 8. Safe-guards / \'93do not do\'94 list\
+\
+- Don\'92t run `prisma migrate dev` against prod \'97 **only `migrate deploy`** with prod `DATABASE_URL`.\
+- Don\'92t point local dev at `nexusprod-v2` for experiments; use `nexus-dev-postgres`.\
+- Don\'92t run ad-hoc scripts with `PrismaClient` unless `DATABASE_URL` is explicitly set to the intended DB (dev or prod).\
+- Always fix `/health` = 500 **before** debugging login issues.\
+\
+---\
+\
+If you want, I can next:\
+\
+- Turn this into a short `docs/onboarding/dev-to-prod.md` in the repo, or\
+- Add a simple `scripts/dev-to-prod.sh` that guides you through steps 3\'965 interactively (migrate \uc0\u8594  deploy API \u8594  deploy worker).}

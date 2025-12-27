@@ -1,0 +1,4171 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 USER:\
+WARP, I wouold like to create a diagram of what resources aree needed to develop locally while using GCP proxy, I want to know what files provide environmental conditions for the system to work properly and consistently.\
+\
+AGENT:\
+\
+\
+**File Glob Results:**\
+\
+- **/Users/pg/nexus-enterprise/infra/docker/docker-compose.yml**\
+\
+\
+\
+\
+**Grep Results:**\
+\
+- **/Users/pg/nexus-enterprise/apps/web/tsconfig.tsbuildinfo**\
+- **/Users/pg/nexus-enterprise/scripts/dev-clean-env.sh**\
+- **/Users/pg/nexus-enterprise/docs/data/WARP Save Text Sessions/GOLDEN DEV PATH - map from local dev to prod.rtf**\
+- **/Users/pg/nexus-enterprise/scripts/dev-restart-cloud.sh**\
+- **/Users/pg/nexus-enterprise/scripts/dev-start.sh**\
+- **/Users/pg/nexus-enterprise/docs/data/WARP Save Text Sessions/Get the actual prod DATABASE_URL and REDIS_URL from nexus-api.rtf**\
+- **/Users/pg/nexus-enterprise/"docs/data/Dev \\342\\206\\222 Prod runbook.rtf"**\
+- **/Users/pg/nexus-enterprise/docs/onboarding/dev-stack.md**\
+- **/Users/pg/nexus-enterprise/scripts/dev-stop.sh**\
+- **/Users/pg/nexus-enterprise/package-lock.json**\
+- **/Users/pg/nexus-enterprise/scripts/dev-api-cloud-db.sh**\
+- **/Users/pg/nexus-enterprise/docs/onboarding/envs-and-migrations.md**\
+- **/Users/pg/nexus-enterprise/scripts/db-migrate-cloud.sh**\
+- **/Users/pg/nexus-enterprise/docs/onboarding/dev-to-prod-runbook.md**\
+\
+\
+\
+\
+**Files Read:**\
+\
+**/Users/pg/nexus-enterprise/scripts/dev-start.sh**\
+```\
+#!/usr/bin/env bash\
+set -euo pipefail\
+\
+# Simple dev startup script for Nexus Enterprise\
+# - Starts Cloud SQL Auth Proxy for dev\
+# - Starts API dev server pointed at Cloud SQL dev via proxy\
+# - Starts Next.js web dev server pointing at http://localhost:3000\
+\
+REPO_ROOT="/Users/pg/nexus-enterprise"\
+LOG_DIR="$REPO_ROOT/logs"\
+\
+mkdir -p "$LOG_DIR"\
+\
+# In local dev, clear any inherited REDIS_URL so RedisService falls back to\
+# the NoopRedis client and features depending on Redis degrade gracefully.\
+unset REDIS_URL\
+\
+# 1) Ensure web .env.local points to local API\
+WEB_ENV="$REPO_ROOT/apps/web/.env.local"\
+if [ ! -f "$WEB_ENV" ]; then\
+  cat > "$WEB_ENV" << 'EOF'\
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000\
+EOF\
+  echo "[dev-start] Created apps/web/.env.local pointing to http://localhost:8000" | tee -a "$LOG_DIR/dev-start.log"\
+fi\
+\
+# 2) Start Cloud SQL Auth Proxy for dev (if not already running)\
+# Uses a dedicated service account key for stable local auth. Set\
+# CLOUD_SQL_PROXY_CREDENTIAL_FILE in your shell (e.g. ~/.zshrc):\
+#   export CLOUD_SQL_PROXY_CREDENTIAL_FILE="$HOME/.gcp-keys/nexus-dev-proxy-key.json"\
+if pgrep -f "cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres" >/dev/null 2>&1; then\
+  echo "[dev-start] Cloud SQL proxy already running" | tee -a "$LOG_DIR/dev-start.log"\
+else\
+  echo "[dev-start] Starting Cloud SQL proxy on 127.0.0.1:5433 (dev instance)" | tee -a "$LOG_DIR/dev-start.log"\
+  if [[ -z "$\{CLOUD_SQL_PROXY_CREDENTIAL_FILE:-\}" ]]; then\
+    echo "[dev-start] WARNING: CLOUD_SQL_PROXY_CREDENTIAL_FILE is not set; falling back to Application Default Credentials" | tee -a "$LOG_DIR/dev-start.log"\
+    nohup /opt/homebrew/bin/cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres \\\
+      > "$LOG_DIR/cloud-sql-proxy.log" 2>&1 &\
+  else\
+    nohup /opt/homebrew/bin/cloud-sql-proxy \\\
+      --port=5433 \\\
+      --credential_file="$CLOUD_SQL_PROXY_CREDENTIAL_FILE" \\\
+      nexus-enterprise-480610:us-central1:nexus-dev-postgres \\\
+      > "$LOG_DIR/cloud-sql-proxy.log" 2>&1 &\
+  fi\
+  echo "[dev-start] Waiting 5 seconds for Cloud SQL proxy to initialize..." | tee -a "$LOG_DIR/dev-start.log"\
+  sleep 5\
+fi\
+\
+# 3) Start API dev server (Cloud SQL dev via proxy)\
+if pgrep -f "scripts/dev-api-cloud-db.sh" >/dev/null 2>&1; then\
+  echo "[dev-start] API dev server already running" | tee -a "$LOG_DIR/dev-start.log"\
+else\
+  echo "[dev-start] Starting API dev server (Cloud SQL dev via proxy)" | tee -a "$LOG_DIR/dev-start.log"\
+  (\
+    cd "$REPO_ROOT"\
+    if [[ -z "$\{DEV_DB_PASSWORD:-\}" ]]; then\
+      echo "[dev-start] DEV_DB_PASSWORD is not set. Export it in your shell before running this script." | tee -a "$LOG_DIR/dev-start.log"\
+      exit 1\
+    fi\
+    export DATABASE_URL="postgresql://postgres:$\{DEV_DB_PASSWORD\}@127.0.0.1:5433/nexus_db"\
+    nohup bash ./scripts/dev-api-cloud-db.sh \\\
+      > "$LOG_DIR/api-dev.log" 2>&1 &\
+  )\
+  echo "[dev-start] Waiting 5 seconds for API dev server to boot before starting web..." | tee -a "$LOG_DIR/dev-start.log"\
+  sleep 5\
+fi\
+\
+# 4) Start API worker (BullMQ import jobs)\
+if pgrep -f "src/worker.ts" >/dev/null 2>&1; then\
+  echo "[dev-start] API worker already running" | tee -a "$LOG_DIR/dev-start.log"\
+else\
+  echo "[dev-start] Starting API worker (import jobs)" | tee -a "$LOG_DIR/dev-start.log"\
+  (\
+    cd "$REPO_ROOT"\
+    if [[ -z "$\{DEV_DB_PASSWORD:-\}" ]]; then\
+      echo "[dev-start] DEV_DB_PASSWORD is not set. Export it in your shell before running this script." | tee -a "$LOG_DIR/dev-start.log"\
+      exit 1\
+    fi\
+    export DATABASE_URL="postgresql://postgres:$\{DEV_DB_PASSWORD\}@127.0.0.1:5433/nexus_db"\
+    cd "$REPO_ROOT/apps/api"\
+    nohup /usr/local/bin/npm run worker:dev \\\
+      > "$LOG_DIR/api-worker-dev.log" 2>&1 &\
+  )\
+fi\
+\
+# 5) Start web dev server\
+if pgrep -f "next dev -p 3000" >/dev/null 2>&1; then\
+  echo "[dev-start] Web dev server already running" | tee -a "$LOG_DIR/dev-start.log"\
+else\
+  echo "[dev-start] Starting web dev server on http://localhost:3000" | tee -a "$LOG_DIR/dev-start.log"\
+  (\
+    cd "$REPO_ROOT/apps/web"\
+    nohup /usr/local/bin/npm run dev \\\
+      > "$LOG_DIR/web-dev.log" 2>&1 &\
+  )\
+fi\
+\
+echo "[dev-start] Done. Check $LOG_DIR for logs." | tee -a "$LOG_DIR/dev-start.log"\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/scripts/dev-stop.sh**\
+```\
+#!/usr/bin/env bash\
+set -euo pipefail\
+\
+# Clean dev shutdown script for Nexus Enterprise\
+# - Stops Cloud SQL Auth Proxy on port 5433\
+# - Stops API dev server started via scripts/dev-api-cloud-db.sh\
+# - Stops Next.js web dev server on port 3000\
+\
+REPO_ROOT="/Users/pg/nexus-enterprise"\
+LOG_DIR="$REPO_ROOT/logs"\
+\
+mkdir -p "$LOG_DIR"\
+\
+log() \{\
+  echo "[dev-stop] $1" | tee -a "$LOG_DIR/dev-stop.log"\
+\}\
+\
+# 1) Stop Cloud SQL proxy\
+if pgrep -f "cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2" >/dev/null 2>&1; then\
+  log "Stopping Cloud SQL proxy on 127.0.0.1:5433"\
+  pkill -f "cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2" || true\
+else\
+  log "Cloud SQL proxy not running"\
+fi\
+\
+# 2) Stop API dev server (scripts/dev-api-cloud-db.sh)\
+if pgrep -f "scripts/dev-api-cloud-db.sh" >/dev/null 2>&1; then\
+  log "Stopping API dev server (scripts/dev-api-cloud-db.sh)"\
+  pkill -f "scripts/dev-api-cloud-db.sh" || true\
+else\
+  log "API dev server not running"\
+fi\
+\
+# 3) Stop web dev server (next dev -p 3000)\
+if pgrep -f "next dev -p 3000" >/dev/null 2>&1; then\
+  log "Stopping web dev server (next dev -p 3000)"\
+  pkill -f "next dev -p 3000" || true\
+else\
+  log "Web dev server not running"\
+fi\
+\
+log "Done. Checked and stopped dev processes as needed."\
+```\
+\
+**/Users/pg/nexus-enterprise/scripts/dev-api-cloud-db.sh**\
+```\
+#!/usr/bin/env bash\
+set -euo pipefail\
+\
+# Run the local API (apps/api) dev server against Cloud SQL.\
+#\
+# Usage:\
+#   export DATABASE_URL="postgresql://postgres:<PASSWORD>@<CLOUD_SQL_IP>:5432/nexus_db"\
+#   ./scripts/dev-api-cloud-db.sh\
+#\
+# Note: DATABASE_URL is not stored in this repo; you must set it in your shell.\
+\
+if [[ -z "$\{DATABASE_URL:-\}" ]]; then\
+  echo "DATABASE_URL is not set. Export it in your shell before running this script." >&2\
+  exit 1\
+fi\
+\
+ROOT_DIR="$(cd "$(dirname "$\{BASH_SOURCE[0]\}")/.." && pwd)"\
+cd "$ROOT_DIR/apps/api"\
+\
+echo "[dev-api-cloud-db] Using DATABASE_URL pointed at Cloud SQL."\
+npm run dev\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/scripts/dev-restart-cloud.sh**\
+```\
+#!/usr/bin/env bash\
+set -euo pipefail\
+\
+# Restart local dev stack using Cloud SQL as the database.\
+#\
+# This script:\
+#   1) Kills any dev servers on ports 3000 and 8000\
+#   2) Starts the API dev server using DATABASE_URL (Cloud SQL)\
+#   3) Starts the web dev server (Next.js) on port 3000\
+#\
+# Prereqs:\
+#   - DATABASE_URL must already be exported in your shell, e.g.\
+#       export DATABASE_URL="postgresql://postgres:<PASSWORD>@<CLOUD_SQL_IP>:5432/nexus_db"\
+#   - Node dependencies installed (npm ci / npm install already run)\
+\
+if [[ -z "$\{DATABASE_URL:-\}" ]]; then\
+  echo "[dev-restart-cloud] DATABASE_URL is not set. Export it in your shell before running this script." >&2\
+  exit 1\
+fi\
+\
+ROOT_DIR="$(cd "$(dirname "$\{BASH_SOURCE[0]\}")/.." && pwd)"\
+\
+cd "$ROOT_DIR"\
+\
+echo "[dev-restart-cloud] Cleaning dev ports (3000, 8000)..."\
+./scripts/dev-clean.sh || true\
+\
+echo "[dev-restart-cloud] Starting API dev server against Cloud SQL (port 8000)..."\
+(\
+  cd "$ROOT_DIR"\
+  ./scripts/dev-api-cloud-db.sh\
+) &\
+API_PID=$!\
+\
+echo "[dev-restart-cloud] Starting web dev server (port 3000)..."\
+(\
+  cd "$ROOT_DIR/apps/web"\
+  npm run dev\
+) &\
+WEB_PID=$!\
+\
+echo "[dev-restart-cloud] API PID: $API_PID, Web PID: $WEB_PID"\
+echo "[dev-restart-cloud] Local dev stack started using Cloud SQL."\
+echo "[dev-restart-cloud] Use 'kill $API_PID $WEB_PID' to stop both from this shell if needed."\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/scripts/db-migrate-cloud.sh**\
+```\
+#!/usr/bin/env bash\
+set -euo pipefail\
+\
+# Run Prisma migrations (packages/database) against Cloud SQL.\
+#\
+# Usage:\
+#   export DATABASE_URL="postgresql://postgres:<PASSWORD>@<CLOUD_SQL_IP>:5432/nexus_db"\
+#   ./scripts/db-migrate-cloud.sh\
+#\
+# Note: DATABASE_URL is not stored in this repo; you must set it in your shell.\
+\
+if [[ -z "$\{DATABASE_URL:-\}" ]]; then\
+  echo "DATABASE_URL is not set. Export it in your shell before running this script." >&2\
+  exit 1\
+fi\
+\
+ROOT_DIR="$(cd "$(dirname "$\{BASH_SOURCE[0]\}")/.." && pwd)"\
+cd "$ROOT_DIR/packages/database"\
+\
+echo "[db-migrate-cloud] Running Prisma migrations against Cloud SQL..."\
+npm run prisma:migrate\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/scripts/dev-clean-env.sh**\
+```\
+#!/usr/bin/env bash\
+set -euo pipefail\
+\
+# Clean Nexus dev environment and start a fresh local dev stack.\
+# - Kills local dev servers and proxies (API, worker, web, Cloud SQL proxy)\
+# - Verifies key ports are free\
+# - Runs scripts/dev-start.sh to bring everything back up\
+\
+REPO_ROOT="/Users/pg/nexus-enterprise"\
+LOG_DIR="$REPO_ROOT/logs"\
+\
+mkdir -p "$LOG_DIR"\
+LOG_FILE="$LOG_DIR/dev-clean-env.log"\
+\
+log() \{\
+  echo "[dev-clean-env] $1" | tee -a "$LOG_FILE"\
+\}\
+\
+log "Starting clean dev environment sequence..."\
+\
+# 1) Kill Cloud SQL proxies (dev or prod) to free port 5433\
+if pgrep -f "cloud-sql-proxy" >/dev/null 2>&1; then\
+  log "Killing cloud-sql-proxy processes..."\
+  pkill -f "cloud-sql-proxy" || true\
+else\
+  log "No cloud-sql-proxy processes found."\
+fi\
+\
+# 2) Kill API dev server (ts-node-dev via dev-api-cloud-db.sh)\
+if pgrep -f "scripts/dev-api-cloud-db.sh" >/dev/null 2>&1; then\
+  log "Killing dev-api-cloud-db script..."\
+  pkill -f "scripts/dev-api-cloud-db.sh" || true\
+fi\
+\
+if pgrep -f "ts-node-dev --respawn --transpile-only src/main.ts" >/dev/null 2>&1; then\
+  log "Killing API ts-node-dev main server..."\
+  pkill -f "ts-node-dev --respawn --transpile-only src/main.ts" || true\
+fi\
+\
+# 3) Kill API worker dev process\
+if pgrep -f "src/worker.ts" >/dev/null 2>&1; then\
+  log "Killing API worker dev process (src/worker.ts)..."\
+  pkill -f "src/worker.ts" || true\
+fi\
+\
+# 4) Kill web dev server (Next.js)\
+if pgrep -f "next dev -p 3000" >/dev/null 2>&1; then\
+  log "Killing web dev server (next dev -p 3000)..."\
+  pkill -f "next dev -p 3000" || true\
+else\
+  log "No Next.js dev server found."\
+fi\
+\
+log "Waiting 2 seconds for processes to terminate..."\
+sleep 2\
+\
+# 5) Verify key ports are free\
+log "Verifying ports 3000 (web), 8000 (API), 5433 (Cloud SQL proxy) are free..."\
+if lsof -iTCP:3000 -sTCP:LISTEN -n -P >/dev/null 2>&1; then\
+  log "WARNING: Something is still listening on port 3000."\
+else\
+  log "Port 3000 is free."\
+fi\
+\
+if lsof -iTCP:8000 -sTCP:LISTEN -n -P >/dev/null 2>&1; then\
+  log "WARNING: Something is still listening on port 8000."\
+else\
+  log "Port 8000 is free."\
+fi\
+\
+if lsof -iTCP:5433 -sTCP:LISTEN -n -P >/dev/null 2>&1; then\
+  log "WARNING: Something is still listening on port 5433."\
+else\
+  log "Port 5433 is free."\
+fi\
+\
+# 6) Start fresh dev stack\
+log "Starting fresh dev stack via scripts/dev-start.sh..."\
+cd "$REPO_ROOT"\
+\
+bash ./scripts/dev-start.sh\
+\
+log "Done. Dev environment is up. Check $LOG_DIR for logs."\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/infra/docker/docker-compose.yml**\
+```\
+services:\
+  postgres:\
+    image: postgres:16\
+    container_name: nexus-postgres\
+    restart: unless-stopped\
+    environment:\
+      POSTGRES_USER: nexus_user\
+      POSTGRES_PASSWORD: nexus_password\
+      POSTGRES_DB: nexus_db\
+    ports:\
+      - "5433:5432"\
+    volumes:\
+      - nexus-postgres-data:/var/lib/postgresql/data\
+\
+  redis:\
+    image: redis:7\
+    container_name: nexus-redis\
+    restart: unless-stopped\
+    ports:\
+      - "6380:6379"\
+    volumes:\
+      - nexus-redis-data:/data\
+\
+volumes:\
+  nexus-postgres-data:\
+  nexus-redis-data:\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/docs/onboarding/dev-stack.md**\
+```\
+# Nexus Dev Stack: Golden Path\
+\
+This doc describes the **minimal set of processes and steps** to get a healthy local dev stack running for Nexus, plus how to debug the most common failures.\
+\
+The core idea: you need **three local processes** talking to a **single database** via Cloud SQL.\
+\
+- Cloud SQL proxy \uc0\u8594  connects to Cloud SQL (prod or dev)\
+- API dev server \uc0\u8594  NestJS on `http://localhost:8000`\
+- Web dev server \uc0\u8594  Next.js on `http://localhost:3000`\
+\
+If these three are healthy, the UI and login will work.\
+\
+---\
+\
+## 0. Prereqs\
+\
+- `gcloud` installed and authenticated (ADC set up).\
+- `cloud-sql-proxy` installed.\
+- This repo checked out at `~/nexus-enterprise`.\
+\
+Cloud SQL instances (names from GCP):\
+\
+- `nexusprod-v2`\
+- `nexus-dev-postgres`\
+\
+The examples below assume **prod** database for day-to-day testing. Swap to `nexus-dev-postgres` when you want a safer dev DB.\
+\
+---\
+\
+## 1. Start / confirm Cloud SQL proxy\
+\
+In a terminal:\
+\
+```bash\
+cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2\
+```\
+\
+Leave this running. When ready, you should see output like:\
+\
+- `Listening on 127.0.0.1:5433`\
+- `The proxy has started successfully and is ready for new connections!`\
+\
+If this is already running from another tab/window, you **do not** need to start it again.\
+\
+To check quickly:\
+\
+```bash\
+lsof -ti:5433\
+```\
+\
+If you see a PID, the proxy is up.\
+\
+---\
+\
+## 2. Start / reset the API dev server (NestJS)\
+\
+From the repo root:\
+\
+```bash\
+cd /Users/pg/nexus-enterprise\
+\
+# Optional but recommended if things feel stuck.\
+npm run dev:clean   # kills anything on ports 3000 and 8000\
+\
+# Start API pointing at the DB via the proxy\
+export DATABASE_URL="postgresql://postgres:NEXUS_2025_PROD-v2@127.0.0.1:5433/nexus_db"\
+bash ./scripts/dev-api-cloud-db.sh\
+```\
+\
+You want to see:\
+\
+- Nest startup logs\
+- `Nest application successfully started`\
+- `API listening on http://localhost:8000`\
+\
+If the process exits or shows a stack trace, **stop here** and fix the API/DB issue before touching the web app.\
+\
+---\
+\
+## 3. Verify API health\
+\
+In another terminal:\
+\
+```bash\
+cd /Users/pg/nexus-enterprise\
+curl -i http://localhost:8000/health\
+```\
+\
+Healthy output looks like:\
+\
+```http\
+HTTP/1.1 200 OK\
+...\
+\{"ok":true,"dbTime":"2025-..","redis":"PONG"\}\
+```\
+\
+If you see `500 Internal Server Error` here, **do not** debug login or UI yet. `/health` must be 200 before anything else is meaningful.\
+\
+Common meanings:\
+\
+- `200 OK` \uc0\u8594  API + DB + Redis client are all healthy.\
+- `500` \uc0\u8594  something inside the API is throwing (Prisma, DB, etc.). Fix this first.\
+- `curl: (7) Failed to connect` \uc0\u8594  API process is not running or crashed. Restart with step 2.\
+\
+---\
+\
+## 4. Start / confirm the web dev server (Next.js)\
+\
+Only after `/health` returns 200:\
+\
+```bash\
+cd /Users/pg/nexus-enterprise/apps/web\
+npm run dev\
+```\
+\
+You want to see something like:\
+\
+- `ready - started server on 0.0.0.0:3000`\
+\
+Quick check:\
+\
+```bash\
+lsof -ti:3000\
+```\
+\
+If a PID shows up, web dev server is listening.\
+\
+Then open:\
+\
+- `http://localhost:3000`\
+\
+You should see the login page.\
+\
+---\
+\
+## 5. Accounts to use\
+\
+### Superadmin (cross-tenant admin)\
+\
+Use this for:\
+\
+- Switching between multiple organizations\
+- Using `/admin/*` endpoints\
+- Seeding / impersonation / role testing\
+\
+**Credentials:**\
+\
+- Email: `pg.superadmin@ncc.local`\
+- Password: (whatever latest dev password you set via `/auth/bootstrap-superadmin`)\
+\
+If you ever forget the password, you can reset it via:\
+\
+```bash\
+curl -i http://localhost:8000/auth/bootstrap-superadmin \\\
+  -H "Content-Type: application/json" \\\
+  -d '\{"email":"pg.superadmin@ncc.local","password":"NEW_PASSWORD"\}'\
+```\
+\
+As long as the email matches the existing SUPER_ADMIN, this is idempotent and just updates the password.\
+\
+### Paul (tenant-level user)\
+\
+Use this to see what a normal tenant user sees.\
+\
+**Credentials:**\
+\
+- Email: `paul@nfsgrp.com`\
+- Password: `PaulDev!2025`\
+\
+If this ever stops working, the password can be reset directly in the DB using a small Node script (see history) or an admin helper we may add in the future.\
+\
+---\
+\
+## 6. Quick status checks (what\'92s running?)\
+\
+From anywhere:\
+\
+```bash\
+lsof -ti:5433,8000,3000\
+```\
+\
+Interpretation:\
+\
+- PID on **5433** \uc0\u8594  Cloud SQL proxy is running.\
+- PID on **8000** \uc0\u8594  API dev server is running.\
+- PID on **3000** \uc0\u8594  Web dev server is running.\
+\
+If things feel weird:\
+\
+```bash\
+cd /Users/pg/nexus-enterprise\
+npm run dev:clean   # kills processes on 8000 and 3000 (API + web)\
+```\
+\
+This does **not** kill the Cloud SQL proxy on 5433. After that, redo:\
+\
+1. Start API (`bash ./scripts/dev-api-cloud-db.sh`)\
+2. Confirm `/health` is 200\
+3. Start web (`npm run dev` in `apps/web`)\
+\
+---\
+\
+## 7. Interpreting login errors (browser)\
+\
+In Chrome/Edge DevTools \uc0\u8594  Network, click the `login` request (to `/auth/login`).\
+\
+### 401 Unauthorized\
+\
+- Status: `401`\
+- Body: `\{"message":"Invalid credentials"\}`\
+\
+Meaning:\
+\
+- Email exists, but password does **not** match that user\'92s `passwordHash`.\
+\
+Fix:\
+\
+- Double-check you\'92re typing the right password.\
+- For dev accounts (like `pg.superadmin@ncc.local`), reset the password via `/auth/bootstrap-superadmin` as shown above.\
+\
+### 500 Internal Server Error\
+\
+- Status: `500`\
+- Body: `\{"statusCode":500,"message":"Internal server error"\}`\
+\
+Meaning:\
+\
+- The API threw an exception **after** receiving the request.\
+- Often indicates a DB/Prisma or infra problem.\
+\
+Fix:\
+\
+1. Check `/health`:\
+   \
+   ```bash\
+   curl -i http://localhost:8000/health\
+   ```\
+\
+2. If `/health` is also 500 or unreachable, focus on fixing API/DB (steps 2\'963 above) before debugging login.\
+\
+### Network error / cannot reach `localhost:8000`\
+\
+- DevTools shows something like `ERR_CONNECTION_REFUSED`.\
+\
+Meaning:\
+\
+- API process is not listening on 8000 (crashed or never started).\
+\
+Fix:\
+\
+1. Check:\
+   \
+   ```bash\
+   lsof -ti:8000\
+   ```\
+\
+   - If no PID, API is not running.\
+\
+2. Restart API:\
+   \
+   ```bash\
+   cd /Users/pg/nexus-enterprise\
+   npm run dev:clean   # optional but safe\
+   export DATABASE_URL="postgresql://postgres:NEXUS_2025_PROD-v2@127.0.0.1:5433/nexus_db"\
+   bash ./scripts/dev-api-cloud-db.sh\
+   ```\
+\
+3. Confirm `/health` is 200, then retry login.\
+\
+---\
+\
+## 8. Minimal daily workflow\
+\
+After a reboot or when sitting down to work on Nexus:\
+\
+1. **Start proxy (once)**\
+   \
+   ```bash\
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-prod-postgres\
+   ```\
+\
+2. **Start API**\
+   \
+   ```bash\
+   cd /Users/pg/nexus-enterprise\
+   export DATABASE_URL="postgresql://postgres:NEXUS_2025_PROD-v2@127.0.0.1:5433/nexus_db"\
+   bash ./scripts/dev-api-cloud-db.sh\
+   ```\
+\
+3. **Check health**\
+   \
+   ```bash\
+   curl -i http://localhost:8000/health\
+   ```\
+\
+4. **Start web**\
+   \
+   ```bash\
+   cd /Users/pg/nexus-enterprise/apps/web\
+   npm run dev\
+   ```\
+\
+5. **Log in** as either superadmin or Paul and do your work.\
+\
+If any step fails, use the health + lsof checks above to see which layer is broken (proxy, API, or web) and fix that layer first.\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/docs/onboarding/envs-and-migrations.md**\
+```\
+# Nexus Environments & Migrations: Mental Model\
+\
+This doc explains **which database you are talking to** during development, and how to safely move changes from **dev \uc0\u8594  (optional test) \u8594  prod**.\
+\
+The key is to separate:\
+\
+- **Code changes** (TypeScript/React/Nest) \uc0\u8594  live only in your local repo until deployed.\
+- **Database changes** (Prisma migrations / data updates) \uc0\u8594  affect whichever Cloud SQL instance your `DATABASE_URL` points to.\
+\
+---\
+\
+## 1. Current environment wiring (as used in dev-stack)\
+\
+Right now, your default "golden path" stack is:\
+\
+- Cloud SQL proxy:\
+  \
+  ```bash\
+  cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2\
+  ```\
+\
+- API dev server:\
+  \
+  ```bash\
+  export DATABASE_URL="postgresql://postgres:NEXUS_2025_PROD-v2@127.0.0.1:5433/nexus_db"\
+  bash ./scripts/dev-api-cloud-db.sh\
+  ```\
+\
+This means:\
+\
+- **All Prisma queries and writes from the API** go to the **prod Cloud SQL instance**.\
+- Any scripts you run with the same `DATABASE_URL` (e.g. `npx prisma migrate deploy`) will also hit prod.\
+\
+You have a **dev** Cloud SQL instance (`nexus-dev-postgres`) that we can and should use for day-to-day schema work and more experimental testing.\
+\
+---\
+\
+## 2. Target model: dev \uc0\u8594  test \u8594  prod\
+\
+Logical environments:\
+\
+1. **Dev DB** (`nexus-dev-postgres`)\
+   - Safe place to:\
+     - Create and test new Prisma models/migrations\
+     - Run import scripts (Xact CSV, Simple PETL, price lists)\
+     - Try destructive changes\
+   - Can be reset/reseeded more aggressively.\
+\
+2. **(Optional) Test / Staging DB**\
+   - Could be a separate Cloud SQL instance or schema.\
+   - Mirrors prod structure with sanitized or copied data.\
+   - Used for final verification before prod.\
+   - Not strictly required yet; you can treat **dev DB** as your non-prod environment for now.\
+\
+3. **Prod DB** (`nexusprod-v2`)\
+   - Real / canonical data.\
+   - Only receive changes that have:\
+     - Been applied and verified on dev DB first.\
+     - Been reviewed from a migration / backup standpoint.\
+\
+---\
+\
+## 3. How to point local dev at **dev DB** vs **prod DB**\
+\
+### 3.1 Using the dev DB (recommended for everyday work)\
+\
+1. Start proxy to **dev** instance:\
+   \
+   ```bash\
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres\
+   ```\
+\
+2. In another terminal, start API with `DATABASE_URL` pointing at dev:\
+   \
+   ```bash\
+   cd /Users/pg/nexus-enterprise\
+   export DATABASE_URL="postgresql://postgres:<DEV_PASSWORD>@127.0.0.1:5433/nexus_db"\
+   bash ./scripts/dev-api-cloud-db.sh\
+   ```\
+\
+3. Start web dev as usual:\
+   \
+   ```bash\
+   cd /Users/pg/nexus-enterprise/apps/web\
+   npm run dev\
+   ```\
+\
+All reads/writes now go to **nexus-dev-postgres**, not prod.\
+\
+### 3.2 Using the prod DB (only when you really intend to)\
+\
+1. Start proxy to **prod** instance:\
+   \
+   ```bash\
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2\
+   ```\
+\
+2. Use the prod `DATABASE_URL`:\
+   \
+   ```bash\
+   export DATABASE_URL="postgresql://postgres:NEXUS_2025_PROD-v2@127.0.0.1:5433/nexus_db"\
+   bash ./scripts/dev-api-cloud-db.sh\
+   ```\
+\
+Only use this when you explicitly want to:\
+\
+- Inspect prod data behavior\
+- Debug issues that only appear with real data\
+\
+For schema changes, **never start on prod**; always go Dev \uc0\u8594  Prod.\
+\
+---\
+\
+## 4. Prisma migration workflow (Dev \uc0\u8594  Prod)\
+\
+Prisma migrations live under:\
+\
+- `packages/database/prisma/schema.prisma`\
+- `packages/database/prisma/migrations/*`\
+\
+### 4.1 Create & apply a new migration on **dev DB**\
+\
+1. Ensure your stack is pointed at **dev DB** (see section 3.1) and the proxy is running to `nexus-dev-postgres`.\
+\
+2. From `packages/database`:\
+   \
+   ```bash\
+   cd /Users/pg/nexus-enterprise/packages/database\
+\
+   # Point Prisma CLI at dev DB\
+   export DATABASE_URL="postgresql://postgres:<DEV_PASSWORD>@127.0.0.1:5433/nexus_db"\
+\
+   # Edit prisma/schema.prisma as needed\
+   # Then create + apply a new migration on dev:\
+   npx prisma migrate dev --name add_some_feature --schema ./prisma/schema.prisma\
+   ```\
+\
+This will:\
+\
+- Update the dev DB schema.\
+- Create a new folder under `prisma/migrations/*` tracked in git.\
+\
+3. Verify behavior via API + web pointed at dev DB.\
+\
+### 4.2 Apply the same migrations to **prod DB**\
+\
+Once you\'92re happy with the migration on dev:\
+\
+1. Start proxy to **prod** instance:\
+   \
+   ```bash\
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2\
+   ```\
+\
+2. From `packages/database`:\
+   \
+   ```bash\
+   cd /Users/pg/nexus-enterprise/packages/database\
+\
+   export DATABASE_URL="postgresql://postgres:NEXUS_2025_PROD-v2@127.0.0.1:5433/nexus_db"\
+\
+   # Apply all existing migrations to prod (no new ones created)\
+   npx prisma migrate deploy --schema ./prisma/schema.prisma\
+   ```\
+\
+This will:\
+\
+- Look at the migrations already in git.\
+- Apply any pending ones to the prod DB.\
+\
+**Important:** Do **not** run `prisma migrate dev` against prod. Always use `migrate dev` on dev DB and `migrate deploy` on prod DB.\
+\
+---\
+\
+## 5. Data-manipulation scripts (imports, password resets, etc.)\
+\
+Any Node / ts-node script or ad-hoc Node snippet that uses `PrismaClient` or `@repo/database` will talk to **whatever DB `DATABASE_URL` is set to**.\
+\
+Examples:\
+\
+- Importing an Xactimate CSV into PETL\
+- Importing a price list into `ComponentCatalog` / `ComponentPrice`\
+- Manual password resets using a Node script\
+\
+### Safe practice\
+\
+1. For **experiments** or new scripts:\
+   - Run them only against **dev DB**.\
+\
+2. Once a script is trustworthy and idempotent:\
+   - Re-run it against prod only when needed, with `DATABASE_URL` pointed at prod and the Cloud SQL proxy targeting `nexusprod-v2`.\
+\
+Always double-check `DATABASE_URL` before running anything that writes.\
+\
+You can quickly echo it:\
+\
+```bash\
+echo "$DATABASE_URL"\
+```\
+\
+Or see what the running API process is using (look for `DATABASE_URL=` in `ps eww <PID>` for the API PID).\
+\
+---\
+\
+## 6. Recommended day-to-day flow\
+\
+### Normal development (UI + API + schema work)\
+\
+1. Start proxy to **dev DB** (`nexus-dev-postgres`).\
+2. Start API with `DATABASE_URL` pointing at dev.\
+3. Run Prisma migrations with `prisma migrate dev` against dev DB.\
+4. Start web dev server; build and test features.\
+\
+### Before pushing schema changes to prod\
+\
+1. Commit migration files under `packages/database/prisma/migrations`.\
+2. Start proxy to **prod DB** (`nexusprod-v2`).\
+3. Run `prisma migrate deploy` with prod `DATABASE_URL`.\
+4. Optionally restart any long-running prod services (if/when you have a deployed API hitting prod).\
+\
+### When in doubt\
+\
+- If something looks scary, point everything at **dev DB** first.\
+- Use `lsof -ti:5433,8000,3000` and `/health` to confirm what\'92s actually running.\
+- Confirm `DATABASE_URL` before running migrations or scripts.\
+\
+This model keeps day-to-day development safe on dev DB while still letting you intentionally propagate known-good changes to prod when you\'92re ready.\
+```\
+\
+**/Users/pg/nexus-enterprise/docs/onboarding/dev-to-prod-runbook.md**\
+```\
+# Dev \uc0\u8594  Prod Runbook\
+\
+This document captures the current, working process for moving changes from **local dev** to **production** for the Nexus monorepo.\
+\
+- Dev DB: `nexus-dev-postgres` (Cloud SQL)\
+- Prod DB: `nexusprod-v2` (Cloud SQL)\
+- Cloud Run (prod):\
+  - API: `nexus-api`\
+  - Worker: `nexus-worker`\
+- Cloud Run (dev):\
+  - API dev: `nexus-api-dev`\
+- Web (prod):\
+  - Vercel app pointing to `https://nexus-api-979156454944.us-central1.run.app`\
+\
+---\
+\
+## 1. Local dev: canonical startup (dev DB)\
+\
+Use this whenever you sit down to develop.\
+\
+1. Start Cloud SQL proxy to **dev DB** (`nexus-dev-postgres`):\
+\
+   ```bash\
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres\
+   ```\
+\
+   Leave this running in its own terminal.\
+\
+2. In another terminal, start the clean dev environment (API + worker + web) from the repo root:\
+\
+   ```bash\
+   cd ~/nexus-enterprise\
+\
+   export DEV_DB_PASSWORD='NEXUS_2025_DEV-v2'\
+   ./scripts/dev-clean-env.sh\
+   ```\
+\
+   This starts:\
+\
+   - API dev: `http://localhost:8000`\
+   - Web dev: `http://localhost:3000`\
+   - All DB traffic goes to `nexus-dev-postgres` via proxy on port 5433.\
+\
+3. Confirm API health in dev:\
+\
+   ```bash\
+   curl -i http://localhost:8000/health\
+   ```\
+\
+   Expected:\
+\
+   - `HTTP/1.1 200 OK`\
+   - JSON like: `\{ "ok": true, "redis": "unreachable" \}` (dev uses a no-op Redis client).\
+\
+---\
+\
+## 2. Normal dev workflow (code + schema)\
+\
+1. Make **code changes** in:\
+   - `apps/api` (NestJS API)\
+   - `apps/web` (Next.js web)\
+   - `packages/database` (Prisma + shared DB access)\
+   - Other packages as needed.\
+\
+2. Make **schema changes** against the **dev DB only**:\
+\
+   ```bash\
+   cd ~/nexus-enterprise/packages/database\
+\
+   export DATABASE_URL="postgresql://postgres:$\{DEV_DB_PASSWORD\}@127.0.0.1:5433/nexus_db"\
+\
+   # edit prisma/schema.prisma as needed\
+\
+   npx prisma migrate dev --name <migration_name> --schema ./prisma/schema.prisma\
+   ```\
+\
+   This will:\
+\
+   - Apply the migration to `nexus-dev-postgres`.\
+   - Create a new folder under `prisma/migrations/*` that should be checked into git.\
+\
+3. Verify behavior via the dev stack (web at `http://localhost:3000`, API at `http://localhost:8000`).\
+\
+Only after you are happy with behavior on **dev DB** should you proceed to production.\
+\
+---\
+\
+## 3. Prod DB migrations (nexusprod-v2)\
+\
+Run these steps **only when Prisma migrations are ready to ship**.\
+\
+1. Start Cloud SQL proxy to **prod DB** (`nexusprod-v2`):\
+\
+   ```bash\
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2\
+   ```\
+\
+   Leave this running in its own terminal.\
+\
+2. From the repo root, apply migrations with the prod `DATABASE_URL`:\
+\
+   ```bash\
+   cd ~/nexus-enterprise\
+\
+   export DATABASE_URL="postgresql://postgres:<PROD_DB_PASSWORD>@127.0.0.1:5433/nexus_db"\
+\
+   ./scripts/db-migrate-prod.sh\
+   ```\
+\
+   - This script changes into `packages/database` and runs `prisma migrate deploy`.\
+   - It targets **nexusprod-v2** via the proxy on port 5433.\
+   - You should see either:\
+     - A list of migrations being applied, or\
+     - `No pending migrations to apply.`\
+\
+> **Never** run `prisma migrate dev` against prod. Always use `migrate dev` on dev DB and `migrate deploy` on prod DB.\
+\
+---\
+\
+## 4. Deploy API to prod (`nexus-api`)\
+\
+Once the prod DB is up to date, deploy the API.\
+\
+From the repo root:\
+\
+```bash\
+cd ~/nexus-enterprise\
+./scripts/deploy-api.sh\
+```\
+\
+This script:\
+\
+- Builds the Docker image using `turbo build --filter=api`.\
+- Pushes it to Artifact Registry.\
+- Deploys a new Cloud Run revision for `nexus-api`.\
+- `nexus-api` is already configured to:\
+  - Attach to `nexusprod-v2` via Cloud SQL.\
+  - Use `DATABASE_URL` of the form `postgresql://postgres:<PROD_DB_PASSWORD>@localhost:5432/nexus_db?host=/cloudsql/...:nexusprod-v2`.\
+\
+After deployment, verify API health in prod:\
+\
+```bash\
+curl -i https://nexus-api-979156454944.us-central1.run.app/health\
+```\
+\
+Expected:\
+\
+- `HTTP/2 200`\
+- JSON like: `\{ "ok": true, "dbTime": "...", "redis": "PONG" \}`\
+\
+If `/health` is not `200 OK`, **stop here** and fix the API/DB issues before touching web or worker.\
+\
+---\
+\
+## 5. Deploy worker to prod (`nexus-worker`)\
+\
+Whenever API code or DB schema used by background jobs changes, update the worker.\
+\
+Deploy the worker with the same image as the API:\
+\
+```bash\
+gcloud run deploy nexus-worker \\\
+  --image us-docker.pkg.dev/nexus-enterprise-480610/nexus-api/nexus-api \\\
+  --platform managed \\\
+  --region us-central1 \\\
+  --project nexus-enterprise-480610 \\\
+  --command node \\\
+  --args dist/worker-http.js\
+```\
+\
+Notes:\
+\
+- `nexus-worker` is already configured to:\
+  - Attach to `nexusprod-v2` via Cloud SQL.\
+  - Use the correct prod `DATABASE_URL`.\
+  - Use `REDIS_URL=redis://10.53.145.123:6379`.\
+- The command above just updates it to the latest deployed image.\
+\
+---\
+\
+## 6. Web prod deploy (Vercel)\
+\
+Vercel is configured to build and deploy `apps/web` using the repo, and the web app is wired to the prod API via:\
+\
+- `NEXT_PUBLIC_API_BASE_URL=https://nexus-api-979156454944.us-central1.run.app`\
+\
+Typical flow:\
+\
+1. Commit and push your changes (API, web, database migrations, scripts).\
+2. Vercel picks up the push, builds `apps/web`, and deploys.\
+3. Once the Vercel deployment is marked successful, visit the production URL and log in.\
+\
+You normally do **not** need to run any manual Vercel commands.\
+\
+---\
+\
+## 7. Post-deploy smoke tests (prod)\
+\
+After each release, run this minimal checklist to confirm prod is healthy.\
+\
+### 7.1 API health\
+\
+```bash\
+curl -i https://nexus-api-979156454944.us-central1.run.app/health\
+```\
+\
+- Must return `200` with `"ok": true` and `"redis": "PONG"`.\
+\
+### 7.2 Direct login API test\
+\
+```bash\
+curl -i "https://nexus-api-979156454944.us-central1.run.app/auth/login" \\\
+  -H "Content-Type: application/json" \\\
+  -d '\{\
+    "email": "paul@nfsgrp.com",\
+    "password": "<PROD_PASSWORD>"\
+  \}'\
+```\
+\
+- Expect `200`/`201` and JSON with:\
+  - `user`\
+  - `company`\
+  - `accessToken`\
+  - `refreshToken`\
+\
+If you get a `500`, look at Cloud Run logs for `nexus-api` (stderr + requests) before proceeding.\
+\
+### 7.3 Web login (Vercel)\
+\
+1. Open the Vercel production URL and navigate to `/login`.\
+2. Log in as `paul@nfsgrp.com` with the same prod password.\
+3. Confirm you land on the expected dashboard and basic navigation works.\
+\
+### 7.4 Worker sanity (optional but recommended)\
+\
+1. Trigger a small, known-safe background job (e.g., a small import you have used before).\
+2. Confirm it progresses from QUEUED \uc0\u8594  RUNNING \u8594  SUCCEEDED in the prod database.\
+\
+If jobs are stuck or failing, inspect the `nexus-worker` Cloud Run logs and validate `REDIS_URL` and `DATABASE_URL`.\
+\
+---\
+\
+## 8. Safety rules / "do not do" list\
+\
+- **Never** run `prisma migrate dev` against prod.\
+  - Use `migrate dev` only on `nexus-dev-postgres`.\
+  - Use `migrate deploy` only on `nexusprod-v2`.\
+- Avoid pointing local dev at `nexusprod-v2` for experiments.\
+  - Use `nexus-dev-postgres` for schema changes and risky operations.\
+- For any ad-hoc scripts using `PrismaClient` or `@repo/database`:\
+  - Always double-check `DATABASE_URL` before running.\
+- When debugging login or UI issues:\
+  - Fix `/health` first. If `/health` is `500` or not reachable, resolve that before looking at auth or frontend.\
+\
+Following this runbook keeps dev safe on the dev DB and makes prod changes deliberate, predictable, and auditable.\
+```\
+\
+\
+\
+Here\'92s how your local dev stack with the GCP (Cloud SQL) proxy is wired today, and which files/vars define the \'93environment\'94 so it\'92s stable and repeatable.\
+\
+---\
+\
+## 1. High\uc0\u8209 level diagram: local dev with Cloud SQL proxy\
+\
+```text\
+           GCP (Cloud SQL)\
+     \uc0\u9484 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9488 \
+     \uc0\u9474   nexus-dev-postgres      \u9474 \
+     \uc0\u9474   nexusprod-v2            \u9474 \
+     \uc0\u9492 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9650 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9496 \
+                 \uc0\u9474 \
+     Cloud SQL Auth Proxy (local)\
+     \uc0\u9484 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9488 \
+     \uc0\u9474  process: cloud-sql-proxy  \u9474 \
+     \uc0\u9474  listens: 127.0.0.1:5433   \u9474 \
+     \uc0\u9474  instance arg:             \u9474 \
+     \uc0\u9474    nexus-enterprise-...:   \u9474 \
+     \uc0\u9474    us-central1:nexus-dev-\'85 \u9474 \
+     \uc0\u9474    or nexusprod-v2         \u9474 \
+     \uc0\u9492 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9650 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9496 \
+                 \uc0\u9474   DATABASE_URL host=127.0.0.1:5433\
+                 \uc0\u9474 \
+ Local machine   \uc0\u9474 \
+ \uc0\u9484 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9524 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9488 \
+ \uc0\u9474   API dev server (NestJS)  http://localhost:8000             \u9474 \
+ \uc0\u9474     - uses Prisma / @repo/database                           \u9474 \
+ \uc0\u9474     - reads DATABASE_URL (points at proxy on port 5433)      \u9474 \
+ \uc0\u9474                                                              \u9474 \
+ \uc0\u9474   API worker (BullMQ)                                        \u9474 \
+ \uc0\u9474     - same DATABASE_URL                                      \u9474 \
+ \uc0\u9474                                                              \u9474 \
+ \uc0\u9474   Web dev server (Next.js) http://localhost:3000             \u9474 \
+ \uc0\u9474     - reads NEXT_PUBLIC_API_BASE_URL from apps/web/.env.local\u9474 \
+ \uc0\u9474     - calls API at http://localhost:8000                     \u9474 \
+ \uc0\u9492 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9472 \u9496 \
+```\
+Minimal local resources when using the Cloud SQL proxy:\
+\
+- `cloud-sql-proxy` binary + GCP credentials (ADC or key file).\
+- One of the Cloud SQL instances (`nexus-dev-postgres` or `nexusprod-v2`).\
+- Local Node dev stack: `apps/api` dev server, API worker, `apps/web` dev server.\
+- Correct environment variables (`DATABASE_URL`, `DEV_DB_PASSWORD`, etc.) and `.env.local` for web.\
+\
+---\
+\
+## 2. Files that define / orchestrate the environment\
+\
+### 2.1 Shell\uc0\u8209 level environment (where values actually live)\
+\
+These values are **not** committed to the repo; you define them in your shell (e.g. `~/.zshrc`) or export them before running scripts:\
+\
+- `CLOUD_SQL_PROXY_CREDENTIAL_FILE`  \
+  - Optional, used by `scripts/dev-start.sh` to run `cloud-sql-proxy` with a dedicated service account key.  \
+  - Example from the script comments:\
+    - `export CLOUD_SQL_PROXY_CREDENTIAL_FILE="$HOME/.gcp-keys/nexus-dev-proxy-key.json"`\
+\
+- `DEV_DB_PASSWORD`  \
+  - Used by `scripts/dev-start.sh` and `docs/onboarding/dev-to-prod-runbook.md` to construct `DATABASE_URL` for the dev DB via the proxy.\
+  - Example pattern: `NEXUS_2025_DEV-v2`.\
+\
+- `DATABASE_URL`  \
+  - The critical variable that tells Prisma and the API which Cloud SQL instance to hit.\
+  - Pattern (via proxy on 127.0.0.1:5433):\
+    - `postgresql://postgres:<PASSWORD>@127.0.0.1:5433/nexus_db`\
+  - Must be set before:\
+    - `./scripts/dev-api-cloud-db.sh`\
+    - `./scripts/db-migrate-cloud.sh`\
+    - Prisma CLI commands in `packages/database`.\
+\
+- `REDIS_URL`  \
+  - Intentionally **unset** for local dev in `scripts/dev-start.sh` so Redis falls back to a no-op client and dev doesn\'92t require Redis.\
+\
+These env vars are the \'93source of truth\'94 at runtime. The scripts below assume they\'92re set correctly.\
+\
+---\
+\
+### 2.2 Dev orchestration scripts (the main env glue)\
+\
+All under `scripts/` at repo root:\
+\
+1. `scripts/dev-start.sh`  \
+   - **Role:** One\uc0\u8209 shot launcher for your full local dev stack using **Cloud SQL dev via proxy**.\
+   - What it does environmentally:\
+     - Unsets `REDIS_URL` so Redis is effectively disabled in dev.\
+     - Ensures `apps/web/.env.local` exists with:\
+```text\
+       NEXT_PUBLIC_API_BASE_URL=http://localhost:8000\
+```\
+     - Starts **Cloud SQL Auth Proxy** on `127.0.0.1:5433` targeting `nexus-dev-postgres`, using:\
+       - `CLOUD_SQL_PROXY_CREDENTIAL_FILE` if set, else ADC.\
+     - For the API dev server & worker:\
+       - Requires `DEV_DB_PASSWORD` to be exported.\
+       - Exports `DATABASE_URL="postgresql://postgres:$\{DEV_DB_PASSWORD\}@127.0.0.1:5433/nexus_db"` before starting:\
+         - `./scripts/dev-api-cloud-db.sh` (API on port 8000)\
+         - `npm run worker:dev` in `apps/api` (worker)\
+     - Starts Next.js dev in `apps/web` (port 3000).\
+\
+2. `scripts/dev-clean-env.sh`  \
+   - **Role:** Hard reset of your local dev environment.\
+   - Environment responsibilities:\
+     - Kills any `cloud-sql-proxy`, API (ts-node-dev), worker, and Next.js processes.\
+     - Verifies ports `3000` (web), `8000` (API), `5433` (proxy) are free.\
+     - Then runs `./scripts/dev-start.sh` to rebuild the environment cleanly.\
+\
+3. `scripts/dev-api-cloud-db.sh`  \
+   - **Role:** Run the API dev server against whichever DB `DATABASE_URL` points to.\
+   - Contract:\
+     - Exits if `DATABASE_URL` is not set.\
+     - Doesn\'92t set `DATABASE_URL` itself \'97 it trusts environment (you or other scripts) to set it.\
+\
+4. `scripts/db-migrate-cloud.sh`  \
+   - **Role:** Run Prisma migrations against Cloud SQL (typically dev DB) using `DATABASE_URL`.\
+   - Contract:\
+     - Requires `DATABASE_URL` set to Cloud SQL via proxy.\
+     - `cd` into `packages/database` and runs `npm run prisma:migrate`, so Prisma picks up `DATABASE_URL`.\
+\
+5. `scripts/dev-restart-cloud.sh`  \
+   - **Role:** \'93Quick restart\'94 of a local stack wired to Cloud SQL via `DATABASE_URL`.\
+   - Contract:\
+     - Requires `DATABASE_URL` set (dev or prod Cloud SQL).\
+     - Cleans ports via `./scripts/dev-clean.sh` (separate script).\
+     - Restarts API (via `dev-api-cloud-db.sh`) and web (`npm run dev` in `apps/web`).\
+\
+6. `scripts/dev-stop.sh`  \
+   - **Role:** Cleanly stop dev\uc0\u8209 time processes.\
+   - Environment\uc0\u8209 related:\
+     - Kills `cloud-sql-proxy` on port 5433 (currently wired to `nexusprod-v2` in this script).\
+     - Kills API dev server and web dev server processes.\
+\
+These scripts **encode how your environment should look** (which ports, which DB, which app URLs) and depend on a small set of env vars you manage outside the repo.\
+\
+---\
+\
+### 2.3 Web app environment file\
+\
+- `apps/web/.env.local`  \
+  - Created automatically by `scripts/dev-start.sh` if missing.\
+  - Key variable:\
+    - `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`\
+  - This is what keeps the web dev server and local API in sync \'97 the web app reads this at build/dev time and calls the correct API origin.\
+\
+If you ever change API port or scheme, this is the file you\'92d adjust (or regenerate via `dev-start.sh`).\
+\
+---\
+\
+### 2.4 Database & infra config\
+\
+- `infra/docker/docker-compose.yml`  \
+  - Defines **optional** local Postgres + Redis containers:\
+    - `postgres` exposed as `5433 -> 5432`\
+    - `redis` exposed as `6380 -> 6379`\
+  - When you\'92re using the **GCP Cloud SQL proxy**, this is mostly an alternative path (local DB instead of Cloud SQL). It\'92s still part of the overall \'93environment story\'94, but not typically active when you follow the Cloud SQL proxy golden path.\
+\
+- `packages/database/prisma/schema.prisma` and `packages/database/prisma/migrations/*`  \
+  - These define the **shape** of the DB your Cloud SQL instance must have.\
+  - They don\'92t set env vars, but they are the schema that `DATABASE_URL` points to, and they\'92re applied via Prisma commands that read `DATABASE_URL`.\
+\
+---\
+\
+### 2.5 Documentation as environment contracts\
+\
+These docs are effectively \'93living specs\'94 for your environment; they\'92re worth treating as first\uc0\u8209 class references when building your diagram.\
+\
+- `docs/onboarding/dev-stack.md`  \
+  - Defines the **three core processes**: Cloud SQL proxy, API dev server, web dev server.\
+  - Provides canonical commands for:\
+    - Starting `cloud-sql-proxy` on port 5433.\
+    - Exporting `DATABASE_URL` for prod or dev DB.\
+    - Booting API + web and verifying `/health`.\
+\
+- `docs/onboarding/envs-and-migrations.md`  \
+  - Explains the mapping between:\
+    - `cloud-sql-proxy` instance arguments (dev vs prod).\
+    - The exact `DATABASE_URL` strings you should use for dev vs prod.\
+  - Codifies the rule: schema work and experiments \uc0\u8594  dev DB; prod changes only via `migrate deploy`.\
+\
+- `docs/onboarding/dev-to-prod-runbook.md`  \
+  - Defines the canonical **day\uc0\u8209 to\u8209 day local startup** with dev DB:\
+    - Start proxy to `nexus-dev-postgres` on 5433.\
+    - Export `DEV_DB_PASSWORD` and run `./scripts/dev-clean-env.sh`, which in turn orchestrates `dev-start.sh`.\
+  - Also documents the prod migration and deploy pipeline (less relevant for pure local dev, but important for the full picture).\
+\
+---\
+\
+## 3. How to think about this when drawing your diagram\
+\
+When you sketch this out (Miro, Excalidraw, paper), I\'92d include four layers:\
+\
+1. **GCP layer**\
+   - Cloud SQL instances: `nexus-dev-postgres`, `nexusprod-v2`.\
+   - (Optional for full picture) Cloud Run services and Vercel, but those are more prod than local dev.\
+\
+2. **Proxy layer (GCP proxy)**\
+   - One box: **Cloud SQL Auth Proxy** on your Mac.\
+   - Annotations:\
+     - Listens on `127.0.0.1:5433`.\
+     - Started manually or via `scripts/dev-start.sh` / docs commands.\
+     - Requires `CLOUD_SQL_PROXY_CREDENTIAL_FILE` or ADC.\
+\
+3. **Local services layer**\
+   - API dev server (`apps/api`, port 8000).\
+   - API worker (BullMQ jobs, also `apps/api`).\
+   - Web dev server (`apps/web`, port 3000).\
+\
+4. **Configuration & environment layer**\
+   - *Shell*: `DATABASE_URL`, `DEV_DB_PASSWORD`, `CLOUD_SQL_PROXY_CREDENTIAL_FILE`, optional `REDIS_URL`.\
+   - *Repo scripts*: the `scripts/*.sh` files above.\
+   - *Env file*: `apps/web/.env.local` with `NEXT_PUBLIC_API_BASE_URL`.\
+   - *Schema*: Prisma schema + migrations in `packages/database/prisma/*`.\
+\
+If you\'92d like, I can next:\
+\
+- Produce a more detailed ASCII diagram that labels **which script sets which variable**, OR\
+- Help you translate this into a specific tool format (e.g., Mermaid, Excalidraw JSON outline, or a checklist for your onboarding docs).\
+\
+USER:\
+Last login: Wed Dec 24 11:10:06 on ttys021\
+pg@Mac-Studio ~ % psql "postgres://postgres:Nexusdevpass.22@127.0.0.1:5434/postgres" -c "\\l"\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)...skipping...\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+                                                                    List of databases\
+     Name      |       Owner       | Encoding | Locale Provider |  Collate   |   Ctype    | Locale | ICU Rules |            Access privileges            \
+---------------+-------------------+----------+-----------------+------------+------------+--------+-----------+-----------------------------------------\
+ cloudsqladmin | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ postgres      | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | \
+ template0     | cloudsqladmin     | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | =c/cloudsqladmin                       +\
+               |                   |          |                 |            |            |        |           | cloudsqladmin=CTc/cloudsqladmin\
+ template1     | cloudsqlsuperuser | UTF8     | libc            | en_US.UTF8 | en_US.UTF8 |        |           | cloudsqlsuperuser=CTc/cloudsqlsuperuser+\
+               |                   |          |                 |            |            |        |           | =c/cloudsqlsuperuser\
+(4 rows)\
+\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+~\
+(END)\
+\
+\
+AGENT:\
+Your `psql` output is showing one more \'93path\'94 into the same Cloud SQL world that you should include in your diagram.\
+\
+### What that `psql` command is doing\
+\
+```bash\
+psql "postgres://postgres:<password>@127.0.0.1:5434/postgres" -c "\\l"\
+```\
+- Host: `127.0.0.1`\
+- Port: `5434`\
+- User: `postgres`\
+- DB: `postgres`\
+- Result: you see only the **default/system databases** on that Cloud SQL instance:\
+  - `cloudsqladmin`\
+  - `postgres`\
+  - `template0`\
+  - `template1`\
+\
+There is **no `nexus_db`** listed there, which means either:\
+\
+1. You\'92re connected to a different instance than the one your app uses (e.g. a fresh dev instance or a wrong instance name/port), **or**\
+2. `nexus_db` simply hasn\'92t been created yet on this instance.\
+\
+Your app `DATABASE_URL` paths in the docs/scripts assume a database named `nexus_db`, e.g.:\
+\
+```text\
+postgresql://postgres:<PASSWORD>@127.0.0.1:5433/nexus_db\
+```\
+So for your diagram, you now have two distinct \'93DB access paths\'94 from your laptop:\
+\
+1. **App path (via Cloud SQL proxy, used by API / Prisma)**\
+   - Host: `127.0.0.1`\
+   - Port: `5433`\
+   - DB: `nexus_db`\
+   - Set by: `DATABASE_URL` env var (and `DEV_DB_PASSWORD`) in your shell + scripts:\
+     - `scripts/dev-start.sh`\
+     - `scripts/dev-api-cloud-db.sh`\
+     - `scripts/db-migrate-cloud.sh`\
+\
+2. **Admin path (your `psql` command)**\
+   - Host: `127.0.0.1`\
+   - Port: `5434`\
+   - DB: `postgres` (default)\
+   - Set inline in the CLI connection string (not via `DATABASE_URL`).\
+\
+In your diagram, I\'92d add a small box off to the side:\
+\
+```text\
+Laptop\
+ \uc0\u9500 \u9472  API / Prisma \u8594  127.0.0.1:5433 \u8594  Cloud SQL instance \u8594  DB: nexus_db\
+ \uc0\u9474     (uses DATABASE_URL env var; controlled by scripts + shell)\
+ \uc0\u9492 \u9472  psql (admin) \u8594  127.0.0.1:5434 \u8594  Cloud SQL instance \u8594  DB: postgres\
+      (connection string in CLI, for manual inspection)\
+```\
+If your goal is to inspect the same DB the app uses, you\'92ll eventually want a `psql` URL that targets the **same** port + db name as your `DATABASE_URL` (i.e. `5433` and `nexus_db`), once that database exists on the instance.\
+\
+If you\'92d like, I can give you a concrete \'93env + ports + DBs\'94 table you can drop straight into your diagram tool (e.g. one row per connection path: proxy/app, proxy/admin, local docker).\
+\
+USER:\
+ok lets tdo that, but I'd like ot know why I have no "nexus_db" what happened to the one we had (is it on the local postgres?)\
+\
+AGENT:\
+You\'92re connecting to a Postgres instance that **doesn\'92t have `nexus_db` at all** \'96 that\'92s why `\\l` only shows the four system DBs. The `nexus_db` you remember is very likely:\
+\
+- either on **local Docker Postgres** (via `infra/docker/docker-compose.yml`), or  \
+- on your **Cloud SQL instance the app uses via the proxy on 5433**, not the one you just hit on 5434.\
+\
+Let me break it down and then give you the env/ports/DBs table.\
+\
+---\
+\
+## 1. Why there\'92s no `nexus_db` in that `psql` output\
+\
+The command you ran:\
+\
+```bash\
+psql "postgres://postgres:<PASSWORD>@127.0.0.1:5434/postgres" -c "\\l"\
+```\
+- Host: `127.0.0.1`\
+- Port: `5434`\
+- DB: `postgres`\
+- Result: only\
+  - `cloudsqladmin`\
+  - `postgres`\
+  - `template0`\
+  - `template1`\
+\
+That means:\
+\
+- The **Postgres instance listening on 5434** currently only has those default DBs.\
+- If `nexus_db` existed on that instance, it would show up in `\\l`. It doesn\'92t, so:\
+  - either `nexus_db` was **never created** on this particular instance, or  \
+  - this instance is **not the one** you used for Nexus before.\
+\
+### Where `nexus_db` *does* exist in your setup\
+\
+1. **Local Docker Postgres**  \
+   `infra/docker/docker-compose.yml` defines:\
+\
+```yaml\
+   services:\
+     postgres:\
+       image: postgres:16\
+       environment:\
+         POSTGRES_USER: nexus_user\
+         POSTGRES_PASSWORD: nexus_password\
+         POSTGRES_DB: nexus_db\
+       ports:\
+         - "5433:5432"\
+```\
+   - When this container is running, it **creates `nexus_db`** automatically.\
+   - It\'92s reachable as: `127.0.0.1:5433`, DB `nexus_db`, user `nexus_user`.\
+\
+   To check that explicitly (when Docker Postgres is up):\
+\
+```bash\
+   # from repo root\
+   docker compose -f infra/docker/docker-compose.yml ps\
+\
+   # then:\
+   psql "postgres://nexus_user:nexus_password@127.0.0.1:5433/nexus_db" -c "\\l"\
+```\
+2. **Cloud SQL via proxy on 5433 (what your app uses)**  \
+   Docs + scripts assume a Cloud SQL DB named `nexus_db`, accessed through the proxy:\
+\
+   - Proxy: `cloud-sql-proxy --port=5433 <INSTANCE_NAME>`\
+   - App `DATABASE_URL` pattern:\
+\
+```text\
+     postgresql://postgres:<PASSWORD>@127.0.0.1:5433/nexus_db\
+```\
+   That `nexus_db` lives **in Cloud SQL**, not on your local Postgres service.\
+\
+So: the `psql` on **5434** is looking at a different instance / port that simply never had `nexus_db` created on it. The one you remember is almost certainly:\
+\
+- the Docker `nexus_db` (port 5433), **and/or**\
+- the Cloud SQL `nexus_db` behind the proxy on port 5433.\
+\
+---\
+\
+## 2. Env + ports + DBs matrix\
+\
+Here\'92s a concise matrix you can drop into your diagram:\
+\
+| Path / Use case                          | Host:Port           | DB name    | Auth user        | Backing system          | How it\'92s configured / created                                          |\
+|-----------------------------------------|---------------------|-----------|------------------|-------------------------|------------------------------------------------------------------------|\
+| **Local Docker Postgres (dev)**         | `127.0.0.1:5433`    | `nexus_db`| `nexus_user`     | Docker container        | `infra/docker/docker-compose.yml` (`POSTGRES_DB=nexus_db`)            |\
+| **Cloud SQL dev via proxy (API/Prisma)**| `127.0.0.1:5433`    | `nexus_db`| `postgres`       | Cloud SQL instance      | `cloud-sql-proxy --port=5433 nexus-dev-postgres` + `DATABASE_URL` env |\
+| **Cloud SQL prod via proxy (API/Prisma)**| `127.0.0.1:5433`   | `nexus_db`| `postgres`       | Cloud SQL instance      | `cloud-sql-proxy --port=5433 nexusprod-v2` + `DATABASE_URL` env       |\
+| **Cloud SQL admin `psql` you ran**      | `127.0.0.1:5434`    | `postgres`| `postgres`       | Cloud SQL / other PG    | Inline URL in `psql`; currently **no `nexus_db` exists here**         |\
+\
+Key points:\
+\
+- The **app** and Prisma always talk to whatever `DATABASE_URL` points at:\
+  - Host: usually `127.0.0.1:5433`\
+  - DB: `nexus_db`\
+  - Set in scripts + your shell (`DEV_DB_PASSWORD`, etc.).\
+- Your `psql` command on **5434** is totally independent of that; it\'92s just another TCP entry point to some Postgres instance, which happens to have only system DBs.\
+\
+---\
+\
+## 3. How to verify where your \'93real\'94 Nexus DB currently lives\
+\
+If you want to be 100% sure:\
+\
+1. **Check active processes on the DB ports:**\
+\
+```bash\
+   lsof -iTCP:5433,5434 -sTCP:LISTEN -n -P\
+```\
+   - PIDs with `cloud-sql-proxy` \uc0\u8594  Cloud SQL.\
+   - PIDs with `docker-proxy` / `com.docker.*` / `postgres` container \uc0\u8594  local Docker.\
+\
+2. **Connect to each and look for `nexus_db`:**\
+\
+```bash\
+   # Local docker path (if container is up)\
+   psql "postgres://nexus_user:nexus_password@127.0.0.1:5433/postgres" -c "\\l"\
+\
+   # Cloud SQL path that app uses (match your DATABASE_URL, e.g.)\
+   psql "postgres://postgres:<PASSWORD>@127.0.0.1:5433/nexus_db" -c "\\dt"\
+```\
+If you tell me which of these shows `nexus_db`, I can help you annotate your diagram with \'93canonical dev DB\'94 vs \'93legacy/unused connection\'94.}
