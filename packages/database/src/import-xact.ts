@@ -77,31 +77,46 @@ function parseUnitAndRoom(groupDescription: string): { unitLabel: string; roomNa
   return { unitLabel: left, roomName: right };
 }
 
-// Sync the active Golden price list's unitPrice values with the
-// actual unit costs seen in a specific Xact RAW estimate. For each
-// (Cat, Sel) pair in the estimate that differs from the Golden price,
-// we update PriceListItem.unitPrice to the estimate's unitCost and
-// move the previous Golden price into lastKnownUnitPrice.
-async function updateGoldenFromEstimate(estimateVersionId: string) {
-  const priceList = await prisma.priceList.findFirst({
-    where: { kind: "GOLDEN", isActive: true },
-    orderBy: { revision: "desc" },
-  });
-
-  if (!priceList) {
-    return {
-      updatedCount: 0,
-      avgDelta: 0,
-      avgPercentDelta: 0,
-    };
-  }
-
+// Golden price list sync: update the active GOLDEN PriceList based on the
+// average unit costs observed in a specific EstimateVersion's RAW Xactimate
+// rows. This is intentionally *not* called from the main import path unless
+// explicitly enabled via ENABLE_GOLDEN_FROM_XACT, and is primarily intended
+// to be run as a background job via the worker so it can take its time
+// without blocking request/response flows.
+export async function updateGoldenFromEstimate(estimateVersionId: string) {
   const estimate = await prisma.estimateVersion.findUnique({
     where: { id: estimateVersionId },
     include: { project: true },
   });
 
   if (!estimate || !estimate.project) {
+    throw new Error("EstimateVersion not found or missing project for Golden sync");
+  }
+
+  const project = estimate.project;
+
+  const golden = await prisma.priceList.findFirst({
+    where: { kind: "GOLDEN", isActive: true },
+    orderBy: { revision: "desc" },
+  });
+
+  if (!golden) {
+    // No active Golden price list yet; nothing to sync. Still record a
+    // GoldenPriceUpdateLog row so the revision log shows that a sync was
+    // attempted (with zero updates).
+    await prisma.goldenPriceUpdateLog.create({
+      data: {
+        companyId: project.companyId,
+        projectId: project.id,
+        estimateVersionId: estimate.id,
+        userId: estimate.importedByUserId ?? null,
+        updatedCount: 0,
+        avgDelta: 0,
+        avgPercentDelta: 0,
+        source: "XACT_ESTIMATE",
+      },
+    });
+
     return {
       updatedCount: 0,
       avgDelta: 0,
@@ -109,11 +124,7 @@ async function updateGoldenFromEstimate(estimateVersionId: string) {
     };
   }
 
-  const companyId = estimate.project.companyId;
-  const projectId = estimate.projectId;
-  const userId = estimate.importedByUserId ?? null;
-
-  // Load raw rows for this estimate with Cat/Sel and Unit Cost.
+  // 1) Aggregate average unit costs by (Cat, Sel) from RAW Xact rows.
   const rawRows = await prisma.rawXactRow.findMany({
     where: { estimateVersionId },
     select: {
@@ -125,42 +136,40 @@ async function updateGoldenFromEstimate(estimateVersionId: string) {
 
   type Agg = {
     cat: string;
-    sel: string | null;
-    totalUnitCost: number;
+    sel: string;
+    total: number;
     count: number;
   };
 
   const byKey = new Map<string, Agg>();
 
   for (const row of rawRows) {
-    if (!row.cat || row.unitCost == null) continue;
-    const cat = row.cat.trim().toUpperCase();
-    if (!cat) continue;
-    const sel = row.sel ? row.sel.trim().toUpperCase() : null;
-    const key = `${cat}::${sel ?? ""}`;
-    const existing = byKey.get(key);
-    if (existing) {
-      existing.totalUnitCost += row.unitCost ?? 0;
-      existing.count += 1;
-    } else {
-      byKey.set(key, {
-        cat,
-        sel,
-        totalUnitCost: row.unitCost ?? 0,
-        count: 1,
-      });
+    const unitCost = row.unitCost;
+    if (unitCost == null) continue;
+
+    const cat = (row.cat ?? "").trim().toUpperCase();
+    const sel = (row.sel ?? "").trim().toUpperCase();
+    if (!cat || !sel) continue;
+
+    const key = `${cat}::${sel}`;
+    let agg = byKey.get(key);
+    if (!agg) {
+      agg = { cat, sel, total: 0, count: 0 };
+      byKey.set(key, agg);
     }
+    agg.total += unitCost;
+    agg.count += 1;
   }
 
   if (byKey.size === 0) {
-    // Still log a zero-update event so the revision history reflects
-    // that this estimate was processed against the Golden price list.
+    // No Cat/Sel rows with usable unit costs; record a zero-update event for
+    // visibility in the Golden revision log.
     await prisma.goldenPriceUpdateLog.create({
       data: {
-        companyId,
-        projectId,
-        estimateVersionId,
-        userId,
+        companyId: project.companyId,
+        projectId: project.id,
+        estimateVersionId: estimate.id,
+        userId: estimate.importedByUserId ?? null,
         updatedCount: 0,
         avgDelta: 0,
         avgPercentDelta: 0,
@@ -175,13 +184,15 @@ async function updateGoldenFromEstimate(estimateVersionId: string) {
     };
   }
 
-  const cats = Array.from(new Set(Array.from(byKey.values()).map((a) => a.cat)));
+  const aggregates = Array.from(byKey.values());
+  const distinctCats = Array.from(new Set(aggregates.map((a) => a.cat)));
 
-  // Load Golden items for these Cats.
+  // 2) Load matching Golden PriceListItem rows for all relevant Cats in one go
+  // and then join in-memory on (Cat, Sel).
   const goldenItems = await prisma.priceListItem.findMany({
     where: {
-      priceListId: priceList.id,
-      cat: { in: cats },
+      priceListId: golden.id,
+      cat: { in: distinctCats },
     },
     select: {
       id: true,
@@ -192,52 +203,65 @@ async function updateGoldenFromEstimate(estimateVersionId: string) {
     },
   });
 
-  const itemByKey = new Map<
-    string,
-    { id: string; unitPrice: number | null; lastKnownUnitPrice: number | null }
-  >();
-
+  const itemByKey = new Map<string, (typeof goldenItems)[number]>();
   for (const item of goldenItems) {
     const cat = (item.cat ?? "").trim().toUpperCase();
-    if (!cat) continue;
-    const sel = item.sel ? item.sel.trim().toUpperCase() : null;
-    const key = `${cat}::${sel ?? ""}`;
+    const sel = (item.sel ?? "").trim().toUpperCase();
+    if (!cat || !sel) continue;
+    const key = `${cat}::${sel}`;
     if (!itemByKey.has(key)) {
-      itemByKey.set(key, {
-        id: item.id,
-        unitPrice: item.unitPrice,
-        lastKnownUnitPrice: item.lastKnownUnitPrice,
-      });
+      itemByKey.set(key, item);
     }
   }
 
-  const updates: { id: string; oldPrice: number; newPrice: number }[] = [];
+  type PendingUpdate = {
+    id: string;
+    oldPrice: number | null;
+    newPrice: number;
+  };
 
-  for (const [key, agg] of byKey.entries()) {
-    const avgUnitCost = agg.totalUnitCost / (agg.count || 1);
-    if (!Number.isFinite(avgUnitCost)) continue;
+  const updates: PendingUpdate[] = [];
+  let updatedCount = 0;
+  let sumDelta = 0;
+  let sumPercentDelta = 0;
 
+  for (const agg of aggregates) {
+    const key = `${agg.cat}::${agg.sel}`;
     const item = itemByKey.get(key);
     if (!item) continue;
 
-    const oldPrice = item.unitPrice ?? 0;
-    const newPrice = avgUnitCost;
+    const newPrice = agg.total / Math.max(agg.count, 1);
+    if (!Number.isFinite(newPrice)) continue;
 
-    // Skip if effectively the same price (tiny rounding differences).
-    if (Math.abs(newPrice - oldPrice) < 0.005) continue;
+    const oldPrice = item.unitPrice ?? null;
+    // If we do not have a previous price, just treat this as a set from null.
+    if (oldPrice != null && Math.abs(oldPrice - newPrice) < 0.0001) {
+      continue;
+    }
 
     updates.push({ id: item.id, oldPrice, newPrice });
+
+    updatedCount += 1;
+    if (oldPrice != null) {
+      const delta = newPrice - oldPrice;
+      sumDelta += delta;
+      // Guard against divide-by-zero; if oldPrice is ~0, treat percent delta as 0
+      if (Math.abs(oldPrice) > 1e-6) {
+        sumPercentDelta += delta / oldPrice;
+      }
+    }
   }
 
-  if (updates.length === 0) {
-    // No per-item price changes, but we still record a history event so
-    // the Golden Price List Revision Log shows that this estimate ran.
+  if (!updates.length) {
+    // Nothing actually changed (all Golden prices already matched the
+    // estimate-driven averages). Still write a revision log entry so we
+    // have an auditable record that a sync was run from this estimate.
     await prisma.goldenPriceUpdateLog.create({
       data: {
-        companyId,
-        projectId,
-        estimateVersionId,
-        userId,
+        companyId: project.companyId,
+        projectId: project.id,
+        estimateVersionId: estimate.id,
+        userId: estimate.importedByUserId ?? null,
         updatedCount: 0,
         avgDelta: 0,
         avgPercentDelta: 0,
@@ -252,39 +276,37 @@ async function updateGoldenFromEstimate(estimateVersionId: string) {
     };
   }
 
-  await prisma.$transaction(
-    updates.map((u) =>
-      prisma.priceListItem.update({
-        where: { id: u.id },
-        data: {
-          lastKnownUnitPrice: u.oldPrice,
-          unitPrice: u.newPrice,
-        },
-      }),
-    ),
-  );
-
-  let sumDelta = 0;
-  let sumPercent = 0;
-
-  for (const u of updates) {
-    const delta = u.newPrice - u.oldPrice;
-    sumDelta += delta;
-    if (u.oldPrice > 0) {
-      sumPercent += delta / u.oldPrice;
-    }
+  // 3) Apply updates in small, non-transactional batches so we never hold a
+  // long-lived transaction open against Cloud SQL. This is safe because each
+  // update is independent.
+  const chunkSize = 50;
+  for (let i = 0; i < updates.length; i += chunkSize) {
+    const chunk = updates.slice(i, i + chunkSize);
+    // eslint-disable-next-line no-await-in-loop
+    await Promise.all(
+      chunk.map((u) =>
+        prisma.priceListItem.update({
+          where: { id: u.id },
+          data: {
+            lastKnownUnitPrice: u.oldPrice,
+            unitPrice: u.newPrice,
+          },
+        }),
+      ),
+    );
   }
 
-  const updatedCount = updates.length;
-  const avgDelta = updatedCount ? sumDelta / updatedCount : 0;
-  const avgPercentDelta = updatedCount ? sumPercent / updatedCount : 0;
+  const avgDelta = updatedCount > 0 ? sumDelta / updatedCount : 0;
+  const avgPercentDelta = updatedCount > 0 ? sumPercentDelta / updatedCount : 0;
 
+  // 4) Record a GoldenPriceUpdateLog row so the Financials page can display a
+  // clear revision log entry labeled as coming from an Xact RAW estimate.
   await prisma.goldenPriceUpdateLog.create({
     data: {
-      companyId,
-      projectId,
-      estimateVersionId,
-      userId,
+      companyId: project.companyId,
+      projectId: project.id,
+      estimateVersionId: estimate.id,
+      userId: estimate.importedByUserId ?? null,
       updatedCount,
       avgDelta,
       avgPercentDelta,
@@ -649,7 +671,33 @@ export async function importXactCsvForProject(options: {
     }),
   ]);
 
-  const goldenUpdate = await updateGoldenFromEstimate(estimateVersion.id);
+  // Golden price list sync is helpful but should not cause the entire
+  // project import to fail. In Cloud SQL / remote DB environments, this
+  // can run into transaction timeouts, so we gate it behind an explicit
+  // opt-in flag. By default, Golden sync is skipped for Xact imports.
+  let goldenUpdate: any = null;
+  if (process.env.ENABLE_GOLDEN_FROM_XACT === "1") {
+    try {
+      goldenUpdate = await updateGoldenFromEstimate(estimateVersion.id);
+    } catch (err: any) {
+      // Log and continue; the worker will still mark the import job as
+      // succeeded so the project can use its PETL even if Golden sync fails.
+      // eslint-disable-next-line no-console
+      console.error("Golden update failed after Xact import", {
+        estimateVersionId: estimateVersion.id,
+        projectId,
+        error: err?.message ?? String(err),
+      });
+      goldenUpdate = {
+        error: err?.message ?? String(err),
+      };
+    }
+  } else {
+    goldenUpdate = {
+      skipped: true,
+      reason: "Golden price sync from Xact imports is disabled (ENABLE_GOLDEN_FROM_XACT != '1')",
+    };
+  }
 
   return {
     projectId,

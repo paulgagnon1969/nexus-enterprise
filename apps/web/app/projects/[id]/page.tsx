@@ -198,6 +198,7 @@ export default function ProjectDetailPage({
   const [petlItemCount, setPetlItemCount] = useState<number | null>(null);
   const [petlTotalAmount, setPetlTotalAmount] = useState<number | null>(null);
   const [componentsCount, setComponentsCount] = useState<number | null>(null);
+  const [latestEstimateVersionId, setLatestEstimateVersionId] = useState<string | null>(null);
   const [petlItems, setPetlItems] = useState<PetlItem[]>([]);
   const [petlLoading, setPetlLoading] = useState(false);
 
@@ -268,6 +269,9 @@ export default function ProjectDetailPage({
   const [financialSummary, setFinancialSummary] = useState<FinancialSummary | null>(null);
   const [financialLoading, setFinancialLoading] = useState(false);
   const [financialError, setFinancialError] = useState<string | null>(null);
+  const [goldenSyncLoading, setGoldenSyncLoading] = useState(false);
+  const [goldenSyncMessage, setGoldenSyncMessage] = useState<string | null>(null);
+  const [goldenSyncError, setGoldenSyncError] = useState<string | null>(null);
 
   const [dailyLogs, setDailyLogs] = useState<DailyLog[]>([]);
   const [dailyLogsLoading, setDailyLogsLoading] = useState(false);
@@ -586,6 +590,11 @@ export default function ProjectDetailPage({
             );
             setComponentsCount(
               typeof summary.componentsCount === "number" ? summary.componentsCount : null,
+            );
+            setLatestEstimateVersionId(
+              typeof summary.estimateVersionId === "string"
+                ? summary.estimateVersionId
+                : null,
             );
           }
         } catch {
@@ -2266,7 +2275,7 @@ export default function ProjectDetailPage({
 
           {financialSummary && !financialError && (
             <>
-              {/* Snapshot age + refresh */}
+              {/* Snapshot age + refresh + Golden sync */}
               <div
                 style={{
                   display: "flex",
@@ -2275,6 +2284,7 @@ export default function ProjectDetailPage({
                   fontSize: 12,
                   marginBottom: 4,
                   color: "#4b5563",
+                  gap: 8,
                 }}
               >
                 <span>
@@ -2294,65 +2304,156 @@ export default function ProjectDetailPage({
                       })()
                     : "No snapshot age available."}
                 </span>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!project) return;
-                    const token = localStorage.getItem("accessToken");
-                    if (!token) {
-                      alert("Missing access token; please log in again.");
-                      return;
-                    }
-                    setFinancialLoading(true);
-                    setFinancialError(null);
-                    try {
-                      const res = await fetch(
-                        `${API_BASE}/projects/${project.id}/financial-summary?forceRefresh=true`,
-                        { headers: { Authorization: `Bearer ${token}` } },
-                      );
-                      if (!res.ok) {
-                        const text = await res.text().catch(() => "");
-                        throw new Error(`Refresh failed (${res.status}) ${text}`);
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!project) return;
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) {
+                        alert("Missing access token; please log in again.");
+                        return;
                       }
-                      const json: any = await res.json();
-                      setFinancialSummary({
-                        totalRcvClaim: json.totalRcvClaim ?? 0,
-                        totalAcvClaim: json.totalAcvClaim ?? 0,
-                        workCompleteRcv: json.workCompleteRcv ?? 0,
-                        acvReturn: json.acvReturn ?? 0,
-                        opRate: json.opRate ?? 0,
-                        acvOP: json.acvOP ?? 0,
-                        totalDueWorkBillable: json.totalDueWorkBillable ?? 0,
-                        depositRate: json.depositRate ?? 0.5,
-                        depositBaseline: json.depositBaseline ?? 0,
-                        billedToDate: json.billedToDate ?? 0,
-                        duePayable: json.duePayable ?? 0,
-                        dueAmount: json.dueAmount ?? 0,
-                        snapshotComputedAt: json.snapshotComputedAt ?? null,
-                        snapshotSource: json.snapshotSource ?? "recomputed",
-                      });
-                    } catch (err: any) {
-                      setFinancialError(
-                        err?.message ?? "Failed to refresh financial summary.",
-                      );
-                    } finally {
-                      setFinancialLoading(false);
-                    }
-                  }}
-                  disabled={financialLoading}
-                  style={{
-                    padding: "4px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #0f172a",
-                    backgroundColor: financialLoading ? "#e5e7eb" : "#0f172a",
-                    color: financialLoading ? "#4b5563" : "#f9fafb",
-                    fontSize: 11,
-                    cursor: financialLoading ? "default" : "pointer",
-                  }}
-                >
-                  {financialLoading ? "Updating…" : "Update now"}
-                </button>
+                      setFinancialLoading(true);
+                      setFinancialError(null);
+                      try {
+                        const res = await fetch(
+                          `${API_BASE}/projects/${project.id}/financial-summary?forceRefresh=true`,
+                          { headers: { Authorization: `Bearer ${token}` } },
+                        );
+                        if (!res.ok) {
+                          const text = await res.text().catch(() => "");
+                          throw new Error(`Refresh failed (${res.status}) ${text}`);
+                        }
+                        const json: any = await res.json();
+                        setFinancialSummary({
+                          totalRcvClaim: json.totalRcvClaim ?? 0,
+                          totalAcvClaim: json.totalAcvClaim ?? 0,
+                          workCompleteRcv: json.workCompleteRcv ?? 0,
+                          acvReturn: json.acvReturn ?? 0,
+                          opRate: json.opRate ?? 0,
+                          acvOP: json.acvOP ?? 0,
+                          totalDueWorkBillable: json.totalDueWorkBillable ?? 0,
+                          depositRate: json.depositRate ?? 0.5,
+                          depositBaseline: json.depositBaseline ?? 0,
+                          billedToDate: json.billedToDate ?? 0,
+                          duePayable: json.duePayable ?? 0,
+                          dueAmount: json.dueAmount ?? 0,
+                          snapshotComputedAt: json.snapshotComputedAt ?? null,
+                          snapshotSource: json.snapshotSource ?? "recomputed",
+                        });
+                      } catch (err: any) {
+                        setFinancialError(
+                          err?.message ?? "Failed to refresh financial summary.",
+                        );
+                      } finally {
+                        setFinancialLoading(false);
+                      }
+                    }}
+                    disabled={financialLoading}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #0f172a",
+                      backgroundColor: financialLoading ? "#e5e7eb" : "#0f172a",
+                      color: financialLoading ? "#4b5563" : "#f9fafb",
+                      fontSize: 11,
+                      cursor: financialLoading ? "default" : "pointer",
+                    }}
+                  >
+                    {financialLoading ? "Updating…" : "Update now"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!project) return;
+                      if (!latestEstimateVersionId) {
+                        setGoldenSyncError(
+                          "No estimate version found for this project. Import an estimate first.",
+                        );
+                        return;
+                      }
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) {
+                        setGoldenSyncError("Missing access token; please log in again.");
+                        return;
+                      }
+                      setGoldenSyncError(null);
+                      setGoldenSyncMessage(null);
+                      setGoldenSyncLoading(true);
+                      try {
+                        const res = await fetch(
+                          `${API_BASE}/pricing/price-list/golden-sync/estimate`,
+                          {
+                            method: "POST",
+                            headers: {
+                              "Content-Type": "application/json",
+                              Authorization: `Bearer ${token}`,
+                            },
+                            body: JSON.stringify({ estimateVersionId: latestEstimateVersionId }),
+                          },
+                        );
+                        if (!res.ok) {
+                          const text = await res.text().catch(() => "");
+                          throw new Error(
+                            `Golden sync enqueue failed (${res.status}) ${text}`,
+                          );
+                        }
+                        const json: any = await res.json();
+                        if (json?.jobId) {
+                          setGoldenSyncMessage(
+                            `Golden Price List sync started as job ${json.jobId}. It will run in the background and update the Golden revision log when complete.`,
+                          );
+                        } else {
+                          setGoldenSyncMessage(
+                            "Golden Price List sync was triggered successfully.",
+                          );
+                        }
+                      } catch (err: any) {
+                        setGoldenSyncError(
+                          err?.message ?? "Failed to enqueue Golden Price List sync.",
+                        );
+                      } finally {
+                        setGoldenSyncLoading(false);
+                      }
+                    }}
+                    disabled={goldenSyncLoading || !latestEstimateVersionId}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #0f172a",
+                      backgroundColor:
+                        goldenSyncLoading || !latestEstimateVersionId
+                          ? "#e5e7eb"
+                          : "#ffffff",
+                      color:
+                        goldenSyncLoading || !latestEstimateVersionId
+                          ? "#9ca3af"
+                          : "#0f172a",
+                      fontSize: 11,
+                      cursor:
+                        goldenSyncLoading || !latestEstimateVersionId
+                          ? "default"
+                          : "pointer",
+                    }}
+                  >
+                    {goldenSyncLoading
+                      ? "Syncing Golden…"
+                      : "Sync Golden from latest estimate"}
+                  </button>
+                </div>
               </div>
+
+              {goldenSyncMessage && (
+                <p style={{ fontSize: 11, color: "#16a34a", marginTop: 4 }}>
+                  {goldenSyncMessage}
+                </p>
+              )}
+              {goldenSyncError && (
+                <p style={{ fontSize: 11, color: "#b91c1c", marginTop: 4 }}>
+                  {goldenSyncError}
+                </p>
+              )}
 
               {/* Summary cards */}
               <div
@@ -4415,10 +4516,10 @@ export default function ProjectDetailPage({
                 {groups.map((g) => {
                   const itemsForRoom = filteredItemsForRoom(g.particleId);
                   const isExpanded = g.particleId ? expandedRooms.has(g.particleId) : false;
-
+ 
                   return (
-                    <>
-                      <tr key={g.particleId ?? String(g.id)}>
+                    <Fragment key={g.particleId ?? String(g.id)}>
+                      <tr>
                         <td
                           style={{
                             padding: "6px 12px",
@@ -4497,9 +4598,9 @@ export default function ProjectDetailPage({
                           {g.percentComplete.toFixed(2)}%
                         </td>
                       </tr>
-
+ 
                       {isExpanded && itemsForRoom.length > 0 && (
-                        <tr key={`items-${g.particleId ?? String(g.id)}`}>
+                        <tr>
                           <td
                             colSpan={5}
                             style={{
@@ -4693,7 +4794,7 @@ export default function ProjectDetailPage({
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
               </tbody>

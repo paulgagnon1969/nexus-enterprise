@@ -29,6 +29,29 @@ function toDate(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+// Normalize text into a canonical key component (used for matching price list
+// rows across Golden revisions).
+function normalizeKeyPart(value: string | null | undefined): string {
+  return (value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
+function makeCanonicalKey(
+  cat: string | null,
+  sel: string | null,
+  activity: string | null,
+  description: string | null,
+): string {
+  return [
+    normalizeKeyPart(cat),
+    normalizeKeyPart(sel),
+    normalizeKeyPart(activity),
+    normalizeKeyPart(description),
+  ].join("||");
+}
+
 export async function importPriceListFromFile(csvPath: string) {
   if (!fs.existsSync(csvPath)) {
     throw new Error(`CSV not found at ${csvPath}`);
@@ -52,20 +75,26 @@ export async function importPriceListFromFile(csvPath: string) {
   });
   const revision = latest ? latest.revision + 1 : 1;
 
-  // If we have a previous GOLDEN revision, capture its unitPrice values by
-  // canonicalKeyHash so we can stamp them into lastKnownUnitPrice for the new
-  // revision. This keeps the "Last known price" column meaningful regardless
-  // of whether changes came from Xact RAW repricing or a Golden PETL upload.
-  const prevPriceByCanonicalHash = new Map<string, number | null>();
+  // If we have a previous GOLDEN revision, capture its unitPrice values keyed
+  // by a canonical combination of Cat/Sel/Activity/Description. We do not rely
+  // on canonicalKeyHash being populated for older revisions; instead we
+  // recompute the same logical key on the fly.
+  const prevPriceByCanonicalKey = new Map<string, number | null>();
   if (latest) {
     const prevItems = await prisma.priceListItem.findMany({
       where: { priceListId: latest.id },
-      select: { canonicalKeyHash: true, unitPrice: true },
+      select: {
+        cat: true,
+        sel: true,
+        activity: true,
+        description: true,
+        unitPrice: true,
+      },
     });
     for (const it of prevItems) {
-      if (!it.canonicalKeyHash) continue;
-      if (!prevPriceByCanonicalHash.has(it.canonicalKeyHash)) {
-        prevPriceByCanonicalHash.set(it.canonicalKeyHash, it.unitPrice);
+      const key = makeCanonicalKey(it.cat, it.sel, it.activity, it.description);
+      if (!prevPriceByCanonicalKey.has(key)) {
+        prevPriceByCanonicalKey.set(key, it.unitPrice);
       }
     }
   }
@@ -132,18 +161,7 @@ export async function importPriceListFromFile(csvPath: string) {
         ? divisionByCat.get(cat.trim().toUpperCase()) ?? null
         : null;
 
-      const norm = (v: string | null) =>
-        (v ?? "")
-          .trim()
-          .replace(/\s+/g, " ")
-          .toUpperCase();
-
-      const canonicalKeyString = [
-        norm(cat),
-        norm(sel),
-        norm(activity),
-        norm(description),
-      ].join("||");
+      const canonicalKeyString = makeCanonicalKey(cat, sel, activity, description);
 
       const crypto = require("node:crypto");
       const canonicalKeyHash: string = crypto
@@ -151,7 +169,7 @@ export async function importPriceListFromFile(csvPath: string) {
         .update(canonicalKeyString, "utf8")
         .digest("hex");
 
-      const previousUnitPrice = prevPriceByCanonicalHash.get(canonicalKeyHash) ?? null;
+      const previousUnitPrice = prevPriceByCanonicalKey.get(canonicalKeyString) ?? null;
 
       return {
         priceListId: priceList.id,

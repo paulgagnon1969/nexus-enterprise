@@ -2,7 +2,7 @@
 
 import React, { ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import NavDropdown from "./components/nav-dropdown";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -27,6 +27,7 @@ interface UserMeResponse {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [globalRole, setGlobalRole] = useState<string | null>(null);
   const [userType, setUserType] = useState<string | null>(null);
   const [currentCompanyName, setCurrentCompanyName] = useState<string | null>(null);
@@ -90,6 +91,22 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
+  // On client mount, hydrate any cached role hints from localStorage so
+  // SUPER_ADMIN nav and applicant views can light up quickly without
+  // depending entirely on the /users/me round-trip. This runs only on the
+  // client after the first paint so it won't cause SSR hydration mismatches.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storedGlobalRole = window.localStorage.getItem("globalRole");
+    const storedUserType = window.localStorage.getItem("userType");
+    if (storedGlobalRole && !globalRole) {
+      setGlobalRole(storedGlobalRole);
+    }
+    if (storedUserType && !userType) {
+      setUserType(storedUserType);
+    }
+  }, [globalRole, userType]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const token = window.localStorage.getItem("accessToken");
@@ -130,6 +147,24 @@ export function AppShell({ children }: { children: ReactNode }) {
         // ignore
       });
   }, []);
+
+  // For SUPER_ADMIN users, prefer to land on the Nexus System dashboard the
+  // first time they enter the app in a tab, even if they also belong to tenant
+  // organizations. After the first visit, they can freely navigate elsewhere
+  // without being forced back to /system.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (globalRole !== "SUPER_ADMIN") return;
+
+    const already = window.sessionStorage.getItem("nexusSystemLandingDone");
+    if (already === "1") return;
+
+    const path = pathname ?? "/";
+    if (path === "/" || path === "/projects") {
+      window.sessionStorage.setItem("nexusSystemLandingDone", "1");
+      router.push("/system");
+    }
+  }, [globalRole, pathname, router]);
 
   // On first load after login, if we have a remembered lastCompanyId and the
   // user has access (or is SUPER_ADMIN), auto-switch company context once so

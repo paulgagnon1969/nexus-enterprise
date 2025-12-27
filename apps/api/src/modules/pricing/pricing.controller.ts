@@ -21,6 +21,7 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { importGoldenComponentsFromFile } from "@repo/database";
 import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
+import { getImportQueue } from "../../infra/queue/import-queue";
 
 @Controller("pricing")
 export class PricingController {
@@ -416,6 +417,82 @@ export class PricingController {
       })),
       lastComponentsUpload,
     };
+  }
+
+  // Enqueue a background job to sync the active Golden price list from a
+  // specific EstimateVersion. This is decoupled from RAW import so that
+  // long-running Golden updates never block project imports.
+  @UseGuards(JwtAuthGuard)
+  @Post("price-list/golden-sync/estimate")
+  async enqueueGoldenSyncForEstimate(@Req() req: FastifyRequest) {
+    const anyReq: any = req as any;
+    const user = anyReq.user as AuthenticatedUser | undefined;
+
+    if (!user) {
+      throw new BadRequestException("Missing user in request context");
+    }
+
+    const level = getEffectiveRoleLevel({
+      globalRole: user.globalRole ?? null,
+      role: user.role ?? null,
+      profileCode: user.profileCode ?? null,
+    });
+
+    // Reuse same permission model as price list uploads: OWNER/ADMIN or SUPER_ADMIN.
+    if (level < 80) {
+      throw new BadRequestException(
+        "You do not have permission to sync the Golden price list from estimates.",
+      );
+    }
+
+    const body: any = anyReq.body || {};
+    const rawEstimateId = (body.estimateVersionId ?? "") as string;
+    const estimateVersionId = rawEstimateId.trim();
+
+    if (!estimateVersionId) {
+      throw new BadRequestException("estimateVersionId is required");
+    }
+
+    const estimate = await this.prisma.estimateVersion.findFirst({
+      where: { id: estimateVersionId },
+      include: { project: true },
+    });
+
+    if (!estimate || !estimate.project || estimate.project.companyId !== user.companyId) {
+      throw new BadRequestException(
+        "Estimate version not found for your company.",
+      );
+    }
+
+    const job = await this.prisma.importJob.create({
+      data: {
+        companyId: user.companyId,
+        projectId: estimate.projectId,
+        createdByUserId: user.userId,
+        // Reuse the PRICE_LIST job type for Golden sync jobs; we distinguish
+        // them by the presence of estimateVersionId (and empty csvPath) in the
+        // worker so legacy PETL imports continue to work.
+        type: "PRICE_LIST",
+        status: "QUEUED",
+        progress: 0,
+        csvPath: "",
+        estimateVersionId,
+        message: "Queued Golden price list sync from estimate.",
+      },
+    });
+
+    const queue = getImportQueue();
+    await queue.add(
+      "process",
+      { importJobId: job.id },
+      {
+        attempts: 1,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+      },
+    );
+
+    return { jobId: job.id };
   }
 
   // Golden price list revision history: per-company log of updates when

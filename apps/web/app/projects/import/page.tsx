@@ -373,6 +373,25 @@ function ProjectImportPageInner() {
               Status: {rawJob?.status ?? "…"} · Progress: {rawJob?.progress ?? 0}%
               {rawJob?.message ? ` · ${rawJob.message}` : ""}
             </div>
+            {rawJob?.status === "FAILED" && rawJob?.errorJson && (
+              <div
+                style={{
+                  marginBottom: 6,
+                  padding: 8,
+                  borderRadius: 4,
+                  backgroundColor: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  color: "#991b1b",
+                  fontSize: 11,
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Error details</div>
+                {typeof rawJob.errorJson === "string"
+                  ? rawJob.errorJson
+                  : rawJob.errorJson.message || JSON.stringify(rawJob.errorJson, null, 2)}
+              </div>
+            )}
             <div
               style={{
                 width: "100%",

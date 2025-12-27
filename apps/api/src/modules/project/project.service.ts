@@ -448,11 +448,11 @@ export class ProjectService {
   }
 
   async importXactForProject(
-    projectId: string,
-    companyId: string,
-    csvPath: string,
-    actor: AuthenticatedUser
-  ) {
+      projectId: string,
+      companyId: string,
+      csvPath: string,
+      actor: AuthenticatedUser
+    ) {
     try {
       const project = await this.prisma.project.findFirst({
         where: { id: projectId, companyId }
@@ -481,13 +481,22 @@ export class ProjectService {
 
       return result;
     } catch (err: any) {
+      // Log full error for server-side debugging, but surface a safer
+      // client-visible message so we can see what actually went wrong
+      // instead of a generic 500 "Internal server error".
       console.error("Error in importXactForProject", {
         projectId,
         companyId,
         csvPath,
-        error: err?.message ?? String(err)
+        error: err,
       });
-      throw err;
+
+      // In dev, treat unexpected import failures as a 400 with the
+      // underlying message so the frontend can display it. We can
+      // tighten this later if needed.
+      throw new BadRequestException(
+        err?.message ?? String(err ?? "Unknown import error"),
+      );
     }
   }
 

@@ -44,17 +44,13 @@ export async function POST(
       ? `Bearer ${accessToken}`
       : authHeaderFromReq;
 
-    const isLocalApi = /localhost|127\.0\.0\.1/.test(apiBase);
+    // Always call the synchronous project import endpoint so that RAW
+    // imports run in-process on the API and cannot be affected by any
+    // background worker state. The API will read the csvPath immediately
+    // and return a result (or error) in this HTTP request.
+    const endpoint = `${apiBase}/projects/${projectId}/import-xact`;
 
-    // If the API is local, we can enqueue an async job that reads the csvPath
-    // from the shared local filesystem. For non-local environments (Cloud Run),
-    // csvPath won't be accessible from a separate worker until we move uploads
-    // to object storage (GCS). In that case, fall back to the synchronous import.
-    const endpoint = isLocalApi
-      ? `${apiBase}/projects/${projectId}/import-jobs/xact-raw`
-      : `${apiBase}/projects/${projectId}/import-xact`;
-
-    const payload = isLocalApi ? { csvPath: filePath } : { csvPath: filePath };
+    const payload = { csvPath: filePath };
 
     const apiRes = await fetch(endpoint, {
       method: "POST",

@@ -57,7 +57,10 @@ export default function LoginPage() {
         if (me?.userType === "APPLICANT") {
           router.push("/candidate");
         } else if (me?.globalRole === "SUPER_ADMIN") {
-          router.push("/system");
+          // For SUPER_ADMIN, force a full reload into /system so that all
+          // layouts, guards, and nav state start from a clean superuser
+          // context without relying on client-side routing state.
+          window.location.href = "/system";
         } else {
           router.push("/projects");
         }

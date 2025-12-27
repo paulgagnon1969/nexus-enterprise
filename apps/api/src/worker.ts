@@ -10,6 +10,7 @@ import {
   importXactComponentsCsvForEstimate,
   importXactCsvForProject,
   importGoldenComponentsFromFile,
+  updateGoldenFromEstimate,
 } from "@repo/database";
 import { ImportJobStatus, ImportJobType } from "@repo/database";
 import { importPriceListFromFile } from "./modules/pricing/pricing.service";
@@ -48,16 +49,16 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
     },
   });
 
-  const csvPath = job.csvPath?.trim();
-  if (!csvPath) {
-    throw new Error("Import job has no csvPath. (Prod will require object storage URI.)");
-  }
-
-  if (!fs.existsSync(csvPath)) {
-    throw new Error(`CSV not found at ${csvPath}`);
-  }
-
+  // XACT_RAW: require a CSV path and import raw Xactimate line items.
   if (job.type === ImportJobType.XACT_RAW) {
+    const csvPath = job.csvPath?.trim();
+    if (!csvPath) {
+      throw new Error("XACT_RAW import job is missing csvPath");
+    }
+    if (!fs.existsSync(csvPath)) {
+      throw new Error(`CSV not found at ${csvPath}`);
+    }
+
     await prisma.importJob.update({
       where: { id: importJobId },
       data: { progress: 20, message: "Importing Xact raw line items..." },
@@ -87,7 +88,16 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
     return;
   }
 
+  // XACT_COMPONENTS: require a CSV path and import component CSV, then allocate.
   if (job.type === ImportJobType.XACT_COMPONENTS) {
+    const csvPath = job.csvPath?.trim();
+    if (!csvPath) {
+      throw new Error("XACT_COMPONENTS import job is missing csvPath");
+    }
+    if (!fs.existsSync(csvPath)) {
+      throw new Error(`CSV not found at ${csvPath}`);
+    }
+
     await prisma.importJob.update({
       where: { id: importJobId },
       data: { progress: 20, message: "Importing Xact components..." },
@@ -144,7 +154,44 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
     return;
   }
 
+  // PRICE_LIST: either a legacy PETL CSV import (csvPath set, no estimateVersionId)
+  // or a Golden sync from an EstimateVersion (estimateVersionId set, csvPath empty).
   if (job.type === ImportJobType.PRICE_LIST) {
+    if (job.estimateVersionId) {
+      // Treat as Golden sync from an estimate; no CSV path is required.
+      await prisma.importJob.update({
+        where: { id: importJobId },
+        data: {
+          progress: 20,
+          message: "Syncing Golden price list from estimate...",
+        },
+      });
+
+      const result = await updateGoldenFromEstimate(job.estimateVersionId);
+
+      await prisma.importJob.update({
+        where: { id: importJobId },
+        data: {
+          status: ImportJobStatus.SUCCEEDED,
+          finishedAt: new Date(),
+          progress: 100,
+          message: "Golden price list sync complete",
+          resultJson: result as any,
+        },
+      });
+
+      return;
+    }
+
+    // Legacy async PETL import path: requires csvPath and uses importPriceListFromFile.
+    const csvPath = job.csvPath?.trim();
+    if (!csvPath) {
+      throw new Error("PRICE_LIST import job is missing csvPath");
+    }
+    if (!fs.existsSync(csvPath)) {
+      throw new Error(`CSV not found at ${csvPath}`);
+    }
+
     await prisma.importJob.update({
       where: { id: importJobId },
       data: {
@@ -171,7 +218,16 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
     return;
   }
 
+  // PRICE_LIST_COMPONENTS: require a CSV path and import Golden components.
   if (job.type === ImportJobType.PRICE_LIST_COMPONENTS) {
+    const csvPath = job.csvPath?.trim();
+    if (!csvPath) {
+      throw new Error("PRICE_LIST_COMPONENTS import job is missing csvPath");
+    }
+    if (!fs.existsSync(csvPath)) {
+      throw new Error(`CSV not found at ${csvPath}`);
+    }
+
     await prisma.importJob.update({
       where: { id: importJobId },
       data: {
