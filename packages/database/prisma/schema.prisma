@@ -42,6 +42,9 @@ model Company {
   tasks                     Task[]
   userPortfolios            UserPortfolio[]
   offices                   CompanyOffice[]
+  assets                    Asset[]
+  assetUsages               AssetUsage[]
+  assetTransactions         AssetTransaction[]
 }
 
 model OrganizationTemplate {
@@ -172,6 +175,8 @@ model User {
   projectMemberships        ProjectMembership[]
   assignedTasks             Task[]                 @relation("TaskAssignee")
   portfolios                UserPortfolio[]
+  assetUsages               AssetUsage[]
+  assetTransactions         AssetTransaction[]
 }
 
 model UserPortfolio {
@@ -338,6 +343,8 @@ model Project {
   componentAllocations SowComponentAllocation[]
   sowLogicalItems      SowLogicalItem[]
   tasks                Task[]
+  assetUsages          AssetUsage[]
+  assetTransactions    AssetTransaction[]
 }
 
 model Parcel {
@@ -735,6 +742,7 @@ model SowItem {
   projectParticle      ProjectParticle          @relation(fields: [projectParticleId], references: [id])
   rawRow               RawXactRow               @relation(fields: [rawRowId], references: [id])
   sow                  Sow                      @relation(fields: [sowId], references: [id])
+  assetUsages          AssetUsage[]
 
   @@index([estimateVersionId, projectParticleId], map: "SowItem_estimate_particle_idx")
   @@index([projectParticleId], map: "SowItem_particle_idx")
@@ -848,6 +856,7 @@ model DailyLog {
   createdBy            User                 @relation(fields: [createdById], references: [id])
   project              Project              @relation(fields: [projectId], references: [id])
   attachments          DailyLogAttachment[]
+  assetUsages          AssetUsage[]
 
   @@index([projectId], map: "DailyLog_project_idx")
 }
@@ -1113,6 +1122,7 @@ model PriceListItem {
   components         PriceListComponent[]
   division           Division?            @relation(fields: [divisionCode], references: [code])
   priceList          PriceList            @relation(fields: [priceListId], references: [id])
+  assets             Asset[]
 
   @@unique([priceListId, canonicalKeyHash], map: "PriceListItem_priceList_canonical_hash_key")
   @@index([priceListId, cat, sel], map: "PriceListItem_priceList_cat_sel_idx")
@@ -1305,4 +1315,120 @@ enum ReputationModerationStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+/// v1 Asset-centric models (coexist alongside legacy v0 schema)
+model Asset {
+  id              String        @id @default(cuid())
+  companyId       String
+  name            String
+  code            String?
+  description     String?
+  assetType       AssetType
+  baseUnit        String?
+  baseRate        Decimal?      @db.Decimal(12, 4)
+  costBreakdown   Json?
+  attributes      Json?
+  isTrackable     Boolean       @default(false)
+  isConsumable    Boolean       @default(false)
+  priceListItemId String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  company         Company       @relation(fields: [companyId], references: [id])
+  priceListItem   PriceListItem? @relation(fields: [priceListItemId], references: [id])
+  usages          AssetUsage[]
+  transactions    AssetTransaction[]
+
+  @@index([companyId, assetType], map: "Asset_company_type_idx")
+}
+
+model AssetUsage {
+  id                    String        @id @default(cuid())
+  assetId               String
+  companyId             String
+  projectId             String
+  sowItemId             String?
+  dailyLogId            String?
+  billingMode           BillingMode
+  status                UsageStatus  @default(PLANNED)
+  quantity              Decimal?      @db.Decimal(12, 4)
+  unit                  String?
+  overrideRate          Decimal?      @db.Decimal(12, 4)
+  snapshotRate          Decimal?      @db.Decimal(12, 4)
+  snapshotCostBreakdown Json?
+  actualCost            Decimal?      @db.Decimal(14, 2)
+  startDate             DateTime?
+  endDate               DateTime?
+  notes                 String?
+  createdByUserId       String?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  asset                 Asset         @relation(fields: [assetId], references: [id])
+  company               Company       @relation(fields: [companyId], references: [id])
+  project               Project       @relation(fields: [projectId], references: [id])
+  sowItem               SowItem?      @relation(fields: [sowItemId], references: [id])
+  dailyLog              DailyLog?     @relation(fields: [dailyLogId], references: [id])
+  createdBy             User?         @relation(fields: [createdByUserId], references: [id])
+  transactions          AssetTransaction[]
+
+  @@index([companyId, projectId], map: "AssetUsage_company_project_idx")
+  @@index([assetId, status], map: "AssetUsage_asset_status_idx")
+}
+
+model AssetTransaction {
+  id          String          @id @default(cuid())
+  assetId     String
+  companyId   String
+  projectId   String?
+  usageId     String?
+  kind        TransactionKind
+  quantity    Decimal?        @db.Decimal(12, 4)
+  unit        String?
+  unitCost    Decimal?        @db.Decimal(12, 4)
+  totalCost   Decimal?        @db.Decimal(14, 2)
+  notes       String?
+  createdById String?
+  createdAt   DateTime        @default(now())
+  asset       Asset           @relation(fields: [assetId], references: [id])
+  company     Company         @relation(fields: [companyId], references: [id])
+  project     Project?        @relation(fields: [projectId], references: [id])
+  usage       AssetUsage?     @relation(fields: [usageId], references: [id])
+  createdBy   User?           @relation(fields: [createdById], references: [id])
+
+  @@index([companyId, createdAt], map: "AssetTransaction_company_created_idx")
+  @@index([assetId, createdAt], map: "AssetTransaction_asset_created_idx")
+}
+
+enum AssetType {
+  LABOR
+  MATERIAL
+  EQUIPMENT
+  TOOL
+  RENTAL
+  OTHER
+}
+
+enum BillingMode {
+  TIME_AND_MATERIAL
+  FIXED_FEE
+  INCLUDED_IN_SCOPE
+  NO_CHARGE
+}
+
+enum UsageStatus {
+  PLANNED
+  ACTIVE
+  COMPLETED
+  CANCELED
+}
+
+enum TransactionKind {
+  PURCHASE
+  CONSUME
+  TRANSFER
+  RETURN
+  WASTE
+  TIME_PUNCH
+  MAINTENANCE
+  ADJUSTMENT
 }

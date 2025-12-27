@@ -22,6 +22,7 @@ import { ReputationModule } from "./modules/reputation/reputation.module";
 import { ImportJobsModule } from "./modules/import-jobs/import-jobs.module";
 import { PricingModule } from "./modules/pricing/pricing.module";
 import { AddressModule } from "./modules/address/address.module";
+import { AssetModule } from "./modules/asset/asset.module";
 
 @Module({
   imports: [
@@ -51,7 +52,8 @@ import { AddressModule } from "./modules/address/address.module";
     ReputationModule,
     ImportJobsModule,
     PricingModule,
-    AddressModule
+    AddressModule,
+    AssetModule
   ],
   controllers: [DevController]
 })
