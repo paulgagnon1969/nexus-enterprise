@@ -104,45 +104,33 @@ export class PricingController {
         throw new BadRequestException("Missing company context for price list import");
       }
 
-      // For now, process the Golden price list import synchronously in this
-      // request instead of relying on the background worker/Redis. This avoids
-      // cross-service filesystem and Redis connectivity issues in Cloud Run.
-      const result = await importPriceListFromFile(destPath);
-
-      // Record a completed ImportJob so the UI can show "last PETL upload" with
-      // a timestamp and user, parallel to the Golden Components path.
-      await this.prisma.importJob.create({
+      // Create an async ImportJob that the background worker will process,
+      // rather than importing the PETL synchronously in this request.
+      const job = await this.prisma.importJob.create({
         data: {
           companyId,
           projectId: null,
           createdByUserId,
           type: "PRICE_LIST",
-          status: "SUCCEEDED",
-          progress: 100,
-          message: `Imported Golden PETL (Price List) revision ${result.revision} with ${result.itemCount} items.`,
+          status: "QUEUED",
+          progress: 0,
+          message: "Queued Golden PETL (Price List) import",
           csvPath: destPath,
-          resultJson: result as any,
-          startedAt: new Date(),
-          finishedAt: new Date(),
         },
       });
 
-      // Also record a Golden price list revision event so the Revision Log can
-      // differentiate PETL uploads vs Xact CSV-based repricing.
-      await this.prisma.goldenPriceUpdateLog.create({
-        data: {
-          companyId,
-          projectId: null,
-          estimateVersionId: null,
-          userId: createdByUserId,
-          updatedCount: result.itemCount ?? 0,
-          avgDelta: 0,
-          avgPercentDelta: 0,
-          source: "GOLDEN_PETL",
+      const queue = getImportQueue();
+      await queue.add(
+        "process",
+        { importJobId: job.id },
+        {
+          attempts: 1,
+          removeOnComplete: 1000,
+          removeOnFail: 1000,
         },
-      });
+      );
 
-      return result;
+      return { jobId: job.id };
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("[pricing] uploadPriceList: error", err);

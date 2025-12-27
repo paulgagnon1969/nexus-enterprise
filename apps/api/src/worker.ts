@@ -183,7 +183,9 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       return;
     }
 
-    // Legacy async PETL import path: requires csvPath and uses importPriceListFromFile.
+    // PETL (Golden price list) import path: requires csvPath and uses
+    // importPriceListFromFile. This path now runs in the background worker
+    // instead of synchronously inside the API request.
     const csvPath = job.csvPath?.trim();
     if (!csvPath) {
       throw new Error("PRICE_LIST import job is missing csvPath");
@@ -198,12 +200,13 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
         status: ImportJobStatus.RUNNING,
         startedAt: new Date(),
         progress: 10,
-        message: "Importing Golden price list...",
+        message: "Importing Golden price list (PETL)...",
       },
     });
 
     const result = await importPriceListFromFile(csvPath);
 
+    // Record the completed import job result.
     await prisma.importJob.update({
       where: { id: importJobId },
       data: {
@@ -214,6 +217,23 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
         resultJson: result as any,
       },
     });
+
+    // Also record a Golden price list revision event so the Revision Log can
+    // differentiate PETL uploads vs Xact CSV-based repricing.
+    if (job.companyId && job.createdByUserId) {
+      await prisma.goldenPriceUpdateLog.create({
+        data: {
+          companyId: job.companyId,
+          projectId: null,
+          estimateVersionId: null,
+          userId: job.createdByUserId,
+          updatedCount: result.itemCount ?? 0,
+          avgDelta: 0,
+          avgPercentDelta: 0,
+          source: "GOLDEN_PETL",
+        },
+      });
+    }
 
     return;
   }
