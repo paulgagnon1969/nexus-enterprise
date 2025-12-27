@@ -2,7 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import * as argon2 from "argon2";
-import { GlobalRole, Role, UserType, CompanyKind } from "@prisma/client";
+import { UserType, CompanyKind } from "@prisma/client";
+import { GlobalRole, Role } from "../auth/auth.guards";
 import { createHash } from "crypto";
 
 @Injectable()
@@ -789,7 +790,12 @@ export class AdminService {
       throw new Error("Actor has no current companyId");
     }
 
-    const roles = ["OWNER", "ADMIN", "MEMBER", "CLIENT"] as const;
+    const roles: Role[] = [
+      Role.OWNER,
+      Role.ADMIN,
+      Role.MEMBER,
+      Role.CLIENT,
+    ];
 
     const created: any[] = [];
 
@@ -813,17 +819,17 @@ export class AdminService {
         where: {
           userId_companyId: {
             userId: user.id,
-            companyId
-          }
+            companyId,
+          },
         },
         update: {
-          role: role as any
+          role,
         },
         create: {
           userId: user.id,
           companyId,
-          role: role as any
-        }
+          role,
+        },
       });
 
       created.push({ email, role, userId: user.id });
@@ -893,7 +899,12 @@ export class AdminService {
       throw new Error("Company not found");
     }
 
-    const allowedRoles: Role[] = ["OWNER", "ADMIN", "MEMBER", "CLIENT"];
+    const allowedRoles: Role[] = [
+      Role.OWNER,
+      Role.ADMIN,
+      Role.MEMBER,
+      Role.CLIENT,
+    ];
     if (!allowedRoles.includes(role as Role)) {
       throw new Error(`Invalid role: ${role}`);
     }

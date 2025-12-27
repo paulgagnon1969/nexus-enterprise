@@ -1,7 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
-import { Role, GlobalRole, UserType } from "@prisma/client";
+import type { UserType } from "@prisma/client";
+import { Role, GlobalRole } from "./auth.guards";
 
 export interface AuthenticatedUser {
   userId: string;
@@ -30,7 +31,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       companyId: payload.companyId,
       role: payload.role,
       email: payload.email,
-      globalRole: payload.globalRole ?? GlobalRole.NONE,
+      globalRole: (payload.globalRole as GlobalRole | undefined) ?? GlobalRole.NONE,
       userType: payload.userType ?? null,
       profileCode: payload.profileCode ?? null,
     };

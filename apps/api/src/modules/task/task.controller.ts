@@ -1,10 +1,8 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { TaskService } from "./task.service";
-import { JwtAuthGuard } from "../auth/auth.guards";
-import { Roles } from "../auth/auth.guards";
+import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateTaskDto, UpdateTaskStatusDto, TaskPriorityEnum, TaskStatusEnum } from "./dto/task.dto";
-import { Role } from "@prisma/client";
 
 @Controller("tasks")
 export class TaskController {

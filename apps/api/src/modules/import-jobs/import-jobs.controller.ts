@@ -1,9 +1,9 @@
 import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
-import { JwtAuthGuard, Roles } from "../auth/auth.guards";
+import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { ImportJobsService } from "./import-jobs.service";
 import { CreateXactComponentsImportJobDto, CreateXactRawImportJobDto } from "./dto/import-jobs.dto";
-import { ImportJobType, Role } from "@prisma/client";
+import { ImportJobType } from "@prisma/client";
 
 @UseGuards(JwtAuthGuard)
 @Controller("projects/:projectId/import-jobs")

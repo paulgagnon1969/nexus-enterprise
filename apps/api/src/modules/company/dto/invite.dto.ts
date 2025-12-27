@@ -1,5 +1,5 @@
-import { IsEmail, IsEnum, IsString } from "class-validator";
-import { Role } from "@prisma/client";
+import { IsEmail, IsEnum } from "class-validator";
+import { Role } from "../../auth/auth.guards";
 
 export class CreateInviteDto {
   @IsEmail()

@@ -1,6 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
-import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles } from "../auth/auth.guards";
-import { GlobalRole } from "@prisma/client";
+import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles, GlobalRole } from "../auth/auth.guards";
 import { JobStatusService } from "./job-status.service";
 
 @Controller("job-status")

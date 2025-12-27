@@ -5,7 +5,8 @@ import { defineConfig } from "prisma/config";
 // connection string. At runtime, the real DATABASE_URL is consumed via the
 // PrismaPg adapter in packages/database/src/client.ts.
 const url =
-  process.env.DATABASE_URL ?? "postgresql://user:pass@localhost:5432/dummy";
+  process.env.DATABASE_URL ??
+  "postgresql://nexus_user:nexus_password@localhost:5433/nexus_db";
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
