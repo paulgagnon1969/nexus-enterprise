@@ -126,6 +126,21 @@ export class PricingController {
         },
       });
 
+      // Also record a Golden price list revision event so the Revision Log can
+      // differentiate PETL uploads vs Xact CSV-based repricing.
+      await this.prisma.goldenPriceUpdateLog.create({
+        data: {
+          companyId,
+          projectId: null,
+          estimateVersionId: null,
+          userId: createdByUserId,
+          updatedCount: result.itemCount ?? 0,
+          avgDelta: 0,
+          avgPercentDelta: 0,
+          source: "GOLDEN_PETL",
+        },
+      });
+
       return result;
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -427,10 +442,10 @@ export class PricingController {
     });
 
     return logs.map((log) => {
-      const projectName = log.project?.name ?? log.projectId;
+      const projectName = log.project?.name ?? log.projectId ?? "";
       const estimateLabel =
-        log.estimateVersion?.description || log.estimateVersion?.fileName ||
-        log.estimateVersionId;
+        (log.estimateVersion?.description || log.estimateVersion?.fileName || log.estimateVersionId) ??
+        null;
       const userName = log.user
         ? `${log.user.firstName ?? ""} ${log.user.lastName ?? ""}`.trim() || log.user.email
         : null;
@@ -447,6 +462,7 @@ export class PricingController {
         avgPercentDelta: log.avgPercentDelta,
         userId: log.userId,
         userName,
+        source: log.source,
       };
     });
   }

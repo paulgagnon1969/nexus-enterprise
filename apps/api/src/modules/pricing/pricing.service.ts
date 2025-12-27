@@ -52,6 +52,24 @@ export async function importPriceListFromFile(csvPath: string) {
   });
   const revision = latest ? latest.revision + 1 : 1;
 
+  // If we have a previous GOLDEN revision, capture its unitPrice values by
+  // canonicalKeyHash so we can stamp them into lastKnownUnitPrice for the new
+  // revision. This keeps the "Last known price" column meaningful regardless
+  // of whether changes came from Xact RAW repricing or a Golden PETL upload.
+  const prevPriceByCanonicalHash = new Map<string, number | null>();
+  if (latest) {
+    const prevItems = await prisma.priceListItem.findMany({
+      where: { priceListId: latest.id },
+      select: { canonicalKeyHash: true, unitPrice: true },
+    });
+    for (const it of prevItems) {
+      if (!it.canonicalKeyHash) continue;
+      if (!prevPriceByCanonicalHash.has(it.canonicalKeyHash)) {
+        prevPriceByCanonicalHash.set(it.canonicalKeyHash, it.unitPrice);
+      }
+    }
+  }
+
   // Derive an effective date from the data (max of Date column).
   let effectiveDate: Date | null = null;
   for (const record of records) {
@@ -133,6 +151,8 @@ export async function importPriceListFromFile(csvPath: string) {
         .update(canonicalKeyString, "utf8")
         .digest("hex");
 
+      const previousUnitPrice = prevPriceByCanonicalHash.get(canonicalKeyHash) ?? null;
+
       return {
         priceListId: priceList.id,
         lineNo: parsedLineNo,
@@ -143,6 +163,7 @@ export async function importPriceListFromFile(csvPath: string) {
         sel,
         unit: cleanText(record["Unit"]),
         unitPrice: toNumber(record["Unit Cost"]),
+        lastKnownUnitPrice: previousUnitPrice,
         coverage: cleanText(record["Coverage"]),
         activity,
         owner: cleanText(record["Owner"]),

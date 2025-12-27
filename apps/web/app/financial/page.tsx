@@ -51,15 +51,16 @@ type GoldenPriceListRow = {
 type GoldenPriceUpdateLogEntry = {
   id: string;
   createdAt: string;
-  projectId: string;
+  projectId: string | null;
   projectName: string;
-  estimateVersionId: string;
+  estimateVersionId: string | null;
   estimateLabel: string | null;
   updatedCount: number;
   avgDelta: number;
   avgPercentDelta: number;
   userId: string | null;
   userName: string | null;
+  source: "XACT_ESTIMATE" | "GOLDEN_PETL";
 };
 
 // Recent Golden price list uploads (PriceList revisions).
@@ -1651,12 +1652,12 @@ export default function FinancialPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "minmax(0, 1.3fr) minmax(0, 1fr)",
-              gap: 16,
+              gridTemplateColumns: "auto minmax(0, 1fr)",
+              gap: 12,
               alignItems: "stretch",
             }}
           >
-            {/* 16 CSI divisions */}
+            {/* 16 CSI divisions – compact vertical strip on far left */}
             <div
               style={{
                 border: "1px solid #e5e7eb",
@@ -1664,9 +1665,9 @@ export default function FinancialPage() {
                 padding: 8,
                 background: "#f9fafb",
                 fontSize: 12,
-                display: "flex",
-                flexDirection: "column",
                 maxHeight: "60vh",
+                minWidth: 180,
+                overflowY: "auto",
               }}
             >
               {loadingDivisionMapping && !divisions.length && (
@@ -1674,14 +1675,13 @@ export default function FinancialPage() {
                   Loading division mapping...
                 </p>
               )}
-              <div
+
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>Divisions</div>
+              <ul
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                  gap: 12,
-                  marginBottom: 8,
-                  overflowY: "auto",
-                  paddingRight: 4,
+                  listStyle: "none",
+                  padding: 0,
+                  margin: 0,
                 }}
               >
                 {(divisions.length
@@ -1705,30 +1705,27 @@ export default function FinancialPage() {
                       { code: "16", name: "Electrical", sortOrder: 16 },
                     ]
                 ).map((div) => (
-                  <div
+                  <li
                     key={div.code}
                     style={{
-                      border: "1px solid #e5e7eb",
-                      borderRadius: 6,
-                      padding: 8,
-                      background: "#ffffff",
-                      fontSize: 12,
+                      padding: "4px 0",
+                      borderBottom: "1px solid #e5e7eb",
                     }}
                   >
-                    <div style={{ fontWeight: 600 }}>Division {div.code}</div>
-                    <div>{div.name}</div>
-                  </div>
+                    <span style={{ fontWeight: 600, marginRight: 6 }}>Div {div.code}</span>
+                    <span style={{ color: "#374151" }}>{div.name}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
 
               {divisionError && (
-                <p style={{ fontSize: 11, color: "#b91c1c", marginBottom: 4 }}>
+                <p style={{ fontSize: 11, color: "#b91c1c", marginTop: 4 }}>
                   {divisionError}
                 </p>
               )}
             </div>
 
-            {/* Cat → Division mapping table */}
+            {/* Cat 2u2192 Division mapping table */}
             <div
               style={{
                 border: "1px solid #e5e7eb",

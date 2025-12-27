@@ -21,15 +21,16 @@ type GoldenPriceListRow = {
 type GoldenPriceUpdateLogEntry = {
   id: string;
   createdAt: string;
-  projectId: string;
+  projectId: string | null;
   projectName: string;
-  estimateVersionId: string;
+  estimateVersionId: string | null;
   estimateLabel: string | null;
   updatedCount: number;
   avgDelta: number;
   avgPercentDelta: number;
   userId: string | null;
   userName: string | null;
+  source: "XACT_ESTIMATE" | "GOLDEN_PETL";
 };
 
 type GoldenComponent = {
@@ -428,6 +429,7 @@ export const GoldenPriceListHistory = memo(function GoldenPriceListHistory({
             <thead style={{ background: "#f9fafb" }}>
               <tr>
                 <th style={{ textAlign: "left", padding: "4px 6px", width: 120 }}>When</th>
+                <th style={{ textAlign: "left", padding: "4px 6px", width: 80 }}>Source</th>
                 <th style={{ textAlign: "left", padding: "4px 6px" }}>Project</th>
                 <th style={{ textAlign: "left", padding: "4px 6px" }}>Estimate</th>
                 <th style={{ textAlign: "right", padding: "4px 6px", width: 70 }}>Items</th>
@@ -442,6 +444,7 @@ export const GoldenPriceListHistory = memo(function GoldenPriceListHistory({
                 const whenLabel = when.toLocaleString();
                 const avgDeltaLabel = `$${entry.avgDelta.toFixed(2)}`;
                 const avgPctLabel = `${(entry.avgPercentDelta * 100).toFixed(1)}%`;
+                const sourceLabel = entry.source === "GOLDEN_PETL" ? "GPL" : "CSV";
                 return (
                   <tr key={entry.id}>
                     <td
@@ -453,6 +456,16 @@ export const GoldenPriceListHistory = memo(function GoldenPriceListHistory({
                       }}
                     >
                       {whenLabel}
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 6px",
+                        borderTop: "1px solid #f3f4f6",
+                        whiteSpace: "nowrap",
+                        color: entry.source === "GOLDEN_PETL" ? "#1d4ed8" : "#15803d",
+                      }}
+                    >
+                      {sourceLabel}
                     </td>
                     <td
                       style={{

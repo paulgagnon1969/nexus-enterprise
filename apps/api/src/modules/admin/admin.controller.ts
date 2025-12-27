@@ -76,6 +76,18 @@ export class AdminController {
     return this.admin.provisionCompanyFromTemplate(actor, { name, templateId });
   }
 
+  // Provision a TRIAL organization from a template (admin-only helper for now).
+  @Post("trials/provision")
+  provisionTrialCompany(
+    @Req() req: any,
+    @Body("name") name: string,
+    @Body("templateId") templateId: string,
+    @Body("trialDays") trialDays?: number,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.provisionTrialCompanyFromTemplate(actor, { name, templateId, trialDays });
+  }
+
   // Reconcile an existing organization to the template's current version.
   @Post("companies/:id/reconcile-template")
   reconcileCompanyTemplate(@Param("id") companyId: string, @Req() req: any) {
