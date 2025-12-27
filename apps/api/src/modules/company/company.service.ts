@@ -1,10 +1,11 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { GlobalRole, Role } from "@prisma/client";
 import { AuditService } from "../../common/audit.service";
 import { EmailService } from "../../common/email.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { randomUUID } from "crypto";
+import { UpsertOfficeDto } from "./dto/office.dto";
 
 @Injectable()
 export class CompanyService {
@@ -27,6 +28,7 @@ export class CompanyService {
       select: {
         id: true,
         name: true,
+        kind: true,
         createdAt: true,
         updatedAt: true,
         memberships: {
@@ -191,6 +193,142 @@ export class CompanyService {
         createdAt: true
       }
     });
+  }
+
+  // --- Company offices (soft-delete only; never hard-delete) ---
+
+  async listOfficesForCurrentCompany(actor: AuthenticatedUser) {
+    return this.prisma.companyOffice.findMany({
+      where: {
+        companyId: actor.companyId,
+        deletedAt: null,
+      },
+      orderBy: { createdAt: "asc" },
+    });
+  }
+
+  async createOfficeForCurrentCompany(actor: AuthenticatedUser, dto: UpsertOfficeDto) {
+    const office = await this.prisma.companyOffice.create({
+      data: {
+        companyId: actor.companyId,
+        label: dto.label,
+        addressLine1: dto.addressLine1 ?? "",
+        addressLine2: dto.addressLine2 ?? null,
+        city: dto.city ?? "",
+        state: dto.state ?? "",
+        postalCode: dto.postalCode ?? "",
+        country: dto.country ?? "US",
+      },
+    });
+
+    await this.audit.log(actor, "COMPANY_OFFICE_CREATED", {
+      companyId: actor.companyId,
+      metadata: {
+        officeId: office.id,
+        label: office.label,
+      },
+    });
+
+    return office;
+  }
+
+  async updateOfficeForCurrentCompany(
+    actor: AuthenticatedUser,
+    officeId: string,
+    dto: UpsertOfficeDto,
+  ) {
+    const existing = await this.prisma.companyOffice.findFirst({
+      where: {
+        id: officeId,
+        companyId: actor.companyId,
+        deletedAt: null,
+      },
+    });
+
+    if (!existing) {
+      throw new NotFoundException("Office not found");
+    }
+
+    const updated = await this.prisma.companyOffice.update({
+      where: { id: officeId },
+      data: {
+        label: dto.label,
+        addressLine1: dto.addressLine1 ?? "",
+        addressLine2: dto.addressLine2 ?? null,
+        city: dto.city ?? "",
+        state: dto.state ?? "",
+        postalCode: dto.postalCode ?? "",
+        country: dto.country ?? "US",
+      },
+    });
+
+    await this.audit.log(actor, "COMPANY_OFFICE_UPDATED", {
+      companyId: actor.companyId,
+      metadata: {
+        officeId: officeId,
+        previous: {
+          label: existing.label,
+          addressLine1: existing.addressLine1,
+          addressLine2: existing.addressLine2,
+          city: existing.city,
+          state: existing.state,
+          postalCode: existing.postalCode,
+          country: existing.country,
+        },
+        updated: {
+          label: updated.label,
+          addressLine1: updated.addressLine1,
+          addressLine2: updated.addressLine2,
+          city: updated.city,
+          state: updated.state,
+          postalCode: updated.postalCode,
+          country: updated.country,
+        },
+      },
+    });
+
+    return updated;
+  }
+
+  async softDeleteOfficeForCurrentCompany(actor: AuthenticatedUser, officeId: string) {
+    const existing = await this.prisma.companyOffice.findFirst({
+      where: {
+        id: officeId,
+        companyId: actor.companyId,
+        deletedAt: null,
+      },
+    });
+
+    if (!existing) {
+      // Already gone or belongs to another company; treat as not found.
+      throw new NotFoundException("Office not found");
+    }
+
+    const deletedAt = new Date();
+
+    await this.prisma.companyOffice.update({
+      where: { id: officeId },
+      data: { deletedAt },
+    });
+
+    await this.audit.log(actor, "COMPANY_OFFICE_DELETED", {
+      companyId: actor.companyId,
+      metadata: {
+        officeId: officeId,
+        deletedAt,
+        previous: {
+          label: existing.label,
+          addressLine1: existing.addressLine1,
+          addressLine2: existing.addressLine2,
+          city: existing.city,
+          state: existing.state,
+          postalCode: existing.postalCode,
+          country: existing.country,
+        },
+      },
+    });
+
+    return { success: true };
   }
 
   async updateMemberRole(

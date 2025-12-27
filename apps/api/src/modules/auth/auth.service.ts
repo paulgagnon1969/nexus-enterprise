@@ -4,7 +4,7 @@ import * as argon2 from "argon2";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { RedisService } from "../../infra/redis/redis.service";
 import { RegisterDto, LoginDto, ChangePasswordDto } from "./dto/auth.dto";
-import { Role, GlobalRole, UserType } from "@prisma/client";
+import { Role, GlobalRole, UserType, CompanyTrialStatus } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { AuthenticatedUser } from "./jwt.strategy";
 import { EmailService } from "../../common/email.service";
@@ -471,11 +471,37 @@ export class AuthService {
 
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
-      select: { id: true, name: true }
+      select: {
+        id: true,
+        name: true,
+        isTrial: true,
+        trialEndsAt: true,
+        trialStatus: true,
+      },
     });
 
     if (!company) {
       throw new UnauthorizedException("Company not found");
+    }
+
+    // Block switching into expired trial organizations unless they have been
+    // converted. This is a soft guard around trial lifecycle: ACTIVE trials are
+    // usable; EXPIRED trials (or past-due ACTIVE) are read-only/blocked until
+    // converted by Nexus Systems.
+    if (
+      company.isTrial &&
+      company.trialStatus !== CompanyTrialStatus.CONVERTED &&
+      company.trialEndsAt &&
+      company.trialEndsAt.getTime() < Date.now()
+    ) {
+      // Best-effort: mark as EXPIRED so future checks are cheap.
+      await this.prisma.company.update({
+        where: { id: company.id },
+        data: { trialStatus: CompanyTrialStatus.EXPIRED },
+      });
+      throw new UnauthorizedException(
+        "This organization's trial has expired. Contact Nexus Systems to upgrade.",
+      );
     }
 
     let membership = await this.prisma.companyMembership.findUnique({

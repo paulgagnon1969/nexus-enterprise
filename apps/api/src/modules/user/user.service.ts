@@ -52,6 +52,7 @@ export class UserService {
               select: {
                 id: true,
                 name: true,
+                kind: true,
               },
             },
           },

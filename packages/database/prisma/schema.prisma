@@ -15,6 +15,12 @@ model Company {
   reputationOverallCount    Int                          @default(0)
   reputationOverallOverride Int?
   kind                      CompanyKind                  @default(ORGANIZATION)
+
+  // Trial / subscription metadata (optional; used for self-serve demos and billing).
+  isTrial                   Boolean                      @default(false)
+  trialEndsAt               DateTime?
+  trialStatus               CompanyTrialStatus?
+
   templateId                String?
   templateVersionId         String?
   template                  OrganizationTemplate?        @relation("CompanyTemplate", fields: [templateId], references: [id])
@@ -35,6 +41,7 @@ model Company {
   tagAssignments            TagAssignment[]
   tasks                     Task[]
   userPortfolios            UserPortfolio[]
+  offices                   CompanyOffice[]
 }
 
 model OrganizationTemplate {
@@ -222,6 +229,24 @@ model CompanyInvite {
   createdAt      DateTime  @default(now())
   acceptedUser   User?     @relation(fields: [acceptedUserId], references: [id])
   company        Company   @relation(fields: [companyId], references: [id])
+}
+
+model CompanyOffice {
+  id           String   @id @default(cuid())
+  companyId    String
+  label        String
+  addressLine1 String
+  addressLine2 String?
+  city         String
+  state        String
+  postalCode   String
+  country      String   @default("US")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+  company      Company  @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, deletedAt], map: "CompanyOffice_company_deleted_idx")
 }
 
 /// Feature / capability that can be secured via roles (e.g. project_management.daily_logs).
@@ -452,19 +477,20 @@ model ProjectFinancialSnapshot {
 /// Each row records how many items were updated and the average
 /// price deltas, along with the project, estimate, and user.
 model GoldenPriceUpdateLog {
-  id                String          @id @default(cuid())
+  id                String                  @id @default(cuid())
   companyId         String
-  projectId         String
-  estimateVersionId String
+  projectId         String?
+  estimateVersionId String?
   userId            String?
   updatedCount      Int
   avgDelta          Float
   avgPercentDelta   Float
-  createdAt         DateTime        @default(now()) @db.Timestamptz(6)
-  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  estimateVersion   EstimateVersion @relation(fields: [estimateVersionId], references: [id], onDelete: Cascade)
-  project           Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user              User?           @relation(fields: [userId], references: [id])
+  source            GoldenPriceUpdateSource @default(XACT_ESTIMATE)
+  createdAt         DateTime                @default(now()) @db.Timestamptz(6)
+  company           Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  estimateVersion   EstimateVersion?        @relation(fields: [estimateVersionId], references: [id], onDelete: Cascade)
+  project           Project?                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user              User?                   @relation(fields: [userId], references: [id])
 
   @@index([companyId, createdAt], map: "GoldenPriceUpdateLog_company_created_idx")
   @@index([projectId, createdAt], map: "GoldenPriceUpdateLog_project_created_idx")
@@ -1144,6 +1170,12 @@ enum CompanyKind {
   ORGANIZATION
 }
 
+enum CompanyTrialStatus {
+  ACTIVE
+  EXPIRED
+  CONVERTED
+}
+
 enum UserType {
   INTERNAL
   CLIENT
@@ -1167,6 +1199,11 @@ enum ImportJobStatus {
 enum PriceListKind {
   GOLDEN
   ACTIVE
+}
+
+enum GoldenPriceUpdateSource {
+  XACT_ESTIMATE
+  GOLDEN_PETL
 }
 
 enum Role {

@@ -164,6 +164,7 @@ async function updateGoldenFromEstimate(estimateVersionId: string) {
         updatedCount: 0,
         avgDelta: 0,
         avgPercentDelta: 0,
+        source: "XACT_ESTIMATE",
       },
     });
 
@@ -240,6 +241,7 @@ async function updateGoldenFromEstimate(estimateVersionId: string) {
         updatedCount: 0,
         avgDelta: 0,
         avgPercentDelta: 0,
+        source: "XACT_ESTIMATE",
       },
     });
 
@@ -286,6 +288,7 @@ async function updateGoldenFromEstimate(estimateVersionId: string) {
       updatedCount,
       avgDelta,
       avgPercentDelta,
+      source: "XACT_ESTIMATE",
     },
   });
 

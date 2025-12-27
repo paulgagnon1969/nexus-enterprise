@@ -21,6 +21,7 @@ import { SkillsModule } from "./modules/skills/skills.module";
 import { ReputationModule } from "./modules/reputation/reputation.module";
 import { ImportJobsModule } from "./modules/import-jobs/import-jobs.module";
 import { PricingModule } from "./modules/pricing/pricing.module";
+import { AddressModule } from "./modules/address/address.module";
 
 @Module({
   imports: [
@@ -49,7 +50,8 @@ import { PricingModule } from "./modules/pricing/pricing.module";
     SkillsModule,
     ReputationModule,
     ImportJobsModule,
-    PricingModule
+    PricingModule,
+    AddressModule
   ],
   controllers: [DevController]
 })
