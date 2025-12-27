@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
-import { GlobalRole, Role } from "@prisma/client";
+import { GlobalRole, Role } from "../auth/auth.guards";
 import { AuditService } from "../../common/audit.service";
 import { EmailService } from "../../common/email.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";

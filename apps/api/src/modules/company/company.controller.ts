@@ -1,7 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from "@nestjs/common";
 import { CompanyService } from "./company.service";
-import { JwtAuthGuard, Roles } from "../auth/auth.guards";
-import { Role } from "@prisma/client";
+import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateInviteDto } from "./dto/invite.dto";
 import { UpsertOfficeDto } from "./dto/office.dto";

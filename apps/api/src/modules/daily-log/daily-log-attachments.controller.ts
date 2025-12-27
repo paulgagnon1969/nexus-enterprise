@@ -1,8 +1,7 @@
 import { BadRequestException, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
-import { JwtAuthGuard, Roles } from "../auth/auth.guards";
+import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { DailyLogService } from "./daily-log.service";
-import { Role } from "@prisma/client";
 import type { FastifyRequest } from "fastify";
 
 @Controller("daily-logs/:logId/attachments")

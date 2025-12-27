@@ -1,6 +1,5 @@
 import { Body, Controller, Get, Post, Delete, Param, Query, Req, UseGuards } from "@nestjs/common";
-import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles } from "../auth/auth.guards";
-import { GlobalRole } from "@prisma/client";
+import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles, GlobalRole } from "../auth/auth.guards";
 import { TagService } from "./tag.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 

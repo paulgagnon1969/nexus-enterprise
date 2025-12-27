@@ -11,7 +11,7 @@ import {
   importXactCsvForProject,
   importGoldenComponentsFromFile,
 } from "@repo/database";
-import { ImportJobStatus, ImportJobType } from "@repo/database";
+import { ImportJobStatus, ImportJobType } from "@prisma/client";
 import { importPriceListFromFile } from "./modules/pricing/pricing.service";
 
 type ImportJobPayload = {

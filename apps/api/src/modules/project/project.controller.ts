@@ -11,10 +11,9 @@ import {
   Query
 } from "@nestjs/common";
 import { ProjectService } from "./project.service";
-import { JwtAuthGuard, Roles } from "../auth/auth.guards";
+import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateProjectDto, AddProjectMemberDto, ImportXactDto, ImportXactComponentsDto, UpdateProjectDto } from "./dto/project.dto";
-import { Role } from "@prisma/client";
 
 @Controller("projects")
 export class ProjectController {

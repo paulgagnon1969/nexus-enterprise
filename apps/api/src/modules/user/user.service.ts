@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { GlobalRole, Role } from "@prisma/client";
+import { GlobalRole, Role } from "../auth/auth.guards";
 import {
   decryptPortfolioHrJson,
   encryptPortfolioHrJson,

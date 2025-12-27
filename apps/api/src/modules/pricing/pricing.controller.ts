@@ -8,9 +8,7 @@ import {
 import type { FastifyRequest } from "fastify";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { JwtAuthGuard } from "../auth/auth.guards";
-import { Role, GlobalRole } from "@prisma/client";
-import { getEffectiveRoleLevel } from "../auth/auth.guards";
+import { JwtAuthGuard, Role, GlobalRole, getEffectiveRoleLevel } from "../auth/auth.guards";
 import {
   importPriceListFromFile,
   getCurrentGoldenPriceList,

@@ -6,7 +6,21 @@ import {
 } from "@nestjs/common";
 import { AuthGuard } from "@nestjs/passport";
 import { Reflector } from "@nestjs/core";
-import { Role, GlobalRole } from "@prisma/client";
+
+// Local canonical role enums for the API. These are no longer sourced from
+// @prisma/client so that auth semantics are decoupled from the database schema.
+export enum Role {
+  OWNER = "OWNER",
+  ADMIN = "ADMIN",
+  MEMBER = "MEMBER",
+  CLIENT = "CLIENT",
+}
+
+export enum GlobalRole {
+  SUPER_ADMIN = "SUPER_ADMIN",
+  SUPPORT = "SUPPORT",
+  NONE = "NONE",
+}
 
 export class JwtAuthGuard extends AuthGuard("jwt") {}
 

@@ -1,9 +1,8 @@
 import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { DailyLogService } from "./daily-log.service";
-import { JwtAuthGuard, Roles } from "../auth/auth.guards";
+import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateDailyLogDto } from "./dto/create-daily-log.dto";
-import { Role } from "@prisma/client";
 
 @Controller("projects/:projectId/daily-logs")
 export class DailyLogController {

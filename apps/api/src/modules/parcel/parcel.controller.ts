@@ -1,10 +1,10 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ParcelService } from "./parcel.service";
-import { JwtAuthGuard } from "../auth/auth.guards";
-import { Roles } from "../auth/auth.guards";
+import { JwtAuthGuard, Roles } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateParcelDto, UpdateParcelDto } from "./dto/parcel.dto";
-import { ParcelStatus, Role } from "@prisma/client";
+import { ParcelStatus } from "@prisma/client";
+import { Role } from "../auth/auth.guards";
 
 @Controller("parcels")
 export class ParcelController {
