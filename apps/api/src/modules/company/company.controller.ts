@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from "@nestjs/common";
 import { CompanyService } from "./company.service";
 import { JwtAuthGuard, Roles } from "../auth/auth.guards";
 import { Role } from "@prisma/client";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateInviteDto } from "./dto/invite.dto";
+import { UpsertOfficeDto } from "./dto/office.dto";
 
 @Controller("companies")
 export class CompanyController {
@@ -64,5 +65,43 @@ export class CompanyController {
   ) {
     const actor = req.user as AuthenticatedUser;
     return this.companies.updateMemberRole(companyId, userId, role, actor);
+  }
+
+  // --- Company offices ---
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Get("me/offices")
+  listMyOffices(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.listOfficesForCurrentCompany(actor);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post("me/offices")
+  createMyOffice(@Req() req: any, @Body() dto: UpsertOfficeDto) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.createOfficeForCurrentCompany(actor, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Patch("me/offices/:id")
+  updateMyOffice(
+    @Req() req: any,
+    @Param("id") officeId: string,
+    @Body() dto: UpsertOfficeDto,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.updateOfficeForCurrentCompany(actor, officeId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Delete("me/offices/:id")
+  deleteMyOffice(@Req() req: any, @Param("id") officeId: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.softDeleteOfficeForCurrentCompany(actor, officeId);
   }
 }

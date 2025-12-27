@@ -20,6 +20,7 @@ interface UserMeResponse {
     company: {
       id: string;
       name: string;
+      kind?: string; // SYSTEM vs ORGANIZATION (optional for backward compatibility)
     };
   }[];
 }
@@ -28,6 +29,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [globalRole, setGlobalRole] = useState<string | null>(null);
   const [userType, setUserType] = useState<string | null>(null);
+  const [currentCompanyName, setCurrentCompanyName] = useState<string | null>(null);
 
   const path = pathname ?? "/";
   const isAuthRoute = path === "/login" || path.startsWith("/accept-invite");
@@ -54,6 +56,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     window.sessionStorage.setItem("nexusInitialLogoutDone", "1");
 
     if (!isAuthRoute) {
+      const currentCompanyId = window.localStorage.getItem("companyId");
+      if (currentCompanyId) {
+        window.localStorage.setItem("lastCompanyId", currentCompanyId);
+      }
       window.localStorage.removeItem("accessToken");
       window.localStorage.removeItem("refreshToken");
       window.localStorage.removeItem("companyId");
@@ -63,6 +69,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const handleLogout = () => {
     if (typeof window === "undefined") return;
+    const currentCompanyId = window.localStorage.getItem("companyId");
+    if (currentCompanyId) {
+      window.localStorage.setItem("lastCompanyId", currentCompanyId);
+    }
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
     localStorage.removeItem("companyId");
@@ -91,8 +101,102 @@ export function AppShell({ children }: { children: ReactNode }) {
       .then(res => (res.ok ? res.json() : null))
       .then((json: UserMeResponse | null) => {
         if (!json) return;
-        setGlobalRole(json.globalRole ?? null);
-        setUserType(json.userType ?? null);
+
+        const nextGlobalRole = json.globalRole ?? null;
+        const nextUserType = json.userType ?? null;
+
+        setGlobalRole(nextGlobalRole);
+        setUserType(nextUserType);
+
+        // Post-login sync: keep localStorage in sync so layouts that rely on
+        // cached globalRole/userType (e.g. /system) behave correctly even
+        // after hard reloads or alternate login flows.
+        try {
+          if (nextGlobalRole) {
+            window.localStorage.setItem("globalRole", nextGlobalRole);
+          } else {
+            window.localStorage.removeItem("globalRole");
+          }
+          if (nextUserType) {
+            window.localStorage.setItem("userType", nextUserType);
+          } else {
+            window.localStorage.removeItem("userType");
+          }
+        } catch {
+          // best-effort only; ignore storage errors
+        }
+      })
+      .catch(() => {
+        // ignore
+      });
+  }, []);
+
+  // On first load after login, if we have a remembered lastCompanyId and the
+  // user has access (or is SUPER_ADMIN), auto-switch company context once so
+  // the dropdown and API context match their last selection.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+    const already = window.sessionStorage.getItem("nexusAutoCompanySwitchDone");
+    if (already === "1") return;
+    const lastCompanyId = window.localStorage.getItem("lastCompanyId");
+    if (!lastCompanyId) return;
+
+    (async () => {
+      try {
+        const meRes = await fetch(`${API_BASE}/users/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!meRes.ok) return;
+        const me: UserMeResponse = await meRes.json();
+        const isSuperAdmin = (me.globalRole ?? null) === "SUPER_ADMIN";
+        const hasMembership = Array.isArray(me.memberships)
+          ? me.memberships.some(m => m.companyId === lastCompanyId)
+          : false;
+        if (!isSuperAdmin && !hasMembership) return;
+
+        const switchRes = await fetch(`${API_BASE}/auth/switch-company`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ companyId: lastCompanyId }),
+        });
+        if (!switchRes.ok) return;
+        const json: any = await switchRes.json();
+        if (json.accessToken && json.refreshToken && json.company?.id) {
+          window.localStorage.setItem("accessToken", json.accessToken);
+          window.localStorage.setItem("refreshToken", json.refreshToken);
+          window.localStorage.setItem("companyId", json.company.id);
+          window.sessionStorage.setItem("nexusAutoCompanySwitchDone", "1");
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, []);
+
+  // Load the current company name for the header so we can swap org branding
+  // while keeping a permanent Nexus brand.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    const companyId = window.localStorage.getItem("companyId");
+    if (!token || !companyId) return;
+
+    fetch(`${API_BASE}/companies/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => (res.ok ? res.json() : null))
+      .then((json: any | null) => {
+        if (!json) return;
+        if (json.kind === "SYSTEM") {
+          setCurrentCompanyName(json.name ?? "Nexus System");
+        } else {
+          setCurrentCompanyName(json.name ?? null);
+        }
       })
       .catch(() => {
         // ignore
@@ -109,14 +213,17 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="app-header">
         <div className="app-header-left">
           <div className="app-logo">
+            {/* Permanent Nexus Deconstruct Hires brand (animated GIF) */}
             <img
-              src="/nexus-logo-mark.png"
-              alt="Nexus Fortified Structures logo"
+              src="/nexus-deconstruct-hires.gif"
+              alt="Nexus Deconstruct Hires"
               className="app-logo-img"
             />
+            {/* Per-organization header driven by current company context */}
             <div className="app-logo-text">
-              <div className="app-logo-title">NEXUS</div>
-              <div className="app-logo-subtitle">Fortified Structures</div>
+              <div className="app-logo-subtitle">
+                {currentCompanyName || "Select an organization"}
+              </div>
             </div>
           </div>
 
@@ -243,7 +350,9 @@ export function PageCard({ children }: { children: ReactNode }) {
 
 function CompanySwitcher() {
   const [memberships, setMemberships] = useState<UserMeResponse["memberships"]>([]);
-  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+  const [companies, setCompanies] = useState<
+    { id: string; name: string; kind?: string }[]
+  >([]);
   const [currentCompanyId, setCurrentCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState(false);
@@ -266,6 +375,7 @@ function CompanySwitcher() {
           ? json.memberships.map(m => ({
               id: m.companyId,
               name: m.company?.name ?? m.companyId,
+              kind: (m.company as any)?.kind,
             }))
           : [];
 
@@ -285,6 +395,7 @@ function CompanySwitcher() {
                 visibleCompanies = all.map((c: any) => ({
                   id: c.id,
                   name: c.name ?? c.id,
+                  kind: c.kind,
                 }));
               }
             }
@@ -342,6 +453,7 @@ function CompanySwitcher() {
         window.localStorage.setItem("accessToken", json.accessToken);
         window.localStorage.setItem("refreshToken", json.refreshToken);
         window.localStorage.setItem("companyId", json.company.id);
+        window.localStorage.setItem("lastCompanyId", json.company.id);
         setCurrentCompanyId(json.company.id);
         // Reload app context under new company
         window.location.href = "/projects";
@@ -366,11 +478,33 @@ function CompanySwitcher() {
           backgroundColor: switching ? "#e5e7eb" : "#ffffff",
         }}
       >
-        {companies.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name}
-          </option>
-        ))}
+        {(() => {
+          const systemCompanies = companies.filter(c => c.kind === "SYSTEM");
+          const orgCompanies = companies.filter(c => c.kind !== "SYSTEM");
+
+          return (
+            <>
+              {systemCompanies.length > 0 && (
+                <optgroup label="System">
+                  {systemCompanies.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {orgCompanies.length > 0 && (
+                <optgroup label="Organizations">
+                  {orgCompanies.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </>
+          );
+        })()}
       </select>
     </label>
   );
@@ -421,10 +555,13 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
         if (!json) return;
         setMe(json);
 
+        const memberships = Array.isArray(json.memberships) ? json.memberships : [];
         const isSuperAdmin = (json.globalRole ?? null) === "SUPER_ADMIN";
         let canManage = isSuperAdmin;
-        if (currentCompanyId && Array.isArray(json.memberships) && json.memberships.length) {
-          const membership = json.memberships.find(m => m.companyId === currentCompanyId);
+
+        // First, check for OWNER/ADMIN on the currently selected company, if any.
+        if (currentCompanyId && memberships.length) {
+          const membership = memberships.find(m => m.companyId === currentCompanyId);
           if (membership) {
             const role = membership.role;
             if (role === "OWNER" || role === "ADMIN") {
@@ -432,6 +569,15 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
             }
           }
         }
+
+        // Fallback: if the user is OWNER/ADMIN on any company at all, allow
+        // access to Company settings so they can get to that configuration.
+        if (!canManage && memberships.length) {
+          canManage = memberships.some(
+            m => m.role === "OWNER" || m.role === "ADMIN",
+          );
+        }
+
         setCanManageCompany(!!canManage);
       })
       .catch(() => {

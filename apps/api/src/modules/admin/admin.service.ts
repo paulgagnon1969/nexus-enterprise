@@ -485,6 +485,65 @@ export class AdminService {
     };
   }
 
+  async provisionTrialCompanyFromTemplate(
+    actor: AuthenticatedUser,
+    params: { name: string; templateId: string; trialDays?: number }
+  ) {
+    const name = (params.name || "").trim();
+    if (!name) throw new Error("Company name is required");
+
+    const template = await this.prisma.organizationTemplate.findUnique({
+      where: { id: params.templateId },
+      select: { id: true, currentVersionId: true },
+    });
+    if (!template) throw new Error("Template not found");
+    if (!template.currentVersionId) {
+      throw new Error("Template has no current version. Run sync-from-system first.");
+    }
+
+    const trialDays = params.trialDays && params.trialDays > 0 ? params.trialDays : 30;
+    const now = new Date();
+    const trialEndsAt = new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000);
+
+    const created = await this.prisma.company.create({
+      data: {
+        name,
+        kind: CompanyKind.ORGANIZATION,
+        isTrial: true,
+        trialEndsAt,
+        trialStatus: "ACTIVE" as any,
+        templateId: template.id,
+        templateVersionId: template.currentVersionId,
+      },
+      select: {
+        id: true,
+        name: true,
+        kind: true,
+        isTrial: true,
+        trialEndsAt: true,
+        trialStatus: true,
+        templateId: true,
+        templateVersionId: true,
+      },
+    });
+
+    await this.ensureSuperAdminsHaveMembership(created.id);
+
+    const seed = await this.mergeTemplateRolesIntoCompany(
+      created.id,
+      template.currentVersionId,
+    );
+
+    await this.audit(actor, "ADMIN_PROVISION_TRIAL_COMPANY_FROM_TEMPLATE", {
+      companyId: created.id,
+    });
+
+    return {
+      company: created,
+      seeded: seed,
+    };
+  }
+
   async reconcileCompanyToLatestTemplate(actor: AuthenticatedUser, companyId: string) {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },

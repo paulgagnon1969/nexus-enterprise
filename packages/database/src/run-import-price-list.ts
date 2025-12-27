@@ -99,6 +99,33 @@ async function main() {
     `[price-list-import] Creating GOLDEN price list revision ${revision} with label "${label}"`
   );
 
+  // Capture previous GOLDEN unit prices by Cat/Sel so we can stamp them into
+  // lastKnownUnitPrice for the new revision, ensuring the UI's "Last known price"
+  // column is populated even when prices change via PETL uploads.
+  const previousByKey = new Map<
+    string,
+    { unitPrice: number | null }
+  >();
+  const latest = await prisma.priceList.findFirst({
+    where: { kind: "GOLDEN" },
+    orderBy: { revision: "desc" },
+  });
+  if (latest) {
+    const prevItems = await prisma.priceListItem.findMany({
+      where: { priceListId: latest.id },
+      select: { cat: true, sel: true, unitPrice: true },
+    });
+    for (const it of prevItems) {
+      const cat = (it.cat ?? "").trim().toUpperCase();
+      const sel = it.sel ? it.sel.trim().toUpperCase() : "";
+      if (!cat) continue;
+      const key = `${cat}::${sel}`;
+      if (!previousByKey.has(key)) {
+        previousByKey.set(key, { unitPrice: it.unitPrice });
+      }
+    }
+  }
+
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     // Deactivate any existing GOLDEN price lists so this one becomes the active default.
     await tx.priceList.updateMany({
@@ -136,16 +163,23 @@ async function main() {
         ? Number(String(rawLineNoValue).replace(/,/g, "")) || 0
         : 0;
 
+      const rawCat = cleanText(record["Cat"]);
+      const rawSel = cleanText(record["Sel"]);
+      const catKey = (rawCat ?? "").trim().toUpperCase();
+      const selKey = (rawSel ?? "").trim().toUpperCase();
+      const prev = catKey ? previousByKey.get(`${catKey}::${selKey}`) : undefined;
+
       return {
         priceListId: priceList.id,
         lineNo: parsedLineNo,
         groupCode: cleanText(record["Group Code"]),
         groupDescription: cleanText(record["Group Description"]),
         description: cleanText(record["Desc"]),
-        cat: cleanText(record["Cat"]),
-        sel: cleanText(record["Sel"]),
+        cat: rawCat,
+        sel: rawSel,
         unit: cleanText(record["Unit"]),
         unitPrice: toNumber(record["Unit Cost"]),
+        lastKnownUnitPrice: prev?.unitPrice ?? null,
         coverage: cleanText(record["Coverage"]),
         activity: cleanText(record["Activity"]),
         owner: cleanText(record["Owner"]),
