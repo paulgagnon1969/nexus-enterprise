@@ -12,7 +12,8 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "check-types": "turbo run check-types",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "deploy:api": "npm run build && gcloud run deploy nexus-api --source=./apps/api --region=us-central1 --platform=managed --allow-unauthenticated"
   },
   "workspaces": [
     "apps/*",
