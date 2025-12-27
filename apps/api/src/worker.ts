@@ -168,6 +168,24 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       },
     });
 
+    // Record a Golden price list revision event so the Revision Log can
+    // differentiate PETL uploads vs Xact CSV-based repricing. This mirrors the
+    // behavior that previously lived in the controller.
+    if (job.companyId && job.createdByUserId) {
+      await prisma.goldenPriceUpdateLog.create({
+        data: {
+          companyId: job.companyId,
+          projectId: null,
+          estimateVersionId: null,
+          userId: job.createdByUserId,
+          updatedCount: result.itemCount ?? 0,
+          avgDelta: 0,
+          avgPercentDelta: 0,
+          source: "GOLDEN_PETL",
+        },
+      });
+    }
+
     return;
   }
 
