@@ -275,7 +275,85 @@ Fix:
 
 ---
 
-## 8. Minimal daily workflow
+## 8. Data lifecycle: soft delete + archive
+
+To keep the database fast as it grows, we use a standard lifecycle for
+high-volume, long-lived tables:
+
+1. **Active rows**
+   - `deletedAt IS NULL`.
+   - Visible in the app and fully indexed for day-to-day queries.
+
+2. **Soft-deleted rows (short-term)**
+   - `deletedAt IS NOT NULL` and newer than our retention window (e.g. 30 days).
+   - Hidden from normal queries (we always filter `deletedAt IS NULL` in app code).
+   - Kept temporarily so we can undo deletions and handle short-term data repair.
+
+3. **Archived rows (long-term)**
+   - Soft-deleted rows older than the retention window are moved out of the
+     main table into an `archive` schema, then hard-deleted from the main
+     table. This keeps primary tables + indexes small and fast.
+
+### 8.1 Schema conventions for new high-volume tables
+
+When adding a new large or long-lived model (e.g. files, jobs, logs,
+attachments), follow these conventions:
+
+- Include a soft-delete timestamp:
+  - `deletedAt DateTime?`
+- If the data is scoped by organization, always include `companyId`:
+  - `companyId String` + a relation to `Company`.
+- Add a composite index for lifecycle-aware queries:
+  - `@@index([companyId, deletedAt], map: "<Model>_company_deleted_idx")`.
+- In app/ORM code, all normal queries must filter `deletedAt == null`.
+  - Only admin/audit/reporting flows should see deleted rows.
+
+### 8.2 Archive tables and partitions
+
+For each soft-deleted model that will grow large, we mirror it into the
+`archive` schema using a partitioned table. Example (CompanyOffice):
+
+- Main model (`CompanyOffice`):
+  - Has `deletedAt DateTime?` and an index on `(companyId, deletedAt)`.
+  - Has a **partial index** for active rows only:
+    - `CREATE INDEX "CompanyOffice_company_active_idx" ON "CompanyOffice"("companyId") WHERE "deletedAt" IS NULL;`
+
+- Archive table (`archive."CompanyOffice"`):
+  - Created with `LIKE` so it mirrors the main schema:
+    - `CREATE TABLE archive."CompanyOffice" (LIKE "CompanyOffice" INCLUDING ALL) PARTITION BY RANGE ("deletedAt");`
+  - Has a time-based partition (e.g. `CompanyOffice_2000_2100`) that we can
+    later split into year/quarter/month partitions as data grows.
+  - Has an archive index for per-org queries:
+    - `CREATE INDEX "CompanyOffice_archive_company_deleted_idx" ON archive."CompanyOffice"("companyId", "deletedAt");`
+
+### 8.3 Archival workers
+
+Archival jobs run out-of-band (via scripts or queue workers) and:
+
+1. Select batches of old soft-deleted rows from the main table, e.g.:
+   - `deletedAt < now() - interval '30 days'`.
+2. Insert those rows into the corresponding `archive` table.
+3. Delete them from the main table.
+
+We currently have an example for `CompanyOffice`:
+
+- Script: `packages/database/src/archive-company-office.ts`.
+- NPM task (from `packages/database`):
+  - `npm run archive:company-offices`
+- Environment knobs:
+  - `COMPANY_OFFICE_ARCHIVE_BATCH_SIZE` (rows per batch; default 500).
+  - `COMPANY_OFFICE_ARCHIVE_RETENTION_DAYS` (soft-delete window; default 30).
+  - `COMPANY_OFFICE_ARCHIVE_MAX_PER_RUN` (optional cap per invocation).
+
+When introducing a new high-volume model with soft delete, copy this pattern:
+
+- Add `deletedAt` + index to the Prisma model.
+- Create a matching `archive."<Model>"` partitioned table + indexes.
+- Add a small archival script and NPM command to move old rows to archive.
+
+---
+
+## 9. Minimal daily workflow
 
 After a reboot or when sitting down to work on Nexus:
 
