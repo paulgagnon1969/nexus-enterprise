@@ -27,6 +27,74 @@ export class AdminController {
     return this.admin.listCompanyUsers(companyId, actor);
   }
 
+  @Get("companies/:id/projects")
+  listCompanyProjects(@Param("id") companyId: string, @Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.listCompanyProjects(companyId, actor);
+  }
+
+  // --- Templates (SORM) ---
+
+  @Get("templates")
+  listTemplates(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.listTemplates(actor);
+  }
+
+  @Post("templates")
+  createTemplate(
+    @Req() req: any,
+    @Body("code") code: string,
+    @Body("label") label: string,
+    @Body("description") description?: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.createTemplate(actor, { code, label, description });
+  }
+
+  @Get("templates/:id")
+  getTemplate(@Param("id") templateId: string, @Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.getTemplate(actor, templateId);
+  }
+
+  // Daily-coalesced sync from Nexus System → template current version.
+  @Post("templates/:id/sync-from-system")
+  syncTemplateFromSystem(@Param("id") templateId: string, @Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.syncTemplateFromSystem(actor, templateId);
+  }
+
+  // Provision a new organization from a template.
+  @Post("companies/provision")
+  provisionCompany(
+    @Req() req: any,
+    @Body("name") name: string,
+    @Body("templateId") templateId: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.provisionCompanyFromTemplate(actor, { name, templateId });
+  }
+
+  // Provision a TRIAL organization from a template (admin-only helper for now).
+  @Post("trials/provision")
+  provisionTrialCompany(
+    @Req() req: any,
+    @Body("name") name: string,
+    @Body("templateId") templateId: string,
+    @Body("trialDays") trialDays?: number,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.provisionTrialCompanyFromTemplate(actor, { name, templateId, trialDays });
+  }
+
+  // Reconcile an existing organization to the template's current version.
+  @Post("companies/:id/reconcile-template")
+  reconcileCompanyTemplate(@Param("id") companyId: string, @Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.reconcileCompanyToLatestTemplate(actor, companyId);
+  }
+
   @Get("audit-logs")
   listAuditLogs() {
     return this.admin.listAuditLogs(100);

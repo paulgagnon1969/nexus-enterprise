@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -185,8 +186,12 @@ type TabKey =
   | "FILES"
   | "FINANCIAL";
 
-export default function ProjectDetailPage({ params }: { params: { id: string } }) {
-  const { id } = params;
+export default function ProjectDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = React.use(params);
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1641,8 +1646,8 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                   <div style={{ color: "#6b7280" }}>No internal users yet.</div>
                 ) : (
                   <ul style={{ margin: 0, paddingLeft: 16 }}>
-                    {participants.myOrganization.map((m) => (
-                      <li key={m.id}>
+                    {participants.myOrganization.map((m, index) => (
+                      <li key={`${m.id ?? m.userId ?? "member"}-${index}`}>
                         {m.user?.email ?? "(user)"}
                         {m.role && (
                           <span style={{ color: "#6b7280" }}> — {m.role}</span>
@@ -1676,8 +1681,8 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
                       <div key={companyName} style={{ marginBottom: 6 }}>
                         <div style={{ fontWeight: 600 }}>{companyName}</div>
                         <ul style={{ margin: 0, paddingLeft: 16 }}>
-                          {members.map((m) => (
-                            <li key={m.id}>
+                          {members.map((m, index) => (
+                            <li key={`${m.id ?? m.userId ?? "collab"}-${index}`}>
                               {m.user?.email ?? "(user)"}
                               {m.role && (
                                 <span style={{ color: "#6b7280" }}> — {m.role}</span>

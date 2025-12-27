@@ -1,10 +1,12 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -33,7 +35,35 @@ export default function LoginPage() {
       localStorage.setItem("refreshToken", data.refreshToken);
       localStorage.setItem("companyId", data.company.id);
 
-      window.location.href = "/projects";
+      // Route by user context:
+      // - APPLICANT: candidate portal
+      // - SUPER_ADMIN: Nexus System
+      // - everyone else: project workspace
+      try {
+        const meRes = await fetch(`${API_BASE}/users/me`, {
+          headers: { Authorization: `Bearer ${data.accessToken}` },
+        });
+        const me = meRes.ok ? await meRes.json() : null;
+
+        if (me) {
+          if (me.globalRole) {
+            localStorage.setItem("globalRole", me.globalRole);
+          }
+          if (me.userType) {
+            localStorage.setItem("userType", me.userType);
+          }
+        }
+
+        if (me?.userType === "APPLICANT") {
+          router.push("/candidate");
+        } else if (me?.globalRole === "SUPER_ADMIN") {
+          router.push("/system");
+        } else {
+          router.push("/projects");
+        }
+      } catch {
+        router.push("/projects");
+      }
     } catch (err) {
       setError("Network error");
     } finally {
@@ -69,7 +99,10 @@ export default function LoginPage() {
           <label style={{ fontSize: 14 }}>
             <span style={{ display: "block", marginBottom: 4 }}>Email</span>
             <input
+              id="login-email"
+              name="email"
               type="email"
+              autoComplete="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
               style={{
@@ -91,7 +124,10 @@ export default function LoginPage() {
               }}
             >
               <input
+                id="login-password"
+                name="password"
                 type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 style={{
@@ -144,6 +180,12 @@ export default function LoginPage() {
             {submitting ? "Signing in..." : "Sign in"}
           </button>
         </form>
+
+        <div style={{ marginTop: 12, fontSize: 12 }}>
+          <a href="/reset-password" style={{ color: "#2563eb", textDecoration: "none" }}>
+            Forgot password?
+          </a>
+        </div>
 
         <p
           style={{

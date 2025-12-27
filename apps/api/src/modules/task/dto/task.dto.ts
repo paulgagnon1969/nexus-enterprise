@@ -1,5 +1,19 @@
 import { IsEnum, IsISO8601, IsOptional, IsString, IsUUID } from "class-validator";
-import { TaskStatus, TaskPriority } from "@prisma/client";
+
+// Local enums to avoid depending on generated Prisma enum exports in build environments
+export enum TaskStatusEnum {
+  TODO = "TODO",
+  IN_PROGRESS = "IN_PROGRESS",
+  BLOCKED = "BLOCKED",
+  DONE = "DONE",
+}
+
+export enum TaskPriorityEnum {
+  LOW = "LOW",
+  MEDIUM = "MEDIUM",
+  HIGH = "HIGH",
+  CRITICAL = "CRITICAL",
+}
 
 export class CreateTaskDto {
   @IsUUID()
@@ -17,8 +31,8 @@ export class CreateTaskDto {
   assigneeId?: string;
 
   @IsOptional()
-  @IsEnum(TaskPriority)
-  priority?: TaskPriority;
+  @IsEnum(TaskPriorityEnum)
+  priority?: TaskPriorityEnum;
 
   @IsOptional()
   @IsISO8601()
@@ -26,6 +40,6 @@ export class CreateTaskDto {
 }
 
 export class UpdateTaskStatusDto {
-  @IsEnum(TaskStatus)
-  status!: TaskStatus;
+  @IsEnum(TaskStatusEnum)
+  status!: TaskStatusEnum;
 }

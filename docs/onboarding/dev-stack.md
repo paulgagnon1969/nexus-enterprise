@@ -20,10 +20,16 @@ If these three are healthy, the UI and login will work.
 
 Cloud SQL instances (names from GCP):
 
-- `nexus-prod-postgres`
+- `nexusprod-v2`
 - `nexus-dev-postgres`
+- `nexusdev-v2` (current dev instance used by `scripts/dev-start.sh`)
 
-The examples below assume **prod** database for day-to-day testing. Swap to `nexus-dev-postgres` when you want a safer dev DB.
+The **recommended local dev path** is:
+
+- Use `gcloud auth application-default login` and
+- Let `scripts/dev-start.sh` start the Cloud SQL Auth Proxy for `nexusdev-v2` on `127.0.0.1:5434`.
+
+The examples below assume **prod** database for some legacy flows; for normal day-to-day dev, prefer the `start-dev.sh` script, which targets the `nexusdev-v2` dev instance.
 
 ---
 
@@ -32,7 +38,7 @@ The examples below assume **prod** database for day-to-day testing. Swap to `nex
 In a terminal:
 
 ```bash
-cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-prod-postgres
+cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusprod-v2
 ```
 
 Leave this running. When ready, you should see output like:
