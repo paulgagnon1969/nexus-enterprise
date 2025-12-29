@@ -404,7 +404,7 @@ export default function NccLandingEditorPage() {
                 {workerConfig.headline || "Nexus Contractor Connect"}
               </div>
               <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
-                {workerConfig.subheadline || "Apply to join the Nexus worker pool"}
+                {workerConfig.subheadline || "Apply to join Nexus Assets and People"}
               </div>
             </div>
           </div>
