@@ -32,6 +32,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [currentCompanyName, setCurrentCompanyName] = useState<string | null>(null);
 
   const path = pathname ?? "/";
+  const isSystemRoute = path.startsWith("/system");
   const isAuthRoute = path === "/login" || path.startsWith("/accept-invite");
   const isPublicRoute =
     path === "/apply" ||
@@ -48,6 +49,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
     // Public routes (recruiting / onboarding) should never force logout.
     if (isPublicRoute) return;
+
+    // Only run the "initial forced logout" logic when landing on the root
+    // path ("/") as an entry point. This avoids blowing away a valid session
+    // when opening deep links like /projects in a new tab.
+    const currentPath = window.location.pathname || "/";
+    if (currentPath !== "/") return;
 
     const alreadyHandled = window.sessionStorage.getItem("nexusInitialLogoutDone");
     if (alreadyHandled === "1") return;
@@ -227,25 +234,25 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
 
-          {/* Company switcher (hide for applicant pool accounts) */}
-          {userType !== "APPLICANT" && (
+          {/* Company switcher (hide for applicant pool accounts; also hide on /system for SUPER_ADMIN) */}
+          {userType !== "APPLICANT" && !(isSystemRoute && globalRole === "SUPER_ADMIN") && (
             <div style={{ marginLeft: 16, marginRight: 8 }}>
               <CompanySwitcher />
             </div>
           )}
 
           <nav className="app-nav">
-            {globalRole === "SUPER_ADMIN" && (
-              <Link
-                href="/system"
-                className={
-                  "app-nav-link" +
-                  (isActive("/system") ? " app-nav-link-active" : "")
-                }
-              >
-                Nexus System
-              </Link>
-            )}
+          {globalRole === "SUPER_ADMIN" && !isSystemRoute && (
+            <Link
+              href="/system"
+              className={
+                "app-nav-link" +
+                (isActive("/system") ? " app-nav-link-active" : "")
+              }
+            >
+              Nexus System
+            </Link>
+          )}
 
             {userType === "APPLICANT" ? (
               <Link
@@ -257,7 +264,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               >
                 Candidate
               </Link>
-            ) : (
+            ) : !isSystemRoute || globalRole !== "SUPER_ADMIN" ? (
               <>
                 {/* Proj Overview = main project workspace (current /projects section) */}
                 <Link
@@ -270,66 +277,73 @@ export function AppShell({ children }: { children: ReactNode }) {
                   Proj Overview
                 </Link>
 
-            {/* Placeholder tabs matching Buildertrend-style menu (without Sales) */}
-            <Link
-              href="/project-management"
-              className={
-                "app-nav-link" +
-                (isActive("/project-management") ? " app-nav-link-active" : "")
-              }
-            >
-              Project Management
-            </Link>
-            <Link
-              href="/files"
-              className={
-                "app-nav-link" +
-                (isActive("/files") ? " app-nav-link-active" : "")
-              }
-            >
-              Files
-            </Link>
-            <Link
-              href="/messaging"
-              className={
-                "app-nav-link" +
-                (isActive("/messaging") ? " app-nav-link-active" : "")
-              }
-            >
-              Messaging
-            </Link>
-            <Link
-              href="/financial"
-              className={
-                "app-nav-link" +
-                (isActive("/financial") ? " app-nav-link-active" : "")
-              }
-            >
-              Financial
-            </Link>
-            <Link
-              href="/reports"
-              className={
-                "app-nav-link" +
-                (isActive("/reports") ? " app-nav-link-active" : "")
-              }
-            >
-              Reports
-            </Link>
-            <NavDropdown
-              label="People"
-              active={path.startsWith("/company/")}
-              items={[
-                { label: "Worker Profiles", href: "/company/users" },
-                { label: "Prospective Candidates", href: "/company/users?tab=candidates" },
-                { label: "Open Trades Profile", href: "/company/trades" },
-                { label: "Client Profiles", href: "/company/clients" },
-              ]}
-            />
+                {/* Placeholder tabs matching Buildertrend-style menu (without Sales) */}
+                <Link
+                  href="/project-management"
+                  className={
+                    "app-nav-link" +
+                    (isActive("/project-management")
+                      ? " app-nav-link-active"
+                      : "")
+                  }
+                >
+                  Project Management
+                </Link>
+                <Link
+                  href="/files"
+                  className={
+                    "app-nav-link" +
+                    (isActive("/files") ? " app-nav-link-active" : "")
+                  }
+                >
+                  Files
+                </Link>
+                <Link
+                  href="/messaging"
+                  className={
+                    "app-nav-link" +
+                    (isActive("/messaging") ? " app-nav-link-active" : "")
+                  }
+                >
+                  Messaging
+                </Link>
+                <Link
+                  href="/financial"
+                  className={
+                    "app-nav-link" +
+                    (isActive("/financial") ? " app-nav-link-active" : "")
+                  }
+                >
+                  Financial
+                </Link>
+                <Link
+                  href="/reports"
+                  className={
+                    "app-nav-link" +
+                    (isActive("/reports") ? " app-nav-link-active" : "")
+                  }
+                >
+                  Reports
+                </Link>
+                <NavDropdown
+                  label="People"
+                  active={path.startsWith("/company/")}
+                  items={[
+                    { label: "Worker Profiles", href: "/company/users" },
+                    {
+                      label: "Prospective Candidates",
+                      href: "/company/users?tab=candidates",
+                    },
+                    { label: "Open Trades Profile", href: "/company/trades" },
+                    { label: "Client Profiles", href: "/company/clients" },
+                  ]}
+                />
               </>
-            )}
+            ) : null}
           </nav>
         </div>
+        {/* Inline Superuser menu strip moved into SystemLayout; header stays clean here */}
+
         <div className="app-header-right">
           {/* User menu */}
           <div style={{ position: "relative" }}>

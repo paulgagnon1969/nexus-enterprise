@@ -222,14 +222,14 @@ export default function SystemLayout({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "stretch",
-        gap: 16,
-        minHeight: "calc(100vh - 79px)",
-      }}
-    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "stretch",
+          gap: 16,
+          minHeight: "calc(100vh - 79px)",
+        }}
+      >
       {/* Left sidebar: organizations list */}
       <aside
         style={{
@@ -474,6 +474,78 @@ export default function SystemLayout({ children }: { children: ReactNode }) {
 
       {/* Right pane */}
       <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+        {/* Superuser banner inside System frame (SUPER_ADMIN only) */}
+        {isSuperAdmin && (
+          <div
+            style={{
+              marginBottom: 8,
+              padding: "6px 12px",
+              borderRadius: 6,
+              background: "#0f172a",
+              color: "#f9fafb",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              fontSize: 12,
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <div style={{ fontWeight: 600 }}>Superuser menu</div>
+              <div style={{ fontSize: 11, color: "#e5e7eb" }}>
+                System-level tools for managing all organizations
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <Link
+                href="/system"
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  border: "1px solid #e5e7eb",
+                  background: pathname === "/system" ? "#f9fafb" : "transparent",
+                  color: "#f9fafb",
+                  fontSize: 11,
+                  textDecoration: "none",
+                }}
+              >
+                System
+              </Link>
+              <Link
+                href="/system/templates"
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  border: "1px solid #e5e7eb",
+                  background: pathname?.startsWith("/system/templates")
+                    ? "#f9fafb"
+                    : "transparent",
+                  color: "#f9fafb",
+                  fontSize: 11,
+                  textDecoration: "none",
+                }}
+              >
+                Templates
+              </Link>
+              <Link
+                href="https://ncc-nexus-contractor-connect.com"
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  border: "1px solid #e5e7eb",
+                  background: "transparent",
+                  color: "#f9fafb",
+                  fontSize: 11,
+                  textDecoration: "none",
+                }}
+              >
+                NCC landing
+              </Link>
+            </div>
+          </div>
+        )}
+
         {/* Tenant workspace menu under the Superuser frame */}
         <div
           style={{
