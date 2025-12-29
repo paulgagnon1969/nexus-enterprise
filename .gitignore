@@ -22,3 +22,7 @@ logs/
 apps/web/tmp_uploads/
 .vercel
 .env*.local
+
+# Local helper scripts
+run-nexus-dev.sh
+start-dev-clear-all.sh

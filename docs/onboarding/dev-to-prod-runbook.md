@@ -2,7 +2,7 @@
 
 This document captures the current, working process for moving changes from **local dev** to **production** for the Nexus monorepo.
 
-- Dev DB: `nexus-dev-postgres` (Cloud SQL)
+- Dev DB: `nexusdev-v2` (Cloud SQL)
 - Prod DB: `nexusprod-v2` (Cloud SQL)
 - Cloud Run (prod):
   - API: `nexus-api`
@@ -18,10 +18,10 @@ This document captures the current, working process for moving changes from **lo
 
 Use this whenever you sit down to develop.
 
-1. Start Cloud SQL proxy to **dev DB** (`nexus-dev-postgres`):
+1. Start Cloud SQL proxy to **dev DB** (`nexusdev-v2`):
 
    ```bash
-   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusdev-v2
    ```
 
    Leave this running in its own terminal.
@@ -39,7 +39,7 @@ Use this whenever you sit down to develop.
 
    - API dev: `http://localhost:8000`
    - Web dev: `http://localhost:3000`
-   - All DB traffic goes to `nexus-dev-postgres` via proxy on port 5433.
+   - All DB traffic goes to `nexusdev-v2` via proxy on port 5433.
 
 3. Confirm API health in dev:
 
@@ -74,9 +74,9 @@ Use this whenever you sit down to develop.
    npx prisma migrate dev --name <migration_name> --schema ./prisma/schema.prisma
    ```
 
-   This will:
+This will:
 
-   - Apply the migration to `nexus-dev-postgres`.
+   - Apply the migration to `nexusdev-v2`.
    - Create a new folder under `prisma/migrations/*` that should be checked into git.
 
 3. Verify behavior via the dev stack (web at `http://localhost:3000`, API at `http://localhost:8000`).
@@ -243,10 +243,10 @@ If jobs are stuck or failing, inspect the `nexus-worker` Cloud Run logs and vali
 ## 8. Safety rules / "do not do" list
 
 - **Never** run `prisma migrate dev` against prod.
-  - Use `migrate dev` only on `nexus-dev-postgres`.
+  - Use `migrate dev` only on `nexusdev-v2`.
   - Use `migrate deploy` only on `nexusprod-v2`.
 - Avoid pointing local dev at `nexusprod-v2` for experiments.
-  - Use `nexus-dev-postgres` for schema changes and risky operations.
+  - Use `nexusdev-v2` for schema changes and risky operations.
 - For any ad-hoc scripts using `PrismaClient` or `@repo/database`:
   - Always double-check `DATABASE_URL` before running.
 - When debugging login or UI issues:

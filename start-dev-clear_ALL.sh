@@ -36,7 +36,7 @@ fi
 
 echo "→ Delegating dev startup to scripts/dev-start.sh (Cloud SQL on 5434)…"
 if [[ -z "${DEV_DB_PASSWORD:-}" ]]; then
-  echo "  ⚠️ DEV_DB_PASSWORD is not set. Export it before running start-dev.sh (e.g. export DEV_DB_PASSWORD='<your_dev_db_password>')." >&2
+  echo "  ⚠️ DEV_DB_PASSWORD is not set. Export it before running start-dev-clear_ALL.sh (e.g. export DEV_DB_PASSWORD='<your_dev_db_password>')." >&2
   exit 1
 fi
 

@@ -16,7 +16,7 @@ For day-to-day backend + frontend work, use the scripted dev stack instead of wi
 2. Daily workflow:
    - From repo root: `cd ~/nexus-enterprise`
    - Kill any stale proxies (optional but safe): `pkill -f cloud-sql-proxy || true`
-   - Start everything: `./start-dev.sh`
+- Start everything: `./start-dev-clear_ALL.sh`
 
 This will:
 
@@ -28,6 +28,27 @@ This will:
 - Start the web dev server on `http://localhost:3000`
 
 For deeper troubleshooting and alternative flows (prod DB, manual proxy, etc.), see `docs/onboarding/dev-stack.md`.
+
+## Imports, PETL, and workers
+
+All CSV-based imports (Golden PETL, Golden Components, Xactimate RAW/components, etc.) follow a PETL-style, job-based pattern using `ImportJob` + a BullMQ worker. Large files are processed asynchronously and, where needed, split into parallel **chunk jobs**. See `docs/architecture/csv-imports-and-petl-standard.md` for the full SOP and architecture.
+
+### UI pattern: Job-based operations and JobConsole
+
+Long-running, worker-backed operations (CSV uploads, PETL recomputes, allocations, heavy exports) must expose progress via a job record and a small "console" in the initiating UI.
+
+- Backend:
+  - Create/update an `ImportJob` (or similar) with `status`, `progress`, `message`, `startedAt`, `finishedAt`, `resultJson`, and `errorJson`.
+  - Expose a status endpoint like `GET /import-jobs/:jobId` that returns the job row.
+- Frontend:
+  - When a job is started, store the `jobId` returned by the API and start polling the job endpoint until `status` is `SUCCEEDED` or `FAILED`.
+  - Maintain a small in-memory log buffer per job (last ~30 lines), appending a new line whenever `status` or `message` changes (e.g. `"[08:15:21] Importing Xact components…"`).
+  - Render the shared `JobConsole` component next to the controls that initiated the job. `JobConsole` is responsible for:
+    - Showing a green success banner or red failure banner with a clear human label.
+    - Showing a `Completed at YYYY-MM-DD HH:MM` stamp once the job reaches a terminal state.
+    - Rendering the rolling log buffer in a terminal-style window so users can see work progressing.
+
+The initial implementation of this pattern lives on the project CSV import screen (`apps/web/app/projects/import/page.tsx`) and the reusable `JobConsole` component (`apps/web/app/projects/JobConsole.tsx`). When adding new worker-backed flows, reuse this pattern instead of inventing ad-hoc spinners.
 
 ## Running apps
 

@@ -30,6 +30,11 @@ function ProjectImportPageInner() {
   const [componentsJobId, setComponentsJobId] = useState<string | null>(null);
   const [componentsJob, setComponentsJob] = useState<any>(null);
 
+  // Lightweight "script window" logs for RAW and Components jobs so users can
+  // see progress messages similar to the worker console.
+  const [rawJobLog, setRawJobLog] = useState<string[]>([]);
+  const [componentsJobLog, setComponentsJobLog] = useState<string[]>([]);
+
   const isAnyLoading = loading || componentsLoading;
 
   const searchParams = useSearchParams();
@@ -94,6 +99,36 @@ function ProjectImportPageInner() {
         if (!res.ok) return;
         const json = await res.json();
         setRawJob(json);
+
+        // Append a concise log line when the job meaningfully changes state.
+        // Keep the newest entries at the top and limit to the most recent 10.
+        setRawJobLog(prev => {
+          const ts = new Date().toLocaleTimeString();
+          const status = json?.status as string | undefined;
+          const msg = (json?.message as string | undefined) ?? "";
+          const key = `${status}:${msg}`;
+          const first = prev[0] ?? "";
+
+          if (first.includes(key)) {
+            return prev;
+          }
+
+          let line: string | null = null;
+          if (status === "QUEUED") {
+            line = `[${ts}] Job queued`;
+          } else if (status === "RUNNING" && msg) {
+            line = `[${ts}] ${msg}`;
+          } else if (status === "SUCCEEDED") {
+            line = `[${ts}] RAW import completed successfully`;
+          } else if (status === "FAILED") {
+            line = `[${ts}] RAW import failed  see error details`;
+          }
+
+          if (!line) return prev;
+
+          // Newest first, at most 10 lines.
+          return [line, ...prev].slice(0, 10);
+        });
         if (json?.status === "SUCCEEDED" || json?.status === "FAILED") {
           done = true;
         }
@@ -129,6 +164,34 @@ function ProjectImportPageInner() {
         if (!res.ok) return;
         const json = await res.json();
         setComponentsJob(json);
+
+        setComponentsJobLog(prev => {
+          const ts = new Date().toLocaleTimeString();
+          const status = json?.status as string | undefined;
+          const msg = (json?.message as string | undefined) ?? "";
+          const key = `${status}:${msg}`;
+          const first = prev[0] ?? "";
+
+          if (first.includes(key)) {
+            return prev;
+          }
+
+          let line: string | null = null;
+          if (status === "QUEUED") {
+            line = `[${ts}] Job queued`;
+          } else if (status === "RUNNING" && msg) {
+            line = `[${ts}] ${msg}`;
+          } else if (status === "SUCCEEDED") {
+            line = `[${ts}] Components import and allocation completed successfully`;
+          } else if (status === "FAILED") {
+            line = `[${ts}] Components import failed  see error details`;
+          }
+
+          if (!line) return prev;
+
+          // Newest first, at most 10 lines.
+          return [line, ...prev].slice(0, 10);
+        });
         if (json?.status === "SUCCEEDED" || json?.status === "FAILED") {
           done = true;
         }
@@ -149,19 +212,18 @@ function ProjectImportPageInner() {
     };
   }, [componentsJobId]);
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function performRawImport(): Promise<boolean> {
     setError(null);
     setResult(null);
 
     if (!projectId) {
       setError("Please choose a project to import into.");
-      return;
+      return false;
     }
 
     if (!file) {
       setError("Please choose a CSV file to upload.");
-      return;
+      return false;
     }
 
     try {
@@ -170,7 +232,7 @@ function ProjectImportPageInner() {
       const token = localStorage.getItem("accessToken");
       if (!token) {
         setError("Missing access token. Please login again.");
-        return;
+        return false;
       }
 
       const form = new FormData();
@@ -180,9 +242,9 @@ function ProjectImportPageInner() {
       const res = await fetch(`/api/projects/${projectId}/import-xact`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
         },
-        body: form
+        body: form,
       });
 
       const json = await res.json().catch(() => null);
@@ -191,9 +253,9 @@ function ProjectImportPageInner() {
         setError(
           `Import failed: ${
             json ? JSON.stringify(json) : `${res.status} ${res.statusText}`
-          }`
+          }`,
         );
-        return;
+        return false;
       }
 
       setResult(json);
@@ -202,35 +264,44 @@ function ProjectImportPageInner() {
       // allow the user to keep using the app while it runs.
       if (json?.jobId) {
         setRawJobId(String(json.jobId));
-        setLoading(false);
-        return;
+        // If the user has also selected a components CSV and we have not yet
+        // started a components job, automatically kick off the components
+        // import so that RAW → Components runs in sequence.
+        if (componentsFile && !componentsJobId) {
+          void performComponentsImport();
+        }
+        return true;
       }
 
       // Legacy synchronous behavior: redirect to PETL once import finishes.
-      setLoading(false);
       alert("Import complete. Opening PETL list for this project…");
       window.location.href = `/projects/${projectId}?tab=PETL`;
-      return;
+      return true;
     } catch (err: any) {
       setError(err.message ?? String(err));
+      return false;
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleComponentsSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    void performRawImport();
+  }
+
+  async function performComponentsImport(): Promise<boolean> {
     setComponentsError(null);
     setComponentsResult(null);
 
     if (!projectId) {
       setComponentsError("Please choose a project first.");
-      return;
+      return false;
     }
 
     if (!componentsFile) {
       setComponentsError("Please choose a components CSV file to upload.");
-      return;
+      return false;
     }
 
     try {
@@ -238,7 +309,7 @@ function ProjectImportPageInner() {
       const token = localStorage.getItem("accessToken");
       if (!token) {
         setComponentsError("Missing access token. Please login again.");
-        return;
+        return false;
       }
 
       const form = new FormData();
@@ -264,7 +335,7 @@ function ProjectImportPageInner() {
             json ? JSON.stringify(json) : `${res.status} ${res.statusText}`
           }`,
         );
-        return;
+        return false;
       }
 
       setComponentsResult(json);
@@ -272,11 +343,30 @@ function ProjectImportPageInner() {
       if (json?.jobId) {
         setComponentsJobId(String(json.jobId));
       }
+
+      return true;
     } catch (err: any) {
       setComponentsError(err.message ?? String(err));
+      return false;
     } finally {
       setComponentsLoading(false);
     }
+  }
+
+  async function handleComponentsSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+
+    // If both CSVs are selected and we have not yet kicked off a RAW import job
+    // in this session, run the RAW import first so that Components always has
+    // an estimate version and PETL rows to attach to.
+    if (file && !rawJobId) {
+      const ok = await performRawImport();
+      if (!ok) {
+        return;
+      }
+    }
+
+    void performComponentsImport();
   }
 
   return (
@@ -373,6 +463,67 @@ function ProjectImportPageInner() {
               Status: {rawJob?.status ?? "…"} · Progress: {rawJob?.progress ?? 0}%
               {rawJob?.message ? ` · ${rawJob.message}` : ""}
             </div>
+            {rawJob?.status === "SUCCEEDED" && (
+              <div
+                style={{
+                  marginBottom: 6,
+                  padding: 8,
+                  borderRadius: 6,
+                  backgroundColor: "#ecfdf3",
+                  border: "1px solid #16a34a",
+                  color: "#166534",
+                }}
+              >
+                RAW import complete. Completed at{" "}
+                {new Date(rawJob.finishedAt ?? rawJob.updatedAt ?? Date.now()).toLocaleString()}
+                . You can safely leave this page or open the project to review
+                PETL.
+              </div>
+            )}
+            {rawJob?.status === "FAILED" && (
+              <div
+                style={{
+                  marginBottom: 6,
+                  padding: 8,
+                  borderRadius: 6,
+                  backgroundColor: "#fef2f2",
+                  border: "1px solid #b91c1c",
+                  color: "#991b1b",
+                }}
+              >
+                RAW import failed. Completed at{" "}
+                {new Date(rawJob.finishedAt ?? rawJob.updatedAt ?? Date.now()).toLocaleString()}
+                . Please check the job details and try again.
+              </div>
+            )}
+
+            {/* RAW job script window */}
+            <div
+              style={{
+                marginTop: 4,
+                padding: 8,
+                borderRadius: 6,
+                backgroundColor: "#020617",
+                border: "1px solid #1f2937",
+                color: "#e5e7eb",
+                fontFamily:
+                  "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+                fontSize: 11,
+                maxHeight: 120,
+                overflowY: "auto",
+              }}
+            >
+              {rawJobLog.length === 0 ? (
+                <div>
+                  [{new Date().toLocaleTimeString()}] Waiting for worker…
+                </div>
+              ) : (
+                rawJobLog.map((line, idx) => (
+                  <div key={idx}>{line}</div>
+                ))
+              )}
+            </div>
+
             <div
               style={{
                 width: "100%",
@@ -468,6 +619,70 @@ function ProjectImportPageInner() {
                 Status: {componentsJob?.status ?? "…"} · Progress: {componentsJob?.progress ?? 0}%
                 {componentsJob?.message ? ` · ${componentsJob.message}` : ""}
               </div>
+              {componentsJob?.status === "SUCCEEDED" && (
+                <div
+                  style={{
+                    marginBottom: 6,
+                    padding: 8,
+                    borderRadius: 6,
+                    backgroundColor: "#ecfdf3",
+                    border: "1px solid #16a34a",
+                    color: "#166534",
+                  }}
+                >
+                  Components import complete. Completed at{" "}
+                  {new Date(
+                    componentsJob.finishedAt ?? componentsJob.updatedAt ?? Date.now(),
+                  ).toLocaleString()}
+                  . Component breakdowns are now available in the project.
+                </div>
+              )}
+              {componentsJob?.status === "FAILED" && (
+                <div
+                  style={{
+                    marginBottom: 6,
+                    padding: 8,
+                    borderRadius: 6,
+                    backgroundColor: "#fef2f2",
+                    border: "1px solid #b91c1c",
+                    color: "#b91c1c",
+                  }}
+                >
+                  Components import failed. Completed at{" "}
+                  {new Date(
+                    componentsJob.finishedAt ?? componentsJob.updatedAt ?? Date.now(),
+                  ).toLocaleString()}
+                  . Please check the job details and try again.
+                </div>
+              )}
+
+              {/* Components job script window */}
+              <div
+                style={{
+                  marginTop: 4,
+                  padding: 8,
+                  borderRadius: 6,
+                  backgroundColor: "#020617",
+                  border: "1px solid #1f2937",
+                  color: "#e5e7eb",
+                  fontFamily:
+                    "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+                  fontSize: 11,
+                  maxHeight: 120,
+                  overflowY: "auto",
+                }}
+              >
+                {componentsJobLog.length === 0 ? (
+                  <div>
+                    [{new Date().toLocaleTimeString()}] Waiting for worker…
+                  </div>
+                ) : (
+                  componentsJobLog.map((line, idx) => (
+                    <div key={idx}>{line}</div>
+                  ))
+                )}
+              </div>
+
               <div
                 style={{
                   width: "100%",

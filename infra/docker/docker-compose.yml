@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16
+    image: postgres:18
     container_name: nexus-postgres
     restart: unless-stopped
     environment:
@@ -10,10 +10,10 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - nexus-postgres-data:/var/lib/postgresql/data
+      - nexus-postgres-data:/var/lib/postgresql
 
   redis:
-    image: redis:7
+    image: redis:8
     container_name: nexus-redis
     restart: unless-stopped
     ports:

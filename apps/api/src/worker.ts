@@ -88,6 +88,8 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
   }
 
   if (job.type === ImportJobType.XACT_COMPONENTS) {
+    console.log(`[worker] XACT_COMPONENTS start importJobId=%s csvPath=%s`, importJobId, csvPath);
+
     await prisma.importJob.update({
       where: { id: importJobId },
       data: { progress: 20, message: "Importing Xact components..." },
@@ -112,19 +114,42 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       estimateVersionId = latest.id;
     }
 
+    console.log(
+      "[worker] XACT_COMPONENTS importXactComponentsCsvForEstimate start estimateVersionId=%s",
+      estimateVersionId,
+    );
+
     const componentsResult = await importXactComponentsCsvForEstimate({
       estimateVersionId,
       csvPath,
     });
+
+    console.log(
+      "[worker] XACT_COMPONENTS importXactComponentsCsvForEstimate done rawCount=%s summaryCount=%s",
+      (componentsResult as any)?.rawCount,
+      (componentsResult as any)?.summaryCount,
+    );
 
     await prisma.importJob.update({
       where: { id: importJobId },
       data: { progress: 70, message: "Allocating components..." },
     });
 
+    console.log(
+      "[worker] XACT_COMPONENTS allocateComponentsForEstimate start estimateVersionId=%s",
+      estimateVersionId,
+    );
+
     const allocationResult = await allocateComponentsForEstimate({
       estimateVersionId,
     });
+
+    console.log(
+      "[worker] XACT_COMPONENTS allocateComponentsForEstimate done components=%s sowItems=%s allocationsCreated=%s",
+      allocationResult.components,
+      allocationResult.sowItems,
+      allocationResult.allocationsCreated,
+    );
 
     await prisma.importJob.update({
       where: { id: importJobId },

@@ -221,7 +221,21 @@ export const GoldenPriceListTable = memo(function GoldenPriceListTable({
       </div>
 
       {goldenTableError && (
-        <div style={{ padding: 8, fontSize: 11, color: "#b91c1c" }}>{goldenTableError}</div>
+        <div
+          style={{
+            padding: 8,
+            fontSize: goldenTableError.includes("Cannot read properties of null (reading 'rows')")
+              ? 12
+              : 11,
+            color: goldenTableError.includes("Cannot read properties of null (reading 'rows')")
+              ? "#1d4ed8"
+              : "#b91c1c",
+          }}
+        >
+          {goldenTableError.includes("Cannot read properties of null (reading 'rows')")
+            ? "When you upload a new Golden Price List it will show here."
+            : goldenTableError}
+        </div>
       )}
 
       {!goldenTableError && (

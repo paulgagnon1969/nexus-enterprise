@@ -250,8 +250,13 @@ export default function FinancialPage() {
           itemCount: number;
         } | null;
         rows?: GoldenPriceListRow[];
-      };
-      setGoldenRows(json.rows ?? []);
+      } | null;
+
+      if (!json) {
+        setGoldenRows([]);
+      } else {
+        setGoldenRows(json.rows ?? []);
+      }
       setGoldenTableError(null);
     } catch (err: any) {
       setGoldenTableError(err?.message ?? "Failed to load Golden price list table.");
@@ -587,9 +592,13 @@ export default function FinancialPage() {
             itemCount: number;
           } | null;
           rows?: GoldenPriceListRow[];
-        };
+        } | null;
 
-        setGoldenRows(json.rows ?? []);
+        if (!json) {
+          setGoldenRows([]);
+        } else {
+          setGoldenRows(json.rows ?? []);
+        }
       } catch (err: any) {
         setGoldenTableError(err?.message ?? "Failed to load Golden price list table.");
       } finally {
@@ -1009,7 +1018,7 @@ export default function FinancialPage() {
       {activeSection === "PRICELIST_TREE" && (
         <section style={{ marginBottom: 24 }}>
           <h3 style={{ fontSize: 14, fontWeight: 600, margin: "8px 0" }}>
-            Pricelist Tree – Golden PETL (Price List) & Components
+            Pricelist Tree – Golden PETL (Project Estimate Task List) & Components Allocation
           </h3>
           <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 8 }}>
             Import the master Xactimate price list as the current
@@ -1101,14 +1110,17 @@ export default function FinancialPage() {
               }}
             >
               <div style={{ fontWeight: 600, marginBottom: 6 }}>
-                Upload Golden PETL (master Xactimate price list)
+                Upload Golden PETL
               </div>
               <form onSubmit={handleUpload}>
                 <label style={{ display: "block", marginBottom: 6 }}>
                   <span style={{ display: "block", marginBottom: 4 }}>
-                    Upload PETL CSV (Xactimate master price list)
+                    Upload PETL CSV
                   </span>
                   <input type="file" name="file" accept=".csv,text/csv" />
+                  <div style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
+                    Dont use Xactimate? A simple Golden PETL CSV template will be available for download here.
+                  </div>
                   {priceListFileName && (
                     <div
                       style={{

@@ -31,7 +31,7 @@ This means:
 - **All Prisma queries and writes from the API** go to the **prod Cloud SQL instance**.
 - Any scripts you run with the same `DATABASE_URL` (e.g. `npx prisma migrate deploy`) will also hit prod.
 
-You have a **dev** Cloud SQL instance (`nexus-dev-postgres`) that we can and should use for day-to-day schema work and more experimental testing.
+You have a **dev** Cloud SQL instance (`nexusdev-v2`) that we can and should use for day-to-day schema work and more experimental testing.
 
 ---
 
@@ -39,7 +39,7 @@ You have a **dev** Cloud SQL instance (`nexus-dev-postgres`) that we can and sho
 
 Logical environments:
 
-1. **Dev DB** (`nexus-dev-postgres`)
+1. **Dev DB** (`nexusdev-v2`)
    - Safe place to:
      - Create and test new Prisma models/migrations
      - Run import scripts (Xact CSV, Simple PETL, price lists)
@@ -67,7 +67,7 @@ Logical environments:
 1. Start proxy to **dev** instance:
    
    ```bash
-   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-dev-postgres
+   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexusdev-v2
    ```
 
 2. In another terminal, start API with `DATABASE_URL` pointing at dev:
@@ -85,7 +85,7 @@ Logical environments:
    npm run dev
    ```
 
-All reads/writes now go to **nexus-dev-postgres**, not prod.
+All reads/writes now go to **nexusdev-v2**, not prod.
 
 ### 3.2 Using the prod DB (only when you really intend to)
 
@@ -120,7 +120,7 @@ Prisma migrations live under:
 
 ### 4.1 Create & apply a new migration on **dev DB**
 
-1. Ensure your stack is pointed at **dev DB** (see section 3.1) and the proxy is running to `nexus-dev-postgres`.
+1. Ensure your stack is pointed at **dev DB** (see section 3.1) and the proxy is running to `nexusdev-v2`.
 
 2. From `packages/database`:
    
@@ -206,7 +206,7 @@ Or see what the running API process is using (look for `DATABASE_URL=` in `ps ew
 
 ### Normal development (UI + API + schema work)
 
-1. Start proxy to **dev DB** (`nexus-dev-postgres`).
+1. Start proxy to **dev DB** (`nexusdev-v2`).
 2. Start API with `DATABASE_URL` pointing at dev.
 3. Run Prisma migrations with `prisma migrate dev` against dev DB.
 4. Start web dev server; build and test features.
