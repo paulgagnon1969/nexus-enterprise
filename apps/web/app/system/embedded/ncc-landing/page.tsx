@@ -306,9 +306,7 @@ export default function NccLandingEditorPage() {
                     const text = await res.text().catch(() => "");
                     throw new Error(text || `Failed to save landing configuration (${res.status})`);
                   }
-                  const json: LandingConfigEnvelope = await res.json();
-                  setLoginConfig(json.login ?? {});
-                  setWorkerConfig(json.worker ?? {});
+                  // Keep local state as the source of truth; server echoes can be ignored for now.
                   setSaveMessage("Landing configuration saved.");
                 } catch (e: any) {
                   setError(e?.message ?? "Failed to save landing configuration.");
@@ -512,9 +510,6 @@ export default function NccLandingEditorPage() {
                     const text = await res.text().catch(() => "");
                     throw new Error(text || `Failed to save landing configuration (${res.status})`);
                   }
-                  const json: LandingConfigEnvelope = await res.json();
-                  setLoginConfig(json.login ?? {});
-                  setWorkerConfig(json.worker ?? {});
                   setSaveMessage("Landing configuration saved.");
                 } catch (e: any) {
                   setError(e?.message ?? "Failed to save landing configuration.");
