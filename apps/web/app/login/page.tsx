@@ -245,6 +245,18 @@ export default function LoginPage() {
           expired. Simply sign in again to get a fresh, secure session.
         </p>
 
+        <p
+          style={{
+            marginTop: 8,
+            marginBottom: 0,
+            fontSize: 11,
+            color: "#16a34a",
+          }}
+        >
+          Deployment pipeline check: if you can see this message on Vercel,
+          the Nexus web + GitHub workflow is deploying correctly.
+        </p>
+
         {process.env.NODE_ENV === "development" && (
           <div
             style={{
