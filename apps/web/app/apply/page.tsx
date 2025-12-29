@@ -11,7 +11,7 @@ export default function ApplyPage() {
     <Suspense
       fallback={
         <main style={{ padding: "2rem", maxWidth: 720, margin: "0 auto" }}>
-          <h1 style={{ marginTop: 0 }}>NEXUS Contractor Connect</h1>
+          <h1 style={{ marginTop: 0 }}>NEXUS Contractor-Connect</h1>
           <p style={{ fontSize: 14, color: "#6b7280" }}>Loading…</p>
         </main>
       }
@@ -105,7 +105,7 @@ function ApplyPageInner() {
 
       <img
         src="/contractor-connect.gif"
-        alt="Contractor Connect"
+        alt="Contractor-Connect"
         style={{
           width: 520,
           maxWidth: "100%",

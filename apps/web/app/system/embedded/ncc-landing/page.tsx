@@ -169,7 +169,7 @@ export default function NccLandingEditorPage() {
                   border: "1px solid #d1d5db",
                   fontSize: 13,
                 }}
-                placeholder="e.g. Nexus Contractor Connect"
+                placeholder="e.g. Nexus Contractor-Connect"
               />
             </label>
 
@@ -269,7 +269,7 @@ export default function NccLandingEditorPage() {
               )}
 
               <div style={{ fontSize: 16, fontWeight: 600 }}>
-                {loginConfig.headline || "NEXUS Contractor Connect"}
+                {loginConfig.headline || "NEXUS Contractor-Connect"}
               </div>
               <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
                 {loginConfig.subheadline || "Sign in with your Nexus account"}
@@ -401,7 +401,7 @@ export default function NccLandingEditorPage() {
               )}
 
               <div style={{ fontSize: 16, fontWeight: 600 }}>
-                {workerConfig.headline || "Nexus Contractor Connect"}
+                {workerConfig.headline || "Nexus Contractor-Connect"}
               </div>
               <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
                 {workerConfig.subheadline || "Apply to join Nexus Assets and People"}
