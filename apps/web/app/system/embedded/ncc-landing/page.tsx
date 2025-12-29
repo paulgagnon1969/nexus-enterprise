@@ -43,6 +43,18 @@ export default function NccLandingEditorPage() {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
+  const resolvedLoginLogoUrl = loginConfig.logoUrl
+    ? loginConfig.logoUrl.startsWith("/uploads/")
+      ? `${API_BASE}${loginConfig.logoUrl}`
+      : loginConfig.logoUrl
+    : null;
+
+  const resolvedWorkerLogoUrl = workerConfig.logoUrl
+    ? workerConfig.logoUrl.startsWith("/uploads/")
+      ? `${API_BASE}${workerConfig.logoUrl}`
+      : workerConfig.logoUrl
+    : null;
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const token = window.localStorage.getItem("accessToken");
@@ -339,9 +351,9 @@ export default function NccLandingEditorPage() {
                 textAlign: "center",
               }}
             >
-              {loginConfig.logoUrl ? (
+              {resolvedLoginLogoUrl ? (
                 <img
-                  src={loginConfig.logoUrl}
+                  src={resolvedLoginLogoUrl}
                   alt="Login logo preview"
                   style={{ maxWidth: "60%", height: "auto", marginBottom: 8 }}
                 />
@@ -546,9 +558,9 @@ export default function NccLandingEditorPage() {
                 textAlign: "center",
               }}
             >
-              {workerConfig.logoUrl ? (
+              {resolvedWorkerLogoUrl ? (
                 <img
-                  src={workerConfig.logoUrl}
+                  src={resolvedWorkerLogoUrl}
                   alt="Worker registration logo preview"
                   style={{ maxWidth: "60%", height: "auto", marginBottom: 8 }}
                 />
