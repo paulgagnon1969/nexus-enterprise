@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useMemo, useState } from "react";
+import { ReactNode, Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
@@ -22,7 +22,7 @@ interface OrgProjectSummary {
   status?: string;
 }
 
-export default function SystemLayout({ children }: { children: ReactNode }) {
+function SystemLayoutInner({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -745,5 +745,19 @@ export default function SystemLayout({ children }: { children: ReactNode }) {
         )}
       </div>
     </div>
+  );
+}
+
+export default function SystemLayout({ children }: { children: ReactNode }) {
+  return (
+    <Suspense
+      fallback={
+        <div style={{ padding: 16, fontSize: 13 }}>
+          Loading system view…
+        </div>
+      }
+    >
+      <SystemLayoutInner>{children}</SystemLayoutInner>
+    </Suspense>
   );
 }

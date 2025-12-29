@@ -1,0 +1,165 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww27380\viewh26700\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 \
+# Dev Stack & Local Tooling (macOS)\
+\
+This section describes how to bring up the Nexus Enterprise developer stack on macOS, including local Docker infra, the `dev-start` / `start-dev-clear-all` scripts, and the optional Dock/Automator integration.\
+\
+## Overview\
+\
+The recommended local workflow is:\
+\
+1. Use Docker Desktop for local Postgres + Redis via `infra/docker/docker-compose.yml` (or an external DB if you prefer).\
+2. Use the `scripts/dev-start.sh` script to start the API, worker, and web dev servers against whatever `DATABASE_URL` you have configured.\
+3. Optionally use `start-dev-clear-all.sh` as a \'93hard reset\'94 to kill dev processes and then delegate to `dev-start.sh`.\
+4. Optionally create a macOS Automator app that runs `start-dev-clear-all.sh` from the Dock.\
+\
+The scripts are written to be **idempotent** and to assume your database/infra (local Docker or Cloud SQL) is already running.\
+\
+---\
+\
+## `scripts/dev-start.sh` (dev stack starter)\
+\
+**Path:** `scripts/dev-start.sh`\
+\
+### Responsibilities\
+\
+- Resolve the repository root, logs directory, and app paths.\
+- Ensure `apps/web/.env.local` points at the local API (`NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`) on first run.\
+- Configure `DATABASE_URL` (by default, to the local Postgres instance used by `infra/docker`), unless you have already set `DATABASE_URL` in your environment.\
+- Start the NestJS API dev server (`npm run dev` in `apps/api`), the BullMQ worker (`npm run worker:dev` in `apps/api`), and the Next.js web dev server (`npm run dev` in `apps/web`).\
+- Run simple health checks (HTTP 200 from `http://localhost:8000` / `http://localhost:3000`) and log a summary.\
+\
+### Assumptions\
+\
+- Your database is already running and reachable via `DATABASE_URL`.\
+\
+  - For local Docker dev: run `docker compose -f infra/docker/docker-compose.yml up -d` yourself (or let other tooling handle it).\
+  - For Cloud SQL or other DBs: export `DATABASE_URL` before running `scripts/dev-start.sh`.\
+\
+- `npm` is available on your `PATH`.\
+\
+### Usage\
+\
+From the repo root:\
+\
+```bash\
+cd /Users/pg/nexus-enterprise\
+./scripts/dev-start.sh\
+```\
+On success you will see log output like:\
+\
+```text\
+[dev-start] Repo root: /Users/pg/nexus-enterprise (mode=local-docker)\
+[dev-start] Using DATABASE_URL=postgresql://nexus_user:****@127.0.0.1:5433/nexus_db\
+[dev-start] Starting API dev server (local Docker Postgres)...\
+[dev-start] Starting API worker (import jobs)...\
+[dev-start] Starting web dev server on http://localhost:3000...\
+[dev-start] Summary:\
+[dev-start]   API   : OK (health)\
+[dev-start]   Web   : OK\
+[dev-start]   Worker: OK (worker:dev)\
+[dev-start] Done (local Docker dev). Check logs/ for logs.\
+```\
+---\
+\
+## `start-dev-clear-all.sh` (hard reset + delegate to dev-start)\
+\
+**Path:** `start-dev-clear-all.sh`\
+\
+### Responsibilities\
+\
+- Kill any processes bound to the common dev ports (`3000`, `8000`, `5432`, `6380`).\
+- Kill common Node dev processes:\
+\
+  - `next dev`\
+  - `nodemon` (API)\
+  - `ts-node-dev` / `ts-node src/worker.ts`\
+  - `node` processes in `apps/api` and `apps/web`.\
+\
+- Change to the repository root.\
+- Delegate startup to `scripts/dev-start.sh`.\
+\
+### Assumptions\
+\
+- Your database/infra is already running (local Docker or Cloud SQL etc.). This script does **not** manage Docker at all.\
+- `scripts/dev-start.sh` will start the API, worker, and web dev servers against the current `DATABASE_URL`.\
+\
+### Usage\
+\
+```bash\
+cd /Users/pg/nexus-enterprise\
+./start-dev-clear-all.sh\
+```\
+Example output:\
+\
+```text\
+=== HARD RESET: killing dev processes and restarting Nexus dev (local Docker) ===\
+\uc0\u8594  Killing anything on ports 3000, 8000, 5432, 6380\'85\
+  - Port 3000 is free.\
+  - Port 8000 is free.\
+  - Port 5432 is free.\
+  - Port 6380 in use, killing processes...\
+\uc0\u8594  Killing common Node dev processes (node/next/nodemon/ts-node-dev)\'85\
+\uc0\u8594  Changing to repo: /Users/pg/nexus-enterprise\
+\uc0\u8594  Delegating dev startup to scripts/dev-start.sh (local Docker Postgres)\'85\
+[dev-start] Repo root: /Users/pg/nexus-enterprise (mode=local-docker)\
+...\
+[dev-start] Summary:\
+[dev-start]   API   : OK (health)\
+[dev-start]   Web   : OK\
+[dev-start]   Worker: OK (worker:dev)\
+[dev-start] Done (local Docker dev). Check logs/ for logs.\
+=== Dev environment restarted via scripts/dev-start.sh (API :8000, Web :3000) ===\
+```\
+---\
+\
+## macOS Dock / Automator integration\
+\
+On macOS, you can wrap `start-dev-clear-all.sh` in an Automator application so that a single click on a Dock icon will:\
+\
+1. Ensure Docker Desktop (or your DB/infra) is running.\
+2. Kill any existing dev stack processes.\
+3. Delegate to `scripts/dev-start.sh` to bring the dev stack back up.\
+4. Show a clear summary in a Terminal window.\
+\
+### Example Automator App (Terminal + zsh wrapper)\
+\
+1. Open **Automator** \uc0\u8594  New Document \u8594  **Application**.\
+2. Add a **Run AppleScript** action.\
+3. Use a script like this:\
+\
+```applescript\
+on run \{input, parameters\}\
+    tell application "Terminal"\
+        activate\
+        do script "zsh -lc 'if ! docker info >/dev/null 2>&1 then echo \\"[dev-reset] Launching Docker Desktop...\\"; open -a Docker; echo \\"[dev-reset] Waiting for Docker daemon...\\"; while ! docker info >/dev/null 2>&1; do sleep 2; end repeat; echo \\"[dev-reset] Docker is ready.\\"; else echo \\"[dev-reset] Docker already running.\\"; end if; sleep 2; cd /Users/pg/nexus-enterprise && ./start-dev-clear-all.sh'"\
+    end tell\
+    return input\
+end run\
+```\
+4. Save as `Nexus Dev Reset.app` (e.g. in `/Applications`), then drag it to the Dock.\
+\
+When you click the Dock icon:\
+\
+- A Terminal window opens.\
+- The app will:\
+  - Start Docker Desktop if needed and block until `docker info` succeeds.\
+  - Run `start-dev-clear-all.sh`.\
+  - `start-dev-clear-all.sh` kills any dev ports/processes and calls `scripts/dev-start.sh`.\
+  - `scripts/dev-start.sh` starts the API dev server, worker, and web dev server and prints a summary.\
+\
+### Notes\
+\
+- This integration uses `docker info` only as a **pre-flight** check so the dev scripts themselves do not need to manage Docker.\
+- If you prefer to manage infra manually or use Cloud SQL, you can remove the `docker info` / `open -a Docker` lines and simply have Automator run:\
+\
+```applescript\
+  do script "cd /Users/pg/nexus-enterprise && ./start-dev-clear-all.sh"\
+```\
+- The `JobConsole` UI pattern (as implemented on the project import screen) can be used in the web app to display a terminal-style log and completion stamp for any long-running background jobs started by the API, aligning the UX with what these dev scripts do in the terminal.}

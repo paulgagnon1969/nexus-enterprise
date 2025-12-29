@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuditService } from "../../common/audit.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { Role, ProjectRole, ProjectParticleType, ProjectParticipantScope, ProjectVisibilityLevel } from "@prisma/client";
+import { GlobalRole, Role, ProjectRole, ProjectParticleType, ProjectParticipantScope, ProjectVisibilityLevel } from "@prisma/client";
 import { CreateProjectDto, UpdateProjectDto } from "./dto/project.dto";
 import { importXactCsvForProject, importXactComponentsCsvForEstimate, allocateComponentsForEstimate } from "@repo/database";
 
@@ -646,6 +646,130 @@ export class ProjectService {
     });
 
     return { success: true };
+  }
+
+  async getRecentActivityForProject(
+    projectId: string,
+    actor: AuthenticatedUser,
+  ) {
+    const project = await this.prisma.project.findFirst({ where: { id: projectId } });
+
+    if (!project) {
+      throw new NotFoundException("Project not found");
+    }
+
+    const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
+
+    if (!isSuperAdmin) {
+      // Enforce standard project access rules for non-superadmins
+      if (project.companyId !== actor.companyId) {
+        throw new ForbiddenException("You do not have access to this project");
+      }
+
+      if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+        const membership = await this.prisma.projectMembership.findUnique({
+          where: {
+            userId_projectId: {
+              userId: actor.userId,
+              projectId,
+            },
+          },
+        });
+        if (!membership) {
+          throw new ForbiddenException("You do not have access to this project");
+        }
+      }
+    }
+
+    const [dailyLogsRaw, tasksRaw, petlRaw] = await Promise.all([
+      this.prisma.dailyLog.findMany({
+        where: { projectId },
+        orderBy: { logDate: "desc" },
+        take: 5,
+        include: {
+          createdBy: {
+            select: {
+              id: true,
+              email: true,
+            },
+          },
+        },
+      }),
+      this.prisma.task.findMany({
+        where: { projectId },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        include: {
+          assignee: {
+            select: {
+              id: true,
+              email: true,
+            },
+          },
+        },
+      }),
+      this.prisma.petlEditChange.findMany({
+        where: {
+          session: { projectId },
+        },
+        orderBy: { effectiveAt: "desc" },
+        take: 5,
+        include: {
+          session: {
+            select: {
+              id: true,
+              userId: true,
+              startedAt: true,
+              endedAt: true,
+            },
+          },
+          sowItem: {
+            select: {
+              id: true,
+              description: true,
+              projectParticleId: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const dailyLogs = dailyLogsRaw.map((l) => ({
+      id: l.id,
+      logDate: l.logDate,
+      title: l.title,
+      status: l.status,
+      createdAt: l.createdAt,
+      createdBy: l.createdBy,
+    }));
+
+    const tasks = tasksRaw.map((t) => ({
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      priority: t.priority,
+      dueDate: t.dueDate,
+      createdAt: t.createdAt,
+      assignee: t.assignee,
+    }));
+
+    const petlEdits = petlRaw.map((c) => ({
+      id: c.id,
+      field: c.field,
+      oldValue: c.oldValue,
+      newValue: c.newValue,
+      effectiveAt: c.effectiveAt,
+      session: c.session,
+      sowItem: c.sowItem,
+    }));
+
+    return {
+      projectId: project.id,
+      companyId: project.companyId,
+      dailyLogs,
+      tasks,
+      petlEdits,
+    };
   }
 
   async getPetlForProject(

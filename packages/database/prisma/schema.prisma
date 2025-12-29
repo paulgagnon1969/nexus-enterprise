@@ -1432,3 +1432,11 @@ enum TransactionKind {
   MAINTENANCE
   ADJUSTMENT
 }
+
+/// Simple test model used to validate migration pipelines.
+/// Safe to keep or drop; not referenced by application code.
+model DevMigrationTest {
+  id        String   @id @default(cuid())
+  note      String?
+  createdAt DateTime @default(now())
+}

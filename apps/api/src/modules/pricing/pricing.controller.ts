@@ -259,29 +259,33 @@ export class PricingController {
       );
     }
 
-    // Process Golden components synchronously here to avoid depending on the
-    // background worker/Redis in Cloud Run for this path.
-    const result = await importGoldenComponentsFromFile(destPath);
-
-    // Record a completed import job so the UI can show "last uploaded by" info
-    // even though we are not using the background worker for this path.
-    await this.prisma.importJob.create({
+    // Create an async ImportJob that the background worker will process,
+    // following the same PETL pattern as price-list/import.
+    const job = await this.prisma.importJob.create({
       data: {
         companyId,
         projectId: null,
         createdByUserId,
         type: "PRICE_LIST_COMPONENTS",
-        status: "SUCCEEDED",
-        progress: 100,
-        message: `Imported Golden components for ${result.itemCount} items (${result.componentCount} components).`,
+        status: "QUEUED",
+        progress: 0,
+        message: "Queued Golden components import",
         csvPath: destPath,
-        resultJson: result as any,
-        startedAt: new Date(),
-        finishedAt: new Date(),
       },
     });
 
-    return result;
+    const queue = getImportQueue();
+    await queue.add(
+      "process",
+      { importJobId: job.id },
+      {
+        attempts: 1,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+      },
+    );
+
+    return { jobId: job.id };
   }
 
   // Division mapping lookup: returns CSI divisions and Cat -> Division mappings

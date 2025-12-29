@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException, BadRequestException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import * as argon2 from "argon2";
+import * as bcrypt from "bcryptjs";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { RedisService } from "../../infra/redis/redis.service";
 import { RegisterDto, LoginDto, ChangePasswordDto } from "./dto/auth.dto";
@@ -23,6 +24,16 @@ export class AuthService {
 
   private normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
+  }
+
+  private isBcryptHash(hash: string | null | undefined): boolean {
+    if (!hash) return false;
+    return (
+      hash.startsWith("$2a$") ||
+      hash.startsWith("$2b$") ||
+      hash.startsWith("$2y$") ||
+      hash.startsWith("$2x$")
+    );
   }
 
   private getDefaultProfileCodeForRole(role: Role): string | null {
@@ -190,7 +201,31 @@ export class AuthService {
       throw new UnauthorizedException("Invalid credentials");
     }
 
-    const valid = await argon2.verify(user.passwordHash, dto.password);
+    // Support legacy bcrypt hashes from older systems and avoid 500s on bad placeholders.
+    let valid = false;
+
+    if (this.isBcryptHash(user.passwordHash)) {
+      // Legacy bcrypt hash (e.g. from Laravel).
+      valid = await bcrypt.compare(dto.password, user.passwordHash);
+
+      if (valid) {
+        // On successful login, transparently upgrade to argon2.
+        const newHash = await argon2.hash(dto.password);
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { passwordHash: newHash },
+        });
+      }
+    } else {
+      // Normal path: argon2 hash stored by this API.
+      try {
+        valid = await argon2.verify(user.passwordHash, dto.password);
+      } catch {
+        // Hash is not a valid argon2 string (e.g. dev/onboarding placeholders or corrupt data).
+        throw new UnauthorizedException("Invalid credentials");
+      }
+    }
+
     if (!valid) {
       throw new UnauthorizedException("Invalid credentials");
     }

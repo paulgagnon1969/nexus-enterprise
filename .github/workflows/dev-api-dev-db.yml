@@ -1,0 +1,55 @@
+name: Dev API + DB (Cloud SQL dev)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  dev-api-db:
+    runs-on: ubuntu-latest
+
+    env:
+      # Cloud SQL dev connection string (nexusdev-v2)
+      # Example: postgresql://postgres:***@127.0.0.1:5434/nexus_db?schema=public
+      DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
+      GOOGLE_CLOUD_PROJECT: nexus-enterprise-480610
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      # Authenticate to GCP using a service account JSON stored in secrets.
+      # See docs/onboarding/api-db-deploy-sop.md for setup instructions.
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_DEPLOY_JSON }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GOOGLE_CLOUD_PROJECT }}
+
+      # Run Prisma migrations against Cloud SQL dev using DATABASE_URL
+      - name: Run Prisma migrations on Cloud SQL dev
+        run: |
+          cd packages/database
+          npx prisma migrate deploy --schema prisma/schema.prisma
+
+      # Deploy API to Cloud Run dev service (e.g. nexus-api-dev)
+      - name: Deploy API to Cloud Run dev
+        run: |
+          cd scripts
+          bash ./deploy-api.sh
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ env.GOOGLE_CLOUD_PROJECT }}

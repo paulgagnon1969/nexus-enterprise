@@ -211,6 +211,13 @@ export class ProjectController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get(":id/recent-activities")
+  getRecentActivities(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getRecentActivityForProject(projectId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(":id/estimate-summary")
   getEstimateSummary(@Req() req: any, @Param("id") projectId: string) {
     const user = req.user as AuthenticatedUser;

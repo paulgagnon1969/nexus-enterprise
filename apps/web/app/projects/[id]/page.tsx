@@ -4415,10 +4415,10 @@ export default function ProjectDetailPage({
                 {groups.map((g) => {
                   const itemsForRoom = filteredItemsForRoom(g.particleId);
                   const isExpanded = g.particleId ? expandedRooms.has(g.particleId) : false;
-
+ 
                   return (
-                    <>
-                      <tr key={g.particleId ?? String(g.id)}>
+                    <Fragment key={g.particleId ?? String(g.id)}>
+                      <tr>
                         <td
                           style={{
                             padding: "6px 12px",
@@ -4693,7 +4693,7 @@ export default function ProjectDetailPage({
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
               </tbody>

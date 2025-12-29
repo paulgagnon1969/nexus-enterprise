@@ -623,7 +623,9 @@ export async function importXactCsvForProject(options: {
     });
   }
 
-  const chunkSize = 100;
+  // Larger batch size reduces DB round-trips during SOW item insert.
+  // On a strong local/Postgres setup, 1000 is a safe, pragmatic default.
+  const chunkSize = 1000;
   for (let i = 0; i < sowItemsData.length; i += chunkSize) {
     const chunk = sowItemsData.slice(i, i + chunkSize);
     await prisma.sowItem.createMany({ data: chunk });

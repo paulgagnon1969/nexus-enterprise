@@ -1,0 +1,130 @@
+NCC – DEV ARCHITECTURE
+
+PREPARED BY:
+“ Nexus Fortified Structures,  LLC” 
+
+5 12.217. 0 654 
+paul@nfsgrp.com
+
+
+
+	Central Texas		General Contractor 	
+	301 Main Plaza Suite 191 New Braunfels TX 78133		FL / NC / SC / NM / AK / TX / GA / NC / MS / AL	
+				
+	Central Florida			
+	460 N SR 434 Altamonte Springs FL 32714			
+
+
+
+
+
+
+
+
+DOCUMENT TOC (TABLE OF CONTENTS):
+
+DOCUMENT TOC (TABLE OF CONTENTS):	2
+DOCUMENT START	3
+# NEXUS CONNECT APP – DEVELOPER START SCRIPTS GUIDE	3
+## OVERVIEW OF THE THREE SCRIPTS	3
+## 1. `START-DEV.SH` – HARD RESET & LOCAL DEV (RECOMMENDED RESET BUTTON)	3
+## 2. `SCRIPTS/DEV-START.SH` – LOCAL DOCKER DEVELOPMENT (GOLDEN PATH)	4
+## 3. `SCRIPTS/DEV-START-CLOUD.SH` – CLOUD SQL DEVELOPMENT (PROD-LIKE)	5
+## QUICK REFERENCE – WHICH ONE SHOULD I USE TODAY?	5
+ 
+DOCUMENT START
+ 
+**Here is a cleaned-up, concise, and MS Word-friendly version of your developer start scripts documentation.**
+
+You can copy-paste this directly into Microsoft Word (or Google Docs) — it uses simple headings, bullets, and tables for better readability.
+
+---
+
+# NEXUS CONNECT APP – DEVELOPER START SCRIPTS GUIDE
+
+This document explains the three main development startup scripts, which database each one uses, and when to choose each approach.
+
+## OVERVIEW OF THE THREE SCRIPTS
+Script	Location	Database Used	Purpose / When to Use	Reset Behavior
+start-dev-clear_ALL.sh	Repository root ./	Local Docker Postgres	Hard reset + full local dev restart (most aggressive)	Yes – kills everything
+scripts/dev-start.sh	./scripts/	Local Docker Postgres	Standard / recommended local development	No – gentle restart
+scripts/dev-start-cloud.sh	./scripts/	Cloud SQL dev (nexusdev-v2)	Prod-like testing, shared dev data, migration validation	No – gentle restart
+
+
+## 1. `START-DEV-CLEAR_ALL.SH` – HARD RESET & LOCAL DEV (RECOMMENDED RESET BUTTON)
+
+**Location:** `./start-dev-clear_ALL.sh`
+
+**What it does:**
+- Kills processes on ports: 3000, 8000, 5432, 6380
+- Stops any running `next dev`, `ts-node-dev`, etc.
+- Stops Docker containers (`docker compose down`)
+- Then calls `scripts/dev-start.sh` → starts clean **local Docker** stack
+
+**Use when:**
+- Dev environment feels stuck / ports are blocked
+- You want a completely fresh local start
+- You explicitly want **local Docker database** (not Cloud SQL)
+
+**Resulting database:**  
+Local Docker Postgres (`postgresql://nexus_user:nexus_password@127.0.0.1:5433/nexus_db`)
+
+## 2. `SCRIPTS/DEV-START.SH` – LOCAL DOCKER DEVELOPMENT (GOLDEN PATH)
+
+**Location:** `./scripts/dev-start.sh`
+
+**Database:** Local Postgres + Redis running in Docker
+
+**Key characteristics:**
+- Completely isolated from team/shared environments
+- Easy to destroy/recreate database
+- Fast & reliable for local heavy workloads (CSV imports, file processing, experiments)
+- No internet/GCP dependency
+
+**Main components started:**
+- Postgres container → host port 5433
+- Redis container → host port 6380
+- API dev server (`npm run dev` in `apps/api`)
+- API worker / BullMQ (`npm run worker:dev`)
+- Next.js web app (`npm run dev` in `apps/web`)
+
+**Recommended daily command:**
+```bash
+./scripts/dev-start.sh
+# or full reset version:
+./start-dev-clear_ALL.sh```
+
+## 3. `SCRIPTS/DEV-START-CLOUD.SH` – CLOUD SQL DEVELOPMENT (PROD-LIKE)
+
+**Location:** `./scripts/dev-start-cloud.sh`
+
+**Database:** Cloud SQL dev instance `nexusdev-v2` (via `cloud-sql-proxy`)
+
+**Key characteristics:**
+- Behaves most like production (Postgres version, Cloud SQL behavior)
+- Uses real shared dev dataset → great for reproducing team issues
+- Ideal for testing migrations, multi-user flows, real data scenarios
+
+**Requirements:**
+- `DEV_DB_PASSWORD` environment variable set
+- `cloud-sql-proxy` installed and in PATH
+- Correct GCP project context (usually auto-detected)
+
+**Safety guardrail:**
+→ Script refuses to run if it detects production instance name (`nexusprod-v2`)
+
+**Recommended use cases:**
+- Pre-release validation
+- Debugging issues only visible on shared dev data
+- Testing schema changes / migrations safely before prod
+
+## QUICK REFERENCE – WHICH ONE SHOULD I USE TODAY?
+Situation	Recommended Script	Database
+Normal daily coding & feature development	scripts/dev-start.sh or ./start-dev-clear_ALL.sh	Local Docker
+Environment is broken / ports blocked	./start-dev-clear_ALL.sh	Local Docker
+Need real shared dev data	scripts/dev-start-cloud.sh	Cloud SQL dev
+Testing migrations or prod-like behavior	scripts/dev-start-cloud.sh	Cloud SQL dev
+Doing dangerous experiments / bulk imports	scripts/dev-start.sh	Local Docker
+Offline / on airplane	scripts/dev-start.sh	Local Docker
+
+
