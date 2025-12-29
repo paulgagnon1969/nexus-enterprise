@@ -27,6 +27,11 @@ interface LandingConfigDto {
   subheadline?: string | null;
 }
 
+interface LandingConfigEnvelope {
+  login?: LandingConfigDto | null;
+  worker?: LandingConfigDto | null;
+}
+
 export default function NccLandingEditorPage() {
   const [me, setMe] = useState<MeDto | null>(null);
   const [company, setCompany] = useState<CompanyMeDto | null>(null);
@@ -35,6 +40,8 @@ export default function NccLandingEditorPage() {
 
   const [loginConfig, setLoginConfig] = useState<LandingConfigDto>({});
   const [workerConfig, setWorkerConfig] = useState<LandingConfigDto>({});
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -80,11 +87,20 @@ export default function NccLandingEditorPage() {
           return;
         }
 
-        // TODO: fetch real configs from API once endpoints exist, using
-        // OrganizationModuleOverride with moduleCode = "NCC_LANDING" etc.
-        // For now, we just seed empty configs so we can design the form.
-        setLoginConfig({});
-        setWorkerConfig({});
+        // Load any existing landing configuration for this company.
+        const cfgRes = await fetch(`${API_BASE}/companies/me/landing-config`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (cfgRes.ok) {
+          const json: LandingConfigEnvelope = await cfgRes.json();
+          setLoginConfig(json.login ?? {});
+          setWorkerConfig(json.worker ?? {});
+        } else if (cfgRes.status !== 404) {
+          // 404 means no config yet; treat as empty. Other failures surface as an error.
+          const text = await cfgRes.text().catch(() => "");
+          throw new Error(text || `Failed to load landing configuration (${cfgRes.status})`);
+        }
       } catch (e: any) {
         setError(e?.message ?? "Failed to load editor context.");
       } finally {
@@ -150,6 +166,9 @@ export default function NccLandingEditorPage() {
 
       <section style={{ marginBottom: 24 }}>
         <h2 style={{ fontSize: 16, marginBottom: 8 }}>System login landing</h2>
+        {saveMessage && (
+          <p style={{ fontSize: 12, color: "#16a34a", marginBottom: 8 }}>{saveMessage}</p>
+        )}
         <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
           This controls the visuals around the main Nexus login experience (username + password
           stay the same). Use this for global Nexus branding and per-tenant overlays.
@@ -207,22 +226,53 @@ export default function NccLandingEditorPage() {
               />
             </label>
 
-            {/* TODO: Save handler calling a future /admin/landing-config endpoint. */}
             <button
               type="button"
-              disabled
+              disabled={saving}
+              onClick={async () => {
+                if (typeof window === "undefined") return;
+                const token = window.localStorage.getItem("accessToken");
+                if (!token) {
+                  setError("Missing access token. Please login again.");
+                  return;
+                }
+                try {
+                  setSaving(true);
+                  setSaveMessage(null);
+                  const res = await fetch(`${API_BASE}/companies/me/landing-config`, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ login: loginConfig, worker: workerConfig }),
+                  });
+                  if (!res.ok) {
+                    const text = await res.text().catch(() => "");
+                    throw new Error(text || `Failed to save landing configuration (${res.status})`);
+                  }
+                  const json: LandingConfigEnvelope = await res.json();
+                  setLoginConfig(json.login ?? {});
+                  setWorkerConfig(json.worker ?? {});
+                  setSaveMessage("Landing configuration saved.");
+                } catch (e: any) {
+                  setError(e?.message ?? "Failed to save landing configuration.");
+                } finally {
+                  setSaving(false);
+                }
+              }}
               style={{
                 marginTop: 4,
                 padding: "8px 10px",
                 borderRadius: 6,
                 border: "none",
-                backgroundColor: "#e5e7eb",
-                color: "#4b5563",
+                backgroundColor: saving ? "#e5e7eb" : "#2563eb",
+                color: saving ? "#4b5563" : "#f9fafb",
                 fontSize: 12,
-                cursor: "not-allowed",
+                cursor: saving ? "default" : "pointer",
               }}
             >
-              Save (API wiring coming next)
+              {saving ? "Saving…" : "Save branding"}
             </button>
           </div>
 
@@ -341,19 +391,51 @@ export default function NccLandingEditorPage() {
 
             <button
               type="button"
-              disabled
+              disabled={saving}
+              onClick={async () => {
+                if (typeof window === "undefined") return;
+                const token = window.localStorage.getItem("accessToken");
+                if (!token) {
+                  setError("Missing access token. Please login again.");
+                  return;
+                }
+                try {
+                  setSaving(true);
+                  setSaveMessage(null);
+                  const res = await fetch(`${API_BASE}/companies/me/landing-config`, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ login: loginConfig, worker: workerConfig }),
+                  });
+                  if (!res.ok) {
+                    const text = await res.text().catch(() => "");
+                    throw new Error(text || `Failed to save landing configuration (${res.status})`);
+                  }
+                  const json: LandingConfigEnvelope = await res.json();
+                  setLoginConfig(json.login ?? {});
+                  setWorkerConfig(json.worker ?? {});
+                  setSaveMessage("Landing configuration saved.");
+                } catch (e: any) {
+                  setError(e?.message ?? "Failed to save landing configuration.");
+                } finally {
+                  setSaving(false);
+                }
+              }}
               style={{
                 marginTop: 4,
                 padding: "8px 10px",
                 borderRadius: 6,
                 border: "none",
-                backgroundColor: "#e5e7eb",
-                color: "#4b5563",
+                backgroundColor: saving ? "#e5e7eb" : "#2563eb",
+                color: saving ? "#4b5563" : "#f9fafb",
                 fontSize: 12,
-                cursor: "not-allowed",
+                cursor: saving ? "default" : "pointer",
               }}
             >
-              Save (API wiring coming next)
+              {saving ? "Saving…" : "Save branding"}
             </button>
           </div>
 
