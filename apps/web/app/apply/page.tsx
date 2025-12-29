@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Suspense, useMemo, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import PublicOnboardingForm from "../onboarding/public-onboarding-form";
 
@@ -32,6 +32,42 @@ function ApplyPageInner() {
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [brandingHeadline, setBrandingHeadline] = useState<string | null>(null);
+  const [brandingSubheadline, setBrandingSubheadline] = useState<string | null>(null);
+  const [brandingLogoUrl, setBrandingLogoUrl] = useState<string | null>(null);
+
+  // Load per-tenant branding for the public worker registration landing, if available.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    const companyId = window.localStorage.getItem("companyId");
+    if (!token || !companyId) return;
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/companies/me/landing-config`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const json: { worker?: { headline?: string | null; subheadline?: string | null; logoUrl?: string | null } | null } =
+          await res.json();
+        const worker = json.worker ?? null;
+        if (worker) {
+          setBrandingHeadline(worker.headline ?? null);
+          setBrandingSubheadline(worker.subheadline ?? null);
+          if (worker.logoUrl) {
+            const url = worker.logoUrl.startsWith("/uploads/")
+              ? `${API_BASE}${worker.logoUrl}`
+              : worker.logoUrl;
+            setBrandingLogoUrl(url);
+          }
+        }
+      } catch {
+        // ignore branding failures; keep default look
+      }
+    })();
+  }, []);
 
   const canSubmit = useMemo(() => {
     if (!email.trim()) return false;
@@ -101,19 +137,35 @@ function ApplyPageInner() {
         style={{ width: 360, maxWidth: "100%", height: "auto", display: "block" }}
       />
 
-      <h1 style={{ marginTop: 16, textAlign: "center" }}>NEXUS Contractor Connect</h1>
+      <h1 style={{ marginTop: 16, textAlign: "center" }}>
+        {brandingHeadline || "NEXUS Contractor-Connect"}
+      </h1>
 
-      <img
-        src="/contractor-connect.gif"
-        alt="Contractor-Connect"
-        style={{
-          width: 520,
-          maxWidth: "100%",
-          height: "auto",
-          display: "block",
-          marginTop: 12,
-        }}
-      />
+      {brandingLogoUrl ? (
+        <img
+          src={brandingLogoUrl}
+          alt="Worker registration logo"
+          style={{
+            width: 520,
+            maxWidth: "100%",
+            height: "auto",
+            display: "block",
+            marginTop: 12,
+          }}
+        />
+      ) : (
+        <img
+          src="/contractor-connect.gif"
+          alt="Contractor-Connect"
+          style={{
+            width: 520,
+            maxWidth: "100%",
+            height: "auto",
+            display: "block",
+            marginTop: 12,
+          }}
+        />
+      )}
 
       <form onSubmit={start} style={{ marginTop: 16, width: "100%", maxWidth: 520 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

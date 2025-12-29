@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -12,6 +12,42 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const [brandingHeadline, setBrandingHeadline] = useState<string | null>(null);
+  const [brandingSubheadline, setBrandingSubheadline] = useState<string | null>(null);
+  const [brandingLogoUrl, setBrandingLogoUrl] = useState<string | null>(null);
+
+  // Load per-tenant branding for the login experience, if available.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    const companyId = window.localStorage.getItem("companyId");
+    if (!token || !companyId) return;
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/companies/me/landing-config`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const json: { login?: { headline?: string | null; subheadline?: string | null; logoUrl?: string | null } | null } =
+          await res.json();
+        const login = json.login ?? null;
+        if (login) {
+          setBrandingHeadline(login.headline ?? null);
+          setBrandingSubheadline(login.subheadline ?? null);
+          if (login.logoUrl) {
+            const url = login.logoUrl.startsWith("/uploads/")
+              ? `${API_BASE}${login.logoUrl}`
+              : login.logoUrl;
+            setBrandingLogoUrl(url);
+          }
+        }
+      } catch {
+        // ignore branding failures; keep default look
+      }
+    })();
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -82,15 +118,25 @@ export default function LoginPage() {
     >
       <div className="app-card" style={{ maxWidth: 400, width: "100%" }}>
         <div style={{ textAlign: "center", marginBottom: 16 }}>
-          <img
-            src="/nexus-logo-login.gif"
-            alt="Nexus logo animation"
-            style={{ maxWidth: "260px", width: "100%", height: "auto" }}
-          />
+          {brandingLogoUrl ? (
+            <img
+              src={brandingLogoUrl}
+              alt="Login branding logo"
+              style={{ maxWidth: "260px", width: "100%", height: "auto" }}
+            />
+          ) : (
+            <img
+              src="/nexus-logo-login.gif"
+              alt="Nexus logo animation"
+              style={{ maxWidth: "260px", width: "100%", height: "auto" }}
+            />
+          )}
         </div>
-        <h1 style={{ marginTop: 0, marginBottom: 16, fontSize: 24 }}>Sign in</h1>
+        <h1 style={{ marginTop: 0, marginBottom: 16, fontSize: 24 }}>
+          {brandingHeadline || "Sign in"}
+        </h1>
         <p style={{ marginTop: 0, marginBottom: 24, color: "#6b7280", fontSize: 14 }}>
-          Use your Nexus Enterprise account to continue.
+          {brandingSubheadline || "Use your Nexus Enterprise account to continue."}
         </p>
         <form
           onSubmit={onSubmit}
