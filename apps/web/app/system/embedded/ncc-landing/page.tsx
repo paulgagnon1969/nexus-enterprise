@@ -210,20 +210,63 @@ export default function NccLandingEditorPage() {
             </label>
 
             <label style={{ display: "block", marginBottom: 8 }}>
-              <span style={{ display: "block", fontSize: 12, marginBottom: 4 }}>Logo URL</span>
-              <input
-                type="text"
-                value={loginConfig.logoUrl || ""}
-                onChange={e => setLoginConfig(c => ({ ...c, logoUrl: e.target.value }))}
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 6,
-                  border: "1px solid #d1d5db",
-                  fontSize: 13,
-                }}
-                placeholder="https://example.com/logo.png"
-              />
+              <span style={{ display: "block", fontSize: 12, marginBottom: 4 }}>Logo</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="text"
+                  value={loginConfig.logoUrl || ""}
+                  onChange={e => setLoginConfig(c => ({ ...c, logoUrl: e.target.value }))}
+                  style={{
+                    flex: 1,
+                    padding: "6px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    fontSize: 13,
+                  }}
+                  placeholder="https://example.com/logo.png"
+                />
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={async e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    if (typeof window === "undefined") return;
+                    const token = window.localStorage.getItem("accessToken");
+                    if (!token) {
+                      setError("Missing access token. Please login again.");
+                      return;
+                    }
+                    try {
+                      setSaving(true);
+                      setSaveMessage(null);
+                      const form = new FormData();
+                      form.append("file", file);
+                      const res = await fetch(`${API_BASE}/companies/me/logo`, {
+                        method: "POST",
+                        headers: {
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: form,
+                      });
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        throw new Error(text || `Failed to upload logo (${res.status})`);
+                      }
+                      const json: { url?: string } = await res.json();
+                      if (json.url) {
+                        setLoginConfig(c => ({ ...c, logoUrl: json.url || c.logoUrl }));
+                      }
+                      setSaveMessage("Logo uploaded.");
+                    } catch (e: any) {
+                      setError(e?.message ?? "Failed to upload logo.");
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                  style={{ fontSize: 11 }}
+                />
+              </div>
             </label>
 
             <button
@@ -373,20 +416,63 @@ export default function NccLandingEditorPage() {
             </label>
 
             <label style={{ display: "block", marginBottom: 8 }}>
-              <span style={{ display: "block", fontSize: 12, marginBottom: 4 }}>Logo URL</span>
-              <input
-                type="text"
-                value={workerConfig.logoUrl || ""}
-                onChange={e => setWorkerConfig(c => ({ ...c, logoUrl: e.target.value }))}
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 6,
-                  border: "1px solid #d1d5db",
-                  fontSize: 13,
-                }}
-                placeholder="https://example.com/logo.png"
-              />
+              <span style={{ display: "block", fontSize: 12, marginBottom: 4 }}>Logo</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="text"
+                  value={workerConfig.logoUrl || ""}
+                  onChange={e => setWorkerConfig(c => ({ ...c, logoUrl: e.target.value }))}
+                  style={{
+                    flex: 1,
+                    padding: "6px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    fontSize: 13,
+                  }}
+                  placeholder="https://example.com/logo.png"
+                />
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={async e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    if (typeof window === "undefined") return;
+                    const token = window.localStorage.getItem("accessToken");
+                    if (!token) {
+                      setError("Missing access token. Please login again.");
+                      return;
+                    }
+                    try {
+                      setSaving(true);
+                      setSaveMessage(null);
+                      const form = new FormData();
+                      form.append("file", file);
+                      const res = await fetch(`${API_BASE}/companies/me/logo`, {
+                        method: "POST",
+                        headers: {
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: form,
+                      });
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        throw new Error(text || `Failed to upload logo (${res.status})`);
+                      }
+                      const json: { url?: string } = await res.json();
+                      if (json.url) {
+                        setWorkerConfig(c => ({ ...c, logoUrl: json.url || c.logoUrl }));
+                      }
+                      setSaveMessage("Logo uploaded.");
+                    } catch (e: any) {
+                      setError(e?.message ?? "Failed to upload logo.");
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                  style={{ fontSize: 11 }}
+                />
+              </div>
             </label>
 
             <button
