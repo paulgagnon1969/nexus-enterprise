@@ -4,6 +4,7 @@ import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateInviteDto } from "./dto/invite.dto";
 import { UpsertOfficeDto } from "./dto/office.dto";
+import { UpsertLandingConfigDto } from "./dto/landing-config.dto";
 
 @Controller("companies")
 export class CompanyController {
@@ -102,5 +103,21 @@ export class CompanyController {
   deleteMyOffice(@Req() req: any, @Param("id") officeId: string) {
     const actor = req.user as AuthenticatedUser;
     return this.companies.softDeleteOfficeForCurrentCompany(actor, officeId);
+  }
+
+  // --- Branding / landing configuration (login + worker registration) ---
+
+  @UseGuards(JwtAuthGuard)
+  @Get("me/landing-config")
+  getLandingConfig(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.getLandingConfigForCurrentCompany(actor);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post("me/landing-config")
+  upsertLandingConfig(@Req() req: any, @Body() dto: UpsertLandingConfigDto) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.upsertLandingConfigForCurrentCompany(actor, dto);
   }
 }

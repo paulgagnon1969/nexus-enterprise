@@ -6,6 +6,7 @@ import { EmailService } from "../../common/email.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { randomUUID } from "crypto";
 import { UpsertOfficeDto } from "./dto/office.dto";
+import { UpsertLandingConfigDto } from "./dto/landing-config.dto";
 
 @Injectable()
 export class CompanyService {
@@ -329,6 +330,100 @@ export class CompanyService {
     });
 
     return { success: true };
+  }
+
+  // --- Branding / landing configuration helpers ---
+
+  private ensureCanManageBranding(actor: AuthenticatedUser) {
+    // SUPER_ADMIN can always manage branding for the current company context.
+    if (actor.globalRole === GlobalRole.SUPER_ADMIN) return;
+    // For non-super users, require OWNER or ADMIN on the current company.
+    if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+      throw new Error("You do not have permission to manage branding for this organization");
+    }
+  }
+
+  async getLandingConfigForCurrentCompany(actor: AuthenticatedUser) {
+    this.ensureCanManageBranding(actor);
+
+    const rows = await this.prisma.organizationModuleOverride.findMany({
+      where: {
+        companyId: actor.companyId,
+        moduleCode: { in: ["NCC_LOGIN_LANDING", "NCC_WORKER_LANDING"] },
+      },
+      select: {
+        moduleCode: true,
+        configJson: true,
+      },
+    });
+
+    const login = rows.find(r => r.moduleCode === "NCC_LOGIN_LANDING")?.configJson ?? null;
+    const worker = rows.find(r => r.moduleCode === "NCC_WORKER_LANDING")?.configJson ?? null;
+
+    return { login, worker };
+  }
+
+  async upsertLandingConfigForCurrentCompany(
+    actor: AuthenticatedUser,
+    dto: UpsertLandingConfigDto,
+  ) {
+    this.ensureCanManageBranding(actor);
+
+    const companyId = actor.companyId;
+
+    await this.prisma.$transaction(async tx => {
+      if (dto.login) {
+        await tx.organizationModuleOverride.upsert({
+          where: {
+            companyId_moduleCode: {
+              companyId,
+              moduleCode: "NCC_LOGIN_LANDING",
+            },
+          },
+          update: {
+            enabled: true,
+            configJson: dto.login as any,
+          },
+          create: {
+            companyId,
+            moduleCode: "NCC_LOGIN_LANDING",
+            enabled: true,
+            configJson: dto.login as any,
+          },
+        });
+      }
+
+      if (dto.worker) {
+        await tx.organizationModuleOverride.upsert({
+          where: {
+            companyId_moduleCode: {
+              companyId,
+              moduleCode: "NCC_WORKER_LANDING",
+            },
+          },
+          update: {
+            enabled: true,
+            configJson: dto.worker as any,
+          },
+          create: {
+            companyId,
+            moduleCode: "NCC_WORKER_LANDING",
+            enabled: true,
+            configJson: dto.worker as any,
+          },
+        });
+      }
+    });
+
+    await this.audit.log(actor, "COMPANY_LANDING_CONFIG_UPDATED", {
+      companyId,
+      metadata: {
+        hasLoginConfig: !!dto.login,
+        hasWorkerConfig: !!dto.worker,
+      },
+    });
+
+    return this.getLandingConfigForCurrentCompany(actor);
   }
 
   async updateMemberRole(
