@@ -503,7 +503,7 @@ export default function SystemLayout({ children }: { children: ReactNode }) {
                   borderRadius: 999,
                   border: "1px solid #e5e7eb",
                   background: pathname === "/system" ? "#f9fafb" : "transparent",
-                  color: "#f9fafb",
+                  color: pathname === "/system" ? "#0f172a" : "#f9fafb",
                   fontSize: 11,
                   textDecoration: "none",
                 }}
@@ -519,7 +519,7 @@ export default function SystemLayout({ children }: { children: ReactNode }) {
                   background: pathname?.startsWith("/system/templates")
                     ? "#f9fafb"
                     : "transparent",
-                  color: "#f9fafb",
+                  color: pathname?.startsWith("/system/templates") ? "#0f172a" : "#f9fafb",
                   fontSize: 11,
                   textDecoration: "none",
                 }}
