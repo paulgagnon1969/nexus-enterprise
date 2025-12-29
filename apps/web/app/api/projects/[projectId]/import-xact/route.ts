@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,9 @@ export async function POST(
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const uploadDir = path.join(process.cwd(), "tmp_uploads");
+    // Use OS tmp dir (or NCC_UPLOAD_TMP_DIR) so this works on read-only /var/task
+    const baseTmpDir = process.env.NCC_UPLOAD_TMP_DIR || os.tmpdir();
+    const uploadDir = path.join(baseTmpDir, "ncc_uploads");
     await fs.mkdir(uploadDir, { recursive: true });
 
     const safeName = file.name.replace(/[^a-zA-Z0-9_.-]/g, "_");
