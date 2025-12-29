@@ -527,15 +527,15 @@ export default function SystemLayout({ children }: { children: ReactNode }) {
                 Templates
               </Link>
               <Link
-                href="https://ncc-nexus-contractor-connect.com"
-                target="_blank"
-                rel="noreferrer"
+                href="/system/embedded/ncc-landing"
                 style={{
                   padding: "2px 8px",
                   borderRadius: 999,
                   border: "1px solid #e5e7eb",
-                  background: "transparent",
-                  color: "#f9fafb",
+                  background: pathname?.startsWith("/system/embedded/ncc-landing")
+                    ? "#f9fafb"
+                    : "transparent",
+                  color: pathname?.startsWith("/system/embedded/ncc-landing") ? "#0f172a" : "#f9fafb",
                   fontSize: 11,
                   textDecoration: "none",
                 }}
