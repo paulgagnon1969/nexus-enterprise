@@ -2,7 +2,7 @@
 
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -16,8 +16,15 @@ interface MeDto {
   globalRole?: string;
 }
 
+interface OrgProjectSummary {
+  id: string;
+  name: string;
+  status?: string;
+}
+
 export default function SystemLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean | null>(null);
   const [companies, setCompanies] = useState<CompanyDto[]>([]);
@@ -30,6 +37,10 @@ export default function SystemLayout({ children }: { children: ReactNode }) {
   const [newOrgName, setNewOrgName] = useState("");
   const [newOrgTemplate, setNewOrgTemplate] = useState("BLANK");
   const [newOrgError, setNewOrgError] = useState<string | null>(null);
+
+  const [orgProjects, setOrgProjects] = useState<OrgProjectSummary[]>([]);
+  const [orgProjectsLoading, setOrgProjectsLoading] = useState(false);
+  const [orgProjectsError, setOrgProjectsError] = useState<string | null>(null);
 
   function getTokenOrThrow() {
     const t = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
@@ -90,12 +101,6 @@ export default function SystemLayout({ children }: { children: ReactNode }) {
       return;
     }
 
-    const cachedGlobalRole = window.localStorage.getItem("globalRole");
-    if (cachedGlobalRole === "SUPER_ADMIN") {
-      setIsSuperAdmin(true);
-      return;
-    }
-
     fetch(`${API_BASE}/users/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -123,6 +128,12 @@ export default function SystemLayout({ children }: { children: ReactNode }) {
   const isActiveCompany = (id: string) => pathname?.startsWith(`/system/${id}`);
   const isOverview = pathname === "/system";
 
+  const path = pathname ?? "";
+  const selectedCompanyId = path.startsWith("/system/")
+    ? path.split("/")[2] ?? null
+    : null;
+  const selectedProjectId = searchParams.get("projectId");
+
   const visibleCompanies = useMemo(() => {
     const q = search.trim().toLowerCase();
     const filtered = q
@@ -130,6 +141,54 @@ export default function SystemLayout({ children }: { children: ReactNode }) {
       : companies;
     return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
   }, [companies, search]);
+
+  // Load projects for the selected organization (middle sidebar)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!selectedCompanyId) {
+      setOrgProjects([]);
+      setOrgProjectsError(null);
+      setOrgProjectsLoading(false);
+      return;
+    }
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setOrgProjectsError("Missing access token. Please login again.");
+      setOrgProjectsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setOrgProjectsLoading(true);
+    setOrgProjectsError(null);
+
+    fetch(`${API_BASE}/admin/companies/${selectedCompanyId}/projects`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`Failed to load jobs (${res.status})`);
+        }
+        return res.json();
+      })
+      .then((json: any) => {
+        if (cancelled) return;
+        setOrgProjects(Array.isArray(json) ? json : []);
+      })
+      .catch((e: any) => {
+        if (cancelled) return;
+        setOrgProjectsError(e?.message ?? "Failed to load jobs");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setOrgProjectsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCompanyId]);
 
   const handleCreateOrg = async () => {
     setNewOrgError(null);
@@ -318,8 +377,170 @@ export default function SystemLayout({ children }: { children: ReactNode }) {
         )}
       </aside>
 
+      {/* Middle sidebar: projects for selected organization */}
+      <aside
+        style={{
+          width: 260,
+          flexShrink: 0,
+          borderRadius: 6,
+          background: "#ffffff",
+          border: "1px solid #0f172a",
+          padding: 8,
+          display: "flex",
+          flexDirection: "column",
+          height: "calc(100vh - 79px)",
+        }}
+      >
+        <div
+          style={{
+            marginBottom: 6,
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>
+            Projects
+          </div>
+          <div style={{ fontSize: 11, color: "#6b7280" }}>
+            Jobs in selected organization
+          </div>
+        </div>
+
+        {!selectedCompanyId ? (
+          <div style={{ fontSize: 12, color: "#9ca3af" }}>
+            Select an organization to see its jobs.
+          </div>
+        ) : orgProjectsLoading ? (
+          <div style={{ fontSize: 12, color: "#9ca3af" }}>Loading…</div>
+        ) : orgProjectsError ? (
+          <div style={{ fontSize: 12, color: "#f97316" }}>{orgProjectsError}</div>
+        ) : orgProjects.length === 0 ? (
+          <div style={{ fontSize: 12, color: "#9ca3af" }}>No jobs yet.</div>
+        ) : (
+          <div
+            style={{
+              overflowY: "auto",
+              paddingRight: 0,
+              flex: 1,
+            }}
+          >
+            <ul
+              style={{
+                listStyle: "none",
+                padding: 0,
+                margin: 0,
+              }}
+            >
+              {orgProjects
+                .slice()
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map(p => {
+                  const active = selectedCompanyId && selectedProjectId === p.id;
+                  return (
+                    <li key={p.id}>
+                      <Link
+                        href={`/system/${selectedCompanyId}?projectId=${p.id}`}
+                        style={{
+                          display: "block",
+                          margin: "0 -8px 4px",
+                          padding: "6px 12px",
+                          fontSize: 12,
+                          textDecoration: "none",
+                          borderBottom: "1px solid #e5e7eb",
+                          color: active ? "#0f172a" : "#111827",
+                          backgroundColor: active ? "#bfdbfe" : "transparent",
+                        }}
+                      >
+                        <div
+                          style={{
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {p.name}
+                        </div>
+                        {p.status && (
+                          <div style={{ fontSize: 11, color: "#6b7280" }}>
+                            {p.status}
+                          </div>
+                        )}
+                      </Link>
+                    </li>
+                  );
+                })}
+            </ul>
+          </div>
+        )}
+      </aside>
+
       {/* Right pane */}
       <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+        {/* Tenant workspace menu under the Superuser frame */}
+        <div
+          style={{
+            marginBottom: 12,
+            padding: "6px 10px",
+            borderRadius: 6,
+            background: "#ffffff",
+            border: "1px solid #e5e7eb",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            fontSize: 13,
+          }}
+        >
+          <span style={{ fontWeight: 600, color: "#0f172a" }}>
+            Tenant workspace:
+          </span>
+          <Link
+            href="/projects"
+            target="_blank"
+            rel="noreferrer"
+            style={{ textDecoration: "none", color: "#111827" }}
+          >
+            Proj Overview
+          </Link>
+          <Link
+            href="/project-management"
+            target="_blank"
+            rel="noreferrer"
+            style={{ textDecoration: "none", color: "#111827" }}
+          >
+            Project Management
+          </Link>
+          <Link
+            href="/files"
+            target="_blank"
+            rel="noreferrer"
+            style={{ textDecoration: "none", color: "#111827" }}
+          >
+            Files
+          </Link>
+          <Link
+            href="/messaging"
+            target="_blank"
+            rel="noreferrer"
+            style={{ textDecoration: "none", color: "#111827" }}
+          >
+            Messaging
+          </Link>
+          <Link
+            href="/financial"
+            target="_blank"
+            rel="noreferrer"
+            style={{ textDecoration: "none", color: "#111827" }}
+          >
+            Financial
+          </Link>
+          <Link
+            href="/reports"
+            target="_blank"
+            rel="noreferrer"
+            style={{ textDecoration: "none", color: "#111827" }}
+          >
+            Reports
+          </Link>
+        </div>
+
         {children}
 
         {showNewOrg && (
