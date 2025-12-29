@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from "@nestjs/common";
+import type { FastifyRequest } from "fastify";
 import { CompanyService } from "./company.service";
 import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
@@ -119,5 +120,14 @@ export class CompanyController {
   upsertLandingConfig(@Req() req: any, @Body() dto: UpsertLandingConfigDto) {
     const actor = req.user as AuthenticatedUser;
     return this.companies.upsertLandingConfigForCurrentCompany(actor, dto);
+  }
+
+  // --- Logo / branding assets ---
+
+  @UseGuards(JwtAuthGuard)
+  @Post("me/logo")
+  async uploadCompanyLogo(@Req() req: FastifyRequest) {
+    const actor = (req as any).user as AuthenticatedUser;
+    return this.companies.uploadCompanyLogo(actor, req);
   }
 }

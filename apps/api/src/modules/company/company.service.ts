@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import type { FastifyRequest } from "fastify";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { GlobalRole, Role } from "../auth/auth.guards";
 import { AuditService } from "../../common/audit.service";
@@ -7,6 +8,9 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { randomUUID } from "crypto";
 import { UpsertOfficeDto } from "./dto/office.dto";
 import { UpsertLandingConfigDto } from "./dto/landing-config.dto";
+import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 @Injectable()
 export class CompanyService {
@@ -375,7 +379,7 @@ export class CompanyService {
       if (dto.login) {
         await tx.organizationModuleOverride.upsert({
           where: {
-            companyId_moduleCode: {
+            OrgModuleOverride_company_module_key: {
               companyId,
               moduleCode: "NCC_LOGIN_LANDING",
             },
@@ -396,7 +400,7 @@ export class CompanyService {
       if (dto.worker) {
         await tx.organizationModuleOverride.upsert({
           where: {
-            companyId_moduleCode: {
+            OrgModuleOverride_company_module_key: {
               companyId,
               moduleCode: "NCC_WORKER_LANDING",
             },
@@ -424,6 +428,41 @@ export class CompanyService {
     });
 
     return this.getLandingConfigForCurrentCompany(actor);
+  }
+
+  async uploadCompanyLogo(actor: AuthenticatedUser, req: FastifyRequest) {
+    this.ensureCanManageBranding(actor);
+
+    const { file } = await readSingleFileFromMultipart(req, {
+      fieldName: "file",
+    });
+
+    const uploadsRoot = path.resolve(process.cwd(), "uploads/company-logos");
+    if (!fs.existsSync(uploadsRoot)) {
+      fs.mkdirSync(uploadsRoot, { recursive: true });
+    }
+
+    const ext = path.extname(file.filename || "");
+    const safeExt = ext && ext.length <= 8 ? ext : "";
+    const fileName = `${actor.companyId}-${Date.now()}${safeExt}`;
+    const destPath = path.join(uploadsRoot, fileName);
+
+    const buffer = await file.toBuffer();
+    fs.writeFileSync(destPath, buffer);
+
+    const publicUrl = `/uploads/company-logos/${fileName}`;
+
+    await this.audit.log(actor, "COMPANY_LOGO_UPLOADED", {
+      companyId: actor.companyId,
+      metadata: {
+        fileName: file.filename,
+        mimeType: file.mimetype,
+        sizeBytes: buffer.length,
+        publicUrl,
+      },
+    });
+
+    return { url: publicUrl };
   }
 
   async updateMemberRole(
