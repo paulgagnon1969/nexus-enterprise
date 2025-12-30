@@ -15,10 +15,17 @@ import { ProjectService } from "./project.service";
 import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateProjectDto, AddProjectMemberDto, ImportXactDto, ImportXactComponentsDto, UpdateProjectDto } from "./dto/project.dto";
+import { ImportJobsService } from "../import-jobs/import-jobs.service";
+import { ImportJobType } from "@prisma/client";
+import { GcsService } from "../../infra/storage/gcs.service";
 
 @Controller("projects")
 export class ProjectController {
-  constructor(private readonly projects: ProjectService) {}
+  constructor(
+    private readonly projects: ProjectService,
+    private readonly importJobs: ImportJobsService,
+    private readonly gcs: GcsService,
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @Get()
@@ -121,6 +128,43 @@ export class ProjectController {
 
   @UseGuards(JwtAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN)
+  @Post(":id/xact-raw/upload-url")
+  async getXactRawUploadUrl(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body() body: { contentType?: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const contentType = body.contentType || "text/csv";
+
+    // Validate project access
+    await this.projects.getProjectByIdForUser(projectId, user);
+
+    const key = [
+      "xact-raw",
+      user.companyId,
+      projectId,
+      `${Date.now()}`,
+      Math.random().toString(36).slice(2),
+    ].join("/");
+
+    const { uploadUrl, fileUri } = await this.gcs.createSignedUploadUrl({
+      key,
+      contentType,
+    });
+
+    console.log("[projects] xact-raw/upload-url", {
+      companyId: user.companyId,
+      projectId,
+      userId: user.userId,
+      fileUri,
+    });
+
+    return { uploadUrl, fileUri };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
   @Post(":id/import-xact")
   importXact(
     @Req() req: any,
@@ -134,6 +178,44 @@ export class ProjectController {
       dto.csvPath,
       user
     );
+  }
+
+  // New: create an Xact RAW ImportJob from a storage URI (e.g. gs://...)
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post(":id/import-xact-from-uri")
+  async importXactFromUri(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body() body: { fileUri: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const { fileUri } = body;
+
+    if (!fileUri || !fileUri.trim()) {
+      throw new BadRequestException("fileUri is required");
+    }
+
+    // Validate project access (throws if not allowed)
+    await this.projects.getProjectByIdForUser(projectId, user);
+
+    const job = await this.importJobs.createJob({
+      companyId: user.companyId,
+      projectId,
+      createdByUserId: user.userId,
+      type: ImportJobType.XACT_RAW,
+      fileUri,
+    });
+
+    console.log("[projects] import-xact-from-uri", {
+      companyId: user.companyId,
+      projectId,
+      userId: user.userId,
+      fileUri,
+      importJobId: job.id,
+    });
+
+    return { jobId: job.id };
   }
 
   @UseGuards(JwtAuthGuard)

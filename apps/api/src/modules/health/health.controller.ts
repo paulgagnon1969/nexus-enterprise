@@ -9,14 +9,20 @@ export class HealthController {
     private readonly redis: RedisService
   ) {}
 
+  // Liveness: process is up and able to respond.
   @Get()
   async getHealth() {
-    // For now, just confirm DB connectivity via a trivial code path; we do not
-    // depend on a raw SQL call here while stabilizing Prisma typings.
-    // If this call throws, Nest will surface a 500 and the health check will fail.
-    await this.prisma.$connect();
+    return {
+      ok: true,
+      time: new Date().toISOString(),
+    };
+  }
 
-    const now = new Date();
+  // Readiness: core dependencies (Postgres + Redis) are reachable.
+  @Get("deps")
+  async getDepsHealth() {
+    // If this throws, Nest will surface a 5xx and the health check fails.
+    await this.prisma.$queryRaw`SELECT 1`;
 
     let redisStatus: string;
     try {
@@ -24,14 +30,15 @@ export class HealthController {
       const redisPing = await redisClient.ping();
       redisStatus = redisPing;
     } catch (e) {
-      // Redis might not be available in some environments (like Cloud Run)
+      // Redis might not be available in some environments (e.g., dev without REDIS_USE_REAL=true).
       redisStatus = "unreachable";
     }
 
     return {
       ok: true,
-      dbTime: now,
+      db: "ok",
       redis: redisStatus,
+      time: new Date().toISOString(),
     };
   }
 }

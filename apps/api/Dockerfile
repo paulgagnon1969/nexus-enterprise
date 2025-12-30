@@ -36,6 +36,8 @@ COPY package.json ./
 # Copy built api dist and its node_modules tree
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/node_modules ./node_modules
+# Copy workspace package source for @repo/database so the workspace symlink resolves at runtime
+COPY --from=builder /app/packages/database ./packages/database
 
 # Set working directory to the api app
 WORKDIR /app/apps/api

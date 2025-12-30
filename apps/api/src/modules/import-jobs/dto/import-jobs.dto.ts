@@ -13,3 +13,8 @@ export class CreateXactComponentsImportJobDto {
   @IsString()
   estimateVersionId?: string;
 }
+
+export class CreateXactComponentsAllocationJobDto {
+  @IsString()
+  estimateVersionId!: string;
+}

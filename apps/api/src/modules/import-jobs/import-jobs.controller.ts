@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/comm
 import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { ImportJobsService } from "./import-jobs.service";
-import { CreateXactComponentsImportJobDto, CreateXactRawImportJobDto } from "./dto/import-jobs.dto";
+import { CreateXactComponentsAllocationJobDto, CreateXactComponentsImportJobDto, CreateXactRawImportJobDto } from "./dto/import-jobs.dto";
 import { ImportJobType } from "@prisma/client";
 
 @UseGuards(JwtAuthGuard)
@@ -51,6 +51,26 @@ export class ProjectImportJobsController {
     return { jobId: job.id };
   }
 
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post("xact-components/allocate")
+  async enqueueXactComponentsAllocation(
+    @Req() req: any,
+    @Param("projectId") projectId: string,
+    @Body() dto: CreateXactComponentsAllocationJobDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+
+    const job = await this.jobs.createJob({
+      companyId: user.companyId,
+      projectId,
+      createdByUserId: user.userId,
+      type: ImportJobType.XACT_COMPONENTS_ALLOCATE,
+      estimateVersionId: dto.estimateVersionId,
+    });
+
+    return { jobId: job.id };
+  }
+
   @Get()
   async listForProject(@Req() req: any, @Param("projectId") projectId: string) {
     const user = req.user as AuthenticatedUser;
@@ -67,6 +87,12 @@ export class ImportJobsController {
   async pending(@Req() req: any) {
     const user = req.user as AuthenticatedUser;
     return this.jobs.summarizePendingForCompany(user.companyId);
+  }
+
+  @Get("xact-components/report")
+  async xactComponentsReport(@Req() req: any) {
+    const user = req.user as AuthenticatedUser;
+    return this.jobs.getXactComponentsIngestionReport(user.companyId);
   }
 
   @Get(":jobId")

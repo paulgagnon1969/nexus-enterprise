@@ -21,6 +21,21 @@ services:
     volumes:
       - nexus-redis-data:/data
 
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    image: ghcr.io/paulgagnon1969/ncc-api:chunk-v1
+    container_name: nexus-api
+    restart: unless-stopped
+    env_file:
+      - ../../apps/api/.env.docker
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+
 volumes:
   nexus-postgres-data:
   nexus-redis-data:

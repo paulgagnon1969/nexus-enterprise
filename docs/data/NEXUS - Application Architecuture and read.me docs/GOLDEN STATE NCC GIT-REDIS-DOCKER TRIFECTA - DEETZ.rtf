@@ -1,0 +1,279 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww11520\viewh28420\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 \
+\
+**Files Read:**\
+\
+**/Users/pg/nexus-enterprise/scripts/deploy-api.sh**\
+```\
+#!/usr/bin/env bash\
+set -euo pipefail\
+\
+# Deploy the Nexus API (apps/api) to Cloud Run.\
+#\
+# Usage:\
+#   ./scripts/deploy-api.sh\
+#\
+# Prereqs:\
+#   - gcloud CLI installed and authenticated\
+#   - You have access to project nexus-enterprise-480610\
+#   - Cloud Run service "nexus-api" already configured with DATABASE_URL env var\
+\
+PROJECT_ID="nexus-enterprise-480610"\
+REGION="us-central1"\
+SERVICE="nexus-api"\
+IMAGE="us-docker.pkg.dev/$\{PROJECT_ID\}/nexus-api/nexus-api"\
+\
+ROOT_DIR="$(cd "$(dirname "$\{BASH_SOURCE[0]\}")/.." && pwd)"\
+cd "$ROOT_DIR"\
+\
+echo "[deploy-api] Using project: $PROJECT_ID"\
+gcloud config set project "$PROJECT_ID" >/dev/null\
+\
+echo "[deploy-api] Building image with Cloud Build..."\
+gcloud builds submit \\\
+  --tag "$IMAGE" \\\
+  --project "$PROJECT_ID"\
+\
+echo "[deploy-api] Deploying to Cloud Run service: $SERVICE ($REGION)"\
+gcloud run deploy "$SERVICE" \\\
+  --image "$IMAGE" \\\
+  --platform managed \\\
+  --region "$REGION" \\\
+  --project "$PROJECT_ID" \\\
+  --allow-unauthenticated\
+\
+echo "[deploy-api] Done. Check the Cloud Run URL in the gcloud output above."\
+```\
+\
+\
+\
+\
+\
+**Diff:**\
+```diff\
+--- /Users/pg/nexus-enterprise/infra/docker/docker-compose.yml\
++++ /Users/pg/nexus-enterprise/infra/docker/docker-compose.yml\
+@@ -21,6 +21,21 @@\
+     volumes:\
+       - nexus-redis-data:/data\
+ \
++  api:\
++    build:\
++      context: ../..\
++      dockerfile: apps/api/Dockerfile\
++    image: ghcr.io/paulgagnon1969/ncc-api:chunk-v1\
++    container_name: nexus-api\
++    restart: unless-stopped\
++    env_file:\
++      - ../../apps/api/.env.docker\
++    ports:\
++      - "8000:8000"\
++    depends_on:\
++      - postgres\
++      - redis\
++\
+ volumes:\
+   nexus-postgres-data:\
+   nexus-redis-data:\
+\
+```\
+\
+\
+\
+\
+\
+**File Glob Results:**\
+\
+- **/Users/pg/nexus-enterprise/Dockerfile**\
+- **/Users/pg/nexus-enterprise/apps/api/Dockerfile**\
+\
+\
+\
+\
+**Files Read:**\
+\
+**/Users/pg/nexus-enterprise/Dockerfile**\
+```\
+# Dockerfile for Nexus Enterprise monorepo API service\
+# Builds and runs the NestJS API on Cloud Run (or any Docker runtime)\
+\
+FROM node:20-alpine\
+\
+# Create app directory\
+WORKDIR /app\
+\
+# Install root dependencies (workspace-aware)\
+# Copy only manifest files first for better Docker layer caching\
+COPY package*.json ./\
+COPY tsconfig.json ./\
+COPY turbo.json ./\
+COPY apps/api/package.json ./apps/api/package.json\
+COPY packages/database/package.json ./packages/database/package.json\
+\
+RUN npm ci\
+\
+# Copy the rest of the repository\
+COPY . .\
+\
+# Generate Prisma client for the shared database package\
+RUN npm run prisma:generate --workspace @repo/database\
+\
+# Build the API app (TypeScript -> dist) via Turborepo, filtering to the api app\
+RUN npm run build -- --filter=api\
+\
+# Ensure our working directory is the API app for runtime\
+WORKDIR /app/apps/api\
+\
+# Runtime configuration\
+ENV NODE_ENV=production\
+# Cloud Run will inject PORT; default to 8080 for local runs\
+ENV PORT=8080\
+\
+EXPOSE 8080\
+\
+# Start the NestJS API\
+CMD ["node", "dist/main.js"]\
+\
+```\
+\
+\
+\
+Great, let\'92s lock in both.\
+\
+---\
+\
+## 1. One\uc0\u8209 command local stack (Postgres + Redis + API)\
+\
+I\'92ve already added an `api` service to `infra/docker/docker-compose.yml` that:\
+\
+- Builds from the monorepo root using `apps/api/Dockerfile`\
+- Uses `apps/api/.env.docker`\
+- Depends on `postgres` and `redis`\
+- Exposes `8000:8000`\
+\
+The relevant part now looks like:\
+\
+```yaml\
+services:\
+  postgres:\
+    image: postgres:18\
+    container_name: nexus-postgres\
+    restart: unless-stopped\
+    environment:\
+      POSTGRES_USER: nexus_user\
+      POSTGRES_PASSWORD: nexus_password\
+      POSTGRES_DB: nexus_db\
+    ports:\
+      - "5433:5432"\
+    volumes:\
+      - nexus-postgres-data:/var/lib/postgresql\
+\
+  redis:\
+    image: redis:8\
+    container_name: nexus-redis\
+    restart: unless-stopped\
+    ports:\
+      - "6380:6379"\
+    volumes:\
+      - nexus-redis-data:/data\
+\
+  api:\
+    build:\
+      context: ../..\
+      dockerfile: apps/api/Dockerfile\
+    image: ghcr.io/paulgagnon1969/ncc-api:chunk-v1\
+    container_name: nexus-api\
+    restart: unless-stopped\
+    env_file:\
+      - ../../apps/api/.env.docker\
+    ports:\
+      - "8000:8000"\
+    depends_on:\
+      - postgres\
+      - redis\
+\
+volumes:\
+  nexus-postgres-data:\
+  nexus-redis-data:\
+```\
+### Bring up the full stack\
+\
+From the repo root:\
+\
+```bash\
+cd /Users/pg/nexus-enterprise\
+\
+docker compose -f infra/docker/docker-compose.yml up -d --build\
+```\
+- First run will build the API image.\
+- Subsequent runs can drop `--build` unless you\'92ve changed code / Dockerfile.\
+\
+Health check:\
+\
+```bash\
+curl http://localhost:8000/health\
+# \uc0\u8594  \{"ok":true,"dbTime":"...","redis":"PONG"\}\
+```\
+### Stopping the stack\
+\
+```bash\
+docker compose -f infra/docker/docker-compose.yml down\
+```\
+(You can also target only `api` with `up -d api` / `down api` if you want to leave Postgres/Redis alone.)\
+\
+---\
+\
+## 2. Deployment pipeline to Cloud Run\
+\
+You already have a scripted pipeline using Cloud Build + Artifact Registry + Cloud Run:\
+\
+### 2.1 Standard deploy via `scripts/deploy-api.sh` (recommended)\
+\
+This uses the **root** `Dockerfile` (Cloud Run\'96oriented: PORT=8080, etc.) and pushes to Artifact Registry.\
+\
+From the repo root:\
+\
+```bash\
+cd /Users/pg/nexus-enterprise\
+./scripts/deploy-api.sh\
+```\
+What it does:\
+\
+- Builds the image with Cloud Build using `Dockerfile` in the repo root.\
+- Tags it as `us-docker.pkg.dev/nexus-enterprise-480610/nexus-api/nexus-api`.\
+- Deploys to Cloud Run service `nexus-api` in `us-central1`.\
+- Assumes `DATABASE_URL` (and any other needed env vars like `REDIS_URL`) are already configured on the `nexus-api` service.\
+\
+This is the \'93canonical\'94 pipeline you can run any time after merging changes.\
+\
+### 2.2 Deploy the GHCR image tag directly (optional / advanced)\
+\
+If you explicitly want to deploy the **GHCR** image you built locally (`ghcr.io/paulgagnon1969/ncc-api:chunk-v1`) instead of going through Cloud Build:\
+\
+```bash\
+gcloud run deploy nexus-api \\\
+  --image ghcr.io/paulgagnon1969/ncc-api:chunk-v1 \\\
+  --platform managed \\\
+  --region us-central1 \\\
+  --project nexus-enterprise-480610 \\\
+  --allow-unauthenticated\
+```\
+Requirements:\
+\
+- Cloud Run must be able to pull that image (either GHCR repo is public, or you\'92ve set up appropriate access for Cloud Run\'92s service account).\
+- `DATABASE_URL`, `REDIS_URL`, JWT secrets, etc., still come from Cloud Run service env vars (no `.env` file in Cloud Run).\
+\
+---\
+\
+If you want, next we can:\
+\
+- Add a small `Makefile` or `npm` scripts to wrap:\
+  - `docker compose -f infra/docker/docker-compose.yml up -d --build` (e.g., `npm run dev:stack`)\
+  - `./scripts/deploy-api.sh` (e.g., `npm run deploy:api`)  \
+so your common workflows are just `npm run dev:stack` and `npm run deploy:api`.}

@@ -1,28 +1,359 @@
 import "reflect-metadata";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { NestFactory } from "@nestjs/core";
 import { Worker, Job } from "bullmq";
 import { AppModule } from "./app.module";
 import { PrismaService } from "./infra/prisma/prisma.service";
-import { IMPORT_QUEUE_NAME, getBullRedisConnection } from "./infra/queue/import-queue";
+import { IMPORT_QUEUE_NAME, getBullRedisConnection, getImportQueue } from "./infra/queue/import-queue";
 import {
   allocateComponentsForEstimate,
-  importXactComponentsCsvForEstimate,
+  importXactComponentsChunkForEstimate,
   importXactCsvForProject,
   importGoldenComponentsFromFile,
 } from "@repo/database";
 import { ImportJobStatus, ImportJobType } from "@prisma/client";
 import { importPriceListFromFile } from "./modules/pricing/pricing.service";
+import { Storage } from "@google-cloud/storage";
+import { parse } from "csv-parse/sync";
 
-type ImportJobPayload = {
+type ParentJobPayload = {
+  kind?: "parent";
   importJobId: string;
 };
+
+type ChunkJobPayload = {
+  kind: "chunk";
+  importJobId: string;
+  chunkIndex: number;
+  chunkCount: number;
+  strategy: string;
+  payload: any;
+};
+
+type ImportJobPayload = ParentJobPayload | ChunkJobPayload;
+
+// BullMQ: lower numeric priority value means higher priority.
+const PRIORITY_DEFAULT = 5;
+const PRIORITY_XACT_COMPONENTS = 3;
+const PRIORITY_XACT_COMPONENTS_ALLOCATE = 1;
+
+const gcsStorage = new Storage();
 
 function safeError(err: unknown) {
   if (err instanceof Error) {
     return { message: err.message, stack: err.stack };
   }
   return { message: String(err) };
+}
+
+async function downloadGcsToTmp(fileUri: string): Promise<string> {
+  const match = fileUri.match(/^gs:\/\/([^/]+)\/(.+)$/);
+  if (!match) {
+    throw new Error(`Invalid fileUri for GCS download: ${fileUri}`);
+  }
+  const [, bucketName, objectName] = match;
+  const bucket = gcsStorage.bucket(bucketName!);
+  const file = bucket.file(objectName!);
+
+  const baseTmpDir = process.env.NCC_UPLOAD_TMP_DIR || os.tmpdir();
+  const uploadDir = path.join(baseTmpDir, "ncc_uploads");
+  await fs.promises.mkdir(uploadDir, { recursive: true });
+
+  const safeName = path.basename(objectName!).replace(/[^a-zA-Z0-9_.-]/g, "_");
+  const localPath = path.join(uploadDir, `${Date.now()}-${safeName}`);
+
+  await file.download({ destination: localPath });
+  return localPath;
+}
+
+async function runXactComponentsIngestionJob(prisma: PrismaService, job: any) {
+  const importJobId = job.id;
+  const csvPath = job.csvPath?.trim();
+  if (!csvPath) {
+    throw new Error("XACT_COMPONENTS ingestion job has no csvPath.");
+  }
+  if (!fs.existsSync(csvPath)) {
+    throw new Error(`Components CSV not found at ${csvPath}`);
+  }
+
+  let estimateVersionId = job.estimateVersionId ?? null;
+
+  if (!estimateVersionId) {
+    const latest = await prisma.estimateVersion.findFirst({
+      where: { projectId: job.projectId as string },
+      orderBy: [
+        { sequenceNo: "desc" },
+        { importedAt: "desc" },
+        { createdAt: "desc" },
+      ],
+    });
+    if (!latest) {
+      throw new Error(
+        "No estimate version found. Import Xactimate raw line items first.",
+      );
+    }
+    estimateVersionId = latest.id;
+  }
+
+  const estimate = await prisma.estimateVersion.findUnique({
+    where: { id: estimateVersionId },
+    include: { project: true },
+  });
+
+  if (!estimate || !estimate.project) {
+    throw new Error("EstimateVersion or project not found for XACT_COMPONENTS job");
+  }
+
+  const projectId = estimate.projectId;
+
+  console.log(
+    "[worker] XACT_COMPONENTS ingestion (chunked) start estimateVersionId=%s projectId=%s",
+    estimateVersionId,
+    projectId,
+  );
+
+  // Wipe any prior import for this estimate so we can safely re-import
+  await prisma.$transaction([
+    prisma.rawComponentRow.deleteMany({ where: { estimateVersionId } }),
+    prisma.componentSummary.deleteMany({ where: { estimateVersionId } }),
+  ]);
+
+  const rawCsv = fs.readFileSync(csvPath, "utf8");
+  const records: any[] = parse(rawCsv, {
+    columns: true,
+    skip_empty_lines: true,
+  });
+
+  const totalRecords = records.length;
+
+  if (totalRecords === 0) {
+    // Nothing to ingest; mark ingestion job complete and enqueue allocation job directly.
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        status: ImportJobStatus.SUCCEEDED,
+        finishedAt: new Date(),
+        progress: 100,
+        message: "No Xact components found; allocation job queued",
+        estimateVersionId,
+        resultJson: {
+          phase: "ingestion",
+          estimateVersionId,
+          components: {
+            estimateVersionId,
+            projectId,
+            rawCount: 0,
+            summaryCount: 0,
+          },
+        } as any,
+      },
+    });
+
+    const allocationJob = await prisma.importJob.create({
+      data: {
+        companyId: job.companyId,
+        projectId: job.projectId,
+        createdByUserId: job.createdByUserId,
+        type: ImportJobType.XACT_COMPONENTS_ALLOCATE,
+        status: ImportJobStatus.QUEUED,
+        progress: 0,
+        estimateVersionId,
+        message: "Queued Xact components allocation (no components to ingest)",
+      },
+    });
+
+    const queue = getImportQueue();
+    await queue.add(
+      "process",
+      { importJobId: allocationJob.id },
+      {
+        attempts: 1,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+        priority: PRIORITY_XACT_COMPONENTS_ALLOCATE,
+      },
+    );
+
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        metaJson: {
+          ...(job.metaJson as any),
+          allocationJobId: allocationJob.id,
+        } as any,
+      },
+    });
+
+    return;
+  }
+
+  // Decide chunking strategy using heuristics based on components vs RAW rows.
+  const rawCount = await prisma.rawXactRow.count({ where: { estimateVersionId } });
+  const ratio = totalRecords / (rawCount || 1);
+
+  // Baseline target records per chunk; adjust based on size and ratio.
+  let maxRecordsPerChunk = 8000;
+  if (totalRecords > 20000 || ratio > 1.5) maxRecordsPerChunk = 4000;
+  if (totalRecords > 50000 || ratio > 3) maxRecordsPerChunk = 2500;
+
+  // Optional override via env for hard tuning if needed.
+  const overrideChunkEnv = process.env.XACT_COMPONENTS_RECORDS_PER_CHUNK;
+  if (overrideChunkEnv) {
+    const n = Number(overrideChunkEnv);
+    if (Number.isFinite(n) && n > 0) {
+      maxRecordsPerChunk = n;
+    }
+  }
+
+  const maxChunksEnv = process.env.XACT_COMPONENTS_MAX_CHUNKS;
+  let maxChunks = maxChunksEnv ? Number(maxChunksEnv) : 16;
+  if (!Number.isFinite(maxChunks) || maxChunks <= 0) {
+    maxChunks = 16;
+  }
+
+  let chunkCount = Math.ceil(totalRecords / maxRecordsPerChunk);
+  if (!Number.isFinite(chunkCount) || chunkCount <= 0) {
+    chunkCount = 1;
+  }
+  if (chunkCount > maxChunks) {
+    chunkCount = maxChunks;
+  }
+
+  const chunkSize = Math.ceil(totalRecords / chunkCount);
+
+  const baseTmpDir = process.env.NCC_UPLOAD_TMP_DIR || os.tmpdir();
+  const chunkDir = path.join(
+    baseTmpDir,
+    "ncc_uploads",
+    "xact_components_chunks",
+    String(importJobId),
+  );
+  await fs.promises.mkdir(chunkDir, { recursive: true });
+
+  // Helper to serialize records back to a CSV string with a stable header.
+  const header = Object.keys(records[0] ?? {});
+
+  function serializeCsv(subset: any[]): string {
+    const lines: string[] = [];
+    lines.push(header.join(","));
+
+    for (const record of subset) {
+      const row = header
+        .map((col) => {
+          const raw = record[col] ?? "";
+          const value = String(raw);
+          if (/[",\n\r]/.test(value)) {
+            return '"' + value.replace(/"/g, '""') + '"';
+          }
+          return value;
+        })
+        .join(",");
+      lines.push(row);
+    }
+
+    return lines.join("\n");
+  }
+
+  const queue = getImportQueue();
+
+  for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+    const start = chunkIndex * chunkSize;
+    const end = Math.min(start + chunkSize, totalRecords);
+    const subset = records.slice(start, end);
+    if (subset.length === 0) {
+      continue;
+    }
+
+    const chunkPath = path.join(chunkDir, `chunk-${chunkIndex}.csv`);
+    const csvContent = serializeCsv(subset);
+    await fs.promises.writeFile(chunkPath, csvContent, "utf8");
+
+    await queue.add(
+      "process",
+      {
+        kind: "chunk",
+        importJobId,
+        chunkIndex,
+        chunkCount,
+        strategy: "XACT_COMPONENTS:line-range",
+        payload: {
+          estimateVersionId,
+          projectId,
+          csvPath: chunkPath,
+        },
+      },
+      {
+        attempts: 1,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+        priority: PRIORITY_XACT_COMPONENTS,
+      },
+    );
+  }
+
+  await prisma.importJob.update({
+    where: { id: importJobId },
+    data: {
+      estimateVersionId,
+      totalChunks: chunkCount,
+      completedChunks: 0,
+      progress: 10,
+      message: `Planned ${chunkCount} Xact components chunks (${totalRecords} records)`,
+      metaJson: {
+        ...(job.metaJson as any),
+        strategy: "XACT_COMPONENTS:line-range",
+        chunkCount,
+        totalRecords,
+        estimateVersionId,
+        rawCount,
+        ratio,
+        maxRecordsPerChunk,
+        maxChunks,
+        chunkSize,
+      } as any,
+    },
+  });
+}
+
+async function runXactComponentsAllocationJob(prisma: PrismaService, job: any) {
+  const importJobId = job.id;
+  const estimateVersionId = job.estimateVersionId?.trim();
+
+  if (!estimateVersionId) {
+    throw new Error("XACT_COMPONENTS_ALLOCATE job is missing estimateVersionId");
+  }
+
+  console.log(
+    "[worker] XACT_COMPONENTS_ALLOCATE allocateComponentsForEstimate start estimateVersionId=%s",
+    estimateVersionId,
+  );
+
+  const allocationResult = await allocateComponentsForEstimate({
+    estimateVersionId,
+  });
+
+  console.log(
+    "[worker] XACT_COMPONENTS_ALLOCATE allocateComponentsForEstimate done components=%s sowItems=%s allocationsCreated=%s",
+    allocationResult.components,
+    allocationResult.sowItems,
+    allocationResult.allocationsCreated,
+  );
+
+  await prisma.importJob.update({
+    where: { id: importJobId },
+    data: {
+      status: ImportJobStatus.SUCCEEDED,
+      finishedAt: new Date(),
+      progress: 100,
+      message: "Components allocation complete",
+      resultJson: {
+        phase: "allocation",
+        allocation: allocationResult,
+      } as any,
+    },
+  });
 }
 
 async function processImportJob(prisma: PrismaService, importJobId: string) {
@@ -49,15 +380,23 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
   });
 
   const csvPath = job.csvPath?.trim();
-  if (!csvPath) {
+  if (!csvPath && job.type !== ImportJobType.XACT_COMPONENTS_ALLOCATE) {
     throw new Error("Import job has no csvPath. (Prod will require object storage URI.)");
   }
 
-  if (!fs.existsSync(csvPath)) {
+  if (csvPath && !fs.existsSync(csvPath)) {
     throw new Error(`CSV not found at ${csvPath}`);
   }
 
   if (job.type === ImportJobType.XACT_RAW) {
+    console.log("[worker] XACT_RAW start", {
+      importJobId,
+      companyId: job.companyId,
+      projectId: job.projectId,
+      fileUri: job.fileUri,
+      csvPath,
+    });
+
     await prisma.importJob.update({
       where: { id: importJobId },
       data: { progress: 20, message: "Importing Xact raw line items..." },
@@ -67,9 +406,29 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       throw new Error("XACT_RAW import job is missing projectId");
     }
 
+    let effectiveCsvPath = csvPath;
+
+    // If csvPath is not set but fileUri is, fetch the CSV from GCS to a local tmp path.
+    if ((!effectiveCsvPath || !effectiveCsvPath.trim()) && job.fileUri) {
+      console.log("[worker] XACT_RAW using fileUri, downloading from GCS", {
+        importJobId,
+        fileUri: job.fileUri,
+      });
+      effectiveCsvPath = await downloadGcsToTmp(job.fileUri);
+      console.log("[worker] XACT_RAW downloaded GCS file", {
+        importJobId,
+        fileUri: job.fileUri,
+        effectiveCsvPath,
+      });
+    }
+
+    if (!effectiveCsvPath || !effectiveCsvPath.trim()) {
+      throw new Error("XACT_RAW import job has no csvPath or fileUri to read from");
+    }
+
     const result = await importXactCsvForProject({
       projectId: job.projectId,
-      csvPath,
+      csvPath: effectiveCsvPath,
       importedByUserId: job.createdByUserId,
     });
 
@@ -84,87 +443,45 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       },
     });
 
+    console.log("[worker] XACT_RAW complete", {
+      importJobId,
+      companyId: job.companyId,
+      projectId: job.projectId,
+      resultSummary: {
+        estimateVersionId: (result as any)?.estimateVersionId,
+        itemCount: (result as any)?.itemCount,
+        totalAmount: (result as any)?.totalAmount,
+      },
+    });
+
     return;
   }
 
   if (job.type === ImportJobType.XACT_COMPONENTS) {
-    console.log(`[worker] XACT_COMPONENTS start importJobId=%s csvPath=%s`, importJobId, csvPath);
-
-    await prisma.importJob.update({
-      where: { id: importJobId },
-      data: { progress: 20, message: "Importing Xact components..." },
-    });
-
-    let estimateVersionId = job.estimateVersionId ?? null;
-
-    if (!estimateVersionId) {
-      const latest = await prisma.estimateVersion.findFirst({
-        where: { projectId: job.projectId as string },
-        orderBy: [
-          { sequenceNo: "desc" },
-          { importedAt: "desc" },
-          { createdAt: "desc" },
-        ],
-      });
-      if (!latest) {
-        throw new Error(
-          "No estimate version found. Import Xactimate raw line items first.",
-        );
-      }
-      estimateVersionId = latest.id;
-    }
-
     console.log(
-      "[worker] XACT_COMPONENTS importXactComponentsCsvForEstimate start estimateVersionId=%s",
-      estimateVersionId,
-    );
-
-    const componentsResult = await importXactComponentsCsvForEstimate({
-      estimateVersionId,
+      "[worker] XACT_COMPONENTS ingestion (chunked) job start importJobId=%s csvPath=%s",
+      importJobId,
       csvPath,
-    });
+    );
 
+    await runXactComponentsIngestionJob(prisma, job);
+
+    return;
+  }
+
+  if (job.type === ImportJobType.XACT_COMPONENTS_ALLOCATE) {
     console.log(
-      "[worker] XACT_COMPONENTS importXactComponentsCsvForEstimate done rawCount=%s summaryCount=%s",
-      (componentsResult as any)?.rawCount,
-      (componentsResult as any)?.summaryCount,
+      "[worker] XACT_COMPONENTS_ALLOCATE job start importJobId=%s estimateVersionId=%s",
+      importJobId,
+      job.estimateVersionId,
     );
 
     await prisma.importJob.update({
       where: { id: importJobId },
-      data: { progress: 70, message: "Allocating components..." },
+      data: { progress: 20, message: "Allocating components..." },
     });
 
-    console.log(
-      "[worker] XACT_COMPONENTS allocateComponentsForEstimate start estimateVersionId=%s",
-      estimateVersionId,
-    );
-
-    const allocationResult = await allocateComponentsForEstimate({
-      estimateVersionId,
-    });
-
-    console.log(
-      "[worker] XACT_COMPONENTS allocateComponentsForEstimate done components=%s sowItems=%s allocationsCreated=%s",
-      allocationResult.components,
-      allocationResult.sowItems,
-      allocationResult.allocationsCreated,
-    );
-
-    await prisma.importJob.update({
-      where: { id: importJobId },
-      data: {
-        status: ImportJobStatus.SUCCEEDED,
-        finishedAt: new Date(),
-        progress: 100,
-        message: "Components import complete",
-        resultJson: {
-          estimateVersionId,
-          components: componentsResult,
-          allocation: allocationResult,
-        } as any,
-      },
-    });
+    await runXactComponentsAllocationJob(prisma, job);
 
     return;
   }
@@ -180,7 +497,8 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       },
     });
 
-    const result = await importPriceListFromFile(csvPath);
+    const nonNullCsvPath = csvPath as string;
+    const result = await importPriceListFromFile(nonNullCsvPath);
 
     await prisma.importJob.update({
       where: { id: importJobId },
@@ -225,7 +543,8 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       },
     });
 
-    const result = await importGoldenComponentsFromFile(csvPath);
+    const nonNullCsvPath = csvPath as string;
+    const result = await importGoldenComponentsFromFile(nonNullCsvPath);
 
     await prisma.importJob.update({
       where: { id: importJobId },
@@ -241,7 +560,140 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
     return;
   }
 
-  throw new Error(`Unhandled ImportJobType: ${job.type}`);
+throw new Error(`Unhandled ImportJobType: ${job.type}`);
+}
+
+async function processImportChunk(prisma: PrismaService, payload: ChunkJobPayload) {
+  const { importJobId, chunkIndex, chunkCount, strategy, payload: chunkPayload } = payload;
+
+  const parentJob = await prisma.importJob.findUnique({ where: { id: importJobId } });
+  if (!parentJob) {
+    throw new Error(`Parent ImportJob not found for chunk: ${importJobId}`);
+  }
+
+  if (parentJob.status !== ImportJobStatus.RUNNING) {
+    // Ignore chunks for non-running parents to avoid resurrecting failed/completed jobs.
+    console.warn(
+      "[worker] Skipping chunk because parent job is not RUNNING",
+      importJobId,
+      parentJob.status,
+    );
+    return;
+  }
+
+  if (strategy === "XACT_COMPONENTS:line-range") {
+    const { estimateVersionId, projectId, csvPath } = chunkPayload as {
+      estimateVersionId: string;
+      projectId: string;
+      csvPath: string;
+    };
+
+    console.log(
+      "[worker] XACT_COMPONENTS chunk start importJobId=%s chunkIndex=%s/%s csvPath=%s",
+      importJobId,
+      chunkIndex,
+      chunkCount,
+      csvPath,
+    );
+
+    const chunkResult = await importXactComponentsChunkForEstimate({
+      estimateVersionId,
+      projectId,
+      csvPath,
+    });
+
+    console.log(
+      "[worker] XACT_COMPONENTS chunk done importJobId=%s chunkIndex=%s rawCount=%s summaryCount=%s",
+      importJobId,
+      chunkIndex,
+      (chunkResult as any)?.rawCount,
+      (chunkResult as any)?.summaryCount,
+    );
+
+    let isLastChunk = false;
+
+    await prisma.$transaction(async (tx) => {
+      const latest = await tx.importJob.findUnique({ where: { id: importJobId } });
+      if (!latest || latest.status !== ImportJobStatus.RUNNING) {
+        return;
+      }
+
+      const total = latest.totalChunks ?? chunkCount ?? 1;
+      const completed = (latest.completedChunks ?? 0) + 1;
+      const progress = 10 + Math.floor(80 * (completed / total));
+
+      await tx.importJob.update({
+        where: { id: importJobId },
+        data: {
+          completedChunks: completed,
+          progress,
+        },
+      });
+
+      if (completed >= total) {
+        isLastChunk = true;
+        await tx.importJob.update({
+          where: { id: importJobId },
+          data: {
+            status: ImportJobStatus.SUCCEEDED,
+            finishedAt: new Date(),
+            message: "Xact components ingestion (chunked) complete; allocation job will be queued",
+          },
+        });
+      }
+    });
+
+    if (isLastChunk) {
+      console.log(
+        "[worker] XACT_COMPONENTS all chunks complete, queuing allocation job for importJobId=%s",
+        importJobId,
+      );
+
+      const parent = await prisma.importJob.findUnique({ where: { id: importJobId } });
+      if (!parent) {
+        throw new Error(`Parent ImportJob not found when finalizing chunks: ${importJobId}`);
+      }
+
+      const allocationJob = await prisma.importJob.create({
+        data: {
+          companyId: parent.companyId,
+          projectId: parent.projectId,
+          createdByUserId: parent.createdByUserId,
+          type: ImportJobType.XACT_COMPONENTS_ALLOCATE,
+          status: ImportJobStatus.QUEUED,
+          progress: 0,
+          estimateVersionId: parent.estimateVersionId,
+          message: "Queued Xact components allocation",
+        },
+      });
+
+      const queue = getImportQueue();
+      await queue.add(
+        "process",
+        { importJobId: allocationJob.id },
+        {
+          attempts: 1,
+          removeOnComplete: 1000,
+          removeOnFail: 1000,
+          priority: PRIORITY_XACT_COMPONENTS_ALLOCATE,
+        },
+      );
+
+      await prisma.importJob.update({
+        where: { id: importJobId },
+        data: {
+          metaJson: {
+            ...(parent.metaJson as any),
+            allocationJobId: allocationJob.id,
+          } as any,
+        },
+      });
+    }
+
+    return;
+  }
+
+  throw new Error(`Unsupported chunk strategy: ${strategy}`);
 }
 
 export async function startWorker() {
@@ -254,8 +706,12 @@ export async function startWorker() {
   const worker = new Worker<ImportJobPayload>(
     IMPORT_QUEUE_NAME,
     async (bullJob: Job<ImportJobPayload>) => {
-      const importJobId = bullJob.data.importJobId;
-      await processImportJob(prisma, importJobId);
+      const data = bullJob.data;
+      if ((data as ChunkJobPayload).kind === "chunk") {
+        await processImportChunk(prisma, data as ChunkJobPayload);
+      } else {
+        await processImportJob(prisma, (data as ParentJobPayload).importJobId);
+      }
     },
     {
       connection: getBullRedisConnection(),

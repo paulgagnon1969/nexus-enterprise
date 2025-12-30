@@ -235,47 +235,127 @@ function ProjectImportPageInner() {
         return false;
       }
 
-      const form = new FormData();
-      form.append("file", file);
-      form.append("accessToken", token);
+      const isLocalApi = /localhost|127\.0\.0\.1/.test(API_BASE);
 
-      const res = await fetch(`/api/projects/${projectId}/import-xact`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
+      if (isLocalApi) {
+        // Local dev: use the Next.js route which writes to local disk and
+        // enqueues an async ImportJob via the API.
+        const form = new FormData();
+        form.append("file", file);
+        form.append("accessToken", token);
+
+        const res = await fetch(`/api/projects/${projectId}/import-xact`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: form,
+        });
+
+        const json = await res.json().catch(() => null);
+
+        if (!res.ok) {
+          setError(
+            `Import failed: ${
+              json ? JSON.stringify(json) : `${res.status} ${res.statusText}`
+            }`,
+          );
+          return false;
+        }
+
+        setResult(json);
+
+        if (json?.jobId) {
+          setRawJobId(String(json.jobId));
+          if (componentsFile && !componentsJobId) {
+            void performComponentsImport();
+          }
+          return true;
+        }
+
+        alert("Import complete. Opening PETL list for this project…");
+        window.location.href = `/projects/${projectId}?tab=PETL`;
+        return true;
+      }
+
+      // Prod / remote API: use signed upload URL + ImportJob from fileUri.
+      const uploadUrlRes = await fetch(
+        `${API_BASE}/projects/${projectId}/xact-raw/upload-url`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ contentType: file.type || "text/csv" }),
         },
-        body: form,
-      });
+      );
 
-      const json = await res.json().catch(() => null);
-
-      if (!res.ok) {
+      const uploadUrlJson = await uploadUrlRes.json().catch(() => null);
+      if (!uploadUrlRes.ok || !uploadUrlJson?.uploadUrl || !uploadUrlJson?.fileUri) {
         setError(
-          `Import failed: ${
-            json ? JSON.stringify(json) : `${res.status} ${res.statusText}`
+          `Import failed (upload-url): ${
+            uploadUrlJson
+              ? JSON.stringify(uploadUrlJson)
+              : `${uploadUrlRes.status} ${uploadUrlRes.statusText}`
           }`,
         );
         return false;
       }
 
-      setResult(json);
+      const { uploadUrl, fileUri } = uploadUrlJson as {
+        uploadUrl: string;
+        fileUri: string;
+      };
 
-      // If the backend enqueued an async import job, start polling status and
-      // allow the user to keep using the app while it runs.
-      if (json?.jobId) {
-        setRawJobId(String(json.jobId));
-        // If the user has also selected a components CSV and we have not yet
-        // started a components job, automatically kick off the components
-        // import so that RAW → Components runs in sequence.
-        if (componentsFile && !componentsJobId) {
-          void performComponentsImport();
-        }
-        return true;
+      // Upload CSV directly to storage.
+      const uploadRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: {
+          "Content-Type": file.type || "text/csv",
+        },
+        body: file,
+      });
+
+      if (!uploadRes.ok) {
+        setError(
+          `Import failed (upload PUT): ${uploadRes.status} ${uploadRes.statusText}`,
+        );
+        return false;
       }
 
-      // Legacy synchronous behavior: redirect to PETL once import finishes.
-      alert("Import complete. Opening PETL list for this project…");
-      window.location.href = `/projects/${projectId}?tab=PETL`;
+      // Ask API to create ImportJob from fileUri, which the worker will
+      // download from storage and process.
+      const startRes = await fetch(
+        `${API_BASE}/projects/${projectId}/import-xact-from-uri`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ fileUri }),
+        },
+      );
+
+      const startJson = await startRes.json().catch(() => null);
+      if (!startRes.ok || !startJson?.jobId) {
+        setError(
+          `Import failed (start job): ${
+            startJson
+              ? JSON.stringify(startJson)
+              : `${startRes.status} ${startRes.statusText}`
+          }`,
+        );
+        return false;
+      }
+
+      setResult(startJson);
+
+      setRawJobId(String(startJson.jobId));
+      if (componentsFile && !componentsJobId) {
+        void performComponentsImport();
+      }
       return true;
     } catch (err: any) {
       setError(err.message ?? String(err));
