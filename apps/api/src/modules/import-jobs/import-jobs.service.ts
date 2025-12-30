@@ -12,10 +12,21 @@ export class ImportJobsService {
     projectId: string;
     createdByUserId: string;
     type: ImportJobType;
-    csvPath: string;
+    csvPath?: string;
     estimateVersionId?: string;
+    fileUri?: string;
   }) {
-    const { companyId, projectId, createdByUserId, type, csvPath, estimateVersionId } = params;
+    const { companyId, projectId, createdByUserId, type, csvPath, estimateVersionId, fileUri } = params;
+
+    // BullMQ: lower numeric priority value means higher priority.
+    // We bias allocation jobs slightly higher so they complete and
+    // unblock UI/analytics quickly.
+    let priority = 5; // default
+    if (type === ImportJobType.XACT_COMPONENTS_ALLOCATE) {
+      priority = 1;
+    } else if (type === ImportJobType.XACT_COMPONENTS) {
+      priority = 3;
+    }
 
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, companyId }
@@ -25,8 +36,13 @@ export class ImportJobsService {
       throw new NotFoundException("Project not found in this company");
     }
 
-    if (!csvPath || !csvPath.trim()) {
-      throw new BadRequestException("csvPath is required");
+    const normalizedCsvPath = csvPath?.trim();
+    const normalizedFileUri = fileUri?.trim();
+
+    const requiresFile = type !== ImportJobType.XACT_COMPONENTS_ALLOCATE;
+
+    if (requiresFile && !normalizedCsvPath && !normalizedFileUri) {
+      throw new BadRequestException("csvPath or fileUri is required");
     }
 
     const job = await this.prisma.importJob.create({
@@ -37,7 +53,8 @@ export class ImportJobsService {
         type,
         status: ImportJobStatus.QUEUED,
         progress: 0,
-        csvPath: csvPath.trim(),
+        csvPath: normalizedCsvPath || null,
+        fileUri: normalizedFileUri || null,
         estimateVersionId: estimateVersionId?.trim() || null
       }
     });
@@ -49,7 +66,8 @@ export class ImportJobsService {
       {
         attempts: 1,
         removeOnComplete: 1000,
-        removeOnFail: 1000
+        removeOnFail: 1000,
+        priority,
       }
     );
 
@@ -81,7 +99,13 @@ export class ImportJobsService {
         status: { in: [ImportJobStatus.QUEUED, ImportJobStatus.RUNNING] },
         // Only show long-running Xactimate imports in the pending summary. Golden
         // PETL / Components now run synchronously and should not appear here.
-        type: { in: [ImportJobType.XACT_RAW, ImportJobType.XACT_COMPONENTS] },
+        type: {
+          in: [
+            ImportJobType.XACT_RAW,
+            ImportJobType.XACT_COMPONENTS,
+            ImportJobType.XACT_COMPONENTS_ALLOCATE,
+          ],
+        },
       },
       select: {
         type: true,
@@ -95,5 +119,37 @@ export class ImportJobsService {
     }
 
     return counts;
+  }
+
+  async getXactComponentsIngestionReport(companyId: string) {
+    const jobs = await this.prisma.importJob.findMany({
+      where: {
+        companyId,
+        type: ImportJobType.XACT_COMPONENTS,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+
+    return jobs.map((job) => {
+      const startedAt = job.startedAt ?? null;
+      const finishedAt = job.finishedAt ?? null;
+      const durationMs =
+        startedAt && finishedAt
+          ? finishedAt.getTime() - startedAt.getTime()
+          : null;
+
+      return {
+        jobId: job.id,
+        status: job.status,
+        createdAt: job.createdAt,
+        startedAt,
+        finishedAt,
+        durationMs,
+        totalChunks: job.totalChunks,
+        completedChunks: job.completedChunks,
+        meta: job.metaJson as any,
+      };
+    });
   }
 }

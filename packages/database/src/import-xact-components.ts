@@ -43,46 +43,29 @@ function toBooleanYesNo(value: string | null | undefined): boolean | null {
   return null;
 }
 
-export async function importXactComponentsCsvForEstimate(options: {
+export async function importXactComponentsRecordsForEstimate(options: {
   estimateVersionId: string;
-  csvPath: string;
+  projectId: string;
+  records: any[];
+  skipWipe?: boolean;
 }) {
-  const { estimateVersionId, csvPath } = options;
-
-  if (!fs.existsSync(csvPath)) {
-    throw new Error(`Components CSV not found at ${csvPath}`);
-  }
-
-  const estimateVersion = await prisma.estimateVersion.findUnique({
-    where: { id: estimateVersionId },
-    include: { project: true }
-  });
-
-  if (!estimateVersion) {
-    throw new Error("EstimateVersion not found");
-  }
-
-  const projectId = estimateVersion.projectId;
-
-  const rawCsv = fs.readFileSync(csvPath, "utf8");
-  const records: any[] = parse(rawCsv, {
-    columns: true,
-    skip_empty_lines: true
-  });
-
-  // Wipe any prior import for this estimate so we can safely re-import
-  await prisma.$transaction([
-    prisma.rawComponentRow.deleteMany({ where: { estimateVersionId } }),
-    prisma.componentSummary.deleteMany({ where: { estimateVersionId } })
-  ]);
+  const { estimateVersionId, projectId, records, skipWipe } = options;
 
   if (records.length === 0) {
     return {
       estimateVersionId,
       projectId,
       rawCount: 0,
-      summaryCount: 0
+      summaryCount: 0,
     };
+  }
+
+  if (!skipWipe) {
+    // Wipe any prior import for this estimate so we can safely re-import.
+    await prisma.$transaction([
+      prisma.rawComponentRow.deleteMany({ where: { estimateVersionId } }),
+      prisma.componentSummary.deleteMany({ where: { estimateVersionId } }),
+    ]);
   }
 
   const now = new Date();
@@ -113,7 +96,7 @@ export async function importXactComponentsCsvForEstimate(options: {
       requestThirdPartyPricingRaw: requestThirdPartyPricing ?? null,
       rawRowJson: record,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     };
   });
 
@@ -145,7 +128,7 @@ export async function importXactComponentsCsvForEstimate(options: {
       total: moneyToNumber(total),
       requestThirdPartyPricing: toBooleanYesNo(requestThirdPartyPricing),
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     };
   });
 
@@ -156,6 +139,70 @@ export async function importXactComponentsCsvForEstimate(options: {
     projectId,
     rawCount: rawRowsData.length,
     summaryCount: summariesData.length,
-    csvPath: path.relative(process.cwd(), csvPath)
+  };
+}
+
+export async function importXactComponentsChunkForEstimate(options: {
+  estimateVersionId: string;
+  projectId: string;
+  csvPath: string;
+}) {
+  const { estimateVersionId, projectId, csvPath } = options;
+
+  if (!fs.existsSync(csvPath)) {
+    throw new Error(`Components chunk CSV not found at ${csvPath}`);
+  }
+
+  const rawCsv = fs.readFileSync(csvPath, "utf8");
+  const records: any[] = parse(rawCsv, {
+    columns: true,
+    skip_empty_lines: true,
+  });
+
+  return importXactComponentsRecordsForEstimate({
+    estimateVersionId,
+    projectId,
+    records,
+    skipWipe: true,
+  });
+}
+
+export async function importXactComponentsCsvForEstimate(options: {
+  estimateVersionId: string;
+  csvPath: string;
+}) {
+  const { estimateVersionId, csvPath } = options;
+
+  if (!fs.existsSync(csvPath)) {
+    throw new Error(`Components CSV not found at ${csvPath}`);
+  }
+
+  const estimateVersion = await prisma.estimateVersion.findUnique({
+    where: { id: estimateVersionId },
+    include: { project: true },
+  });
+
+  if (!estimateVersion) {
+    throw new Error("EstimateVersion not found");
+  }
+
+  const projectId = estimateVersion.projectId;
+
+  const rawCsv = fs.readFileSync(csvPath, "utf8");
+  const records: any[] = parse(rawCsv, {
+    columns: true,
+    skip_empty_lines: true,
+  });
+
+  const result = await importXactComponentsRecordsForEstimate({
+    estimateVersionId,
+    projectId,
+    records,
+    skipWipe: false,
+  });
+
+  return {
+    ...result,
+    csvPath: path.relative(process.cwd(), csvPath),
   };
 }

@@ -1063,6 +1063,12 @@ model ImportJob {
   progress          Int             @default(0)
   message           String?
   csvPath           String?
+  /// Canonical URI for uploaded file when using object storage (e.g. GCS)
+  fileUri           String?
+  /// Optional chunking metadata for large, parallelized imports
+  totalChunks       Int?
+  completedChunks   Int?
+  metaJson          Json?
   estimateVersionId String?
   resultJson        Json?
   errorJson         Json?
@@ -1195,6 +1201,7 @@ enum UserType {
 enum ImportJobType {
   XACT_RAW
   XACT_COMPONENTS
+  XACT_COMPONENTS_ALLOCATE
   PRICE_LIST
   PRICE_LIST_COMPONENTS
 }

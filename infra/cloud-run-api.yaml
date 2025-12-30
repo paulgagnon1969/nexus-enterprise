@@ -1,0 +1,45 @@
+# Cloud Run service definition for the Nexus API.
+#
+# This is a template/example. Replace PROJECT_ID, REGION, SERVICE_NAME, and IMAGE
+# with your actual values before deploying:
+#   gcloud run services replace infra/cloud-run-api.yaml --project=PROJECT_ID --region=REGION
+---
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: nexus-api
+  namespace: nexus-enterprise-480610
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "1"
+    spec:
+      containers:
+        - image: us-central1-docker.pkg.dev/fgcp-platform-378921/ncc-registry/backend:latest
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: DATABASE_URL
+              value: "postgresql://user:pass@host:5432/db?schema=public"  # TODO: replace
+            - name: REDIS_URL
+              value: "redis://:pass@host:6379/0"                          # TODO: replace or remove
+          ports:
+            - containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 4
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health/deps
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 4
+            failureThreshold: 10
+      timeoutSeconds: 300
