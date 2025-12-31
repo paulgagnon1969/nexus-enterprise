@@ -1,6 +1,8 @@
 import prisma from "@repo/database/src/client";
 import { BiaImportWidget } from "./BiaImportWidget";
 
+export const dynamic = "force-dynamic";
+
 const SCOPE_OPTIONS = ["ALL", "CBS", "CCT", "BOTH"] as const;
 const STATUS_OPTIONS = ["ALL", "ACTIVE", "INACTIVE"] as const;
 const SORT_OPTIONS = ["LAST", "FIRST"] as const;

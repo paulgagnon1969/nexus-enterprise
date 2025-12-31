@@ -1,5 +1,7 @@
 import prisma from "@repo/database/src/client";
 
+export const dynamic = "force-dynamic";
+
 function formatDate(d: Date | string): string {
   const dt = typeof d === "string" ? new Date(d) : d;
   if (Number.isNaN(dt.getTime())) return "";
