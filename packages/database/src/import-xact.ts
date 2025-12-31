@@ -252,17 +252,24 @@ async function updateGoldenFromEstimate(estimateVersionId: string) {
     };
   }
 
-  await prisma.$transaction(
-    updates.map((u) =>
-      prisma.priceListItem.update({
-        where: { id: u.id },
-        data: {
-          lastKnownUnitPrice: u.oldPrice,
-          unitPrice: u.newPrice,
-        },
-      }),
-    ),
-  );
+  // Apply updates in manageable chunks to avoid hitting Prisma's interactive
+  // transaction timeout against Cloud SQL (default ~5s). A single massive
+  // $transaction with thousands of UPDATE statements can exceed that limit.
+  const chunkSize = 100;
+  for (let i = 0; i < updates.length; i += chunkSize) {
+    const chunk = updates.slice(i, i + chunkSize);
+    await prisma.$transaction(
+      chunk.map((u) =>
+        prisma.priceListItem.update({
+          where: { id: u.id },
+          data: {
+            lastKnownUnitPrice: u.oldPrice,
+            unitPrice: u.newPrice,
+          },
+        }),
+      ),
+    );
+  }
 
   let sumDelta = 0;
   let sumPercent = 0;

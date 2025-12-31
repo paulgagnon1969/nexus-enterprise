@@ -62,7 +62,10 @@ type GoldenItemWithComponents = {
 
 export type GoldenComponentsCoverageProps = {
   loadingComponents: boolean;
-  componentsItems: GoldenItemWithComponents[];
+  componentsSummary: {
+    itemsWithComponents: number;
+    totalComponents: number;
+  } | null;
   currentItemCount: number | null;
   lastComponentsUpload: {
     at: string | null;
@@ -74,19 +77,17 @@ export type GoldenComponentsCoverageProps = {
 
 export const GoldenComponentsCoverageCard = memo(function GoldenComponentsCoverageCard({
   loadingComponents,
-  componentsItems,
+  componentsSummary,
   currentItemCount,
   lastComponentsUpload,
   onViewDetails,
 }: GoldenComponentsCoverageProps) {
   const { itemsWithComponents, totalComponents } = useMemo(() => {
-    const itemsWithComponents = componentsItems.length;
-    const totalComponents = componentsItems.reduce(
-      (sum, item) => sum + (item.components?.length ?? 0),
-      0,
-    );
-    return { itemsWithComponents, totalComponents };
-  }, [componentsItems]);
+    if (!componentsSummary) {
+      return { itemsWithComponents: 0, totalComponents: 0 };
+    }
+    return componentsSummary;
+  }, [componentsSummary]);
 
   let lastUploadLabel: string | null = null;
   let lastUploadBy: string | null = null;
@@ -134,7 +135,7 @@ export const GoldenComponentsCoverageCard = memo(function GoldenComponentsCovera
       </div>
       {loadingComponents ? (
         <div style={{ fontSize: 11, color: "#6b7280" }}>Loading components…</div>
-      ) : componentsItems.length === 0 ? (
+      ) : !componentsSummary || itemsWithComponents === 0 ? (
         <div style={{ fontSize: 11, color: "#6b7280" }}>
           No Golden components have been imported yet for the current Golden PETL.
         </div>

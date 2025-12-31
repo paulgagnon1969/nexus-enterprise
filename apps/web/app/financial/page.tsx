@@ -164,6 +164,12 @@ export default function FinancialPage() {
   const [componentsItems, setComponentsItems] = useState<GoldenItemWithComponents[]>([]);
   const [componentsError, setComponentsError] = useState<string | null>(null);
   const [loadingComponents, setLoadingComponents] = useState(false);
+  const [componentsLoaded, setComponentsLoaded] = useState(false);
+  type ComponentsSummary = {
+    itemsWithComponents: number;
+    totalComponents: number;
+  } | null;
+  const [componentsSummary, setComponentsSummary] = useState<ComponentsSummary>(null);
   const [componentsActivityFilter, setComponentsActivityFilter] = useState<string>("");
   const [lastComponentsUpload, setLastComponentsUpload] = useState<
     | {
@@ -385,7 +391,8 @@ export default function FinancialPage() {
           byEmail?: string | null;
         } | null;
       };
-      setComponentsItems(json.items ?? []);
+      const items = json.items ?? [];
+      setComponentsItems(items);
       setLastComponentsUpload(
         json.lastComponentsUpload
           ? {
@@ -395,6 +402,15 @@ export default function FinancialPage() {
             }
           : null,
       );
+      // Derive a lightweight coverage summary from the full payload so the
+      // coverage card does not need to re-fetch.
+      const itemsWithComponents = items.length;
+      const totalComponents = items.reduce(
+        (sum, item) => sum + (item.components?.length ?? 0),
+        0,
+      );
+      setComponentsSummary({ itemsWithComponents, totalComponents });
+      setComponentsError(null);
       setComponentsError(null);
     } catch (err: any) {
       setComponentsError(err?.message ?? "Failed to load Golden components.");
@@ -458,6 +474,93 @@ export default function FinancialPage() {
 
     return () => window.clearInterval(intervalId);
   }, [componentsJob?.id, componentsJob?.status]);
+
+  // Lazy-load Golden components when the user first opens the Golden
+  // Components tab. Subsequent refreshes are driven by uploads and explicit
+  // filter actions.
+  useEffect(() => {
+    if (activeSection !== "GOLDEN_COMPONENTS") return;
+    if (componentsLoaded || loadingComponents) return;
+
+    void (async () => {
+      await refreshGoldenComponentsView();
+    })();
+  }, [activeSection, componentsLoaded, loadingComponents]);
+
+  // Lightweight summary for Golden components coverage used by the
+  // coverage card on first page load (before the user opens the
+  // Golden Components tab).
+  async function refreshGoldenComponentsSummary() {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/pricing/price-list/components/summary`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(
+          `Failed to load Golden components summary (${res.status}) ${text}`,
+        );
+      }
+      const json = (await res.json()) as {
+        priceList?: {
+          id: string;
+          label: string;
+          revision: number;
+          itemCount: number;
+        } | null;
+        coverage?: {
+          itemsWithComponents: number;
+          totalComponents: number;
+        } | null;
+        lastComponentsUpload?: {
+          at?: string | null;
+          byName?: string | null;
+          byEmail?: string | null;
+        } | null;
+      };
+
+      if (json.priceList) {
+        setCurrentGolden((prev) =>
+          prev
+            ? prev
+            : {
+                id: json.priceList!.id,
+                label: json.priceList!.label,
+                revision: json.priceList!.revision,
+                effectiveDate: null,
+                uploadedAt: null,
+                itemCount: json.priceList!.itemCount,
+              },
+        );
+      }
+
+      if (json.coverage) {
+        setComponentsSummary({
+          itemsWithComponents: json.coverage.itemsWithComponents,
+          totalComponents: json.coverage.totalComponents,
+        });
+      }
+
+      setLastComponentsUpload(
+        json.lastComponentsUpload
+          ? {
+              at: json.lastComponentsUpload.at ?? null,
+              byName: json.lastComponentsUpload.byName ?? null,
+              byEmail: json.lastComponentsUpload.byEmail ?? null,
+            }
+          : null,
+      );
+    } catch (err: any) {
+      setComponentsError(err?.message ?? "Failed to load Golden components summary.");
+    }
+  }
 
   useEffect(() => {
     setPriceListUploadMessage(null);
@@ -659,50 +762,13 @@ export default function FinancialPage() {
         setLoadingGoldenUploads(false);
       }
 
-      // Golden components (all ACTs by default)
-      setLoadingComponents(true);
-      try {
-        const componentsRes = await fetch(`${API_BASE}/pricing/price-list/components`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({}),
-        });
+      // Golden components (all ACTs by default) are now lazy-loaded when
+      // the Golden Components tab is opened or after a successful components
+      // upload. We no longer fetch them eagerly on initial page load.
 
-        if (!componentsRes.ok) {
-          const text = await componentsRes.text().catch(() => "");
-          throw new Error(
-            `Failed to load Golden components (${componentsRes.status}) ${text}`,
-          );
-        }
-
-        const json = (await componentsRes.json()) as {
-          priceList?: { id: string; label: string; revision: number } | null;
-          items?: GoldenItemWithComponents[];
-          lastComponentsUpload?: {
-            at?: string | null;
-            byName?: string | null;
-            byEmail?: string | null;
-          } | null;
-        };
-
-        setComponentsItems(json.items ?? []);
-        setLastComponentsUpload(
-          json.lastComponentsUpload
-            ? {
-                at: json.lastComponentsUpload.at ?? null,
-                byName: json.lastComponentsUpload.byName ?? null,
-                byEmail: json.lastComponentsUpload.byEmail ?? null,
-              }
-            : null,
-        );
-      } catch (err: any) {
-        setComponentsError(err?.message ?? "Failed to load Golden components.");
-      } finally {
-        setLoadingComponents(false);
-      }
+      // However, we do fetch a lightweight coverage summary so the coverage
+      // card has data even before the tab is opened.
+      await refreshGoldenComponentsSummary();
     })();
   }, []);
 
@@ -1448,8 +1514,8 @@ export default function FinancialPage() {
 
             {/* Components status card */}
             <GoldenComponentsCoverageCard
-              loadingComponents={loadingComponents}
-              componentsItems={componentsItems}
+              loadingComponents={loadingComponents || (!componentsLoaded && !componentsSummary)}
+              componentsSummary={componentsSummary}
               currentItemCount={currentGolden?.itemCount ?? null}
               lastComponentsUpload={lastComponentsUpload}
               onViewDetails={() => setActiveSection("GOLDEN_COMPONENTS")}
