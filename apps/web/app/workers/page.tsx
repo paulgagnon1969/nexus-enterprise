@@ -89,9 +89,9 @@ export default async function WorkersPage({ searchParams }: PageProps) {
   const workers = (await prisma.$queryRawUnsafe<any[]>(sql, ...params)) as any[];
 
   // Derive the last 52 distinct work weeks (most recent first) for the grid.
-  const weekRows = await prisma.$queryRawUnsafe<{ weekDate: Date }[]>(
+  const weekRows = (await prisma.$queryRawUnsafe(
     'SELECT DISTINCT "weekEndDate"::date as "weekDate" FROM "WorkerWeek" ORDER BY "weekDate" ASC',
-  );
+  )) as { weekDate: Date }[];
   const allWeekDates = weekRows
     .map((r) => {
       const dt = r.weekDate instanceof Date ? r.weekDate : new Date(r.weekDate as any);
@@ -107,11 +107,9 @@ export default async function WorkersPage({ searchParams }: PageProps) {
   let hoursRows: { workerId: string; weekDate: Date; projectCode: string; hours: number }[] = [];
   if (weekColumns.length > 0) {
     const inList = weekColumns.map((d) => `'${d}'`).join(", ");
-    hoursRows = await prisma.$queryRawUnsafe<
-      { workerId: string; weekDate: Date; projectCode: string; hours: number }[]
-    >(
+    hoursRows = (await prisma.$queryRawUnsafe(
       `SELECT "workerId", "weekEndDate"::date as "weekDate", "projectCode", SUM("totalHours") as "hours" FROM "WorkerWeek" WHERE "weekEndDate"::date IN (${inList}) GROUP BY "workerId", "weekDate", "projectCode"`,
-    );
+    )) as { workerId: string; weekDate: Date; projectCode: string; hours: number }[];
   }
 
   type WeekAgg = { totalHours: number; projects: Set<string> };
