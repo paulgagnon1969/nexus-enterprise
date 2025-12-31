@@ -66,24 +66,22 @@ export default async function WeekDetailPage({ params, searchParams }: PageProps
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
   // All workers with hours > 0 for this week, optionally filtered by project and status
-  const rows = await prisma.$queryRawUnsafe<
-    {
-      id: string;
-      workerId: string;
-      weekEndDate: Date;
-      projectCode: string;
-      totalHours: number;
-      estimatedPay: number | null;
-      fullName: string;
-      primaryClassCode: string | null;
-      defaultProjectCode: string | null;
-      phone: string | null;
-      status: string | null;
-    }[]
-  >(
+  const rows = (await prisma.$queryRawUnsafe(
     `SELECT ww.*, (ww."totalHours" * COALESCE(w."defaultPayRate", 0)) AS "estimatedPay", w."fullName", w."primaryClassCode", w."defaultProjectCode", w."phone", w.status FROM "WorkerWeek" ww JOIN "Worker" w ON w.id = ww."workerId" ${whereClause} ORDER BY w."fullName", ww."projectCode"`,
     ...paramsArr,
-  );
+  )) as {
+    id: string;
+    workerId: string;
+    weekEndDate: Date;
+    projectCode: string;
+    totalHours: number;
+    estimatedPay: number | null;
+    fullName: string;
+    primaryClassCode: string | null;
+    defaultProjectCode: string | null;
+    phone: string | null;
+    status: string | null;
+  }[];
 
   const weekLabel = weekEnd;
 
