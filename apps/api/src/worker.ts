@@ -380,8 +380,17 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
   });
 
   const csvPath = job.csvPath?.trim();
-  if (!csvPath && job.type !== ImportJobType.XACT_COMPONENTS_ALLOCATE) {
-    throw new Error("Import job has no csvPath. (Prod will require object storage URI.)");
+  const fileUri = job.fileUri?.trim();
+
+  // For most import types we require either a local csvPath (dev/legacy) or a
+  // fileUri (prod GCS uploads). XACT_COMPONENTS_ALLOCATE is the only type that
+  // does not need an input file at all.
+  if (
+    job.type !== ImportJobType.XACT_COMPONENTS_ALLOCATE &&
+    !csvPath &&
+    !fileUri
+  ) {
+    throw new Error("Import job has no csvPath or fileUri to read from");
   }
 
   if (csvPath && !fs.existsSync(csvPath)) {
@@ -426,11 +435,15 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       throw new Error("XACT_RAW import job has no csvPath or fileUri to read from");
     }
 
+    const startedAt = Date.now();
+
     const result = await importXactCsvForProject({
       projectId: job.projectId,
       csvPath: effectiveCsvPath,
       importedByUserId: job.createdByUserId,
     });
+
+    const durationMs = Date.now() - startedAt;
 
     await prisma.importJob.update({
       where: { id: importJobId },
@@ -447,6 +460,7 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       importJobId,
       companyId: job.companyId,
       projectId: job.projectId,
+      durationMs,
       resultSummary: {
         estimateVersionId: (result as any)?.estimateVersionId,
         itemCount: (result as any)?.itemCount,
@@ -498,7 +512,10 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
     });
 
     const nonNullCsvPath = csvPath as string;
+
+    const startedAt = Date.now();
     const result = await importPriceListFromFile(nonNullCsvPath);
+    const durationMs = Date.now() - startedAt;
 
     await prisma.importJob.update({
       where: { id: importJobId },
@@ -509,6 +526,13 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
         message: "Golden price list import complete",
         resultJson: result as any,
       },
+    });
+
+    console.log("[worker] PRICE_LIST complete", {
+      importJobId,
+      companyId: job.companyId,
+      durationMs,
+      resultSummary: result,
     });
 
     // Record a Golden price list revision event so the Revision Log can
@@ -596,16 +620,21 @@ async function processImportChunk(prisma: PrismaService, payload: ChunkJobPayloa
       csvPath,
     );
 
+    const startedAt = Date.now();
+
     const chunkResult = await importXactComponentsChunkForEstimate({
       estimateVersionId,
       projectId,
       csvPath,
     });
 
+    const durationMs = Date.now() - startedAt;
+
     console.log(
-      "[worker] XACT_COMPONENTS chunk done importJobId=%s chunkIndex=%s rawCount=%s summaryCount=%s",
+      "[worker] XACT_COMPONENTS chunk done importJobId=%s chunkIndex=%s durationMs=%s rawCount=%s summaryCount=%s",
       importJobId,
       chunkIndex,
+      durationMs,
       (chunkResult as any)?.rawCount,
       (chunkResult as any)?.summaryCount,
     );

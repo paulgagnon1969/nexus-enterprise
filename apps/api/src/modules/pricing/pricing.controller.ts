@@ -412,6 +412,93 @@ export class PricingController {
     };
   }
 
+  // Lightweight coverage summary for Golden components so the Financial page
+  // can render the coverage card without loading the full components payload.
+  @UseGuards(JwtAuthGuard)
+  @Post("price-list/components/summary")
+  async goldenComponentsSummary(@Req() req: FastifyRequest) {
+    const anyReq: any = req as any;
+    const user = anyReq.user as AuthenticatedUser | undefined;
+
+    if (!user?.companyId) {
+      throw new BadRequestException("Missing company context for Golden components");
+    }
+
+    const priceList = await this.prisma.priceList.findFirst({
+      where: { kind: "GOLDEN", isActive: true },
+      orderBy: { revision: "desc" },
+    });
+
+    if (!priceList) {
+      return {
+        priceList: null,
+        coverage: {
+          itemsWithComponents: 0,
+          totalComponents: 0,
+        },
+        lastComponentsUpload: null,
+      };
+    }
+
+    const [itemCount, itemsWithComponents, totalComponents] = await Promise.all([
+      this.prisma.priceListItem.count({ where: { priceListId: priceList.id } }),
+      this.prisma.priceListItem.count({
+        where: {
+          priceListId: priceList.id,
+          components: { some: {} },
+        },
+      }),
+      this.prisma.priceListComponent.count({
+        where: {
+          priceListItem: { priceListId: priceList.id },
+        },
+      }),
+    ]);
+
+    const lastJob = await this.prisma.importJob.findFirst({
+      where: {
+        companyId: user.companyId,
+        type: "PRICE_LIST_COMPONENTS",
+        status: "SUCCEEDED",
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        createdBy: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    const lastComponentsUpload = lastJob
+      ? {
+          at: (lastJob.finishedAt ?? lastJob.createdAt) ?? lastJob.createdAt,
+          byName: lastJob.createdBy
+            ? `${lastJob.createdBy.firstName ?? ""} ${lastJob.createdBy.lastName ?? ""}`.trim() ||
+              lastJob.createdBy.email
+            : null,
+          byEmail: lastJob.createdBy?.email ?? null,
+        }
+      : null;
+
+    return {
+      priceList: {
+        id: priceList.id,
+        label: priceList.label,
+        revision: priceList.revision,
+        itemCount,
+      },
+      coverage: {
+        itemsWithComponents,
+        totalComponents,
+      },
+      lastComponentsUpload,
+    };
+  }
+
   // Golden price list revision history: per-company log of updates when
   // Xact RAW estimates reprice Golden items.
   @UseGuards(JwtAuthGuard)

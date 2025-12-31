@@ -40,6 +40,16 @@ export class RedisService implements OnModuleDestroy {
       return;
     }
 
+    // In dev/staging, if someone accidentally points REDIS_URL at
+    // host.docker.internal (which only makes sense *from inside* a
+    // container), ioredis will spam ENOTFOUND errors on every reconnect
+    // attempt. Treat that as effectively "no Redis" for local API dev and
+    // fall back to the no-op client.
+    if (nodeEnv !== "production" && url && url.includes("host.docker.internal")) {
+      this.client = new NoopRedis();
+      return;
+    }
+
     if (url) {
       this.client = new Redis(url);
     } else {

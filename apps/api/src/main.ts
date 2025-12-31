@@ -47,6 +47,9 @@ async function bootstrap() {
   const port = Number(process.env.PORT || 8000);
   await app.listen({ port, host: "0.0.0.0" });
   console.log(`API listening on http://localhost:${port}`);
+
+  console.log("Registered routes:");
+  server.printRoutes({ commonPrefix: false }); // shows clean tree
 }
 
 bootstrap();

@@ -80,11 +80,128 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (currentCompanyId) {
       window.localStorage.setItem("lastCompanyId", currentCompanyId);
     }
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
-    localStorage.removeItem("companyId");
+    window.localStorage.removeItem("accessToken");
+    window.localStorage.removeItem("refreshToken");
+    window.localStorage.removeItem("companyId");
     window.location.href = "/login";
   };
+
+  // Global fetch wrapper: transparently refresh access tokens on 401s for
+  // authenticated API requests, using the stored refreshToken.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // Debug: verify this effect is running in the browser and that we are
+    // patching window.fetch as expected.
+    // You should see this once per tab load in the DevTools console.
+    try {
+      // eslint-disable-next-line no-console
+      console.log("[Nexus] AppShell fetch wrapper mounting", window.location?.pathname);
+    } catch {}
+
+    const nativeFetch = window.fetch.bind(window);
+
+    const apiOrigin = (() => {
+      try {
+        return new URL(API_BASE).origin;
+      } catch {
+        return API_BASE;
+      }
+    })();
+
+    // Ensure that only one refresh call is in flight at a time so we don't
+    // invalidate the refresh token with concurrent /auth/refresh requests.
+    let refreshPromise: Promise<{ accessToken: string; refreshToken: string }> | null = null;
+
+    async function runRefresh(): Promise<{ accessToken: string; refreshToken: string }> {
+      const refreshToken = window.localStorage.getItem("refreshToken");
+      if (!refreshToken) {
+        throw new Error("Missing refresh token");
+      }
+
+      const res = await nativeFetch(`${API_BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Refresh failed with status ${res.status}`);
+      }
+
+      const json: any = await res.json();
+      if (!json.accessToken || !json.refreshToken) {
+        throw new Error("Refresh did not return tokens");
+      }
+
+      window.localStorage.setItem("accessToken", json.accessToken);
+      window.localStorage.setItem("refreshToken", json.refreshToken);
+
+      return { accessToken: json.accessToken, refreshToken: json.refreshToken };
+    }
+
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const requestUrl =
+        typeof input === "string" || input instanceof URL ? input.toString() : input.url;
+
+      try {
+        // eslint-disable-next-line no-console
+        console.log("[Nexus] wrapped fetch ->", requestUrl);
+      } catch {}
+
+      // Only intercept calls going to our API backend.
+      if (!requestUrl.startsWith(API_BASE) && !requestUrl.startsWith(apiOrigin)) {
+        return nativeFetch(input as any, init as any);
+      }
+
+      const firstResponse = await nativeFetch(input as any, init as any);
+
+      // If not 401, or there is clearly no auth involved, just return.
+      if (firstResponse.status !== 401) {
+        return firstResponse;
+      }
+
+      // Avoid trying to refresh when the original request didn't carry auth
+      // (e.g. /auth/login). Inspect headers for an Authorization bearer token.
+      const hadAuthHeader = (() => {
+        const headers = new Headers(
+          init?.headers || (input instanceof Request ? input.headers : undefined),
+        );
+        return headers.has("Authorization");
+      })();
+
+      if (!hadAuthHeader) {
+        return firstResponse;
+      }
+
+      try {
+        if (!refreshPromise) {
+          refreshPromise = runRefresh();
+        }
+        const { accessToken: nextAccessToken } = await refreshPromise;
+
+        // Retry the original request with the new Authorization header.
+        const retryInit: RequestInit = { ...(init || {}) };
+        const retryHeaders = new Headers(
+          init?.headers || (input instanceof Request ? input.headers : undefined),
+        );
+        retryHeaders.set("Authorization", `Bearer ${nextAccessToken}`);
+        retryInit.headers = retryHeaders;
+
+        return nativeFetch(input as any, retryInit as any);
+      } catch {
+        // On any unexpected failure during refresh, treat as logged out.
+        handleLogout();
+        return firstResponse;
+      } finally {
+        refreshPromise = null;
+      }
+    };
+
+    return () => {
+      window.fetch = nativeFetch;
+    };
+  }, []);
 
   const isActive = (href: string) => {
     if (href === "/") return pathname === "/";
