@@ -86,7 +86,7 @@ export default async function WorkersPage({ searchParams }: PageProps) {
 
   const sql = `SELECT * FROM "Worker" ${whereClause} ${orderByClause}`;
 
-  const workers = (await prisma.$queryRawUnsafe<any[]>(sql, ...params)) as any[];
+  const workers = (await prisma.$queryRawUnsafe(sql, ...params)) as any[];
 
   // Derive the last 52 distinct work weeks (most recent first) for the grid.
   const weekRows = (await prisma.$queryRawUnsafe(
