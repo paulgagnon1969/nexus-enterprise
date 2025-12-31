@@ -39,6 +39,7 @@ export async function POST(
       `${projectId}-${Date.now()}-${safeName}`,
     );
 
+    // Keep writing to disk so local-dev (shared FS) can still use csvPath
     await fs.writeFile(filePath, buffer);
 
     const apiBase =
@@ -50,31 +51,108 @@ export async function POST(
 
     const isLocalApi = /localhost|127\.0\.0\.1/.test(apiBase);
 
-    const endpoint = isLocalApi
-      ? `${apiBase}/projects/${projectId}/import-jobs/xact-components`
-      : `${apiBase}/projects/${projectId}/import-xact-components`;
+    if (isLocalApi) {
+      // Local dev: enqueue an async import job that reads from the shared
+      // filesystem on the same host as the API/worker.
+      const endpoint = `${apiBase}/projects/${projectId}/import-jobs/xact-components`;
+      const payload = { csvPath: filePath };
 
-    const payload = isLocalApi ? { csvPath: filePath } : { csvPath: filePath };
+      const apiRes = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
 
-    const apiRes = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(authHeader ? { Authorization: authHeader } : {}),
+      const json = await apiRes.json().catch(() => ({}));
+
+      if (!apiRes.ok) {
+        return NextResponse.json(
+          { error: "API components import failed", detail: json },
+          { status: apiRes.status },
+        );
+      }
+
+      return NextResponse.json(json, { status: 200 });
+    }
+
+    // Cloud / remote API path: use GCS signed uploads and URI-based ImportJob.
+    // 1) Ask the API for a signed upload URL in the configured XACT uploads bucket.
+    const uploadMetaRes = await fetch(
+      `${apiBase}/projects/${projectId}/xact-components/upload-url`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        },
+        body: JSON.stringify({ contentType: file.type || "text/csv" }),
       },
-      body: JSON.stringify(payload),
-    });
+    );
 
-    const json = await apiRes.json().catch(() => ({}));
+    const uploadMeta = await uploadMetaRes.json().catch(() => ({} as any));
 
-    if (!apiRes.ok) {
+    if (!uploadMetaRes.ok) {
       return NextResponse.json(
-        { error: "API components import failed", detail: json },
-        { status: apiRes.status },
+        { error: "Failed to create components upload URL", detail: uploadMeta },
+        { status: uploadMetaRes.status },
       );
     }
 
-    return NextResponse.json(json, { status: 200 });
+    const { uploadUrl, fileUri } = uploadMeta as {
+      uploadUrl?: string;
+      fileUri?: string;
+    };
+
+    if (!uploadUrl || !fileUri) {
+      return NextResponse.json(
+        { error: "Components upload URL response missing uploadUrl or fileUri" },
+        { status: 500 },
+      );
+    }
+
+    // 2) Upload the CSV to storage using the signed URL.
+    const uploadRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": file.type || "text/csv",
+      },
+      body: buffer,
+    });
+
+    if (!uploadRes.ok) {
+      const text = await uploadRes.text().catch(() => "");
+      return NextResponse.json(
+        { error: "Components upload to storage failed", detail: text || undefined },
+        { status: uploadRes.status },
+      );
+    }
+
+    // 3) Ask the API to create an XACT_COMPONENTS ImportJob from the storage URI.
+    const importRes = await fetch(
+      `${apiBase}/projects/${projectId}/import-xact-components-from-uri`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        },
+        body: JSON.stringify({ fileUri }),
+      },
+    );
+
+    const importJson = await importRes.json().catch(() => ({}));
+
+    if (!importRes.ok) {
+      return NextResponse.json(
+        { error: "API components import failed", detail: importJson },
+        { status: importRes.status },
+      );
+    }
+
+    return NextResponse.json(importJson, { status: 200 });
   } catch (err: any) {
     console.error("Error in import-xact-components route", err);
     return NextResponse.json(

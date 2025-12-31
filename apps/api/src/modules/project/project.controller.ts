@@ -163,6 +163,44 @@ export class ProjectController {
     return { uploadUrl, fileUri };
   }
 
+  // Signed upload URL for Xact components CSV (GCS-backed)
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post(":id/xact-components/upload-url")
+  async getXactComponentsUploadUrl(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body() body: { contentType?: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const contentType = body.contentType || "text/csv";
+
+    // Validate project access
+    await this.projects.getProjectByIdForUser(projectId, user);
+
+    const key = [
+      "xact-components",
+      user.companyId,
+      projectId,
+      `${Date.now()}`,
+      Math.random().toString(36).slice(2),
+    ].join("/");
+
+    const { uploadUrl, fileUri } = await this.gcs.createSignedUploadUrl({
+      key,
+      contentType,
+    });
+
+    console.log("[projects] xact-components/upload-url", {
+      companyId: user.companyId,
+      projectId,
+      userId: user.userId,
+      fileUri,
+    });
+
+    return { uploadUrl, fileUri };
+  }
+
   @UseGuards(JwtAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN)
   @Post(":id/import-xact")
@@ -212,6 +250,46 @@ export class ProjectController {
       projectId,
       userId: user.userId,
       fileUri,
+      importJobId: job.id,
+    });
+
+    return { jobId: job.id };
+  }
+
+  // New: create an Xact Components ImportJob from a storage URI (e.g. gs://...)
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post(":id/import-xact-components-from-uri")
+  async importXactComponentsFromUri(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body() body: { fileUri: string; estimateVersionId?: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const { fileUri, estimateVersionId } = body;
+
+    if (!fileUri || !fileUri.trim()) {
+      throw new BadRequestException("fileUri is required");
+    }
+
+    // Validate project access (throws if not allowed)
+    await this.projects.getProjectByIdForUser(projectId, user);
+
+    const job = await this.importJobs.createJob({
+      companyId: user.companyId,
+      projectId,
+      createdByUserId: user.userId,
+      type: ImportJobType.XACT_COMPONENTS,
+      fileUri,
+      estimateVersionId,
+    });
+
+    console.log("[projects] import-xact-components-from-uri", {
+      companyId: user.companyId,
+      projectId,
+      userId: user.userId,
+      fileUri,
+      estimateVersionId: estimateVersionId ?? null,
       importJobId: job.id,
     });
 
