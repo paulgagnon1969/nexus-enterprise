@@ -8,11 +8,9 @@ function formatDate(d: Date | string): string {
 
 export default async function WeeksPage() {
   // Distinct weeks with aggregates: worker count and total hours
-  const rows = await prisma.$queryRawUnsafe<
-    { weekDate: Date; workerCount: number; totalHours: number; totalPayEstimate: number }[]
-  >(
+  const rows = (await prisma.$queryRawUnsafe(
     'SELECT ww."weekEndDate"::date as "weekDate", COUNT(DISTINCT ww."workerId") AS "workerCount", SUM(ww."totalHours") AS "totalHours", SUM(ww."totalHours" * COALESCE(w."defaultPayRate", 0)) AS "totalPayEstimate" FROM "WorkerWeek" ww JOIN "Worker" w ON w.id = ww."workerId" GROUP BY "weekDate" ORDER BY "weekDate" ASC',
-  );
+  )) as { weekDate: Date; workerCount: number; totalHours: number; totalPayEstimate: number }[];
 
   return (
     <main className="p-6 space-y-4">
