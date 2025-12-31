@@ -43,6 +43,20 @@ export default function NccLandingEditorPage() {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
+  // Build a non-null payload for the API so config actually persists.
+  const buildLandingPayload = () => {
+    const coerce = (c: LandingConfigDto | null | undefined): LandingConfigDto => ({
+      logoUrl: c?.logoUrl ?? null,
+      headline: c?.headline ?? null,
+      subheadline: c?.subheadline ?? null,
+    });
+
+    return {
+      login: coerce(loginConfig),
+      worker: coerce(workerConfig),
+    };
+  };
+
   const resolvedLoginLogoUrl = loginConfig.logoUrl
     ? loginConfig.logoUrl.startsWith("/uploads/")
       ? `${API_BASE}${loginConfig.logoUrl}`
@@ -300,7 +314,7 @@ export default function NccLandingEditorPage() {
                       "Content-Type": "application/json",
                       Authorization: `Bearer ${token}`,
                     },
-                    body: JSON.stringify({ login: loginConfig, worker: workerConfig }),
+                    body: JSON.stringify(buildLandingPayload()),
                   });
                   if (!res.ok) {
                     const text = await res.text().catch(() => "");
@@ -504,7 +518,7 @@ export default function NccLandingEditorPage() {
                       "Content-Type": "application/json",
                       Authorization: `Bearer ${token}`,
                     },
-                    body: JSON.stringify({ login: loginConfig, worker: workerConfig }),
+                    body: JSON.stringify(buildLandingPayload()),
                   });
                   if (!res.ok) {
                     const text = await res.text().catch(() => "");
