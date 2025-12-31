@@ -46,25 +46,28 @@ export class OnboardingService {
   }
 
   async startPublicSession(email: string, password: string) {
-    const companyId = process.env.RECRUITING_COMPANY_ID;
-    if (!companyId) {
-      throw new BadRequestException("RECRUITING_COMPANY_ID is not configured");
-    }
-
-    // Recruiting pool must attach to the SYSTEM tenant so applicants never
-    // get mixed into normal organizations.
-    const recruitingCompany = await this.prisma.company.findUnique({
-      where: { id: companyId },
+    // Recruiting pool must attach to the canonical Nexus System tenant so
+    // applicants never get mixed into normal organizations. Rather than
+    // relying on an env var, we always resolve the SYSTEM company row named
+    // "Nexus System".
+    const recruitingCompany = await this.prisma.company.findFirst({
+      where: {
+        kind: "SYSTEM" as any,
+        name: {
+          equals: "Nexus System",
+          mode: "insensitive",
+        } as any,
+      },
       select: { id: true, kind: true },
     });
+
     if (!recruitingCompany) {
-      throw new BadRequestException("RECRUITING_COMPANY_ID does not exist");
-    }
-    if ((recruitingCompany as any).kind !== "SYSTEM") {
       throw new BadRequestException(
-        "RECRUITING_COMPANY_ID must reference a SYSTEM company (Nexus System)"
+        "Recruiting pool company (Nexus System) not found. Ensure a SYSTEM company named 'Nexus System' exists."
       );
     }
+
+    const companyId = recruitingCompany.id;
 
     const normalizedEmail = this.normalizeEmail(email);
     if (!normalizedEmail) {
