@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, HttpException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { getImportQueue } from "../../infra/queue/import-queue";
 import { ImportJobStatus, ImportJobType } from "@prisma/client";
@@ -18,60 +18,81 @@ export class ImportJobsService {
   }) {
     const { companyId, projectId, createdByUserId, type, csvPath, estimateVersionId, fileUri } = params;
 
-    // BullMQ: lower numeric priority value means higher priority.
-    // We bias allocation jobs slightly higher so they complete and
-    // unblock UI/analytics quickly.
-    let priority = 5; // default
-    if (type === ImportJobType.XACT_COMPONENTS_ALLOCATE) {
-      priority = 1;
-    } else if (type === ImportJobType.XACT_COMPONENTS) {
-      priority = 3;
-    }
+    try {
+      // BullMQ: lower numeric priority value means higher priority.
+      // We bias allocation jobs slightly higher so they complete and
+      // unblock UI/analytics quickly.
+      let priority = 5; // default
+      if (type === ImportJobType.XACT_COMPONENTS_ALLOCATE) {
+        priority = 1;
+      } else if (type === ImportJobType.XACT_COMPONENTS) {
+        priority = 3;
+      }
 
-    const project = await this.prisma.project.findFirst({
-      where: { id: projectId, companyId }
-    });
+      const project = await this.prisma.project.findFirst({
+        where: { id: projectId, companyId }
+      });
 
-    if (!project) {
-      throw new NotFoundException("Project not found in this company");
-    }
+      if (!project) {
+        throw new NotFoundException("Project not found in this company");
+      }
 
-    const normalizedCsvPath = csvPath?.trim();
-    const normalizedFileUri = fileUri?.trim();
+      const normalizedCsvPath = csvPath?.trim();
+      const normalizedFileUri = fileUri?.trim();
 
-    const requiresFile = type !== ImportJobType.XACT_COMPONENTS_ALLOCATE;
+      const requiresFile = type !== ImportJobType.XACT_COMPONENTS_ALLOCATE;
 
-    if (requiresFile && !normalizedCsvPath && !normalizedFileUri) {
-      throw new BadRequestException("csvPath or fileUri is required");
-    }
+      if (requiresFile && !normalizedCsvPath && !normalizedFileUri) {
+        throw new BadRequestException("csvPath or fileUri is required");
+      }
 
-    const job = await this.prisma.importJob.create({
-      data: {
+      const job = await this.prisma.importJob.create({
+        data: {
+          companyId,
+          projectId,
+          createdByUserId,
+          type,
+          status: ImportJobStatus.QUEUED,
+          progress: 0,
+          csvPath: normalizedCsvPath || null,
+          fileUri: normalizedFileUri || null,
+          estimateVersionId: estimateVersionId?.trim() || null
+        }
+      });
+
+      const queue = getImportQueue();
+      await queue.add(
+        "process",
+        { importJobId: job.id },
+        {
+          attempts: 1,
+          removeOnComplete: 1000,
+          removeOnFail: 1000,
+          priority,
+        }
+      );
+
+      return job;
+    } catch (err: any) {
+      console.error("Error in ImportJobsService.createJob", {
         companyId,
         projectId,
         createdByUserId,
         type,
-        status: ImportJobStatus.QUEUED,
-        progress: 0,
-        csvPath: normalizedCsvPath || null,
-        fileUri: normalizedFileUri || null,
-        estimateVersionId: estimateVersionId?.trim() || null
-      }
-    });
+        csvPath,
+        fileUri,
+        estimateVersionId,
+        error: err?.message ?? String(err),
+      });
 
-    const queue = getImportQueue();
-    await queue.add(
-      "process",
-      { importJobId: job.id },
-      {
-        attempts: 1,
-        removeOnComplete: 1000,
-        removeOnFail: 1000,
-        priority,
+      if (err instanceof HttpException) {
+        throw err;
       }
-    );
 
-    return job;
+      throw new BadRequestException(
+        `Import job creation failed: ${err?.message ?? String(err)}`,
+      );
+    }
   }
 
   async getJob(jobId: string, companyId: string) {
