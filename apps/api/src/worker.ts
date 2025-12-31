@@ -70,9 +70,24 @@ async function downloadGcsToTmp(fileUri: string): Promise<string> {
 
 async function runXactComponentsIngestionJob(prisma: PrismaService, job: any) {
   const importJobId = job.id;
-  const csvPath = job.csvPath?.trim();
+  let csvPath = job.csvPath?.trim();
+
+  // Allow either a local csvPath (dev/legacy) or a fileUri (prod GCS uploads).
+  if ((!csvPath || !fs.existsSync(csvPath)) && job.fileUri) {
+    console.log("[worker] XACT_COMPONENTS using fileUri, downloading from GCS", {
+      importJobId,
+      fileUri: job.fileUri,
+    });
+    csvPath = await downloadGcsToTmp(job.fileUri);
+    console.log("[worker] XACT_COMPONENTS downloaded GCS file", {
+      importJobId,
+      fileUri: job.fileUri,
+      csvPath,
+    });
+  }
+
   if (!csvPath) {
-    throw new Error("XACT_COMPONENTS ingestion job has no csvPath.");
+    throw new Error("XACT_COMPONENTS ingestion job has no csvPath or fileUri to read from.");
   }
   if (!fs.existsSync(csvPath)) {
     throw new Error(`Components CSV not found at ${csvPath}`);
