@@ -13,15 +13,16 @@ type PageProps = {
 export default async function WorkerWeeksPage({ params }: PageProps) {
   const { id } = params;
 
-  const worker = await prisma.$queryRawUnsafe<
-    {
-      id: string;
-      fullName: string;
-      status: string | null;
-      defaultProjectCode: string | null;
-      primaryClassCode: string | null;
-    }[]
-  >('SELECT id, "fullName", status, "defaultProjectCode", "primaryClassCode" FROM "Worker" WHERE id = $1', id);
+  const worker = (await prisma.$queryRawUnsafe(
+    'SELECT id, "fullName", status, "defaultProjectCode", "primaryClassCode" FROM "Worker" WHERE id = $1',
+    id,
+  )) as {
+    id: string;
+    fullName: string;
+    status: string | null;
+    defaultProjectCode: string | null;
+    primaryClassCode: string | null;
+  }[];
 
   const w = worker[0];
 
@@ -34,23 +35,19 @@ export default async function WorkerWeeksPage({ params }: PageProps) {
   }
 
   // Get the global list of distinct weeks so we can show 0-hour weeks
-  const weeks = await prisma.$queryRawUnsafe<
-    { weekDate: Date }[]
-  >(
+  const weeks = (await prisma.$queryRawUnsafe(
     'SELECT DISTINCT "weekEndDate"::date as "weekDate" FROM "WorkerWeek" ORDER BY "weekDate" ASC',
-  );
+  )) as { weekDate: Date }[];
 
   // Get all WorkerWeek rows for this worker
-  const wwRows = await prisma.$queryRawUnsafe<
-    {
-      weekEndDate: Date;
-      projectCode: string;
-      totalHours: number;
-    }[]
-  >(
+  const wwRows = (await prisma.$queryRawUnsafe(
     'SELECT "weekEndDate"::date as "weekEndDate", "projectCode", "totalHours" FROM "WorkerWeek" WHERE "workerId" = $1',
     id,
-  );
+  )) as {
+    weekEndDate: Date;
+    projectCode: string;
+    totalHours: number;
+  }[];
 
   const byWeek = new Map<
     string,
