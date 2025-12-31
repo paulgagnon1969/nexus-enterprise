@@ -137,17 +137,20 @@ export function AppShell({ children }: { children: ReactNode }) {
       window.localStorage.setItem("accessToken", json.accessToken);
       window.localStorage.setItem("refreshToken", json.refreshToken);
 
+      try {
+        // eslint-disable-next-line no-console
+        console.log("[Nexus] token refresh succeeded", {
+          apiBase: API_BASE,
+          path: "/auth/refresh",
+        });
+      } catch {}
+
       return { accessToken: json.accessToken, refreshToken: json.refreshToken };
     }
 
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const requestUrl =
         typeof input === "string" || input instanceof URL ? input.toString() : input.url;
-
-      try {
-        // eslint-disable-next-line no-console
-        console.log("[Nexus] wrapped fetch ->", requestUrl);
-      } catch {}
 
       // Only intercept calls going to our API backend.
       if (!requestUrl.startsWith(API_BASE) && !requestUrl.startsWith(apiOrigin)) {
