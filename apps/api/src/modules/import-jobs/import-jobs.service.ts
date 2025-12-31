@@ -9,14 +9,22 @@ export class ImportJobsService {
 
   async createJob(params: {
     companyId: string;
-    projectId: string;
+    projectId?: string;
     createdByUserId: string;
     type: ImportJobType;
-    csvPath?: string;
+    csvPath?: string | null;
     estimateVersionId?: string;
-    fileUri?: string;
+    fileUri?: string | null;
   }) {
-    const { companyId, projectId, createdByUserId, type, csvPath, estimateVersionId, fileUri } = params;
+    const {
+      companyId,
+      projectId,
+      createdByUserId,
+      type,
+      csvPath,
+      estimateVersionId,
+      fileUri,
+    } = params;
 
     try {
       // BullMQ: lower numeric priority value means higher priority.
@@ -29,18 +37,29 @@ export class ImportJobsService {
         priority = 3;
       }
 
-      const project = await this.prisma.project.findFirst({
-        where: { id: projectId, companyId }
-      });
+      const normalizedCsvPath = csvPath?.trim() || null;
+      const normalizedFileUri = fileUri?.trim() || null;
 
-      if (!project) {
-        throw new NotFoundException("Project not found in this company");
+      // BIA_LCP is company-level; other types are project-scoped.
+      const requiresProject = type !== ImportJobType.BIA_LCP;
+      if (requiresProject) {
+        if (!projectId) {
+          throw new BadRequestException("projectId is required for this import type");
+        }
+
+        const project = await this.prisma.project.findFirst({
+          where: { id: projectId, companyId },
+        });
+
+        if (!project) {
+          throw new NotFoundException("Project not found in this company");
+        }
       }
 
-      const normalizedCsvPath = csvPath?.trim();
-      const normalizedFileUri = fileUri?.trim();
-
-      const requiresFile = type !== ImportJobType.XACT_COMPONENTS_ALLOCATE;
+      // For BIA_LCP and XACT_COMPONENTS_ALLOCATE, we don't require a file path here.
+      const requiresFile =
+        type !== ImportJobType.XACT_COMPONENTS_ALLOCATE &&
+        type !== ImportJobType.BIA_LCP;
 
       if (requiresFile && !normalizedCsvPath && !normalizedFileUri) {
         throw new BadRequestException("csvPath or fileUri is required");
@@ -49,14 +68,14 @@ export class ImportJobsService {
       const job = await this.prisma.importJob.create({
         data: {
           companyId,
-          projectId,
+          projectId: projectId ?? null,
           createdByUserId,
           type,
           status: ImportJobStatus.QUEUED,
           progress: 0,
-          csvPath: normalizedCsvPath || null,
-          fileUri: normalizedFileUri || null,
-          estimateVersionId: estimateVersionId?.trim() || null
+          csvPath: normalizedCsvPath,
+          fileUri: normalizedFileUri,
+          estimateVersionId: estimateVersionId?.trim() || null,
         }
       });
 

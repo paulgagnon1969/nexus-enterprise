@@ -447,7 +447,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </Link>
                 <NavDropdown
                   label="People"
-                  active={path.startsWith("/company/")}
+                  active={path.startsWith("/company/") || path.startsWith("/workers")}
                   items={[
                     { label: "Worker Profiles", href: "/company/users" },
                     {
@@ -456,6 +456,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     },
                     { label: "Open Trades Profile", href: "/company/trades" },
                     { label: "Client Profiles", href: "/company/clients" },
+                    { label: "Field Workers (BIA)", href: "/workers" },
                   ]}
                 />
               </>

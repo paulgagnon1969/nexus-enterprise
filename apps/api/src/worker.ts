@@ -12,6 +12,7 @@ import {
   importXactComponentsChunkForEstimate,
   importXactCsvForProject,
   importGoldenComponentsFromFile,
+  importBiaWorkers,
 } from "@repo/database";
 import { ImportJobStatus, ImportJobType } from "@prisma/client";
 import { importPriceListFromFile } from "./modules/pricing/pricing.service";
@@ -540,6 +541,44 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
           avgDelta: 0,
           avgPercentDelta: 0,
           source: "GOLDEN_PETL",
+        },
+      });
+    }
+
+    return;
+  }
+
+  if (job.type === ImportJobType.BIA_LCP) {
+    console.log("[worker] BIA_LCP start", {
+      importJobId,
+      companyId: job.companyId,
+      csvPath,
+    });
+
+    try {
+      await importBiaWorkers();
+
+      await prisma.importJob.update({
+        where: { id: importJobId },
+        data: {
+          status: ImportJobStatus.SUCCEEDED,
+          finishedAt: new Date(),
+          progress: 100,
+          message: "BIA LCP import complete",
+        },
+      });
+    } catch (err: any) {
+      console.error("[worker] BIA_LCP failed", {
+        importJobId,
+        error: err?.message ?? String(err),
+      });
+      await prisma.importJob.update({
+        where: { id: importJobId },
+        data: {
+          status: ImportJobStatus.FAILED,
+          finishedAt: new Date(),
+          message: "BIA LCP import failed",
+          errorJson: safeError(err) as any,
         },
       });
     }

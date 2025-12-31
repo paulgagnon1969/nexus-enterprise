@@ -17,21 +17,17 @@ export default function LoginPage() {
   const [brandingSubheadline, setBrandingSubheadline] = useState<string | null>(null);
   const [brandingLogoUrl, setBrandingLogoUrl] = useState<string | null>(null);
 
-  // Load per-tenant branding for the login experience, if available.
+  // Load global branding for the Nexus Contractor-Connect login screen.
+  // This is driven by the Nexus System landing configuration, not per-tenant.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const token = window.localStorage.getItem("accessToken");
-    const companyId = window.localStorage.getItem("companyId");
-    if (!token || !companyId) return;
-
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/companies/me/landing-config`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(`${API_BASE}/companies/system-landing-config-public`);
         if (!res.ok) return;
-        const json: { login?: { headline?: string | null; subheadline?: string | null; logoUrl?: string | null } | null } =
-          await res.json();
+
+        const json: {
+          login?: { headline?: string | null; subheadline?: string | null; logoUrl?: string | null } | null;
+        } = await res.json();
         const login = json.login ?? null;
         if (login) {
           setBrandingHeadline(login.headline ?? null);

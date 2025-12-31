@@ -36,22 +36,25 @@ function ApplyPageInner() {
   const [brandingHeadline, setBrandingHeadline] = useState<string | null>(null);
   const [brandingSubheadline, setBrandingSubheadline] = useState<string | null>(null);
   const [brandingLogoUrl, setBrandingLogoUrl] = useState<string | null>(null);
+  const [brandingSecondaryLogoUrl, setBrandingSecondaryLogoUrl] = useState<string | null>(null);
 
-  // Load per-tenant branding for the public worker registration landing, if available.
+  // Load global branding for the Nexus Contractor-Connect worker registration
+  // landing page. This is driven by the Nexus System landing configuration,
+  // not per-tenant.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const token = window.localStorage.getItem("accessToken");
-    const companyId = window.localStorage.getItem("companyId");
-    if (!token || !companyId) return;
-
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/companies/me/landing-config`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch(`${API_BASE}/companies/system-landing-config-public`);
         if (!res.ok) return;
-        const json: { worker?: { headline?: string | null; subheadline?: string | null; logoUrl?: string | null } | null } =
-          await res.json();
+
+        const json: {
+          worker?: {
+            headline?: string | null;
+            subheadline?: string | null;
+            logoUrl?: string | null;
+            secondaryLogoUrl?: string | null;
+          } | null;
+        } = await res.json();
         const worker = json.worker ?? null;
         if (worker) {
           setBrandingHeadline(worker.headline ?? null);
@@ -61,6 +64,12 @@ function ApplyPageInner() {
               ? `${API_BASE}${worker.logoUrl}`
               : worker.logoUrl;
             setBrandingLogoUrl(url);
+          }
+          if (worker.secondaryLogoUrl) {
+            const secondaryUrl = worker.secondaryLogoUrl.startsWith("/uploads/")
+              ? `${API_BASE}${worker.secondaryLogoUrl}`
+              : worker.secondaryLogoUrl;
+            setBrandingSecondaryLogoUrl(secondaryUrl);
           }
         }
       } catch {
@@ -141,10 +150,16 @@ function ApplyPageInner() {
         {brandingHeadline || "NEXUS Contractor-Connect"}
       </h1>
 
+      {brandingSubheadline && (
+        <p style={{ marginTop: 4, textAlign: "center", fontSize: 14, color: "#6b7280" }}>
+          {brandingSubheadline}
+        </p>
+      )}
+
       {brandingLogoUrl ? (
         <img
           src={brandingLogoUrl}
-          alt="Worker registration logo"
+          alt="Worker registration primary image"
           style={{
             width: 520,
             maxWidth: "100%",
@@ -236,8 +251,22 @@ function ApplyPageInner() {
       </form>
 
       <div style={{ marginTop: 18, fontSize: 12, color: "#6b7280", textAlign: "center" }}>
-        Already in the pool? Log in at <a href="/login">/login</a>.
+        Already a member of the Network? Log in at <a href="/login">/login</a>.
       </div>
+
+      {brandingSecondaryLogoUrl && (
+        <img
+          src={brandingSecondaryLogoUrl}
+          alt="Worker registration secondary image"
+          style={{
+            width: 520,
+            maxWidth: "100%",
+            height: "auto",
+            display: "block",
+            marginTop: 12,
+          }}
+        />
+      )}
     </main>
   );
 }

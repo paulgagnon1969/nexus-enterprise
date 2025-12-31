@@ -15,7 +15,8 @@
     "allocate:xact-components": "ts-node src/run-allocate-xact-components.ts",
     "import:pricelist": "ts-node src/run-import-price-list.ts",
     "import:pricelist-components": "ts-node src/run-import-pricelist-components.ts",
-    "archive:company-offices": "ts-node src/archive-company-office.ts"
+    "archive:company-offices": "ts-node src/archive-company-office.ts",
+    "import:bia-workers": "ts-node src/run-import-bia-workers.ts"
   },
   "dependencies": {
     "@prisma/client": "^7.0.0",

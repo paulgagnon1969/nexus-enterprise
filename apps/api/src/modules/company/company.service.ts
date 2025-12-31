@@ -337,8 +337,7 @@ export class CompanyService {
   }
 
   // --- Branding / landing configuration helpers ---
-
-  private ensureCanManageBranding(actor: AuthenticatedUser) {
+   private ensureCanManageBranding(actor: AuthenticatedUser) {
     // SUPER_ADMIN can always manage branding for the current company context.
     if (actor.globalRole === GlobalRole.SUPER_ADMIN) return;
     // For non-super users, require OWNER or ADMIN on the current company.
@@ -347,12 +346,42 @@ export class CompanyService {
     }
   }
 
+  private coerceLandingConfig(
+    raw: any,
+  ): {
+    logoUrl: string | null;
+    headline: string | null;
+    subheadline: string | null;
+    secondaryLogoUrl: string | null;
+  } | null {
+    if (!raw || typeof raw !== "object") {
+      return null;
+    }
+    const obj = raw as any;
+    const logoUrl = typeof obj.logoUrl === "string" && obj.logoUrl.trim() ? obj.logoUrl.trim() : null;
+    const headline = typeof obj.headline === "string" && obj.headline.trim() ? obj.headline.trim() : null;
+    const subheadline =
+      typeof obj.subheadline === "string" && obj.subheadline.trim() ? obj.subheadline.trim() : null;
+    const secondaryLogoUrl =
+      typeof obj.secondaryLogoUrl === "string" && obj.secondaryLogoUrl.trim()
+        ? obj.secondaryLogoUrl.trim()
+        : null;
+
+    return { logoUrl, headline, subheadline, secondaryLogoUrl };
+  }
+  
   async getLandingConfigForCurrentCompany(actor: AuthenticatedUser) {
     this.ensureCanManageBranding(actor);
 
+    return this.getLandingConfigByCompanyId(actor.companyId);
+  }
+
+  // Public-safe landing configuration reader (no auth), used for login/worker
+  // registration branding. Only exposes logo/headline/subheadline.
+  async getLandingConfigByCompanyId(companyId: string) {
     const rows = await this.prisma.organizationModuleOverride.findMany({
       where: {
-        companyId: actor.companyId,
+        companyId,
         moduleCode: { in: ["NCC_LOGIN_LANDING", "NCC_WORKER_LANDING"] },
       },
       select: {
@@ -361,22 +390,54 @@ export class CompanyService {
       },
     });
 
-    const login = rows.find(r => r.moduleCode === "NCC_LOGIN_LANDING")?.configJson ?? null;
-    const worker = rows.find(r => r.moduleCode === "NCC_WORKER_LANDING")?.configJson ?? null;
+    const rawLogin = rows.find(r => r.moduleCode === "NCC_LOGIN_LANDING")?.configJson ?? null;
+    const rawWorker = rows.find(r => r.moduleCode === "NCC_WORKER_LANDING")?.configJson ?? null;
+
+    const login = this.coerceLandingConfig(rawLogin);
+    const worker = this.coerceLandingConfig(rawWorker);
 
     return { login, worker };
   }
 
-  async upsertLandingConfigForCurrentCompany(
-    actor: AuthenticatedUser,
-    dto: UpsertLandingConfigDto,
-  ) {
-    this.ensureCanManageBranding(actor);
+  // Resolve the Nexus System company used for global landing configuration.
+  private async getSystemCompanyId(): Promise<string | null> {
+    const row = await this.prisma.company.findFirst({
+      where: {
+        name: "Nexus System",
+      },
+      select: { id: true },
+    });
+    return row?.id ?? null;
+  }
 
-    const companyId = actor.companyId;
+  // Global Nexus Contractor-Connect landing configuration, anchored to the
+  // "Nexus System" organization. This feeds the public /login and /apply
+  // screens and does not depend on the caller's company context.
+  async getSystemLandingConfig() {
+    const systemCompanyId = await this.getSystemCompanyId();
+    if (!systemCompanyId) {
+      return { login: null, worker: null };
+    }
+    return this.getLandingConfigByCompanyId(systemCompanyId);
+  }
+
+  // SUPER_ADMIN-only: update landing configuration for the Nexus System
+  // organization regardless of the caller's current companyId.
+  async upsertSystemLandingConfig(actor: AuthenticatedUser, dto: UpsertLandingConfigDto) {
+    if (actor.globalRole !== GlobalRole.SUPER_ADMIN) {
+      throw new Error("Only SUPER_ADMIN can update system landing configuration");
+    }
+
+    const companyId = await this.getSystemCompanyId();
+    if (!companyId) {
+      throw new Error("Nexus System organization not found");
+    }
+
+    const hasLogin = typeof dto.login !== "undefined";
+    const hasWorker = typeof dto.worker !== "undefined";
 
     await this.prisma.$transaction(async tx => {
-      if (dto.login) {
+      if (hasLogin) {
         await tx.organizationModuleOverride.upsert({
           where: {
             OrgModuleOverride_company_module_key: {
@@ -397,7 +458,75 @@ export class CompanyService {
         });
       }
 
-      if (dto.worker) {
+      if (hasWorker) {
+        await tx.organizationModuleOverride.upsert({
+          where: {
+            OrgModuleOverride_company_module_key: {
+              companyId,
+              moduleCode: "NCC_WORKER_LANDING",
+            },
+          },
+          update: {
+            enabled: true,
+            configJson: dto.worker as any,
+          },
+          create: {
+            companyId,
+            moduleCode: "NCC_WORKER_LANDING",
+            enabled: true,
+            configJson: dto.worker as any,
+          },
+        });
+      }
+    });
+
+    await this.audit.log(actor, "SYSTEM_LANDING_CONFIG_UPDATED", {
+      companyId,
+      metadata: {
+        hasLoginConfig: dto.login != null,
+        hasWorkerConfig: dto.worker != null,
+      },
+    });
+
+    return this.getSystemLandingConfig();
+  }
+
+  async upsertLandingConfigForCurrentCompany(
+    actor: AuthenticatedUser,
+    dto: UpsertLandingConfigDto,
+  ) {
+    this.ensureCanManageBranding(actor);
+
+    const companyId = actor.companyId;
+
+    // IMPORTANT: persist exactly what the editor sends. We normalize shapes on
+    // read (via coerceLandingConfig) so we don't accidentally drop fields here.
+    const hasLogin = typeof dto.login !== "undefined";
+    const hasWorker = typeof dto.worker !== "undefined";
+
+    await this.prisma.$transaction(async tx => {
+      if (hasLogin) {
+        await tx.organizationModuleOverride.upsert({
+          where: {
+            OrgModuleOverride_company_module_key: {
+              companyId,
+              moduleCode: "NCC_LOGIN_LANDING",
+            },
+          },
+          update: {
+            enabled: true,
+            configJson: dto.login as any,
+          },
+          create: {
+            companyId,
+            moduleCode: "NCC_LOGIN_LANDING",
+            enabled: true,
+            configJson: dto.login as any,
+          },
+        });
+      }
+
+      if (hasWorker) {
         await tx.organizationModuleOverride.upsert({
           where: {
             OrgModuleOverride_company_module_key: {
@@ -422,11 +551,13 @@ export class CompanyService {
     await this.audit.log(actor, "COMPANY_LANDING_CONFIG_UPDATED", {
       companyId,
       metadata: {
-        hasLoginConfig: !!dto.login,
-        hasWorkerConfig: !!dto.worker,
+        hasLoginConfig: dto.login != null,
+        hasWorkerConfig: dto.worker != null,
       },
     });
 
+    // Re-read using the same path the editor + public endpoints use so caller
+    // sees the normalized shape.
     return this.getLandingConfigForCurrentCompany(actor);
   }
 

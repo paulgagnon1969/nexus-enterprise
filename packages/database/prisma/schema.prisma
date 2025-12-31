@@ -179,6 +179,56 @@ model User {
   assetTransactions         AssetTransaction[]
 }
 
+/// BIA / LCP-imported field workers. These are human workers who may
+/// or may not have a corresponding User account in the system. Over time
+/// they can be linked to Users, skills, and communications.
+model Worker {
+  id                 String   @id @default(cuid())
+  firstName          String
+  lastName           String
+  fullName           String   @unique
+  ssnHash            String?
+  email              String?
+  phone              String?
+  addressLine1       String?
+  addressLine2       String?
+  city               String?
+  state              String?
+  postalCode         String?
+  gender             String?
+  ethnicity          String?
+  primaryClassCode   String?
+  defaultProjectCode String? // "CBS" | "CCT" | "BOTH"
+  dateHired          DateTime?
+  status             String?  // e.g. ACTIVE / INACTIVE
+  isForeman          Boolean  @default(false)
+  defaultPayRate     Float?   // hourly pay rate
+  unionLocal         String?
+  firstSeenWeekEnd   DateTime?
+  lastSeenWeekEnd    DateTime?
+  totalHoursCbs      Float?   @default(0)
+  totalHoursCct      Float?   @default(0)
+  notes              String?
+  weeks              WorkerWeek[]
+}
+
+/// Per-worker, per-week work summary derived from LCPUpload templates.
+model WorkerWeek {
+  id           String   @id @default(cuid())
+  workerId     String
+  weekEndDate  DateTime
+  projectCode  String   // "CBS" | "CCT"
+  totalHours   Float
+  totalHoursSt Float?
+  totalHoursOt Float?
+  sourceFile   String?
+
+  worker       Worker   @relation(fields: [workerId], references: [id])
+
+  @@unique([workerId, weekEndDate, projectCode])
+  @@index([weekEndDate, projectCode], map: "WorkerWeek_week_scope_idx")
+}
+
 model UserPortfolio {
   id        String           @id @default(cuid())
   companyId String
@@ -1204,6 +1254,7 @@ enum ImportJobType {
   XACT_COMPONENTS_ALLOCATE
   PRICE_LIST
   PRICE_LIST_COMPONENTS
+  BIA_LCP
 }
 
 enum ImportJobStatus {

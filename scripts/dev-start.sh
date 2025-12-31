@@ -46,13 +46,30 @@ echo "[dev-start] Repo root: $REPO_ROOT (mode=local-docker)" | tee -a "$LOG_DIR/
 
 # --- Sanity checks ---------------------------------------------------------
 
-# We no longer manage Docker from this script; assume the database/infra
-# is already running (local Docker, Cloud SQL proxy, etc.). This script is
-# responsible only for wiring env and starting dev servers.
-
 if ! command -v npm >/dev/null 2>&1; then
   echo "[dev-start] ERROR: npm is not on PATH. Ensure Node/npm are installed." | tee -a "$LOG_DIR/dev-start.log" >&2
   exit 1
+fi
+
+# For local Docker dev, start-dev-clear-all.sh is responsible for bringing
+# up Docker Desktop and docker-compose. Here we just fail fast if the
+# expected local Postgres/Redis ports are not reachable, so you don't get
+# mysterious 500s.
+
+if command -v nc >/dev/null 2>&1; then
+  echo "[dev-start] Checking local Postgres on 127.0.0.1:${LOCAL_DB_PORT}…" | tee -a "$LOG_DIR/dev-start.log"
+  if ! nc -z 127.0.0.1 "${LOCAL_DB_PORT}" >/dev/null 2>&1; then
+    echo "[dev-start] ERROR: No Postgres listening on 127.0.0.1:${LOCAL_DB_PORT}." | tee -a "$LOG_DIR/dev-start.log" >&2
+    echo "[dev-start] Hint: run 'docker compose -f infra/docker/docker-compose.yml up -d' for local Docker dev." | tee -a "$LOG_DIR/dev-start.log" >&2
+    exit 1
+  fi
+
+  echo "[dev-start] Checking local Redis on 127.0.0.1:6380…" | tee -a "$LOG_DIR/dev-start.log"
+  if ! nc -z 127.0.0.1 6380 >/dev/null 2>&1; then
+    echo "[dev-start] WARNING: No Redis listening on 127.0.0.1:6380; if REDIS_USE_REAL=true, auth/queues may fail." | tee -a "$LOG_DIR/dev-start.log" >&2
+  fi
+else
+  echo "[dev-start] WARNING: 'nc' not found; skipping local Postgres/Redis port checks." | tee -a "$LOG_DIR/dev-start.log"
 fi
 
 # --- 1) Ensure web .env.local points to local API -------------------------

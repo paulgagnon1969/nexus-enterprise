@@ -21,20 +21,24 @@ services:
     volumes:
       - nexus-redis-data:/data
 
-  api:
-    build:
-      context: ../..
-      dockerfile: apps/api/Dockerfile
-    image: ghcr.io/paulgagnon1969/ncc-api:chunk-v1
-    container_name: nexus-api
-    restart: unless-stopped
-    env_file:
-      - ../../apps/api/.env.docker
-    ports:
-      - "8000:8000"
-    depends_on:
-      - postgres
-      - redis
+  # NOTE (local dev): the API service is commented out to avoid port 8000 conflicts
+  # with the NestJS dev server run from the nexus-enterprise monorepo. We
+  # generally don't need this container during development since we run the
+  # API with `npm run dev:api` against the same Postgres/Redis.
+  # api:
+  #   build:
+  #     context: ../..
+  #     dockerfile: apps/api/Dockerfile
+  #   image: ghcr.io/paulgagnon1969/ncc-api:chunk-v1
+  #   container_name: nexus-api
+  #   restart: unless-stopped
+  #   env_file:
+  #     - ../../apps/api/.env.docker
+  #   ports:
+  #     - "8000:8000"
+  #   depends_on:
+  #     - postgres
+  #     - redis
 
 volumes:
   nexus-postgres-data:

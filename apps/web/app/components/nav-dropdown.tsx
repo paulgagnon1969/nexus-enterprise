@@ -12,7 +12,7 @@ export default function NavDropdown({
   label,
   items,
   active,
-  closeDelayMs = 180,
+  closeDelayMs = 1000,
 }: {
   label: string;
   items: NavDropdownItem[];

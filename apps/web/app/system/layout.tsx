@@ -542,6 +542,22 @@ function SystemLayoutInner({ children }: { children: ReactNode }) {
               >
                 NCC landing
               </Link>
+              <Link
+                href="/system/embedded/ncc-landing#worker-registration"
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  border: "1px solid #e5e7eb",
+                  background: pathname?.startsWith("/system/embedded/ncc-landing")
+                    ? "#f9fafb"
+                    : "transparent",
+                  color: pathname?.startsWith("/system/embedded/ncc-landing") ? "#0f172a" : "#f9fafb",
+                  fontSize: 11,
+                  textDecoration: "none",
+                }}
+              >
+                Worker registration landing
+              </Link>
             </div>
           </div>
         )}
