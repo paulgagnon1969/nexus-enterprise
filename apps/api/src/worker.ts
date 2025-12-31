@@ -144,17 +144,23 @@ async function runXactComponentsIngestionJob(prisma: PrismaService, job: any) {
   const totalRecords = records.length;
 
   if (totalRecords === 0) {
-    // Nothing to ingest; mark ingestion job complete and enqueue allocation job directly.
+    // Nothing to ingest; run allocation inline on the same ImportJob so we
+    // avoid creating a separate XACT_COMPONENTS_ALLOCATE job (which would
+    // require an extra enum value in the database).
+    const allocationResult = await allocateComponentsForEstimate({
+      estimateVersionId,
+    });
+
     await prisma.importJob.update({
       where: { id: importJobId },
       data: {
         status: ImportJobStatus.SUCCEEDED,
         finishedAt: new Date(),
         progress: 100,
-        message: "No Xact components found; allocation job queued",
+        message: "No Xact components found; allocation complete",
         estimateVersionId,
         resultJson: {
-          phase: "ingestion",
+          phase: "ingestion+allocation",
           estimateVersionId,
           components: {
             estimateVersionId,
@@ -162,41 +168,7 @@ async function runXactComponentsIngestionJob(prisma: PrismaService, job: any) {
             rawCount: 0,
             summaryCount: 0,
           },
-        } as any,
-      },
-    });
-
-    const allocationJob = await prisma.importJob.create({
-      data: {
-        companyId: job.companyId,
-        projectId: job.projectId,
-        createdByUserId: job.createdByUserId,
-        type: ImportJobType.XACT_COMPONENTS_ALLOCATE,
-        status: ImportJobStatus.QUEUED,
-        progress: 0,
-        estimateVersionId,
-        message: "Queued Xact components allocation (no components to ingest)",
-      },
-    });
-
-    const queue = getImportQueue();
-    await queue.add(
-      "process",
-      { importJobId: allocationJob.id },
-      {
-        attempts: 1,
-        removeOnComplete: 1000,
-        removeOnFail: 1000,
-        priority: PRIORITY_XACT_COMPONENTS_ALLOCATE,
-      },
-    );
-
-    await prisma.importJob.update({
-      where: { id: importJobId },
-      data: {
-        metaJson: {
-          ...(job.metaJson as any),
-          allocationJobId: allocationJob.id,
+          allocation: allocationResult,
         } as any,
       },
     });
@@ -498,16 +470,20 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
     return;
   }
 
+  // NOTE: we no longer enqueue separate XACT_COMPONENTS_ALLOCATE jobs. Allocation
+  // is now run inline as part of the XACT_COMPONENTS ingestion job once all
+  // chunks complete. This branch is kept only for backwards compatibility if any
+  // legacy jobs remain in the queue.
   if (job.type === ImportJobType.XACT_COMPONENTS_ALLOCATE) {
     console.log(
-      "[worker] XACT_COMPONENTS_ALLOCATE job start importJobId=%s estimateVersionId=%s",
+      "[worker] XACT_COMPONENTS_ALLOCATE legacy job start importJobId=%s estimateVersionId=%s",
       importJobId,
       job.estimateVersionId,
     );
 
     await prisma.importJob.update({
       where: { id: importJobId },
-      data: { progress: 20, message: "Allocating components..." },
+      data: { progress: 20, message: "Allocating components (legacy job)..." },
     });
 
     await runXactComponentsAllocationJob(prisma, job);
@@ -689,7 +665,7 @@ async function processImportChunk(prisma: PrismaService, payload: ChunkJobPayloa
 
     if (isLastChunk) {
       console.log(
-        "[worker] XACT_COMPONENTS all chunks complete, queuing allocation job for importJobId=%s",
+        "[worker] XACT_COMPONENTS all chunks complete, running allocation inline for importJobId=%s",
         importJobId,
       );
 
@@ -698,37 +674,26 @@ async function processImportChunk(prisma: PrismaService, payload: ChunkJobPayloa
         throw new Error(`Parent ImportJob not found when finalizing chunks: ${importJobId}`);
       }
 
-      const allocationJob = await prisma.importJob.create({
-        data: {
-          companyId: parent.companyId,
-          projectId: parent.projectId,
-          createdByUserId: parent.createdByUserId,
-          type: ImportJobType.XACT_COMPONENTS_ALLOCATE,
-          status: ImportJobStatus.QUEUED,
-          progress: 0,
-          estimateVersionId: parent.estimateVersionId,
-          message: "Queued Xact components allocation",
-        },
-      });
+      if (!parent.estimateVersionId) {
+        throw new Error(
+          `Parent ImportJob ${importJobId} is missing estimateVersionId for allocation`,
+        );
+      }
 
-      const queue = getImportQueue();
-      await queue.add(
-        "process",
-        { importJobId: allocationJob.id },
-        {
-          attempts: 1,
-          removeOnComplete: 1000,
-          removeOnFail: 1000,
-          priority: PRIORITY_XACT_COMPONENTS_ALLOCATE,
-        },
-      );
+      const allocationResult = await allocateComponentsForEstimate({
+        estimateVersionId: parent.estimateVersionId,
+      });
 
       await prisma.importJob.update({
         where: { id: importJobId },
         data: {
-          metaJson: {
-            ...(parent.metaJson as any),
-            allocationJobId: allocationJob.id,
+          status: ImportJobStatus.SUCCEEDED,
+          finishedAt: new Date(),
+          progress: 100,
+          message: "Xact components ingestion and allocation complete",
+          resultJson: {
+            phase: "ingestion+allocation",
+            allocation: allocationResult,
           } as any,
         },
       });
