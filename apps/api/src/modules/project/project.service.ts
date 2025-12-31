@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, HttpException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuditService } from "../../common/audit.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
@@ -565,7 +565,16 @@ export class ProjectService {
         csvPath,
         error: err?.message ?? String(err),
       });
-      throw err;
+
+      // Surface underlying errors as a client-visible 400 so the UI shows more
+      // than just "Internal server error" during components import.
+      if (err instanceof HttpException) {
+        throw err;
+      }
+
+      throw new BadRequestException(
+        `Components import failed: ${err?.message ?? String(err)}`,
+      );
     }
   }
 
