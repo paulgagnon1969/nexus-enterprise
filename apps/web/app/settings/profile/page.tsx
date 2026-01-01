@@ -313,16 +313,6 @@ export default function ProfileSettingsPage() {
     return url;
   })();
 
-  const initials = (() => {
-    if (displayName) {
-      const parts = displayName.split(" ").filter(Boolean);
-      if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-      return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
-    }
-    if (me?.email) return me.email.charAt(0).toUpperCase();
-    return "?";
-  })();
-
   return (
     <PageCard>
       {/* Skills Matrix-style profile header */}
@@ -349,20 +339,13 @@ export default function ProfileSettingsPage() {
             alignItems: "center",
             justifyContent: "center",
             flexShrink: 0,
-            color: "#111827",
-            fontWeight: 600,
-            fontSize: 18,
           }}
         >
-          {profilePhotoSrc ? (
-            <img
-              src={profilePhotoSrc}
-              alt={displayName ? `Profile photo of ${displayName}` : "Profile photo"}
-              style={{ width: "100%", height: "100%", objectFit: "cover" }}
-            />
-          ) : (
-            <span>{initials}</span>
-          )}
+          <img
+            src={profilePhotoSrc || "/nexus-logo-mark.png"}
+            alt={displayName ? `Profile photo of ${displayName}` : "Profile photo"}
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
         </div>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: "var(--color-text)" }}>
