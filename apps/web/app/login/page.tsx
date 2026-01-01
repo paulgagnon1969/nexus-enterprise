@@ -20,6 +20,19 @@ export default function LoginPage() {
   // Load global branding for the Nexus Contractor-Connect login screen.
   // This is driven by the Nexus System landing configuration, not per-tenant.
   useEffect(() => {
+    // Pre-fill email from query string if present (e.g. redirected from /apply).
+    try {
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search || "");
+        const emailFromQuery = params.get("email");
+        if (emailFromQuery) {
+          setEmail(emailFromQuery);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     (async () => {
       try {
         const res = await fetch(`${API_BASE}/companies/system-landing-config-public`);
@@ -87,7 +100,7 @@ export default function LoginPage() {
         }
 
         if (me?.userType === "APPLICANT") {
-          router.push("/candidate");
+          router.push("/settings/profile");
         } else if (me?.globalRole === "SUPER_ADMIN") {
           router.push("/system");
         } else {

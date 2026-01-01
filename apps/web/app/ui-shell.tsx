@@ -221,6 +221,20 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
+  // Bootstrap userType/globalRole from localStorage as early as possible to
+  // avoid flicker of nav for APPLICANT users before /users/me returns.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const storedGlobalRole = window.localStorage.getItem("globalRole");
+      const storedUserType = window.localStorage.getItem("userType");
+      if (storedGlobalRole) setGlobalRole(storedGlobalRole);
+      if (storedUserType) setUserType(storedUserType);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const token = window.localStorage.getItem("accessToken");
@@ -339,6 +353,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     path.startsWith("/company/users/") ||
     path === "/settings/skills";
 
+  // Hide the main app navigation for:
+  // - Prospective candidates (APPLICANT) so they stay focused on their Nexis
+  //   portfolio until promoted into an organization tenant.
+  // - Auth routes like /login so the global menu doesn&apos;t distract first-time
+  //   candidates during sign-in.
+  const hideNavForApplicant = userType === "APPLICANT" || isAuthRoute;
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -365,9 +386,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           )}
 
-          {/* Primary app navigation. For prospective candidates (APPLICANT), we hide
-              the nav entirely so they stay focused on their portfolio experience. */}
-          {userType !== "APPLICANT" && (
+          {/* Primary app navigation. For prospective candidates (APPLICANT) who are
+              only in the Nexus System recruiting tenant, we hide the nav entirely
+              so they stay focused on their Nexis portfolio. Once they are assigned
+              to an organization tenant, the nav appears as normal. */}
+          {!hideNavForApplicant && (
             <nav className="app-nav">
               {globalRole === "SUPER_ADMIN" && !isSystemRoute && (
                 <Link

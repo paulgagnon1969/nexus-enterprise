@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import StarRating from "../components/star-rating";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -58,12 +59,15 @@ interface SkillDto {
 }
 
 export default function PublicOnboardingForm({ token }: { token: string }) {
+  const router = useRouter();
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [skills, setSkills] = useState<SkillDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [missingFields, setMissingFields] = useState<string[]>([]);
+  const [showCompletionHint, setShowCompletionHint] = useState(false);
+  const [completionHintAcknowledged, setCompletionHintAcknowledged] = useState(false);
 
-  const [submittingProfile, setSubmittingProfile] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadingGovId, setUploadingGovId] = useState(false);
   const [submittingFinal, setSubmittingFinal] = useState(false);
@@ -84,9 +88,6 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
   const [state, setState] = useState("");
   const [postalCode, setPostalCode] = useState("");
   const [country, setCountry] = useState("USA");
-
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [govIdFile, setGovIdFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -198,40 +199,34 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
       .filter(g => g.totalCount > 0);
   }, [categoryNames, skills, tradeFilter, skillSearch]);
 
-  async function handleProfileSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function saveProfileIfNeeded() {
     if (!token) return;
-    setSubmittingProfile(true);
-    setError(null);
 
-    try {
-      const res = await fetch(`${API_BASE}/onboarding/${token}/profile`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          firstName,
-          lastName,
-          phone,
-          dob: dob || undefined,
-          addressLine1,
-          addressLine2,
-          city,
-          state,
-          postalCode,
-          country,
-        }),
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(text || "Failed to save your information.");
-      }
-      const json = await res.json();
-      setSession(s => (s ? { ...s, status: json.status, checklist: json.checklist } : json));
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to save your information.");
-    } finally {
-      setSubmittingProfile(false);
+    // No hard validation here: we accept whatever the candidate has provided
+    // so far and store it. Completion is encouraged via a separate hint
+    // overlay, not enforced as a blocking requirement.
+    const res = await fetch(`${API_BASE}/onboarding/${token}/profile`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        firstName,
+        lastName,
+        phone,
+        dob: dob || undefined,
+        addressLine1,
+        addressLine2,
+        city,
+        state,
+        postalCode,
+        country,
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || "Failed to save your information.");
     }
+    const json = await res.json();
+    setSession(s => (s ? { ...s, status: json.status, checklist: json.checklist } : json));
   }
 
   async function uploadDocument(type: "PHOTO" | "GOV_ID", file: File) {
@@ -250,49 +245,61 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
     }
 
     const json = await res.json();
-    setSession(s => (s ? { ...s, status: json.status, checklist: json.checklist } : s));
+    setSession(s =>
+      s
+        ? {
+            ...s,
+            status: json.status,
+            checklist: json.checklist,
+            documents: json.documents ?? s.documents,
+          }
+        : json,
+    );
   }
 
-  async function handleUploadPhoto() {
-    if (!photoFile) return;
-    try {
-      setUploadingPhoto(true);
-      await uploadDocument("PHOTO", photoFile);
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to upload photo.");
-    } finally {
-      setUploadingPhoto(false);
-    }
-  }
-
-  async function handleUploadGovId() {
-    if (!govIdFile) return;
-    try {
-      setUploadingGovId(true);
-      await uploadDocument("GOV_ID", govIdFile);
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to upload ID.");
-    } finally {
-      setUploadingGovId(false);
-    }
+  function computeMissingFieldLabels(): string[] {
+    const missing: string[] = [];
+    if (!firstName.trim()) missing.push("First name");
+    if (!lastName.trim()) missing.push("Last name");
+    if (!phone.trim()) missing.push("Mobile phone");
+    if (!addressLine1.trim()) missing.push("Address line 1");
+    if (!city.trim()) missing.push("City");
+    if (!state.trim()) missing.push("State");
+    if (!postalCode.trim()) missing.push("Postal code");
+    if (!country.trim()) missing.push("Country");
+    return missing;
   }
 
   async function handleSubmitAll() {
     if (!token) return;
+
+    const missing = computeMissingFieldLabels();
+    if (missing.length > 0 && !completionHintAcknowledged && !showCompletionHint && !submitted) {
+      setMissingFields(missing);
+      setShowCompletionHint(true);
+      return;
+    }
+
     setSubmittingFinal(true);
     setError(null);
 
     try {
-      // Persist skills before final submit
+      // 1) Save whatever profile fields we have so far.
+      await saveProfileIfNeeded();
+
+      // 2) Persist any skill ratings the candidate chose to enter. Skills are
+      // optional and can be completed later.
       if (skills.length > 0) {
         const ratings = skills
-          .filter(s => s.level && s.level >= 1 && s.level <= 5)
+          .filter(s => typeof s.level === "number" && s.level >= 1 && s.level <= 5)
           .map(s => ({ skillId: s.id, level: s.level }));
-        await fetch(`${API_BASE}/onboarding/${token}/skills`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ratings }),
-        });
+        if (ratings.length > 0) {
+          await fetch(`${API_BASE}/onboarding/${token}/skills`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ratings }),
+          });
+        }
       }
 
       const res = await fetch(`${API_BASE}/onboarding/${token}/submit`, {
@@ -303,6 +310,53 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
       }
       const json = await res.json();
       setSession(s => (s ? { ...s, status: json.status } : s));
+
+      // After successful submission, try to auto-login using the credentials
+      // captured during the initial /apply step. If that works, send the
+      // candidate straight into their portal at /candidate so they see their
+      // portfolio card immediately. If auto-login fails or credentials are
+      // missing, fall back to the normal login screen.
+      try {
+        if (typeof window !== "undefined") {
+          const storedEmail = window.sessionStorage.getItem("nexisApplyEmail");
+          const storedPassword = window.sessionStorage.getItem("nexisApplyPassword");
+
+          if (storedEmail && storedPassword) {
+            const loginRes = await fetch(`${API_BASE}/auth/login`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: storedEmail, password: storedPassword }),
+            });
+
+            if (loginRes.ok) {
+              const loginJson: any = await loginRes.json();
+              window.localStorage.setItem("accessToken", loginJson.accessToken);
+              window.localStorage.setItem("refreshToken", loginJson.refreshToken);
+              if (loginJson.company?.id) {
+                window.localStorage.setItem("companyId", loginJson.company.id);
+              }
+
+              // Optionally clear temporary credentials
+              try {
+                window.sessionStorage.removeItem("nexisApplyEmail");
+                window.sessionStorage.removeItem("nexisApplyPassword");
+              } catch {}
+
+              router.push("/settings/profile");
+              return;
+            }
+          }
+        }
+      } catch {
+        // ignore and fall back to explicit login below
+      }
+
+      const email = session?.email ?? "";
+      if (email) {
+        router.push(`/login?email=${encodeURIComponent(email)}`);
+      } else {
+        router.push("/login");
+      }
     } catch (e: any) {
       setError(e?.message ?? "Failed to submit onboarding.");
     } finally {
@@ -318,15 +372,6 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
     );
   }
 
-  if (error) {
-    return (
-      <main style={{ padding: "2rem" }}>
-        <h1>Nexis profile</h1>
-        <p style={{ color: "#b91c1c" }}>{error}</p>
-      </main>
-    );
-  }
-
   if (!session) {
     return (
       <main style={{ padding: "2rem" }}>
@@ -337,7 +382,136 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
   }
 
   return (
-    <main style={{ padding: "2rem", maxWidth: 980, margin: "0 auto" }}>
+    <main style={{ padding: "2rem", maxWidth: 980, margin: "0 auto", position: "relative" }}>
+      {error && (
+        <div
+          onClick={() => setError(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(15,23,42,0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              maxWidth: 420,
+              width: "90%",
+              background: "#ffffff",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 10px 30px rgba(15,23,42,0.25)",
+              padding: 16,
+              fontSize: 13,
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Check your Nexis profile</div>
+            <p style={{ margin: 0, color: "#b91c1c" }}>{error}</p>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              style={{
+                marginTop: 10,
+                padding: "6px 10px",
+                borderRadius: 4,
+                border: "none",
+                backgroundColor: "#0f172a",
+                color: "#f9fafb",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showCompletionHint && missingFields.length > 0 && (
+        <div
+          onClick={() => setShowCompletionHint(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(15,23,42,0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 999,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              maxWidth: 460,
+              width: "90%",
+              background: "#ffffff",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 10px 30px rgba(15,23,42,0.25)",
+              padding: 16,
+              fontSize: 13,
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Finish your contact details (recommended)</div>
+            <p style={{ marginTop: 0, marginBottom: 8, color: "#4b5563" }}>
+              You can submit now, but we strongly recommend completing these items so Nexus and hiring teams can
+              reach you easily:
+            </p>
+            <ul style={{ marginTop: 0, marginBottom: 8, paddingLeft: 18, color: "#4b5563" }}>
+              {missingFields.map(field => (
+                <li key={field}>{field}</li>
+              ))}
+            </ul>
+            <p style={{ marginTop: 0, marginBottom: 10, fontSize: 12, color: "#6b7280" }}>
+              You&apos;ll be able to edit these later from your Nexis profile.
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => setShowCompletionHint(false)}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #d1d5db",
+                  backgroundColor: "#ffffff",
+                  color: "#111827",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Go back and add info
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setCompletionHintAcknowledged(true);
+                  setShowCompletionHint(false);
+                  setSubmittingFinal(true);
+                  setError(null);
+                  await handleSubmitAll();
+                }}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 4,
+                  border: "none",
+                  backgroundColor: "#0f172a",
+                  color: "#f9fafb",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Submit anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <h1 style={{ marginTop: 0 }}>Nexis profile</h1>
       <p style={{ fontSize: 14, color: "#6b7280" }}>
         Welcome. Complete the items below to build your Nexis profile for upcoming work.
@@ -345,7 +519,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
 
       <section style={{ marginTop: "1.5rem", maxWidth: 560 }}>
         <h2 style={{ fontSize: 16, marginBottom: 8 }}>Your information</h2>
-        <form onSubmit={handleProfileSubmit} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", gap: 8 }}>
             <label style={{ fontSize: 14, flex: 1 }} htmlFor="onboarding-first-name">
               First name
@@ -473,82 +647,75 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
               />
             </label>
           </div>
-          <button
-            type="submit"
-            disabled={submittingProfile}
-            style={{
-              marginTop: 8,
-              padding: "8px 12px",
-              borderRadius: 4,
-              border: "none",
-              backgroundColor: submittingProfile ? "#e5e7eb" : "#0f172a",
-              color: submittingProfile ? "#4b5563" : "#f9fafb",
-              fontSize: 14,
-              cursor: submittingProfile ? "default" : "pointer",
-            }}
-          >
-            {submittingProfile ? "Saving…" : checklist.profileComplete ? "Saved" : "Save"}
-          </button>
-        </form>
+        </div>
       </section>
 
       <section style={{ marginTop: "1.5rem", maxWidth: 560 }}>
         <h2 style={{ fontSize: 16, marginBottom: 8 }}>Documents</h2>
         <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 8 }}>
-          Please upload a photo of yourself and a photo of your government-issued ID.
+          Please upload a clear photo of yourself and a photo of your driver&apos;s license (or other
+          government-issued ID).
         </p>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label htmlFor="onboarding-photo" style={{ fontSize: 13 }}>Profile photo (optional)</label>
             <input
               id="onboarding-photo"
               name="photo"
               type="file"
               accept="image/*"
-              onChange={e => setPhotoFile(e.target.files?.[0] ?? null)}
-            />
-            <button
-              type="button"
-              onClick={handleUploadPhoto}
-              disabled={!photoFile || uploadingPhoto}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 4,
-                border: "1px solid #0f172a",
-                backgroundColor: uploadingPhoto ? "#e5e7eb" : "#0f172a",
-                color: uploadingPhoto ? "#4b5563" : "#f9fafb",
-                cursor: uploadingPhoto ? "default" : "pointer",
-                fontSize: 12,
+              onChange={async e => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                try {
+                  setUploadingPhoto(true);
+                  await uploadDocument("PHOTO", file);
+                } catch (err: any) {
+                  setError(err?.message ?? "Failed to upload photo.");
+                } finally {
+                  setUploadingPhoto(false);
+                }
               }}
-            >
-              {uploadingPhoto ? "Uploading…" : checklist.photoUploaded ? "Uploaded" : "Upload photo"}
-            </button>
+            />
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+              {uploadingPhoto
+                ? "Uploading photo…"
+                : checklist.photoUploaded
+                ? "Photo uploaded. You can change it by selecting a new file."
+                : "Select a clear photo of yourself. It will upload automatically."}
+            </div>
           </div>
 
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label htmlFor="onboarding-gov-id" style={{ fontSize: 13 }}>
+              Government ID/DL (optional)
+            </label>
             <input
               id="onboarding-gov-id"
               name="govId"
               type="file"
               accept="image/*"
-              onChange={e => setGovIdFile(e.target.files?.[0] ?? null)}
-            />
-            <button
-              type="button"
-              onClick={handleUploadGovId}
-              disabled={!govIdFile || uploadingGovId}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 4,
-                border: "1px solid #0f172a",
-                backgroundColor: uploadingGovId ? "#e5e7eb" : "#0f172a",
-                color: uploadingGovId ? "#4b5563" : "#f9fafb",
-                cursor: uploadingGovId ? "default" : "pointer",
-                fontSize: 12,
+              onChange={async e => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                try {
+                  setUploadingGovId(true);
+                  await uploadDocument("GOV_ID", file);
+                } catch (err: any) {
+                  setError(err?.message ?? "Failed to upload ID.");
+                } finally {
+                  setUploadingGovId(false);
+                }
               }}
-            >
-              {uploadingGovId ? "Uploading…" : checklist.govIdUploaded ? "Uploaded" : "Upload government ID"}
-            </button>
+            />
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+              {uploadingGovId
+                ? "Uploading ID…"
+                : checklist.govIdUploaded
+                ? "ID uploaded. You can change it by selecting a new file."
+                : "Select a clear photo of your driver’s license or other government ID. It will upload automatically."}
+            </div>
           </div>
         </div>
       </section>
