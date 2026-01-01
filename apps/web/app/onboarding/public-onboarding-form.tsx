@@ -89,6 +89,34 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
   const [postalCode, setPostalCode] = useState("");
   const [country, setCountry] = useState("USA");
 
+  // Debounced autosave: whenever profile fields change, try to persist them
+  // after a short delay so partial data is captured even if the user does not
+  // blur every field.
+  useEffect(() => {
+    if (!token) return;
+    if (loading || submitted) return;
+
+    const timer = setTimeout(() => {
+      void saveProfileIfNeeded();
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [
+    token,
+    loading,
+    submitted,
+    firstName,
+    lastName,
+    phone,
+    dob,
+    addressLine1,
+    addressLine2,
+    city,
+    state,
+    postalCode,
+    country,
+  ]);
+
   useEffect(() => {
     if (!token) return;
 
