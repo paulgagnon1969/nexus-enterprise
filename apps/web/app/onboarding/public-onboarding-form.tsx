@@ -205,28 +205,35 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
     // No hard validation here: we accept whatever the candidate has provided
     // so far and store it. Completion is encouraged via a separate hint
     // overlay, not enforced as a blocking requirement.
-    const res = await fetch(`${API_BASE}/onboarding/${token}/profile`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        firstName,
-        lastName,
-        phone,
-        dob: dob || undefined,
-        addressLine1,
-        addressLine2,
-        city,
-        state,
-        postalCode,
-        country,
-      }),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(text || "Failed to save your information.");
+    try {
+      const res = await fetch(`${API_BASE}/onboarding/${token}/profile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName,
+          lastName,
+          phone,
+          dob: dob || undefined,
+          addressLine1,
+          addressLine2,
+          city,
+          state,
+          postalCode,
+          country,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        // Surface a soft error but do not block the user from continuing.
+        setError(text || "We could not save your information yet. You can still continue.");
+        return;
+      }
+      const json = await res.json();
+      setSession(s => (s ? { ...s, status: json.status, checklist: json.checklist } : json));
+    } catch (e: any) {
+      // Network or other failure: capture but do not throw.
+      setError(e?.message ?? "We could not save your information yet. You can still continue.");
     }
-    const json = await res.json();
-    setSession(s => (s ? { ...s, status: json.status, checklist: json.checklist } : json));
   }
 
   async function uploadDocument(type: "PHOTO" | "GOV_ID", file: File) {
@@ -530,6 +537,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
                 autoComplete="given-name"
                 value={firstName}
                 onChange={e => setFirstName(e.target.value)}
+                onBlur={() => void saveProfileIfNeeded()}
                 style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
               />
             </label>
@@ -542,6 +550,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
                 autoComplete="family-name"
                 value={lastName}
                 onChange={e => setLastName(e.target.value)}
+                onBlur={() => void saveProfileIfNeeded()}
                 style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
               />
             </label>
@@ -555,6 +564,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
               autoComplete="tel"
               value={phone}
               onChange={e => setPhone(e.target.value)}
+              onBlur={() => void saveProfileIfNeeded()}
               style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
             />
           </label>
@@ -567,6 +577,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
               autoComplete="bday"
               value={dob}
               onChange={e => setDob(e.target.value)}
+              onBlur={() => void saveProfileIfNeeded()}
               style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
             />
           </label>
@@ -579,6 +590,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
               autoComplete="address-line1"
               value={addressLine1}
               onChange={e => setAddressLine1(e.target.value)}
+              onBlur={() => void saveProfileIfNeeded()}
               style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
             />
           </label>
@@ -591,6 +603,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
               autoComplete="address-line2"
               value={addressLine2}
               onChange={e => setAddressLine2(e.target.value)}
+              onBlur={() => void saveProfileIfNeeded()}
               style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
             />
           </label>
@@ -604,6 +617,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
                 autoComplete="address-level2"
                 value={city}
                 onChange={e => setCity(e.target.value)}
+                onBlur={() => void saveProfileIfNeeded()}
                 style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
               />
             </label>
@@ -616,6 +630,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
                 autoComplete="address-level1"
                 value={state}
                 onChange={e => setState(e.target.value)}
+                onBlur={() => void saveProfileIfNeeded()}
                 placeholder="FL"
                 style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
               />
@@ -631,6 +646,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
                 autoComplete="postal-code"
                 value={postalCode}
                 onChange={e => setPostalCode(e.target.value)}
+                onBlur={() => void saveProfileIfNeeded()}
                 style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
               />
             </label>
@@ -643,6 +659,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
                 autoComplete="country"
                 value={country}
                 onChange={e => setCountry(e.target.value)}
+                onBlur={() => void saveProfileIfNeeded()}
                 style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
               />
             </label>
