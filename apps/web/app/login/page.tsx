@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [brandingHeadline, setBrandingHeadline] = useState<string | null>(null);
   const [brandingSubheadline, setBrandingSubheadline] = useState<string | null>(null);
   const [brandingLogoUrl, setBrandingLogoUrl] = useState<string | null>(null);
+  const [brandingLogoFailed, setBrandingLogoFailed] = useState(false);
 
   // Load global branding for the Nexus Contractor-Connect login screen.
   // This is driven by the Nexus System landing configuration, not per-tenant.
@@ -127,10 +128,11 @@ export default function LoginPage() {
     >
       <div className="app-card" style={{ maxWidth: 400, width: "100%" }}>
         <div style={{ textAlign: "center", marginBottom: 16 }}>
-          {brandingLogoUrl ? (
+          {brandingLogoUrl && !brandingLogoFailed ? (
             <img
               src={brandingLogoUrl}
               alt="Login branding logo"
+              onError={() => setBrandingLogoFailed(true)}
               style={{ maxWidth: "260px", width: "100%", height: "auto" }}
             />
           ) : (
