@@ -71,3 +71,35 @@ curl -s http://localhost:8000/health/deps | jq
 ```
 
 If `/health` is green but `/health/deps` fails, the process is up but DB/Redis are misconfigured.
+
+## Non-interactive API deploys (prod)
+
+To avoid local keychain / gcloud credential loops, production API deploys are handled via GitHub Actions using a GCP service account.
+
+### One-time GCP setup
+
+1. Create a service account in the `nexus-enterprise-480610` project, e.g. `nexus-api-deployer`.
+2. Grant it the minimal roles:
+   - `roles/run.admin` (Cloud Run Admin)
+   - `roles/cloudbuild.builds.editor` (or a narrower Cloud Build role that can run builds)
+   - `roles/artifactregistry.writer` for the Artifact Registry repo that hosts the API image (e.g. `us-docker.pkg.dev/nexus-enterprise-480610/nexus-api`).
+3. Generate a JSON key for this service account and keep it safe.
+
+### GitHub setup
+
+1. In the GitHub repo settings, add a repository secret named `GCP_SA_DEPLOY_JSON` containing the **contents** of the service account JSON key.
+2. The workflow `.github/workflows/prod-api-deploy.yml` will use this secret to authenticate non-interactively.
+
+### Deployment workflow
+
+- Workflow file: `.github/workflows/prod-api-deploy.yml`.
+- Triggers:
+  - `workflow_dispatch` (manual run from the Actions tab), and
+  - `push` to `main` touching `apps/api/**`, `packages/database/**`, `Dockerfile`, or `scripts/deploy-api.sh`.
+- High-level steps:
+  1. Checkout repo and install Node dependencies.
+  2. Authenticate to GCP using `google-github-actions/auth` with `GCP_SA_DEPLOY_JSON`.
+  3. Setup `gcloud` and configure Docker auth for `us-docker.pkg.dev`.
+  4. Run `scripts/deploy-api.sh`, which builds and deploys the `nexus-api` Cloud Run service.
+
+This keeps production deploys fully non-interactive (no local macOS keychain prompts) and reproducible from CI.
