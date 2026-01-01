@@ -260,8 +260,8 @@ export default async function WorkersPage({ searchParams }: PageProps) {
 
       <BiaImportWidget />
 
-      <div className="border rounded max-h-[70vh] overflow-auto text-sm">
-        <table className="min-w-full border-separate border-spacing-x-2 border-spacing-y-1">
+      <div className="border rounded max-h-[70vh] overflow-auto text-sm bg-white">
+        <table className="min-w-full border-collapse text-sm">
           <thead className="bg-gray-100">
             <tr>
               <th className="border px-2 py-1 text-left">Last Name</th>

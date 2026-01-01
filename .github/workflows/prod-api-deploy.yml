@@ -1,0 +1,58 @@
+name: Prod API deploy (Cloud Run)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/api/**"
+      - "packages/database/**"
+      - "Dockerfile"
+      - "scripts/deploy-api.sh"
+
+jobs:
+  deploy-api-prod:
+    runs-on: ubuntu-latest
+
+    env:
+      GOOGLE_CLOUD_PROJECT: nexus-enterprise-480610
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      # Authenticate to GCP using a deployer service account JSON stored in secrets.
+      # Create a service account (e.g. nexus-api-deployer) with minimal roles:
+      #   - Cloud Run Admin
+      #   - Cloud Build Service Account
+      #   - Artifact Registry Writer (for us-docker.pkg.dev)
+      # Download its JSON key and store it as the GitHub secret GCP_SA_DEPLOY_JSON.
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_DEPLOY_JSON }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GOOGLE_CLOUD_PROJECT }}
+
+      - name: Configure Docker auth for Artifact Registry
+        run: gcloud auth configure-docker us-docker.pkg.dev --quiet
+
+      - name: Deploy API to Cloud Run (prod)
+        run: |
+          cd scripts
+          bash ./deploy-api.sh
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ env.GOOGLE_CLOUD_PROJECT }}

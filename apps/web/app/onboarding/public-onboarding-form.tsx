@@ -321,7 +321,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
   if (error) {
     return (
       <main style={{ padding: "2rem" }}>
-        <h1>Prospective candidate onboarding</h1>
+        <h1>Nexis profile</h1>
         <p style={{ color: "#b91c1c" }}>{error}</p>
       </main>
     );
@@ -330,17 +330,17 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
   if (!session) {
     return (
       <main style={{ padding: "2rem" }}>
-        <h1>Prospective candidate onboarding</h1>
-        <p>We could not find this onboarding session.</p>
+        <h1>Nexis profile</h1>
+        <p>We could not find this Nexis profile session.</p>
       </main>
     );
   }
 
   return (
     <main style={{ padding: "2rem", maxWidth: 980, margin: "0 auto" }}>
-      <h1 style={{ marginTop: 0 }}>Prospective Candidate Onboarding</h1>
+      <h1 style={{ marginTop: 0 }}>Nexis profile</h1>
       <p style={{ fontSize: 14, color: "#6b7280" }}>
-        Welcome. Complete the items below so we can consider you for upcoming work.
+        Welcome. Complete the items below to build your Nexis profile for upcoming work.
       </p>
 
       <section style={{ marginTop: "1.5rem", maxWidth: 560 }}>
@@ -816,7 +816,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
             cursor: submitted ? "default" : "pointer",
           }}
         >
-          {submitted ? "Submitted" : submittingFinal ? "Submitting…" : "Submit application"}
+          {submitted ? "Submitted" : submittingFinal ? "Submitting…" : "Submit Nexis profile"}
         </button>
         {submitted && (
           <p style={{ marginTop: 8, fontSize: 13, color: "#16a34a" }}>
@@ -826,7 +826,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
       </section>
 
       <div style={{ marginTop: 18, fontSize: 12, color: "#6b7280" }}>
-        Application email: <strong>{session.email}</strong>
+        Nexis profile email: <strong>{session.email}</strong>
       </div>
     </main>
   );

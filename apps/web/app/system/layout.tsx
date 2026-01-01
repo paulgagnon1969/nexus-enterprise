@@ -627,6 +627,22 @@ function SystemLayoutInner({ children }: { children: ReactNode }) {
           >
             Reports
           </Link>
+          <Link
+            href="/company/trades"
+            target="_blank"
+            rel="noreferrer"
+            style={{ textDecoration: "none", color: "#111827" }}
+          >
+            People · Trades
+          </Link>
+          <Link
+            href="/company/users?tab=candidates"
+            target="_blank"
+            rel="noreferrer"
+            style={{ textDecoration: "none", color: "#111827" }}
+          >
+            Prospective People
+          </Link>
         </div>
 
         {children}

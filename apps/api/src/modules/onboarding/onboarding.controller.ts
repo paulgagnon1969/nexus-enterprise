@@ -160,6 +160,27 @@ export class OnboardingController {
     return this.onboarding.listSessionsForCompany(companyId, actor, statuses);
   }
 
+  // Authenticated candidate self-view: return the latest onboarding session for the
+  // current user in the current company context. This powers the /candidate portal
+  // so applicants can see what they have completed vs what is still pending.
+  @UseGuards(JwtAuthGuard)
+  @Get("my-session")
+  async getMySession(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.onboarding.getLatestSessionForUser(actor);
+  }
+
+  // Allow a logged-in user (e.g. Nexis pool candidate) to bootstrap their own
+  // Nexis profile / onboarding session if one does not already exist. This is
+  // idempotent: if a session already exists for this user/email, we return it
+  // instead of creating a duplicate.
+  @UseGuards(JwtAuthGuard)
+  @Post("start-self")
+  async startSelf(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.onboarding.startSelfProfile(actor);
+  }
+
   // People → Trades: unified list of tradespeople (company members + recruiting candidates)
   // for the current company context.
   @UseGuards(JwtAuthGuard)

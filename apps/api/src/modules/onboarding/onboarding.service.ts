@@ -48,11 +48,10 @@ export class OnboardingService {
   async startPublicSession(email: string, password: string) {
     // Recruiting pool must attach to the canonical Nexus System tenant so
     // applicants never get mixed into normal organizations. Rather than
-    // relying on an env var, we always resolve the SYSTEM company row named
-    // "Nexus System".
+    // relying on an env var or a specific `kind`, we always resolve the
+    // company row named "Nexus System".
     const recruitingCompany = await this.prisma.company.findFirst({
       where: {
-        kind: "SYSTEM" as any,
         name: {
           equals: "Nexus System",
           mode: "insensitive",
@@ -63,7 +62,7 @@ export class OnboardingService {
 
     if (!recruitingCompany) {
       throw new BadRequestException(
-        "Recruiting pool company (Nexus System) not found. Ensure a SYSTEM company named 'Nexus System' exists."
+        "Recruiting pool company (Nexus System) not found. Ensure a company named 'Nexus System' exists."
       );
     }
 
@@ -303,16 +302,163 @@ export class OnboardingService {
       throw new ForbiddenException("Not allowed to view onboarding for this company");
     }
 
+    // IMPORTANT: for the Nexus System recruiting pool, ensure we list sessions
+    // from the same canonical company row that startPublicSession uses. This
+    // avoids subtle bugs where multiple "Nexus System" rows exist with
+    // different ids. For non-Nexus companies, we keep the companyId filter as
+    // is.
+    let effectiveCompanyId = companyId;
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { name: true },
+    });
+
+    if (company && company.name && company.name.toLowerCase() === "nexus system") {
+      const recruitingCompany = await this.prisma.company.findFirst({
+        where: {
+          name: {
+            equals: "Nexus System",
+            mode: "insensitive",
+          } as any,
+        },
+        select: { id: true },
+      });
+      if (recruitingCompany) {
+        effectiveCompanyId = recruitingCompany.id;
+      }
+    }
+
     return this.prisma.onboardingSession.findMany({
       where: {
-        companyId,
-        status: statuses && statuses.length ? { in: statuses as any } : undefined
+        companyId: effectiveCompanyId,
+        status: statuses && statuses.length ? { in: statuses as any } : undefined,
       },
       include: {
         profile: true,
       },
-      orderBy: { createdAt: "desc" }
+      orderBy: { createdAt: "desc" },
     });
+  }
+
+  // Candidate self-view: latest onboarding session for the current user in the
+  // active company context (typically the Nexus System recruiting pool for
+  // public applicants). Includes profile + basic checklist, but omits
+  // sensitive bank info.
+  async getLatestSessionForUser(actor: AuthenticatedUser) {
+    const normalizedEmail = this.normalizeEmail(actor.email);
+
+    const session = await this.prisma.onboardingSession.findFirst({
+      where: {
+        OR: [
+          { userId: actor.userId },
+          { email: normalizedEmail },
+        ],
+      },
+      include: {
+        profile: true,
+        documents: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!session) {
+      throw new NotFoundException("Onboarding session not found for this user");
+    }
+
+    const checklist = session.checklistJson ? JSON.parse(session.checklistJson) : {};
+
+    return {
+      id: session.id,
+      email: session.email,
+      status: session.status,
+      createdAt: session.createdAt,
+      checklist,
+      profile: session.profile,
+      documents: session.documents,
+      token: session.token,
+    };
+  }
+
+  // Self-bootstrap a Nexis profile for the current user if one does not exist
+  // yet. We attach it to the canonical "Nexus System" recruiting company so
+  // that pool candidates live in one central tenant. If a session already
+  // exists (matched by userId or email), we just return that.
+  async startSelfProfile(actor: AuthenticatedUser) {
+    const normalizedEmail = this.normalizeEmail(actor.email);
+
+    // If there is already a session for this user/email, return it to keep the
+    // flow idempotent.
+    const existing = await this.prisma.onboardingSession.findFirst({
+      where: {
+        OR: [
+          { userId: actor.userId },
+          { email: normalizedEmail },
+        ],
+      },
+      include: {
+        profile: true,
+        documents: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (existing) {
+      const checklist = existing.checklistJson
+        ? JSON.parse(existing.checklistJson)
+        : {};
+      return {
+        id: existing.id,
+        email: existing.email,
+        status: existing.status,
+        createdAt: existing.createdAt,
+        checklist,
+        profile: existing.profile,
+        documents: existing.documents,
+        token: existing.token,
+      };
+    }
+
+    // Resolve the canonical Nexus System recruiting company (same logic as
+    // startPublicSession) so that self-started Nexis profiles also land in the
+    // central pool.
+    const recruitingCompany = await this.prisma.company.findFirst({
+      where: {
+        name: {
+          equals: "Nexus System",
+          mode: "insensitive",
+        } as any,
+      },
+      select: { id: true },
+    });
+
+    if (!recruitingCompany) {
+      throw new BadRequestException(
+        "Recruiting pool company (Nexus System) not found. Ensure a company named 'Nexus System' exists.",
+      );
+    }
+
+    const session = await this.startSession(
+      recruitingCompany.id,
+      normalizedEmail,
+      null,
+      actor.userId,
+    );
+
+    const checklist = session.checklistJson
+      ? JSON.parse(session.checklistJson)
+      : {};
+
+    return {
+      id: session.id,
+      email: session.email,
+      status: session.status,
+      createdAt: session.createdAt,
+      checklist,
+      profile: null,
+      documents: [],
+      token: session.token,
+    };
   }
 
   // People → Trades
