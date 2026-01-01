@@ -30,6 +30,8 @@ function ApplyPageInner() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -99,11 +101,65 @@ function ApplyPageInner() {
         body: JSON.stringify({ email: email.trim(), password }),
       });
 
+      // If this email is already registered, treat the form as a normal login
+      // attempt so the candidate can flow straight into their portfolio without
+      // needing to visit /login manually.
       if (res.status === 409) {
-        setError(
-          "An account with this email already exists. Please log in instead. If you forgot your password, use /reset-password."
-        );
-        return;
+        try {
+          const loginRes = await fetch(`${API_BASE}/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: email.trim(), password }),
+          });
+
+          if (!loginRes.ok) {
+            setError(
+              "An account with this email already exists, but the password did not match. Please use /login or reset your password.",
+            );
+            return;
+          }
+
+          const data = await loginRes.json();
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem("accessToken", data.accessToken);
+            window.localStorage.setItem("refreshToken", data.refreshToken);
+            if (data.company?.id) {
+              window.localStorage.setItem("companyId", data.company.id);
+            }
+
+            // Fetch user context so navigation behaves consistently with /login.
+            try {
+              const meRes = await fetch(`${API_BASE}/users/me`, {
+                headers: { Authorization: `Bearer ${data.accessToken}` },
+              });
+              const me = meRes.ok ? await meRes.json() : null;
+
+              if (me) {
+                if (me.globalRole) {
+                  window.localStorage.setItem("globalRole", me.globalRole);
+                }
+                if (me.userType) {
+                  window.localStorage.setItem("userType", me.userType);
+                }
+              }
+
+              if (me?.userType === "APPLICANT") {
+                router.push("/settings/profile");
+              } else if (me?.globalRole === "SUPER_ADMIN") {
+                router.push("/system");
+              } else {
+                router.push("/projects");
+              }
+            } catch {
+              // Fallback: send to main projects workspace if we cannot read /users/me.
+              router.push("/projects");
+            }
+          }
+
+          return;
+        } finally {
+          setSubmitting(false);
+        }
       }
 
       if (!res.ok) {
@@ -115,6 +171,18 @@ function ApplyPageInner() {
       const nextToken = json?.token;
       if (!nextToken) {
         throw new Error("API did not return a token.");
+      }
+
+      // Remember credentials in sessionStorage so we can auto-login after the
+      // Nexis profile form is submitted and take the candidate straight into
+      // their portal.
+      try {
+        if (typeof window !== "undefined") {
+          window.sessionStorage.setItem("nexisApplyEmail", email.trim());
+          window.sessionStorage.setItem("nexisApplyPassword", password);
+        }
+      } catch {
+        // best-effort only
       }
 
       router.replace(`/apply?token=${encodeURIComponent(nextToken)}`);
@@ -200,30 +268,94 @@ function ApplyPageInner() {
 
           <label style={{ fontSize: 14, width: "100%", textAlign: "left" }} htmlFor="apply-password">
             Password (min 8 characters)
-            <input
-              id="apply-password"
-              name="password"
-              type="password"
-              autoComplete="new-password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db" }}
-              required
-            />
+            <div
+              style={{
+                position: "relative",
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <input
+                id="apply-password"
+                name="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="new-password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "8px 34px 8px 10px",
+                  borderRadius: 6,
+                  border: "1px solid #d1d5db",
+                }}
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(v => !v)}
+                style={{
+                  position: "absolute",
+                  right: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  border: "none",
+                  background: "transparent",
+                  padding: 0,
+                  cursor: "pointer",
+                  fontSize: 11,
+                  color: "#6b7280",
+                }}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
           </label>
 
           <label style={{ fontSize: 14, width: "100%", textAlign: "left" }} htmlFor="apply-confirm-password">
             Confirm password
-            <input
-              id="apply-confirm-password"
-              name="confirmPassword"
-              type="password"
-              autoComplete="new-password"
-              value={passwordConfirm}
-              onChange={e => setPasswordConfirm(e.target.value)}
-              style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db" }}
-              required
-            />
+            <div
+              style={{
+                position: "relative",
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <input
+                id="apply-confirm-password"
+                name="confirmPassword"
+                type={showPasswordConfirm ? "text" : "password"}
+                autoComplete="new-password"
+                value={passwordConfirm}
+                onChange={e => setPasswordConfirm(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "8px 34px 8px 10px",
+                  borderRadius: 6,
+                  border: "1px solid #d1d5db",
+                }}
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPasswordConfirm(v => !v)}
+                style={{
+                  position: "absolute",
+                  right: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  border: "none",
+                  background: "transparent",
+                  padding: 0,
+                  cursor: "pointer",
+                  fontSize: 11,
+                  color: "#6b7280",
+                }}
+                aria-label={showPasswordConfirm ? "Hide password" : "Show password"}
+              >
+                {showPasswordConfirm ? "Hide" : "Show"}
+              </button>
+            </div>
           </label>
 
           <button
