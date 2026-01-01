@@ -1,6 +1,13 @@
+import createNextIntlPlugin from "next-intl/plugin";
+
+const withNextIntl = createNextIntlPlugin();
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Provide a Turbopack config object so next-intl can register its aliases
+  // correctly when using the Turbopack dev server.
+  turbopack: {},
   async redirects() {
     return [
       {
@@ -20,4 +27,4 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig);

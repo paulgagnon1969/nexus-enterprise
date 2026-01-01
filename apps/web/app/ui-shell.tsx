@@ -4,6 +4,8 @@ import React, { ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import NavDropdown from "./components/nav-dropdown";
+import { LanguageToggle } from "./components/language-toggle";
+import { useLanguage } from "./language-context";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -27,6 +29,8 @@ interface UserMeResponse {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const {messages} = useLanguage();
+  const h = messages.header;
   const [globalRole, setGlobalRole] = useState<string | null>(null);
   const [userType, setUserType] = useState<string | null>(null);
   const [currentCompanyName, setCurrentCompanyName] = useState<string | null>(null);
@@ -347,11 +351,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               className="app-logo-img"
             />
             {/* Per-organization header driven by current company context */}
-            <div className="app-logo-text">
-              <div className="app-logo-subtitle">
-                {currentCompanyName || "Select an organization"}
+              <div className="app-logo-text">
+                <div className="app-logo-subtitle">
+                  {currentCompanyName || h.selectOrganization}
+                </div>
               </div>
-            </div>
           </div>
 
           {/* Company switcher (hide for applicant pool accounts; also hide on /system for SUPER_ADMIN) */}
@@ -361,111 +365,106 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           )}
 
-          <nav className="app-nav">
-          {globalRole === "SUPER_ADMIN" && !isSystemRoute && (
-            <Link
-              href="/system"
-              className={
-                "app-nav-link" +
-                (isActive("/system") ? " app-nav-link-active" : "")
-              }
-            >
-              Nexus System
-            </Link>
+          {/* Primary app navigation. For prospective candidates (APPLICANT), we hide
+              the nav entirely so they stay focused on their portfolio experience. */}
+          {userType !== "APPLICANT" && (
+            <nav className="app-nav">
+              {globalRole === "SUPER_ADMIN" && !isSystemRoute && (
+                <Link
+                  href="/system"
+                  className={
+                    "app-nav-link" +
+                    (isActive("/system") ? " app-nav-link-active" : "")
+                  }
+                >
+                  {h.nexusSystem}
+                </Link>
+              )}
+
+              {(!isSystemRoute || globalRole !== "SUPER_ADMIN") && (
+                <>
+                  {/* Proj Overview = main project workspace (current /projects section) */}
+                  <Link
+                    href="/projects"
+                    className={
+                      "app-nav-link" +
+                      (isActive("/projects") ? " app-nav-link-active" : "")
+                    }
+                  >
+                    {h.projOverview}
+                  </Link>
+
+                  {/* Placeholder tabs matching Buildertrend-style menu (without Sales) */}
+                  <Link
+                    href="/project-management"
+                    className={
+                      "app-nav-link" +
+                      (isActive("/project-management")
+                        ? " app-nav-link-active"
+                        : "")
+                    }
+                  >
+                    {h.projectManagement}
+                  </Link>
+                  <Link
+                    href="/files"
+                    className={
+                      "app-nav-link" +
+                      (isActive("/files") ? " app-nav-link-active" : "")
+                    }
+                  >
+                    {h.files}
+                  </Link>
+                  <Link
+                    href="/messaging"
+                    className={
+                      "app-nav-link" +
+                      (isActive("/messaging") ? " app-nav-link-active" : "")
+                    }
+                  >
+                    {h.messaging}
+                  </Link>
+                  <Link
+                    href="/financial"
+                    className={
+                      "app-nav-link" +
+                      (isActive("/financial") ? " app-nav-link-active" : "")
+                    }
+                  >
+                    {h.financial}
+                  </Link>
+                  <Link
+                    href="/reports"
+                    className={
+                      "app-nav-link" +
+                      (isActive("/reports") ? " app-nav-link-active" : "")
+                    }
+                  >
+                    {h.reports}
+                  </Link>
+                  <NavDropdown
+                    label={h.people}
+                    active={path.startsWith("/company/") || path.startsWith("/workers")}
+                    items={[
+                      { label: h.workerProfiles, href: "/company/users" },
+                      {
+                        label: h.prospectiveCandidates,
+                        href: "/company/users?tab=candidates",
+                      },
+                      { label: h.openTradesProfile, href: "/company/trades" },
+                      { label: h.clientProfiles, href: "/company/clients" },
+                      { label: h.fieldWorkersBia, href: "/workers" },
+                    ]}
+                  />
+                </>
+              )}
+            </nav>
           )}
-
-            {userType === "APPLICANT" ? (
-              <Link
-                href="/candidate"
-                className={
-                  "app-nav-link" +
-                  (isActive("/candidate") ? " app-nav-link-active" : "")
-                }
-              >
-                Candidate
-              </Link>
-            ) : !isSystemRoute || globalRole !== "SUPER_ADMIN" ? (
-              <>
-                {/* Proj Overview = main project workspace (current /projects section) */}
-                <Link
-                  href="/projects"
-                  className={
-                    "app-nav-link" +
-                    (isActive("/projects") ? " app-nav-link-active" : "")
-                  }
-                >
-                  Proj Overview
-                </Link>
-
-                {/* Placeholder tabs matching Buildertrend-style menu (without Sales) */}
-                <Link
-                  href="/project-management"
-                  className={
-                    "app-nav-link" +
-                    (isActive("/project-management")
-                      ? " app-nav-link-active"
-                      : "")
-                  }
-                >
-                  Project Management
-                </Link>
-                <Link
-                  href="/files"
-                  className={
-                    "app-nav-link" +
-                    (isActive("/files") ? " app-nav-link-active" : "")
-                  }
-                >
-                  Files
-                </Link>
-                <Link
-                  href="/messaging"
-                  className={
-                    "app-nav-link" +
-                    (isActive("/messaging") ? " app-nav-link-active" : "")
-                  }
-                >
-                  Messaging
-                </Link>
-                <Link
-                  href="/financial"
-                  className={
-                    "app-nav-link" +
-                    (isActive("/financial") ? " app-nav-link-active" : "")
-                  }
-                >
-                  Financial
-                </Link>
-                <Link
-                  href="/reports"
-                  className={
-                    "app-nav-link" +
-                    (isActive("/reports") ? " app-nav-link-active" : "")
-                  }
-                >
-                  Reports
-                </Link>
-                <NavDropdown
-                  label="People"
-                  active={path.startsWith("/company/") || path.startsWith("/workers")}
-                  items={[
-                    { label: "Worker Profiles", href: "/company/users" },
-                    {
-                      label: "Prospective Candidates",
-                      href: "/company/users?tab=candidates",
-                    },
-                    { label: "Open Trades Profile", href: "/company/trades" },
-                    { label: "Client Profiles", href: "/company/clients" },
-                    { label: "Field Workers (BIA)", href: "/workers" },
-                  ]}
-                />
-              </>
-            ) : null}
-          </nav>
         </div>
         {/* Inline Superuser menu strip moved into SystemLayout; header stays clean here */}
 
         <div className="app-header-right">
+          <LanguageToggle />
           {/* User menu */}
           <div style={{ position: "relative" }}>
             <UserMenu onLogout={handleLogout} />
@@ -675,6 +674,7 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
   const [open, setOpen] = React.useState(false);
   const [me, setMe] = React.useState<UserMeResponse | null>(null);
   const [canManageCompany, setCanManageCompany] = React.useState(false);
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -720,11 +720,37 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
       });
   }, []);
 
+  // Close menu when clicking outside or pressing Escape.
+  useEffect(() => {
+    if (!open) return;
+
+    function handleClick(event: MouseEvent) {
+      const node = containerRef.current;
+      if (!node) return;
+      if (!node.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [open]);
+
   const initials = getUserInitials(me);
   const displayName = getUserDisplayName(me);
 
   return (
-    <div style={{ position: "relative" }}>
+    <div ref={containerRef} style={{ position: "relative" }}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
