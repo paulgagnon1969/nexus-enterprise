@@ -1,0 +1,23 @@
+{
+  "common": {
+    "seePageInSpanish": "Ver página en español",
+    "seePageInEnglish": "Ver página en inglés"
+  },
+  "header": {
+    "selectOrganization": "Selecciona una organización",
+    "nexusSystem": "Sistema Nexus",
+    "candidate": "Candidato",
+    "projOverview": "Resumen de Proyectos",
+    "projectManagement": "Gestión de Proyectos",
+    "files": "Archivos",
+    "messaging": "Mensajes",
+    "financial": "Finanzas",
+    "reports": "Informes",
+    "people": "Personas",
+    "workerProfiles": "Perfiles de Trabajadores",
+    "prospectiveCandidates": "Candidatos Potenciales",
+    "openTradesProfile": "Perfil de Oficios Abiertos",
+    "clientProfiles": "Perfiles de Clientes",
+    "fieldWorkersBia": "Trabajadores de Campo (BIA)"
+  }
+}

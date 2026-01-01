@@ -1,0 +1,23 @@
+{
+  "common": {
+    "seePageInSpanish": "See page in Spanish",
+    "seePageInEnglish": "See page in English"
+  },
+  "header": {
+    "selectOrganization": "Select an organization",
+    "nexusSystem": "Nexus System",
+    "candidate": "Candidate",
+    "projOverview": "Proj Overview",
+    "projectManagement": "Project Management",
+    "files": "Files",
+    "messaging": "Messaging",
+    "financial": "Financial",
+    "reports": "Reports",
+    "people": "People",
+    "workerProfiles": "Worker Profiles",
+    "prospectiveCandidates": "Prospective Candidates",
+    "openTradesProfile": "Open Trades Profile",
+    "clientProfiles": "Client Profiles",
+    "fieldWorkersBia": "Field Workers (BIA)"
+  }
+}
