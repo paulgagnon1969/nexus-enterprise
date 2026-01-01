@@ -51,7 +51,6 @@ interface MyPortfolioResponse {
   hr: PortfolioHrDto | null;
 }
 
-const DEFAULT_PROFILE_PHOTO_SRC = "/pg-pic-20250410-2.jpg";
 
 export default function ProfileSettingsPage() {
   const [me, setMe] = useState<MeDto | null>(null);
@@ -305,6 +304,25 @@ export default function ProfileSettingsPage() {
     me?.firstName || me?.lastName ? `${me?.firstName ?? ""} ${me?.lastName ?? ""}`.trim() : "";
   const headerTitle = displayName ? `${displayName} (${me?.email ?? ""})` : me?.email ?? "";
 
+  const profilePhotoSrc = (() => {
+    const url = portfolio?.photoUrl || null;
+    if (!url) return null;
+    if (url.startsWith("/uploads/")) {
+      return `${API_BASE}${url}`;
+    }
+    return url;
+  })();
+
+  const initials = (() => {
+    if (displayName) {
+      const parts = displayName.split(" ").filter(Boolean);
+      if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+      return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
+    }
+    if (me?.email) return me.email.charAt(0).toUpperCase();
+    return "?";
+  })();
+
   return (
     <PageCard>
       {/* Skills Matrix-style profile header */}
@@ -331,13 +349,20 @@ export default function ProfileSettingsPage() {
             alignItems: "center",
             justifyContent: "center",
             flexShrink: 0,
+            color: "#111827",
+            fontWeight: 600,
+            fontSize: 18,
           }}
         >
-          <img
-            src={DEFAULT_PROFILE_PHOTO_SRC}
-            alt={displayName ? `Profile photo of ${displayName}` : "Profile photo"}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
+          {profilePhotoSrc ? (
+            <img
+              src={profilePhotoSrc}
+              alt={displayName ? `Profile photo of ${displayName}` : "Profile photo"}
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
+            <span>{initials}</span>
+          )}
         </div>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: "var(--color-text)" }}>
