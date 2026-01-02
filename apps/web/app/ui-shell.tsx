@@ -649,6 +649,8 @@ function CompanySwitcher() {
         value={currentCompanyId ?? ""}
         onChange={handleChange}
         disabled={switching}
+        // Show the current company id on hover so tenants are easy to disambiguate
+        title={currentCompanyId ?? undefined}
         style={{
           padding: "2px 6px",
           borderRadius: 4,
@@ -666,7 +668,7 @@ function CompanySwitcher() {
               {systemCompanies.length > 0 && (
                 <optgroup label="System">
                   {systemCompanies.map(c => (
-                    <option key={c.id} value={c.id}>
+                    <option key={c.id} value={c.id} title={c.id}>
                       {c.name}
                     </option>
                   ))}
@@ -675,7 +677,7 @@ function CompanySwitcher() {
               {orgCompanies.length > 0 && (
                 <optgroup label="Organizations">
                   {orgCompanies.map(c => (
-                    <option key={c.id} value={c.id}>
+                    <option key={c.id} value={c.id} title={c.id}>
                       {c.name}
                     </option>
                   ))}
