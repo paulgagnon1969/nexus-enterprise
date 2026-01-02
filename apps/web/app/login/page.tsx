@@ -137,8 +137,8 @@ export default function LoginPage() {
             />
           ) : (
             <img
-              src="/nexus-logo-login.gif"
-              alt="Nexus logo animation"
+              src="/ncc-login.gif"
+              alt="Nexus Contractor Connect login animation"
               style={{ maxWidth: "260px", width: "100%", height: "auto" }}
             />
           )}
