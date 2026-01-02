@@ -153,10 +153,22 @@ export default function CompanySettingsPage() {
   );
 }
 
+import type { OfficePayrollConfig } from "@repo/database";
+
 function CompanyProfileCard() {
   const [companyName, setCompanyName] = useState("NEXUS Fortified Structures, LLC");
   const [logoFileName, setLogoFileName] = useState<string | null>(null);
   const [iconFileName, setIconFileName] = useState<string | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+  const [defaultTimeZone, setDefaultTimeZone] = useState<string>("");
+  const [orgPayrollConfig, setOrgPayrollConfig] = useState<OfficePayrollConfig>({
+    federalEin: null,
+    stateWithholdingId: null,
+    stateUnemploymentId: null,
+    localTaxJurisdiction: null,
+    localTaxAccountId: null,
+  });
   const [offices, setOffices] = useState<
     {
       id: string;
@@ -167,6 +179,12 @@ function CompanyProfileCard() {
       state: string;
       postalCode: string;
       country: string;
+      // Inline view-model includes the shared OfficePayrollConfig shape.
+      federalEin?: OfficePayrollConfig["federalEin"];
+      stateWithholdingId?: OfficePayrollConfig["stateWithholdingId"];
+      stateUnemploymentId?: OfficePayrollConfig["stateUnemploymentId"];
+      localTaxJurisdiction?: OfficePayrollConfig["localTaxJurisdiction"];
+      localTaxAccountId?: OfficePayrollConfig["localTaxAccountId"];
     }[]
   >([]);
   const [officesLoading, setOfficesLoading] = useState(false);
@@ -187,6 +205,35 @@ function CompanyProfileCard() {
     const token = window.localStorage.getItem("accessToken");
     if (!token) return;
 
+    // Load company-level profile (name) so we don't rely on a hard-coded label.
+    const loadCompany = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/companies/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data && typeof data.name === "string" && data.name.trim()) {
+          setCompanyName(data.name.trim());
+        }
+        if (typeof data.defaultTimeZone === "string") {
+          setDefaultTimeZone(data.defaultTimeZone);
+        }
+        if (data && data.defaultPayrollConfig) {
+          const cfg = data.defaultPayrollConfig;
+          setOrgPayrollConfig({
+            federalEin: cfg.federalEin ?? null,
+            stateWithholdingId: cfg.stateWithholdingId ?? null,
+            stateUnemploymentId: cfg.stateUnemploymentId ?? null,
+            localTaxJurisdiction: cfg.localTaxJurisdiction ?? null,
+            localTaxAccountId: cfg.localTaxAccountId ?? null,
+          });
+        }
+      } catch {
+        // safe to ignore; offices + other settings can still load.
+      }
+    };
+
     const loadOffices = async () => {
       try {
         setOfficesLoading(true);
@@ -201,16 +248,24 @@ function CompanyProfileCard() {
         const data = await res.json();
         if (Array.isArray(data)) {
           setOffices(
-            data.map((o: any) => ({
-              id: o.id,
-              label: o.label ?? "Office",
-              addressLine1: o.addressLine1 ?? "",
-              addressLine2: o.addressLine2 ?? "",
-              city: o.city ?? "",
-              state: o.state ?? "",
-              postalCode: o.postalCode ?? "",
-              country: o.country ?? "US",
-            })),
+            data.map((o: any) => {
+              const cfg = o.payrollConfig || {};
+              return {
+                id: o.id,
+                label: o.label ?? "Office",
+                addressLine1: o.addressLine1 ?? "",
+                addressLine2: o.addressLine2 ?? "",
+                city: o.city ?? "",
+                state: o.state ?? "",
+                postalCode: o.postalCode ?? "",
+                country: o.country ?? "US",
+                federalEin: cfg.federalEin ?? null,
+                stateWithholdingId: cfg.stateWithholdingId ?? null,
+                stateUnemploymentId: cfg.stateUnemploymentId ?? null,
+                localTaxJurisdiction: cfg.localTaxJurisdiction ?? null,
+                localTaxAccountId: cfg.localTaxAccountId ?? null,
+              };
+            }),
           );
         }
         setOfficesLoading(false);
@@ -220,6 +275,7 @@ function CompanyProfileCard() {
       }
     };
 
+    loadCompany();
     loadOffices();
   }, []);
 
@@ -230,6 +286,8 @@ function CompanyProfileCard() {
         companyName: string;
         logoFileName: string | null;
         iconFileName: string | null;
+        defaultTimeZone: string;
+        orgPayrollConfig: OfficePayrollConfig;
         offices: typeof offices;
       }
   >(null);
@@ -247,6 +305,13 @@ function CompanyProfileCard() {
       state: seed?.state ?? "",
       postalCode: seed?.zip ?? "",
       country: "US",
+      payrollConfig: {
+        federalEin: null,
+        stateWithholdingId: null,
+        stateUnemploymentId: null,
+        localTaxJurisdiction: null,
+        localTaxAccountId: null,
+      },
     };
 
     try {
@@ -262,7 +327,25 @@ function CompanyProfileCard() {
         return;
       }
       const created = await res.json();
-      setOffices(prev => [...prev, created]);
+      const cfg = created.payrollConfig || {};
+      setOffices(prev => [
+        ...prev,
+        {
+          id: created.id,
+          label: created.label ?? "Office",
+          addressLine1: created.addressLine1 ?? "",
+          addressLine2: created.addressLine2 ?? "",
+          city: created.city ?? "",
+          state: created.state ?? "",
+          postalCode: created.postalCode ?? "",
+          country: created.country ?? "US",
+          federalEin: cfg.federalEin ?? null,
+          stateWithholdingId: cfg.stateWithholdingId ?? null,
+          stateUnemploymentId: cfg.stateUnemploymentId ?? null,
+          localTaxJurisdiction: cfg.localTaxJurisdiction ?? null,
+          localTaxAccountId: cfg.localTaxAccountId ?? null,
+        },
+      ]);
     } catch {
       // swallow
     }
@@ -344,6 +427,8 @@ function CompanyProfileCard() {
       companyName,
       logoFileName,
       iconFileName,
+      defaultTimeZone,
+      orgPayrollConfig,
       offices,
     });
     setEditMode(true);
@@ -354,6 +439,8 @@ function CompanyProfileCard() {
       setCompanyName(originalProfile.companyName);
       setLogoFileName(originalProfile.logoFileName);
       setIconFileName(originalProfile.iconFileName);
+      setDefaultTimeZone(originalProfile.defaultTimeZone);
+      setOrgPayrollConfig(originalProfile.orgPayrollConfig);
       setOffices(originalProfile.offices);
     }
     setEditMode(false);
@@ -397,6 +484,13 @@ function CompanyProfileCard() {
                 state: office.state,
                 postalCode: office.postalCode,
                 country: office.country,
+                payrollConfig: {
+                  federalEin: office.federalEin ?? null,
+                  stateWithholdingId: office.stateWithholdingId ?? null,
+                  stateUnemploymentId: office.stateUnemploymentId ?? null,
+                  localTaxJurisdiction: office.localTaxJurisdiction ?? null,
+                  localTaxAccountId: office.localTaxAccountId ?? null,
+                },
               }),
             },
           );
@@ -408,14 +502,54 @@ function CompanyProfileCard() {
   };
 
   const saveEdit = async () => {
-    await persistOfficeChanges();
-    setOriginalProfile({
-      companyName,
-      logoFileName,
-      iconFileName,
-      offices,
-    });
-    setEditMode(false);
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    setProfileMessage(null);
+    setSavingProfile(true);
+
+    try {
+      // Persist company-level settings.
+      const body: any = {
+        name: companyName,
+        defaultTimeZone: defaultTimeZone || null,
+        defaultPayrollConfig: {
+          federalEin: orgPayrollConfig.federalEin ?? null,
+          stateWithholdingId: orgPayrollConfig.stateWithholdingId ?? null,
+          stateUnemploymentId: orgPayrollConfig.stateUnemploymentId ?? null,
+          localTaxJurisdiction: orgPayrollConfig.localTaxJurisdiction ?? null,
+          localTaxAccountId: orgPayrollConfig.localTaxAccountId ?? null,
+        },
+      };
+
+      await fetch(`${API_BASE}/companies/me`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      // Then persist any changed offices.
+      await persistOfficeChanges();
+
+      setOriginalProfile({
+        companyName,
+        logoFileName,
+        iconFileName,
+        defaultTimeZone,
+        orgPayrollConfig,
+        offices,
+      });
+      setEditMode(false);
+      setProfileMessage("Company profile updated.");
+    } catch (err: any) {
+      setProfileMessage(err?.message ?? "Failed to save company profile.");
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
   return (
@@ -467,6 +601,7 @@ function CompanyProfileCard() {
               <button
                 type="button"
                 onClick={saveEdit}
+                disabled={savingProfile}
                 style={{
                   padding: "4px 10px",
                   borderRadius: 999,
@@ -477,7 +612,7 @@ function CompanyProfileCard() {
                   cursor: "pointer",
                 }}
               >
-                Save (read-only mode)
+                {savingProfile ? "Saving…" : "Save"}
               </button>
               <button
                 type="button"
@@ -500,10 +635,135 @@ function CompanyProfileCard() {
       </div>
       {!editMode && (
         <p style={{ margin: "0 0 12px", fontSize: 11, color: "#6b7280" }}>
-          Fields are read-only until you click <strong>Edit profile</strong>. Changes are not yet
-          persisted to the backend.
+          Fields are read-only until you click <strong>Edit profile</strong>. Changes are saved to
+          your organization when you click Save.
         </p>
       )}
+      {profileMessage && (
+        <p
+          style={{
+            margin: "0 0 8px",
+            fontSize: 11,
+            color: profileMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#16a34a",
+          }}
+        >
+          {profileMessage}
+        </p>
+      )}
+
+      {/* Org-level payroll defaults */}
+      <div
+        style={{
+          marginTop: 12,
+          padding: 12,
+          borderRadius: 8,
+          border: "1px solid #e5e7eb",
+          background: "#ffffff",
+          fontSize: 12,
+        }}
+      >
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontWeight: 600 }}>Organization payroll defaults</div>
+          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#6b7280" }}>
+            Used as a fallback when an office does not have its own payroll configuration.
+          </p>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+          }}
+        >
+          <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>
+              Default time zone
+            </label>
+            <input
+              value={defaultTimeZone}
+              onChange={e => setDefaultTimeZone(e.target.value)}
+              readOnly={!editMode}
+              placeholder="e.g. America/Los_Angeles"
+              style={{
+                width: "100%",
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            />
+          </div>
+          <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>
+              Federal EIN (fallback)
+            </label>
+            <input
+              value={orgPayrollConfig.federalEin ?? ""}
+              onChange={e =>
+                setOrgPayrollConfig(prev => ({
+                  ...prev,
+                  federalEin: e.target.value || null,
+                }))
+              }
+              readOnly={!editMode}
+              placeholder="12-3456789"
+              style={{
+                width: "100%",
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            />
+          </div>
+          <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>
+              State withholding ID (fallback)
+            </label>
+            <input
+              value={orgPayrollConfig.stateWithholdingId ?? ""}
+              onChange={e =>
+                setOrgPayrollConfig(prev => ({
+                  ...prev,
+                  stateWithholdingId: e.target.value || null,
+                }))
+              }
+              readOnly={!editMode}
+              placeholder="State WH account"
+              style={{
+                width: "100%",
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            />
+          </div>
+          <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>
+              State unemployment ID (fallback)
+            </label>
+            <input
+              value={orgPayrollConfig.stateUnemploymentId ?? ""}
+              onChange={e =>
+                setOrgPayrollConfig(prev => ({
+                  ...prev,
+                  stateUnemploymentId: e.target.value || null,
+                }))
+              }
+              readOnly={!editMode}
+              placeholder="SUI account"
+              style={{
+                width: "100%",
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            />
+          </div>
+        </div>
+      </div>
 
       {/* Name + logo uploads */}
       <div
@@ -616,7 +876,7 @@ function CompanyProfileCard() {
           </button>
         </div>
         <p style={{ margin: "0 0 8px", fontSize: 11, color: "#6b7280" }}>
-          Future-proofed for multiple offices and mailing addresses. Data is not yet persisted.
+          Manage the offices used for mailing addresses and, in the future, payroll jurisdictions.
         </p>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -792,6 +1052,125 @@ function CompanyProfileCard() {
                     onChange={e => updateOffice(office.id, { country: e.target.value })}
                     readOnly={!editMode}
                     placeholder="Country"
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Payroll defaults for Certified Payroll */}
+              <div
+                style={{
+                  marginTop: 8,
+                  paddingTop: 6,
+                  borderTop: "1px solid #e5e7eb",
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 8,
+                }}
+              >
+                <div style={{ flex: "1 1 180px", minWidth: 160 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>
+                    Federal EIN (optional)
+                  </label>
+                  <input
+                    value={office.federalEin ?? ""}
+                    onChange={e => updateOffice(office.id, { federalEin: e.target.value || null })}
+                    readOnly={!editMode}
+                    placeholder="12-3456789"
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                </div>
+                <div style={{ flex: "1 1 160px", minWidth: 150 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>
+                    State withholding ID
+                  </label>
+                  <input
+                    value={office.stateWithholdingId ?? ""}
+                    onChange={e =>
+                      updateOffice(office.id, {
+                        stateWithholdingId: e.target.value || null,
+                      })
+                    }
+                    readOnly={!editMode}
+                    placeholder="State WH account"
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                </div>
+                <div style={{ flex: "1 1 160px", minWidth: 150 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>
+                    State unemployment ID
+                  </label>
+                  <input
+                    value={office.stateUnemploymentId ?? ""}
+                    onChange={e =>
+                      updateOffice(office.id, {
+                        stateUnemploymentId: e.target.value || null,
+                      })
+                    }
+                    readOnly={!editMode}
+                    placeholder="SUI account"
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                </div>
+                <div style={{ flex: "1 1 160px", minWidth: 150 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>
+                    Local tax jurisdiction
+                  </label>
+                  <input
+                    value={office.localTaxJurisdiction ?? ""}
+                    onChange={e =>
+                      updateOffice(office.id, {
+                        localTaxJurisdiction: e.target.value || null,
+                      })
+                    }
+                    readOnly={!editMode}
+                    placeholder="City / county code"
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                </div>
+                <div style={{ flex: "1 1 160px", minWidth: 150 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>
+                    Local tax account ID
+                  </label>
+                  <input
+                    value={office.localTaxAccountId ?? ""}
+                    onChange={e =>
+                      updateOffice(office.id, {
+                        localTaxAccountId: e.target.value || null,
+                      })
+                    }
+                    readOnly={!editMode}
+                    placeholder="Local WH account"
                     style={{
                       width: "100%",
                       padding: "4px 6px",

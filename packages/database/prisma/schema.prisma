@@ -16,6 +16,14 @@ model Company {
   reputationOverallOverride Int?
   kind                      CompanyKind                  @default(ORGANIZATION)
 
+  /// Optional default time zone for this organization (IANA name). Used as a
+  /// sensible default for offices, projects, and payroll reporting.
+  defaultTimeZone           String?
+
+  /// Optional JSON configuration for organization-wide payroll defaults
+  /// (e.g. federal EIN, default state unemployment account, overtime rules).
+  defaultPayrollConfig      Json?
+
   // Trial / subscription metadata (optional; used for self-serve demos and billing).
   isTrial                   Boolean                      @default(false)
   trialEndsAt               DateTime?
@@ -45,6 +53,9 @@ model Company {
   assets                    Asset[]
   assetUsages               AssetUsage[]
   assetTransactions         AssetTransaction[]
+  taxJurisdictions          TaxJurisdiction[]
+  payrollWeekRecords        PayrollWeekRecord[]
+  projectGroups             ProjectGroup[]
 }
 
 model OrganizationTemplate {
@@ -177,6 +188,10 @@ model User {
   portfolios                UserPortfolio[]
   assetUsages               AssetUsage[]
   assetTransactions         AssetTransaction[]
+  // Nex-Net referrals and candidate pool
+  referralsSent             Referral[]             @relation("ReferralsSent")
+  referralsReceived         Referral[]             @relation("ReferralsReceived")
+  nexNetCandidate           NexNetCandidate?
 }
 
 /// BIA / LCP-imported field workers. These are human workers who may
@@ -227,6 +242,47 @@ model WorkerWeek {
 
   @@unique([workerId, weekEndDate, projectCode])
   @@index([weekEndDate, projectCode], map: "WorkerWeek_week_scope_idx")
+}
+
+/// Normalized per-worker, per-project, per-week payroll summary used as the
+/// canonical source for Certified Payroll exports. For legacy BIA/LCP data,
+/// this is populated from LCPUpload Template WWxx.csv files.
+model PayrollWeekRecord {
+  id              String   @id @default(cuid())
+  companyId       String
+  projectId       String?
+  projectCode     String?
+  workerId        String?
+  employeeId      String?
+
+  firstName       String?
+  lastName        String?
+  ssn             String?
+  classCode       String?
+
+  /// Week code derived from the original LCP template filename, e.g. "WW51".
+  weekCode        String?
+  weekEndDate     DateTime
+
+  employmentType  String   // "W2" | "CONTRACTOR_1099" (stringly typed for now)
+  baseHourlyRate  Float?
+  dayRate         Float?
+  dayRateBaseHours Float?
+
+  totalPay        Float
+  totalHoursSt    Float?
+  totalHoursOt    Float?
+  totalHoursDt    Float?
+
+  /// JSON-encoded DailySodHours[7] array ({ st, ot, dt } per day).
+  dailyHoursJson  Json?
+
+  company         Company  @relation(fields: [companyId], references: [id])
+  project         Project? @relation(fields: [projectId], references: [id])
+
+  @@index([companyId, weekEndDate], map: "PayrollWeekRecord_company_week_idx")
+  @@index([companyId, projectCode, weekEndDate], map: "PayrollWeekRecord_company_projcode_week_idx")
+  @@unique([companyId, projectCode, weekEndDate, employeeId], name: "PayrollWeek_company_proj_week_emp_key")
 }
 
 model UserPortfolio {
@@ -299,6 +355,12 @@ model CompanyOffice {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   deletedAt    DateTime?
+
+  /// Optional JSON configuration for this office's payroll defaults, including
+  /// state/local tax jurisdictions and account identifiers used by Certified
+  /// Payroll. Structure is owned by the payroll module.
+  payrollConfig Json?
+
   company      Company  @relation(fields: [companyId], references: [id])
 
   @@index([companyId, deletedAt], map: "CompanyOffice_company_deleted_idx")
@@ -376,6 +438,13 @@ model Project {
   state                String
   /// Optional external claim / file ID used to link imports
   externalId           String?                   @unique
+
+  /// Optional tax jurisdiction used for Certified Payroll and related
+  /// payroll reporting. When null, we will fall back to company-level
+  /// defaults and the global Tapout baseline tax profile.
+  taxJurisdictionId    String?
+  groupId              String?
+
   allocationRules      ComponentAllocationRule[]
   componentSummaries   ComponentSummary[]
   dailyLogs            DailyLog[]
@@ -395,6 +464,71 @@ model Project {
   tasks                Task[]
   assetUsages          AssetUsage[]
   assetTransactions    AssetTransaction[]
+  taxJurisdiction      TaxJurisdiction?          @relation(fields: [taxJurisdictionId], references: [id])
+  payrollWeekRecords   PayrollWeekRecord[]
+  group                ProjectGroup?             @relation(fields: [groupId], references: [id])
+
+  @@index([companyId, groupId], map: "Project_company_group_idx")
+}
+
+model ProjectGroup {
+  id         String   @id @default(cuid())
+  companyId  String
+  label      String
+  clientName String?
+  gcName     String?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company    Company  @relation(fields: [companyId], references: [id])
+  projects   Project[]
+
+  @@index([companyId, label], map: "ProjectGroup_company_label_idx")
+}
+
+model TaxJurisdiction {
+  id           String         @id @default(cuid())
+
+  /// Tenant that owns this jurisdiction configuration.
+  companyId    String
+  company      Company        @relation(fields: [companyId], references: [id])
+
+  /// Basic location key for payroll/tax purposes.
+  country      String         @default("US")
+  state        String
+  county       String?
+  city         String?
+  postalCode   String?
+  postalPrefix String?
+
+  /// Effective tax burden as a fraction of gross wages.
+  fedRate      Float
+  ficaRate     Float
+  medicareRate Float
+  stateRate    Float
+  localRate    Float
+
+  /// Option B semantics: show taxes in dts_* and offset via in-lieu so
+  /// net == 1099 total.
+  representational Boolean    @default(true)
+
+  /// Where these rates came from.
+  source       TaxRateSource  @default(TAPOUT_BASELINE)
+
+  /// If true, PMs should see a red light + "Tax rate review" on the
+  /// project dashboard.
+  needsReview  Boolean        @default(true)
+
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  /// All projects for this company that are using this jurisdiction.
+  projects     Project[]
+
+  @@index([companyId, state, postalCode])
+  @@index([companyId, state, postalPrefix])
+  @@index([companyId, state, county])
 }
 
 model Parcel {
@@ -1231,6 +1365,12 @@ enum GlobalRole {
   SUPPORT
 }
 
+enum TaxRateSource {
+  TAPOUT_BASELINE
+  MANUAL
+  AUTO_SUGGESTED
+}
+
 enum CompanyKind {
   SYSTEM
   ORGANIZATION
@@ -1497,4 +1637,68 @@ model DevMigrationTest {
   id        String   @id @default(cuid())
   note      String?
   createdAt DateTime @default(now())
+}
+
+model NexNetCandidate {
+  id                 String           @id @default(cuid())
+  userId             String?          @unique
+  firstName          String?
+  lastName           String?
+  email              String?
+  phone              String?
+  source             NexNetSource     @default(REFERRAL)
+  status             NexNetStatus     @default(NOT_STARTED)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  user               User?            @relation(fields: [userId], references: [id])
+  referralsAsReferee Referral[]       @relation("RefereeCandidate")
+}
+
+model Referral {
+  id                         String           @id @default(cuid())
+  referrerUserId             String
+  prospectName               String?
+  prospectEmail              String?
+  prospectPhone              String?
+  token                      String           @unique
+  candidateId                String?
+  refereeUserId              String?
+  referralConfirmedByReferee Boolean          @default(false)
+  referralConfirmedAt        DateTime?
+  referralRejectedByReferee  Boolean          @default(false)
+  status                     ReferralStatus   @default(INVITED)
+  referralStartDate          DateTime?
+  referralEndDate            DateTime?
+  incentiveRate              Float?
+  createdAt                  DateTime         @default(now())
+  updatedAt                  DateTime         @updatedAt
+  referrer                   User             @relation("ReferralsSent", fields: [referrerUserId], references: [id])
+  referee                    User?            @relation("ReferralsReceived", fields: [refereeUserId], references: [id])
+  candidate                  NexNetCandidate? @relation("RefereeCandidate", fields: [candidateId], references: [id])
+}
+
+enum NexNetSource {
+  REFERRAL
+  PUBLIC_APPLY
+  MIGRATED
+  IMPORTED
+}
+
+enum NexNetStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  HIRED
+  REJECTED
+}
+
+enum ReferralStatus {
+  INVITED
+  CONFIRMED
+  REJECTED
+  APPLIED
+  HIRED
+  EXPIRED
 }

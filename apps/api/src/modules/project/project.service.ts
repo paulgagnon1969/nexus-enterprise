@@ -5,12 +5,14 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { GlobalRole, Role, ProjectRole, ProjectParticleType, ProjectParticipantScope, ProjectVisibilityLevel } from "@prisma/client";
 import { CreateProjectDto, UpdateProjectDto } from "./dto/project.dto";
 import { importXactCsvForProject, importXactComponentsCsvForEstimate, allocateComponentsForEstimate } from "@repo/database";
+import { TaxJurisdictionService } from "./tax-jurisdiction.service";
 
 @Injectable()
 export class ProjectService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly taxJurisdictions: TaxJurisdictionService,
   ) {}
 
   async createProject(dto: CreateProjectDto, actor: AuthenticatedUser) {
@@ -35,6 +37,20 @@ export class ProjectService {
         createdByUserId: userId
       }
     });
+
+    // Seed or reuse a TaxJurisdiction for this project's location so that
+    // Certified Payroll and project dashboards have something to work with.
+    const jurisdiction = await this.taxJurisdictions.resolveOrCreateForProject(
+      companyId,
+      project,
+    );
+
+    if (jurisdiction && !project.taxJurisdictionId) {
+      await this.prisma.project.update({
+        where: { id: project.id },
+        data: { taxJurisdictionId: jurisdiction.id },
+      });
+    }
 
     // For convenience, create a default Unit and a top-level ProjectParticle
     const unit = await this.prisma.projectUnit.create({
@@ -320,8 +336,147 @@ export class ProjectService {
     return {
       project,
       buildings: buildingTree,
-      units: projectLevelUnits
+      units: Array.from(unitsById.values())
     };
+  }
+
+  /**
+   * List distinct payroll employees for a given project, based on
+   * PayrollWeekRecord rows (Certified Payroll source of truth).
+   */
+  async getProjectEmployees(companyId: string, projectId: string) {
+    const records = await this.prisma.payrollWeekRecord.findMany({
+      where: { companyId, projectId },
+      select: {
+        firstName: true,
+        lastName: true,
+        employeeId: true,
+        ssn: true,
+        classCode: true,
+        weekEndDate: true,
+        weekCode: true,
+        totalHoursSt: true,
+        totalHoursOt: true,
+        totalHoursDt: true,
+      },
+    });
+
+    type Agg = {
+      firstName: string | null;
+      lastName: string | null;
+      employeeId: string | null;
+      ssnLast4: string | null;
+      classCode: string | null;
+      totalHours: number;
+      firstWeekEnd: Date | null;
+      lastWeekEnd: Date | null;
+      weekCodes: Set<string>;
+    };
+
+    const byKey = new Map<string, Agg>();
+
+    for (const r of records) {
+      const keyParts = [
+        r.employeeId ?? "",
+        (r.firstName ?? "").trim().toUpperCase(),
+        (r.lastName ?? "").trim().toUpperCase(),
+        r.ssn ?? "",
+      ];
+      const key = keyParts.join("|");
+      const existing = byKey.get(key);
+
+      const hoursSt = r.totalHoursSt ?? 0;
+      const hoursOt = r.totalHoursOt ?? 0;
+      const hoursDt = r.totalHoursDt ?? 0;
+      const hours = hoursSt + hoursOt + hoursDt;
+
+      const ssnLast4 = r.ssn && r.ssn.length >= 4 ? r.ssn.slice(-4) : null;
+      const wCode = (r.weekCode ?? "").trim();
+
+      if (!existing) {
+        const weeks = new Set<string>();
+        if (wCode) weeks.add(wCode);
+        byKey.set(key, {
+          firstName: r.firstName ?? null,
+          lastName: r.lastName ?? null,
+          employeeId: r.employeeId ?? null,
+          ssnLast4,
+          classCode: r.classCode ?? null,
+          totalHours: hours,
+          firstWeekEnd: r.weekEndDate,
+          lastWeekEnd: r.weekEndDate,
+          weekCodes: weeks,
+        });
+      } else {
+        existing.totalHours += hours;
+        if (!existing.classCode && r.classCode) {
+          existing.classCode = r.classCode;
+        }
+        if (!existing.firstWeekEnd || r.weekEndDate < existing.firstWeekEnd) {
+          existing.firstWeekEnd = r.weekEndDate;
+        }
+        if (!existing.lastWeekEnd || r.weekEndDate > existing.lastWeekEnd) {
+          existing.lastWeekEnd = r.weekEndDate;
+        }
+        if (wCode) {
+          existing.weekCodes.add(wCode);
+        }
+      }
+    }
+
+    const result = Array.from(byKey.values()).map((agg) => ({
+      firstName: agg.firstName,
+      lastName: agg.lastName,
+      employeeId: agg.employeeId,
+      ssnLast4: agg.ssnLast4,
+      classCode: agg.classCode,
+      totalHours: agg.totalHours,
+      firstWeekEnd: agg.firstWeekEnd?.toISOString() ?? null,
+      lastWeekEnd: agg.lastWeekEnd?.toISOString() ?? null,
+      weekCodes: Array.from(agg.weekCodes.values()),
+    }));
+
+    // Sort by lastName, then firstName for a stable roster.
+    result.sort((a, b) => {
+      const aLast = (a.lastName ?? "").toLowerCase();
+      const bLast = (b.lastName ?? "").toLowerCase();
+      if (aLast < bLast) return -1;
+      if (aLast > bLast) return 1;
+      const aFirst = (a.firstName ?? "").toLowerCase();
+      const bFirst = (b.firstName ?? "").toLowerCase();
+      if (aFirst < bFirst) return -1;
+      if (aFirst > bFirst) return 1;
+      return 0;
+    });
+
+    return result;
+  }
+
+  async getProjectEmployeePayroll(
+    companyId: string,
+    projectId: string,
+    employeeId: string,
+  ) {
+    const records = await this.prisma.payrollWeekRecord.findMany({
+      where: { companyId, projectId, employeeId },
+      orderBy: { weekEndDate: "asc" },
+    });
+
+    return records.map((r) => ({
+      companyId: r.companyId,
+      projectId: r.projectId,
+      projectCode: r.projectCode,
+      employeeId: r.employeeId,
+      firstName: r.firstName,
+      lastName: r.lastName,
+      classCode: r.classCode,
+      weekEndDate: r.weekEndDate,
+      weekCode: r.weekCode,
+      totalPay: r.totalPay,
+      totalHoursSt: r.totalHoursSt ?? 0,
+      totalHoursOt: r.totalHoursOt ?? 0,
+      totalHoursDt: r.totalHoursDt ?? 0,
+    }));
   }
 
   async addMember(

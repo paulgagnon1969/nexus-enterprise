@@ -497,6 +497,20 @@ function SystemLayoutInner({ children }: { children: ReactNode }) {
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               <Link
+                href="/system/nex-net"
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  border: "1px solid #e5e7eb",
+                  background: pathname?.startsWith("/system/nex-net") ? "#f9fafb" : "transparent",
+                  color: pathname?.startsWith("/system/nex-net") ? "#0f172a" : "#f9fafb",
+                  fontSize: 11,
+                  textDecoration: "none",
+                }}
+              >
+                Nex-Net
+              </Link>
+              <Link
                 href="/system"
                 style={{
                   padding: "2px 8px",
@@ -634,6 +648,14 @@ function SystemLayoutInner({ children }: { children: ReactNode }) {
             style={{ textDecoration: "none", color: "#111827" }}
           >
             People · Trades
+          </Link>
+          <Link
+            href="/system/nex-net"
+            target="_self"
+            rel="noreferrer"
+            style={{ textDecoration: "none", color: "#111827" }}
+          >
+            Nex-Net
           </Link>
           <Link
             href="/company/users?tab=candidates"
