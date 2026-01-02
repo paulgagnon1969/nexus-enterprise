@@ -12,10 +12,10 @@ export const metadata = {
 
 const supportedLocales: Locale[] = ["en", "es"];
 
-function getLocaleFromRequest(): Locale {
+async function getLocaleFromRequest(): Promise<Locale> {
   // Try cookies() helper first.
   try {
-    const store: any = cookies();
+    const store = await cookies();
     if (store && typeof store.get === "function") {
       const raw = store.get("locale")?.value as string | undefined;
       if (supportedLocales.includes(raw as Locale)) {
@@ -28,7 +28,7 @@ function getLocaleFromRequest(): Locale {
 
   // Fallback: parse Cookie header manually.
   try {
-    const hdrs: any = headers();
+    const hdrs = await headers();
     const cookieHeader = hdrs && typeof hdrs.get === "function" ? hdrs.get("cookie") : undefined;
     if (cookieHeader) {
       const parts = cookieHeader.split(";").map((part: string) => part.trim());
@@ -47,8 +47,8 @@ function getLocaleFromRequest(): Locale {
   return "en";
 }
 
-export default function RootLayout({ children }: { children: ReactNode }) {
-  const locale = getLocaleFromRequest();
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const locale = await getLocaleFromRequest();
 
   return (
     <html lang={locale}>

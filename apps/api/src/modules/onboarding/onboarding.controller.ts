@@ -36,9 +36,10 @@ export class OnboardingController {
   @Post("start-public")
   async startPublic(
     @Body("email") email: string,
-    @Body("password") password: string
+    @Body("password") password: string,
+    @Body("referralToken") referralToken?: string,
   ) {
-    const session = await this.onboarding.startPublicSession(email, password);
+    const session = await this.onboarding.startPublicSession(email, password, referralToken);
     return { id: session.id, token: session.token };
   }
 
@@ -76,6 +77,27 @@ export class OnboardingController {
       status: session.status,
       checklist: session.checklistJson ? JSON.parse(session.checklistJson) : {}
     };
+  }
+
+  @Get(":token/referrer")
+  async getReferrer(@Param("token") token: string) {
+    const summary = await this.onboarding.getReferrerForSessionByToken(token);
+    if (!summary) {
+      throw new BadRequestException("Referral not found for this session");
+    }
+    return summary;
+  }
+
+  @Post(":token/referrer/confirm")
+  async confirmReferrer(
+    @Param("token") token: string,
+    @Body("decision") decision: "accept" | "reject",
+  ) {
+    if (decision !== "accept" && decision !== "reject") {
+      throw new BadRequestException("decision must be 'accept' or 'reject'");
+    }
+    const accepted = decision === "accept";
+    return this.onboarding.confirmReferrerForSession(token, accepted);
   }
 
   @Post(":token/document")

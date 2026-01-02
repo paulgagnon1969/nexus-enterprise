@@ -23,6 +23,8 @@ import { ImportJobsModule } from "./modules/import-jobs/import-jobs.module";
 import { PricingModule } from "./modules/pricing/pricing.module";
 import { AddressModule } from "./modules/address/address.module";
 import { AssetModule } from "./modules/asset/asset.module";
+import { ReferralsModule } from "./modules/referrals/referrals.module";
+import { ProjectGroupModule } from "./modules/project-group/project-group.module";
 
 @Module({
   imports: [
@@ -53,7 +55,9 @@ import { AssetModule } from "./modules/asset/asset.module";
     ImportJobsModule,
     PricingModule,
     AddressModule,
-    AssetModule
+    AssetModule,
+    ReferralsModule,
+    ProjectGroupModule,
   ],
   controllers: [DevController]
 })

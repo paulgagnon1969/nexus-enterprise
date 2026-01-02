@@ -178,6 +178,18 @@ interface FinancialSummary {
   snapshotSource: "none" | "snapshot" | "recomputed";
 }
 
+interface ProjectEmployee {
+  firstName: string | null;
+  lastName: string | null;
+  employeeId: string | null;
+  ssnLast4: string | null;
+  classCode: string | null;
+  totalHours: number;
+  firstWeekEnd: string | null;
+  lastWeekEnd: string | null;
+  weekCodes?: string[];
+}
+
 type TabKey =
   | "SUMMARY"
   | "PETL"
@@ -268,6 +280,11 @@ export default function ProjectDetailPage({
   const [financialSummary, setFinancialSummary] = useState<FinancialSummary | null>(null);
   const [financialLoading, setFinancialLoading] = useState(false);
   const [financialError, setFinancialError] = useState<string | null>(null);
+
+  // Payroll roster (who has been paid on this project, including subs/1099s)
+  const [payrollEmployees, setPayrollEmployees] = useState<ProjectEmployee[] | null>(null);
+  const [payrollLoading, setPayrollLoading] = useState(false);
+  const [payrollError, setPayrollError] = useState<string | null>(null);
 
   const [dailyLogs, setDailyLogs] = useState<DailyLog[]>([]);
   const [dailyLogsLoading, setDailyLogsLoading] = useState(false);
@@ -395,6 +412,22 @@ export default function ProjectDetailPage({
   } | null>(null);
   const [structureOpen, setStructureOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("SUMMARY");
+
+  // Project header edit state
+  const [editProjectMode, setEditProjectMode] = useState(false);
+  const [editProject, setEditProject] = useState<
+    | null
+    | {
+        name: string;
+        status: string;
+        addressLine1: string;
+        addressLine2: string | null;
+        city: string;
+        state: string;
+      }
+  >(null);
+  const [editProjectSaving, setEditProjectSaving] = useState(false);
+  const [editProjectMessage, setEditProjectMessage] = useState<string | null>(null);
 
   const searchParams = useSearchParams();
 
@@ -1012,6 +1045,42 @@ export default function ProjectDetailPage({
     };
   }, [activeTab, project, financialSummary]);
 
+  // Lazy-load payroll roster when Financial tab is opened (first time).
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token || !project) return;
+    if (activeTab !== "FINANCIAL") return;
+    if (payrollEmployees) return;
+
+    let cancelled = false;
+    setPayrollLoading(true);
+    setPayrollError(null);
+
+    fetch(`${API_BASE}/projects/${project.id}/employees`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((json: any) => {
+        if (cancelled) return;
+        const rows: ProjectEmployee[] = Array.isArray(json)
+          ? json
+          : [];
+        setPayrollEmployees(rows);
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setPayrollError(err?.message ?? "Failed to load payroll roster.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setPayrollLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, project, payrollEmployees]);
+
   const toggleRoomExpanded = (particleId: string | null) => {
     if (!particleId) return;
     setExpandedRooms(prev => {
@@ -1189,18 +1258,322 @@ export default function ProjectDetailPage({
     );
   }
 
+  const canEditProjectHeader =
+    actorGlobalRole === "SUPER_ADMIN" ||
+    actorCompanyRole === "OWNER" ||
+    actorCompanyRole === "ADMIN";
+
+  const beginEditProject = () => {
+    if (!project) return;
+    setEditProjectMessage(null);
+    setEditProject({
+      name: project.name,
+      status: project.status,
+      addressLine1: project.addressLine1,
+      addressLine2: project.addressLine2 ?? null,
+      city: project.city,
+      state: project.state,
+    });
+    setEditProjectMode(true);
+  };
+
+  const cancelEditProject = () => {
+    setEditProjectMode(false);
+    setEditProjectMessage(null);
+  };
+
+  const saveEditProject = async () => {
+    if (!project) return;
+    if (!editProject) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setEditProjectMessage("Missing access token. Please login again.");
+      return;
+    }
+    setEditProjectSaving(true);
+    setEditProjectMessage(null);
+    try {
+      const body: any = {
+        name: editProject.name,
+        status: editProject.status,
+        addressLine1: editProject.addressLine1,
+        addressLine2: editProject.addressLine2,
+        city: editProject.city,
+        state: editProject.state,
+      };
+      const res = await fetch(`${API_BASE}/projects/${project.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        setEditProjectMessage(`Failed to save project (${res.status}).`);
+        return;
+      }
+      const updated = (await res.json()) as Project;
+      setProject(updated);
+      setEditProjectMode(false);
+      setEditProjectMessage("Project updated.");
+    } catch (err: any) {
+      setEditProjectMessage(err?.message ?? "Error saving project.");
+    } finally {
+      setEditProjectSaving(false);
+    }
+  };
+
   return (
     <div className="app-card">
-      <h1 style={{ marginTop: 0, fontSize: 20 }}>{project.name}</h1>
-      <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
-        Status: {project.status}
-      </p>
-      <p style={{ fontSize: 13, marginTop: 8 }}>
-        {project.addressLine1}
-        {project.addressLine2 ? `, ${project.addressLine2}` : ""}
-        <br />
-        {project.city}, {project.state}
-      </p>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 12,
+        }}
+      >
+        <div>
+          {!editProjectMode && (
+            <>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <h1 style={{ marginTop: 0, fontSize: 20 }}>{project.name}</h1>
+                <span style={{ fontSize: 11, color: "#9ca3af" }}>
+                  PID: {project.id}
+                </span>
+              </div>
+              <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
+                Status: {project.status}
+              </p>
+              <p style={{ fontSize: 13, marginTop: 8 }}>
+                {project.addressLine1}
+                {project.addressLine2 ? `, ${project.addressLine2}` : ""}
+                <br />
+                {project.city}, {project.state}
+              </p>
+            </>
+          )}
+
+          {editProjectMode && editProject && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
+                  Job name
+                </label>
+                <input
+                  value={editProject.name}
+                  onChange={e =>
+                    setEditProject(prev =>
+                      prev ? { ...prev, name: e.target.value } : prev,
+                    )
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "4px 6px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 13,
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
+                  Status
+                </label>
+                <input
+                  value={editProject.status}
+                  onChange={e =>
+                    setEditProject(prev =>
+                      prev ? { ...prev, status: e.target.value } : prev,
+                    )
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "4px 6px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 13,
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 6,
+                  alignItems: "flex-start",
+                }}
+              >
+                <div style={{ flex: "1 1 220px", minWidth: 200 }}>
+                  <label
+                    style={{ display: "block", fontSize: 12, fontWeight: 600 }}
+                  >
+                    Address line 1
+                  </label>
+                  <input
+                    value={editProject.addressLine1}
+                    onChange={e =>
+                      setEditProject(prev =>
+                        prev
+                          ? { ...prev, addressLine1: e.target.value }
+                          : prev,
+                      )
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 13,
+                    }}
+                  />
+                </div>
+                <div style={{ flex: "1 1 180px", minWidth: 180 }}>
+                  <label
+                    style={{ display: "block", fontSize: 12, fontWeight: 600 }}
+                  >
+                    Address line 2
+                  </label>
+                  <input
+                    value={editProject.addressLine2 ?? ""}
+                    onChange={e =>
+                      setEditProject(prev =>
+                        prev
+                          ? { ...prev, addressLine2: e.target.value || null }
+                          : prev,
+                      )
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 13,
+                    }}
+                  />
+                </div>
+                <div style={{ flex: "0 0 160px", minWidth: 140 }}>
+                  <label
+                    style={{ display: "block", fontSize: 12, fontWeight: 600 }}
+                  >
+                    City
+                  </label>
+                  <input
+                    value={editProject.city}
+                    onChange={e =>
+                      setEditProject(prev =>
+                        prev ? { ...prev, city: e.target.value } : prev,
+                      )
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 13,
+                    }}
+                  />
+                </div>
+                <div style={{ flex: "0 0 80px" }}>
+                  <label
+                    style={{ display: "block", fontSize: 12, fontWeight: 600 }}
+                  >
+                    State
+                  </label>
+                  <input
+                    value={editProject.state}
+                    onChange={e =>
+                      setEditProject(prev =>
+                        prev ? { ...prev, state: e.target.value } : prev,
+                      )
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 13,
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {canEditProjectHeader && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+            {!editProjectMode && (
+              <button
+                type="button"
+                onClick={beginEditProject}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  border: "1px solid #0f172a",
+                  background: "#0f172a",
+                  color: "#f9fafb",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Edit project
+              </button>
+            )}
+            {editProjectMode && (
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={saveEditProject}
+                  disabled={editProjectSaving}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    border: "1px solid #0f172a",
+                    background: editProjectSaving ? "#e5e7eb" : "#0f172a",
+                    color: editProjectSaving ? "#4b5563" : "#f9fafb",
+                    fontSize: 12,
+                    cursor: editProjectSaving ? "default" : "pointer",
+                  }}
+                >
+                  {editProjectSaving ? "Saving…" : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelEditProject}
+                  disabled={editProjectSaving}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    color: "#374151",
+                    fontSize: 12,
+                    cursor: editProjectSaving ? "default" : "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            {editProjectMessage && (
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 11,
+                  color: editProjectMessage.toLowerCase().includes("fail")
+                    ? "#b91c1c"
+                    : "#16a34a",
+                }}
+              >
+                {editProjectMessage}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
       <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 8 }}>
         Created: {new Date(project.createdAt).toLocaleString()}
       </p>
@@ -2509,6 +2882,158 @@ export default function ProjectDetailPage({
                     of Total Due. Due Amount represents anything above that baseline which
                     has not yet been billed.
                   </p>
+                </div>
+              </div>
+
+              {/* Payroll & Workforce roster */}
+              <div
+                style={{
+                  marginTop: 16,
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                  background: "#ffffff",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "6px 10px",
+                    borderBottom: "1px solid #e5e7eb",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    background: "#f3f4f6",
+                  }}
+                >
+                  Payroll &amp; Workforce
+                </div>
+                <div style={{ padding: 10, fontSize: 12 }}>
+                  <p style={{ marginTop: 0, marginBottom: 8, color: "#4b5563" }}>
+                    This roster shows everyone who has recorded payroll on this project
+                    (including subs and 1099s), based on Certified Payroll and LCP data.
+                    It does not grant them login access.
+                  </p>
+
+                  {payrollLoading && (
+                    <p style={{ fontSize: 12, color: "#6b7280" }}>
+                      Loading payroll roster…
+                    </p>
+                  )}
+
+                  {payrollError && !payrollLoading && (
+                    <p style={{ fontSize: 12, color: "#b91c1c" }}>{payrollError}</p>
+                  )}
+
+                  {!payrollLoading && !payrollError && (!payrollEmployees || payrollEmployees.length === 0) && (
+                    <p style={{ fontSize: 12, color: "#6b7280" }}>
+                      No payroll records found yet for this project.
+                    </p>
+                  )}
+
+                  {!payrollLoading && !payrollError && payrollEmployees && payrollEmployees.length > 0 && (
+                    <div style={{ maxHeight: "60vh", overflow: "auto" }}>
+                      <table
+                        style={{
+                          width: "100%",
+                          borderCollapse: "collapse",
+                          fontSize: 12,
+                        }}
+                      >
+                        <thead>
+                          <tr style={{ backgroundColor: "#f9fafb" }}>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Name</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Role / Class</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>SSN (last 4)</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Total Hours</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>First Week</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Last Week</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {payrollEmployees.map((emp, idx) => {
+                            const name = [emp.firstName ?? "", emp.lastName ?? ""]
+                              .map(s => s.trim())
+                              .filter(Boolean)
+                              .join(" ") || "(Unnamed)";
+                            const firstWeek = emp.firstWeekEnd
+                              ? new Date(emp.firstWeekEnd).toLocaleDateString()
+                              : "—";
+                            const lastWeek = emp.lastWeekEnd
+                              ? new Date(emp.lastWeekEnd).toLocaleDateString()
+                              : "—";
+                            const hasDetails = !!emp.employeeId;
+                            const detailHref = hasDetails
+                              ? `/projects/${project.id}/payroll/${encodeURIComponent(
+                                  emp.employeeId as string,
+                                )}`
+                              : undefined;
+                            return (
+                              <tr key={`${emp.employeeId ?? "emp"}-${idx}`}>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                  }}
+                                >
+                                  {hasDetails ? (
+                                    <a
+                                      href={detailHref}
+                                      style={{ color: "#2563eb", textDecoration: "none" }}
+                                    >
+                                      {name}
+                                    </a>
+                                  ) : (
+                                    name
+                                  )}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    color: "#4b5563",
+                                  }}
+                                >
+                                  {emp.classCode || "—"}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    color: "#4b5563",
+                                  }}
+                                >
+                                  {emp.ssnLast4 ? `***-**-${emp.ssnLast4}` : "—"}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {emp.totalHours.toFixed(2)}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                  }}
+                                >
+                                  {firstWeek}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                  }}
+                                >
+                                  {lastWeek}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </div>
             </>

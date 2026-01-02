@@ -26,3 +26,8 @@ apps/web/tmp_uploads/
 # Local helper scripts
 run-nexus-dev.sh
 start-dev-clear-all.sh
+
+# Data promotion artifacts (never commit real data snapshots)
+scripts/data-promotion/*.json
+scripts/data-promotion/*.csv
+promotion/

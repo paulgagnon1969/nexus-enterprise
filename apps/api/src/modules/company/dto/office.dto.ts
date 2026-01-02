@@ -34,4 +34,9 @@ export class UpsertOfficeDto {
   @IsString()
   @Length(0, 80)
   country?: string;
+
+  // Optional JSON payload for office-level payroll configuration. Shape is
+  // owned by the payroll module; keep this loosely typed here.
+  @IsOptional()
+  payrollConfig?: any;
 }
