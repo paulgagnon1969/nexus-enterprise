@@ -89,6 +89,11 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
   const [postalCode, setPostalCode] = useState("");
   const [country, setCountry] = useState("USA");
 
+  const submitted =
+    session?.status === "SUBMITTED" ||
+    session?.status === "UNDER_REVIEW" ||
+    session?.status === "APPROVED";
+ 
   // Debounced autosave: whenever profile fields change, try to persist them
   // after a short delay so partial data is captured even if the user does not
   // blur every field.
@@ -161,12 +166,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
 
     void load();
   }, [token]);
-
-  const submitted =
-    session?.status === "SUBMITTED" ||
-    session?.status === "UNDER_REVIEW" ||
-    session?.status === "APPROVED";
-
+ 
   const checklist = session?.checklist || {};
 
   const categoryNames = useMemo(() => {
