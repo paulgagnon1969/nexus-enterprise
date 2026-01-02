@@ -153,7 +153,13 @@ export default function CompanySettingsPage() {
   );
 }
 
-import type { OfficePayrollConfig } from "@repo/database";
+type OfficePayrollConfigShape = {
+  federalEin: string | null;
+  stateWithholdingId: string | null;
+  stateUnemploymentId: string | null;
+  localTaxJurisdiction: string | null;
+  localTaxAccountId: string | null;
+};
 
 function CompanyProfileCard() {
   const [companyName, setCompanyName] = useState("NEXUS Fortified Structures, LLC");
@@ -162,7 +168,7 @@ function CompanyProfileCard() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [defaultTimeZone, setDefaultTimeZone] = useState<string>("");
-  const [orgPayrollConfig, setOrgPayrollConfig] = useState<OfficePayrollConfig>({
+  const [orgPayrollConfig, setOrgPayrollConfig] = useState<OfficePayrollConfigShape>({
     federalEin: null,
     stateWithholdingId: null,
     stateUnemploymentId: null,
@@ -179,12 +185,12 @@ function CompanyProfileCard() {
       state: string;
       postalCode: string;
       country: string;
-      // Inline view-model includes the shared OfficePayrollConfig shape.
-      federalEin?: OfficePayrollConfig["federalEin"];
-      stateWithholdingId?: OfficePayrollConfig["stateWithholdingId"];
-      stateUnemploymentId?: OfficePayrollConfig["stateUnemploymentId"];
-      localTaxJurisdiction?: OfficePayrollConfig["localTaxJurisdiction"];
-      localTaxAccountId?: OfficePayrollConfig["localTaxAccountId"];
+      // Inline view-model includes the shared payroll config shape.
+      federalEin?: string | null;
+      stateWithholdingId?: string | null;
+      stateUnemploymentId?: string | null;
+      localTaxJurisdiction?: string | null;
+      localTaxAccountId?: string | null;
     }[]
   >([]);
   const [officesLoading, setOfficesLoading] = useState(false);
@@ -287,7 +293,7 @@ function CompanyProfileCard() {
         logoFileName: string | null;
         iconFileName: string | null;
         defaultTimeZone: string;
-        orgPayrollConfig: OfficePayrollConfig;
+        orgPayrollConfig: OfficePayrollConfigShape;
         offices: typeof offices;
       }
   >(null);
