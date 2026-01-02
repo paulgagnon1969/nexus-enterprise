@@ -8,3 +8,5 @@ export {
 export { allocateComponentsForEstimate } from "./allocate-xact-components";
 export { importGoldenComponentsFromFile } from "./import-pricelist-components";
 export { importBiaWorkers } from "./import-bia-workers";
+export * from "./payroll-types";
+export * from "./certified-payroll";

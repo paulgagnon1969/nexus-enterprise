@@ -155,24 +155,29 @@ API_STATUS="FAILED"
 WEB_STATUS="FAILED"
 WORKER_STATUS="FAILED"
 
-# API health (optional /health endpoint)
-if curl -sSf "http://localhost:8000/health" >/dev/null 2>&1; then
-  API_STATUS="OK (health)"
-else
-  # Fallback: just check if port responds at all
-  if curl -sSf "http://localhost:8000/" >/dev/null 2>&1; then
+# API health (optional /health endpoint), with a short retry window so we
+# don't mark it as FAILED just because Next/Nest are still warming up.
+API_STATUS="FAILED (no response on :8000)"
+for i in {1..10}; do
+  if curl -sSf "http://localhost:8000/health" >/dev/null 2>&1; then
+    API_STATUS="OK (health)"
+    break
+  elif curl -sSf "http://localhost:8000/" >/dev/null 2>&1; then
     API_STATUS="OK (root)"
-  else
-    API_STATUS="FAILED (no response on :8000)"
+    break
   fi
-fi
+  sleep 2
+done
 
-# Web health
-if curl -sSf "http://localhost:3000/" >/dev/null 2>&1; then
-  WEB_STATUS="OK"
-else
-  WEB_STATUS="FAILED (no response on :3000)"
-fi
+# Web health with retry window as well.
+WEB_STATUS="FAILED (no response on :3000)"
+for i in {1..10}; do
+  if curl -sSf "http://localhost:3000/" >/dev/null 2>&1; then
+    WEB_STATUS="OK"
+    break
+  fi
+  sleep 2
+done
 
 # Worker process
 if pgrep -f "apps/api.*src/worker.ts" >/dev/null 2>&1; then

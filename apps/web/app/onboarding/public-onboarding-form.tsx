@@ -47,6 +47,21 @@ interface SessionSummary {
   documents?: OnboardingDocumentDto[];
 }
 
+interface ReferrerSummary {
+  id: string;
+  token: string;
+  status: string;
+  referralConfirmedByReferee: boolean;
+  referralRejectedByReferee: boolean;
+  referrer: {
+    id: string;
+    email: string;
+    name?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+  };
+}
+
 interface SkillDto {
   id: string;
   code: string;
@@ -64,6 +79,8 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
   const [skills, setSkills] = useState<SkillDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [referrer, setReferrer] = useState<ReferrerSummary | null>(null);
+  const [referrerUpdating, setReferrerUpdating] = useState(false);
   const [missingFields, setMissingFields] = useState<string[]>([]);
   const [showCompletionHint, setShowCompletionHint] = useState(false);
   const [completionHintAcknowledged, setCompletionHintAcknowledged] = useState(false);
@@ -127,9 +144,10 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
 
     async function load() {
       try {
-        const [sessionRes, skillsRes] = await Promise.all([
+        const [sessionRes, skillsRes, referrerRes] = await Promise.all([
           fetch(`${API_BASE}/onboarding/${token}`),
           fetch(`${API_BASE}/onboarding/${token}/skills`),
+          fetch(`${API_BASE}/onboarding/${token}/referrer`).catch(() => null as any),
         ]);
 
         if (!sessionRes.ok) {
@@ -156,6 +174,11 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
         if (skillsRes.ok) {
           const skillsJson = await skillsRes.json();
           setSkills(skillsJson.skills || []);
+        }
+
+        if (referrerRes && referrerRes.ok) {
+          const refJson = await referrerRes.json();
+          setReferrer(refJson);
         }
       } catch (e: any) {
         setError(e?.message ?? "Failed to load onboarding session.");
@@ -305,6 +328,31 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
     return missing;
   }
 
+  const pendingReferrerDecision = !!referrer &&
+    !referrer.referralConfirmedByReferee &&
+    !referrer.referralRejectedByReferee;
+
+  async function sendReferrerDecision(decision: "accept" | "reject") {
+    if (!token) return;
+    try {
+      setReferrerUpdating(true);
+      const res = await fetch(`${API_BASE}/onboarding/${token}/referrer/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setReferrer(json);
+      } else if (decision === "reject") {
+        // If reject fails, we still hide the banner on next reload when no referral is returned.
+        setReferrer(null);
+      }
+    } finally {
+      setReferrerUpdating(false);
+    }
+  }
+
   async function handleSubmitAll() {
     if (!token) return;
 
@@ -412,6 +460,71 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
       <main style={{ padding: "2rem" }}>
         <h1>Nexis profile</h1>
         <p>We could not find this Nexis profile session.</p>
+      </main>
+    );
+  }
+
+  // Step 1: require referrer confirmation before showing the full Nexis
+  // profile form, when applicable.
+  if (pendingReferrerDecision && referrer) {
+    const name = referrer.referrer.name || referrer.referrer.email || "your contact";
+    return (
+      <main style={{ padding: "2rem", maxWidth: 560, margin: "0 auto" }}>
+        <h1 style={{ marginTop: 0 }}>Nexis profile</h1>
+        <p style={{ fontSize: 14, color: "#6b7280", marginBottom: 14 }}>
+          Before we continue building your Nexis profile, please confirm whether the person below referred you.
+        </p>
+        <section
+          style={{
+            marginTop: 4,
+            padding: 12,
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            backgroundColor: "#f9fafb",
+            fontSize: 13,
+            color: "#374151",
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Referral confirmation</div>
+          <p style={{ marginTop: 0, marginBottom: 8 }}>
+            Our records show that you were referred by <strong>{name}</strong>. This helps us credit the right
+            person for bringing you into the Nexis network.
+          </p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+            <button
+              type="button"
+              disabled={referrerUpdating}
+              onClick={() => void sendReferrerDecision("accept")}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 4,
+                border: "none",
+                backgroundColor: referrerUpdating ? "#e5e7eb" : "#0f172a",
+                color: "#f9fafb",
+                fontSize: 13,
+                cursor: referrerUpdating ? "default" : "pointer",
+              }}
+            >
+              Yes, that’s my referrer
+            </button>
+            <button
+              type="button"
+              disabled={referrerUpdating}
+              onClick={() => void sendReferrerDecision("reject")}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                backgroundColor: "#ffffff",
+                color: "#111827",
+                fontSize: 13,
+                cursor: referrerUpdating ? "default" : "pointer",
+              }}
+            >
+              No, I wasn’t referred by this person
+            </button>
+          </div>
+        </section>
       </main>
     );
   }
@@ -551,6 +664,63 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
       <p style={{ fontSize: 14, color: "#6b7280" }}>
         Welcome. Complete the items below to build your Nexis profile for upcoming work.
       </p>
+
+      {referrer && referrer.referralConfirmedByReferee && !referrer.referralRejectedByReferee && (
+        <section
+          style={{
+            marginTop: 12,
+            marginBottom: 10,
+            maxWidth: 560,
+            padding: 10,
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            backgroundColor: "#f9fafb",
+            fontSize: 13,
+            color: "#374151",
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Referral confirmation</div>
+          <p style={{ marginTop: 0, marginBottom: 6 }}>
+            Our records show that you were referred by {referrer.referrer.name || referrer.referrer.email}.
+            Please confirm whether this is correct. This helps us credit your referrer for bringing you into
+            the Nexis network.
+          </p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              disabled={referrerUpdating || referrer.referralConfirmedByReferee}
+              onClick={() => void sendReferrerDecision("accept")}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 4,
+                border: "none",
+                backgroundColor: referrer.referralConfirmedByReferee ? "#16a34a" : "#0f172a",
+                color: "#f9fafb",
+                fontSize: 12,
+                cursor: referrerUpdating ? "default" : "pointer",
+              }}
+            >
+              {referrer.referralConfirmedByReferee ? "Confirmed" : "Yes, that’s my referrer"}
+            </button>
+            <button
+              type="button"
+              disabled={referrerUpdating}
+              onClick={() => void sendReferrerDecision("reject")}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                backgroundColor: "#ffffff",
+                color: "#111827",
+                fontSize: 12,
+                cursor: referrerUpdating ? "default" : "pointer",
+              }}
+            >
+              No, I wasn’t referred by this person
+            </button>
+          </div>
+        </section>
+      )}
 
       <section style={{ marginTop: "1.5rem", maxWidth: 560 }}>
         <h2 style={{ fontSize: 16, marginBottom: 8 }}>Your information</h2>

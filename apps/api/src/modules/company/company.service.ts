@@ -8,6 +8,7 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { randomUUID } from "crypto";
 import { UpsertOfficeDto } from "./dto/office.dto";
 import { UpsertLandingConfigDto } from "./dto/landing-config.dto";
+import { UpdateCompanyDto } from "./dto/update-company.dto";
 import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -34,6 +35,8 @@ export class CompanyService {
         id: true,
         name: true,
         kind: true,
+        defaultTimeZone: true,
+        defaultPayrollConfig: true,
         createdAt: true,
         updatedAt: true,
         memberships: {
@@ -200,6 +203,69 @@ export class CompanyService {
     });
   }
 
+  async updateCurrentCompany(actor: AuthenticatedUser, dto: UpdateCompanyDto) {
+    const companyId = actor.companyId;
+    if (!companyId) {
+      throw new Error("Missing company context for actor");
+    }
+
+    // Only OWNER or ADMIN of the current company may edit company settings.
+    if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+      throw new Error("Only OWNER or ADMIN can update company settings");
+    }
+
+    const existing = await this.prisma.company.findFirst({
+      where: {
+        id: companyId,
+        memberships: {
+          some: {
+            userId: actor.userId,
+          },
+        },
+      },
+    });
+
+    if (!existing) {
+      throw new NotFoundException("Company not found for current user");
+    }
+
+    const data: any = {};
+    if (typeof dto.name === "string" && dto.name.trim()) {
+      data.name = dto.name.trim();
+    }
+    if (typeof dto.defaultTimeZone === "string") {
+      data.defaultTimeZone = dto.defaultTimeZone || null;
+    }
+    if (typeof dto.defaultPayrollConfig !== "undefined") {
+      data.defaultPayrollConfig = dto.defaultPayrollConfig ?? null;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return existing;
+    }
+
+    const updated = await this.prisma.company.update({
+      where: { id: companyId },
+      data,
+    });
+
+    await this.audit.log(actor, "COMPANY_UPDATED", {
+      companyId,
+      metadata: {
+        previous: {
+          name: (existing as any).name,
+          defaultTimeZone: (existing as any).defaultTimeZone ?? null,
+        },
+        updated: {
+          name: updated.name,
+          defaultTimeZone: (updated as any).defaultTimeZone ?? null,
+        },
+      },
+    });
+
+    return updated;
+  }
+
   // --- Company offices (soft-delete only; never hard-delete) ---
 
   async listOfficesForCurrentCompany(actor: AuthenticatedUser) {
@@ -223,6 +289,7 @@ export class CompanyService {
         state: dto.state ?? "",
         postalCode: dto.postalCode ?? "",
         country: dto.country ?? "US",
+        payrollConfig: dto.payrollConfig ? (dto.payrollConfig as any) : undefined,
       },
     });
 
@@ -264,6 +331,9 @@ export class CompanyService {
         state: dto.state ?? "",
         postalCode: dto.postalCode ?? "",
         country: dto.country ?? "US",
+        payrollConfig: typeof dto.payrollConfig !== "undefined"
+          ? (dto.payrollConfig as any)
+          : existing.payrollConfig,
       },
     });
 

@@ -89,14 +89,6 @@ export default function ProfileSettingsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [lang, setLang] = useState<"en" | "es">("en");
 
-  // Recruitment / referrals
-  const [recruitEmail, setRecruitEmail] = useState("");
-  const [recruitPhone, setRecruitPhone] = useState("");
-  const [recruitMessage, setRecruitMessage] = useState(
-    "I'd like to invite you to register your contractor portfolio with Nexus Contractor Connect.",
-  );
-  const [recruitApplyUrl, setRecruitApplyUrl] = useState<string | null>(null);
-  const [recruitStatus, setRecruitStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -153,19 +145,6 @@ export default function ProfileSettingsPage() {
     void load();
   }, []);
 
-  // Build a referral URL for this candidate so they can recruit others.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const origin = window.location.origin;
-    if (!origin) return;
-
-    if (me?.email) {
-      const url = `${origin}/apply?referrer=${encodeURIComponent(me.email)}`;
-      setRecruitApplyUrl(url);
-    } else {
-      setRecruitApplyUrl(`${origin}/apply`);
-    }
-  }, [me]);
 
   const save = async () => {
     if (typeof window === "undefined") return;
@@ -258,47 +237,6 @@ export default function ProfileSettingsPage() {
     }
   };
 
-  const buildRecruitMessage = () => {
-    const base =
-      recruitMessage.trim() !== ""
-        ? recruitMessage.trim()
-        : "I'd like to invite you to register your contractor portfolio with Nexus Contractor Connect.";
-    if (recruitApplyUrl) {
-      return `${base}\n\nStart here: ${recruitApplyUrl}`;
-    }
-    return base;
-  };
-
-  const handleCopyRecruitLink = async () => {
-    if (typeof navigator === "undefined" || !recruitApplyUrl) {
-      setRecruitStatus("Copy is not available in this browser; you can still share the link manually.");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(recruitApplyUrl);
-      setRecruitStatus("Invite link copied.");
-      setTimeout(() => setRecruitStatus(null), 3000);
-    } catch {
-      setRecruitStatus("Could not copy link; you can still share it manually.");
-    }
-  };
-
-  const handleEmailRecruit = () => {
-    if (typeof window === "undefined") return;
-    const body = encodeURIComponent(buildRecruitMessage());
-    const subject = encodeURIComponent("Nexus Contractor Connect invitation");
-    const to = recruitEmail.trim();
-    const href = `mailto:${encodeURIComponent(to)}?subject=${subject}&body=${body}`;
-    window.location.href = href;
-  };
-
-  const handleSmsRecruit = () => {
-    if (typeof window === "undefined") return;
-    const body = encodeURIComponent(buildRecruitMessage());
-    const to = recruitPhone.trim();
-    const href = `sms:${encodeURIComponent(to)}?&body=${body}`;
-    window.location.href = href;
-  };
 
   const displayName =
     me?.firstName || me?.lastName ? `${me?.firstName ?? ""} ${me?.lastName ?? ""}`.trim() : "";
@@ -372,159 +310,6 @@ export default function ProfileSettingsPage() {
             Signed in as <strong style={{ color: "var(--color-text)" }}>{me?.email}</strong>
           </div>
 
-          <section
-            style={{
-              marginTop: 8,
-              padding: 12,
-              borderRadius: 10,
-              border: "1px solid #e5e7eb",
-              background: "#f9fafb",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "flex-start",
-                gap: 10,
-                flexWrap: "wrap",
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-text)" }}>
-                  Recruit other contractors
-                </div>
-                <div style={{ marginTop: 4, fontSize: 12, color: "var(--color-muted)", maxWidth: 520 }}>
-                  Invite friends, coworkers, or crews to start their own Nexis portfolio. Your referral is
-                  tracked using your email so rewards can be credited in the future.
-                </div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                marginTop: 10,
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-              }}
-            >
-              <label>
-                <div style={{ fontSize: 12, color: "var(--color-muted)" }}>Recruit email (optional)</div>
-                <input
-                  value={recruitEmail}
-                  onChange={e => setRecruitEmail(e.target.value)}
-                  placeholder="friend@example.com"
-                  style={{
-                    width: "100%",
-                    padding: "8px 10px",
-                    borderRadius: 6,
-                    border: "1px solid #d1d5db",
-                    fontSize: 13,
-                  }}
-                />
-              </label>
-
-              <label>
-                <div style={{ fontSize: 12, color: "var(--color-muted)" }}>Recruit mobile (optional)</div>
-                <input
-                  value={recruitPhone}
-                  onChange={e => setRecruitPhone(e.target.value)}
-                  placeholder="(555) 555-5555"
-                  style={{
-                    width: "100%",
-                    padding: "8px 10px",
-                    borderRadius: 6,
-                    border: "1px solid #d1d5db",
-                    fontSize: 13,
-                  }}
-                />
-              </label>
-
-              <label>
-                <div style={{ fontSize: 12, color: "var(--color-muted)" }}>Personal message</div>
-                <textarea
-                  value={recruitMessage}
-                  onChange={e => setRecruitMessage(e.target.value)}
-                  rows={3}
-                  style={{
-                    width: "100%",
-                    padding: "8px 10px",
-                    borderRadius: 6,
-                    border: "1px solid #d1d5db",
-                    fontSize: 13,
-                    resize: "vertical",
-                  }}
-                />
-              </label>
-            </div>
-
-            <div
-              style={{
-                marginTop: 10,
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 8,
-              }}
-            >
-              <button
-                type="button"
-                onClick={handleCopyRecruitLink}
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 6,
-                  border: "1px solid #0f172a",
-                  background: "#0f172a",
-                  color: "#f9fafb",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                Copy invite link
-              </button>
-              <button
-                type="button"
-                onClick={handleEmailRecruit}
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 6,
-                  border: "1px solid #d1d5db",
-                  background: "#ffffff",
-                  color: "var(--color-text)",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                Open email draft
-              </button>
-              <button
-                type="button"
-                onClick={handleSmsRecruit}
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 6,
-                  border: "1px solid #d1d5db",
-                  background: "#ffffff",
-                  color: "var(--color-text)",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                Open text message
-              </button>
-            </div>
-
-            {recruitApplyUrl && (
-              <div style={{ marginTop: 8, fontSize: 11, color: "var(--color-muted)" }}>
-                Invite link:&nbsp;
-                <code style={{ wordBreak: "break-all" }}>{recruitApplyUrl}</code>
-              </div>
-            )}
-
-            {recruitStatus && (
-              <div style={{ marginTop: 8, fontSize: 12, color: "#16a34a" }}>{recruitStatus}</div>
-            )}
-          </section>
 
           <div style={{ display: "flex", gap: 16, alignItems: "stretch", flexWrap: "wrap" }}>
             {/* LEFT: PUBLIC */}
