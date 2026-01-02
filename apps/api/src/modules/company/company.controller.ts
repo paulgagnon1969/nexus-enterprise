@@ -6,6 +6,7 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateInviteDto } from "./dto/invite.dto";
 import { UpsertOfficeDto } from "./dto/office.dto";
 import { UpsertLandingConfigDto } from "./dto/landing-config.dto";
+import { UpdateCompanyDto } from "./dto/update-company.dto";
 
 @Controller("companies")
 export class CompanyController {
@@ -16,6 +17,14 @@ export class CompanyController {
   getCurrent(@Req() req: any) {
     const user = req.user as AuthenticatedUser;
     return this.companies.getCurrentCompany(user.companyId, user.userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Patch("me")
+  updateCurrent(@Req() req: any, @Body() dto: UpdateCompanyDto) {
+    const user = req.user as AuthenticatedUser;
+    return this.companies.updateCurrentCompany(user, dto);
   }
 
   @UseGuards(JwtAuthGuard)

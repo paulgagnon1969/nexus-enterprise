@@ -24,8 +24,9 @@ export default function ApplyPage() {
 function ApplyPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-
+ 
   const token = searchParams.get("token") || "";
+  const referralToken = searchParams.get("referralToken") || "";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,6 +35,8 @@ function ApplyPageInner() {
   const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [referrerName, setReferrerName] = useState<string | null>(null);
+  const [referrerEmail, setReferrerEmail] = useState<string | null>(null);
 
   const [brandingHeadline, setBrandingHeadline] = useState<string | null>(null);
   const [brandingSubheadline, setBrandingSubheadline] = useState<string | null>(null);
@@ -80,6 +83,28 @@ function ApplyPageInner() {
     })();
   }, []);
 
+  // If this apply flow was launched from a referral link, look up the referrer
+  // so we can show "You were referred by ..." on the page.
+  useEffect(() => {
+    if (!referralToken) return;
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/referrals/lookup/${encodeURIComponent(referralToken)}`);
+        if (!res.ok) return;
+        const json: any = await res.json();
+        const r = json?.referrer ?? null;
+        if (r) {
+          const name = [r.firstName, r.lastName].filter(Boolean).join(" ") || null;
+          setReferrerName(name);
+          setReferrerEmail(r.email ?? null);
+        }
+      } catch {
+        // Non-fatal; we simply skip showing referrer info.
+      }
+    })();
+  }, [referralToken]);
+
   const canSubmit = useMemo(() => {
     if (!email.trim()) return false;
     if (!password || password.length < 8) return false;
@@ -98,7 +123,11 @@ function ApplyPageInner() {
       const res = await fetch(`${API_BASE}/onboarding/start-public`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          referralToken: referralToken || undefined,
+        }),
       });
 
       // If this email is already registered, treat the form as a normal login
@@ -249,6 +278,27 @@ function ApplyPageInner() {
           }}
         />
       )}
+
+      {referrerName || referrerEmail ? (
+        <div
+          style={{
+            marginTop: 12,
+            padding: 10,
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            backgroundColor: "#f9fafb",
+            fontSize: 13,
+            color: "#374151",
+            width: "100%",
+            maxWidth: 520,
+          }}
+        >
+          <strong>You were referred to Nexis</strong>
+          <div style={{ marginTop: 4 }}>
+            by {referrerName || referrerEmail}.
+          </div>
+        </div>
+      ) : null}
 
       <form onSubmit={start} style={{ marginTop: 16, width: "100%", maxWidth: 520 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

@@ -45,7 +45,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     path === "/reset-password" ||
     path.startsWith("/reset-password/");
 
-
   // On first load in this browser tab, clear any stale tokens and send the
   // user to the login screen, so deep links don't silently use expired auth.
   useEffect(() => {
@@ -215,12 +214,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     return pathname?.startsWith(href);
   };
 
-  if (isPublicRoute) {
-    return (
-      <main style={{ minHeight: "100vh", background: "#ffffff" }}>{children}</main>
-    );
-  }
-
   // Bootstrap userType/globalRole from localStorage as early as possible to
   // avoid flicker of nav for APPLICANT users before /users/me returns.
   useEffect(() => {
@@ -360,6 +353,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   //   candidates during sign-in.
   const hideNavForApplicant = userType === "APPLICANT" || isAuthRoute;
 
+  if (isPublicRoute) {
+    return (
+      <main style={{ minHeight: "100vh", background: "#ffffff" }}>{children}</main>
+    );
+  }
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -488,6 +487,29 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="app-header-right">
           <LanguageToggle />
+          {/* Global referral CTA */}
+          <Link
+            href="/referrals"
+            style={{
+              marginLeft: 12,
+              marginRight: 8,
+              padding: "6px 12px",
+              borderRadius: 999,
+              border: "none",
+              backgroundColor: "#16a34a", // match green submit state
+              color: "#f9fafb",
+              fontSize: 13,
+              fontWeight: 600,
+              textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              whiteSpace: "nowrap",
+              cursor: "pointer",
+            }}
+          >
+            Refer a Friend
+          </Link>
           {/* User menu */}
           <div style={{ position: "relative" }}>
             <UserMenu onLogout={handleLogout} />
@@ -835,6 +857,24 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
             }}
           >
             See/Edit Profile
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              window.location.href = "/referrals";
+            }}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              fontSize: 13,
+              textAlign: "left",
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+            }}
+          >
+            Your referrals
           </button>
 
           <button

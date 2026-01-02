@@ -3,7 +3,7 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { randomBytes } from "node:crypto";
 import * as argon2 from "argon2";
-import { Role, UserType } from "@prisma/client";
+import { Role, UserType, NexNetStatus, ReferralStatus } from "@prisma/client";
 
 @Injectable()
 export class OnboardingService {
@@ -45,7 +45,7 @@ export class OnboardingService {
     return session;
   }
 
-  async startPublicSession(email: string, password: string) {
+  async startPublicSession(email: string, password: string, referralToken?: string) {
     // Recruiting pool must attach to the canonical Nexus System tenant so
     // applicants never get mixed into normal organizations. Rather than
     // relying on an env var or a specific `kind`, we always resolve the
@@ -120,6 +120,64 @@ export class OnboardingService {
         }
       });
 
+      // If this signup came from a referral token, attach user/candidate to that referral.
+      if (referralToken) {
+        const referral = await tx.referral.findUnique({ where: { token: referralToken } });
+        if (referral) {
+          // Find or create a NexNetCandidate for this referee.
+          let candidate = null as any;
+
+          if (referral.candidateId) {
+            candidate = await tx.nexNetCandidate.findUnique({ where: { id: referral.candidateId } });
+          }
+
+          if (!candidate) {
+            candidate = await tx.nexNetCandidate.findFirst({
+              where: {
+                OR: [
+                  { email: normalizedEmail },
+                  referral.prospectPhone
+                    ? { phone: referral.prospectPhone }
+                    : undefined,
+                ].filter(Boolean) as any,
+              },
+            });
+          }
+
+          if (!candidate) {
+            candidate = await tx.nexNetCandidate.create({
+              data: {
+                userId: user.id,
+                firstName: referral.prospectName ?? null,
+                lastName: null,
+                email: normalizedEmail,
+                phone: referral.prospectPhone ?? null,
+                source: "REFERRAL" as any,
+                status: NexNetStatus.IN_PROGRESS,
+              },
+            });
+          } else {
+            candidate = await tx.nexNetCandidate.update({
+              where: { id: candidate.id },
+              data: {
+                userId: candidate.userId ?? user.id,
+                email: candidate.email ?? normalizedEmail,
+                status: NexNetStatus.IN_PROGRESS,
+              },
+            });
+          }
+
+          await tx.referral.update({
+            where: { id: referral.id },
+            data: {
+              candidateId: candidate.id,
+              refereeUserId: user.id,
+              status: ReferralStatus.CONFIRMED,
+            },
+          });
+        }
+      }
+
       return { user, session };
     });
 
@@ -140,6 +198,142 @@ export class OnboardingService {
     }
 
     return session;
+  }
+
+  // --- Referral linkage helpers for Nex-Net ---
+
+  async getReferrerForSessionByToken(token: string) {
+    const session = await this.getSessionByToken(token);
+    const normalizedEmail = this.normalizeEmail(session.email);
+
+    const referrals = await this.prisma.referral.findMany({
+      where: {
+        OR: [
+          session.userId ? { refereeUserId: session.userId } : undefined,
+          { prospectEmail: normalizedEmail },
+          {
+            candidate: {
+              email: normalizedEmail,
+            },
+          },
+        ].filter(Boolean) as any,
+      },
+      include: {
+        referrer: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 1,
+    });
+
+    const referral = referrals[0];
+    if (!referral) return null;
+
+    const ref = referral.referrer;
+    const name = [ref.firstName, ref.lastName].filter(Boolean).join(" ");
+
+    return {
+      id: referral.id,
+      token: referral.token,
+      status: referral.status,
+      referralConfirmedByReferee: referral.referralConfirmedByReferee,
+      referralRejectedByReferee: referral.referralRejectedByReferee,
+      referrer: {
+        id: ref.id,
+        email: ref.email,
+        name: name || null,
+        firstName: ref.firstName,
+        lastName: ref.lastName,
+      },
+    };
+  }
+
+  async confirmReferrerForSession(token: string, accepted: boolean) {
+    const session = await this.getSessionByToken(token);
+    const normalizedEmail = this.normalizeEmail(session.email);
+
+    const referrals = await this.prisma.referral.findMany({
+      where: {
+        OR: [
+          session.userId ? { refereeUserId: session.userId } : undefined,
+          { prospectEmail: normalizedEmail },
+          {
+            candidate: {
+              email: normalizedEmail,
+            },
+          },
+        ].filter(Boolean) as any,
+      },
+      include: {
+        referrer: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 1,
+    });
+
+    const referral = referrals[0];
+    if (!referral) {
+      throw new NotFoundException("Referral not found for this session");
+    }
+
+    const updated = await this.prisma.referral.update({
+      where: { id: referral.id },
+      data: accepted
+        ? {
+            referralConfirmedByReferee: true,
+            referralRejectedByReferee: false,
+            status:
+              referral.status === ReferralStatus.INVITED
+                ? ReferralStatus.CONFIRMED
+                : referral.status,
+          }
+        : {
+            referralConfirmedByReferee: false,
+            referralRejectedByReferee: true,
+            status: ReferralStatus.REJECTED,
+          },
+      include: {
+        referrer: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    const ref = updated.referrer;
+    const name = [ref.firstName, ref.lastName].filter(Boolean).join(" ");
+
+    return {
+      id: updated.id,
+      token: updated.token,
+      status: updated.status,
+      referralConfirmedByReferee: updated.referralConfirmedByReferee,
+      referralRejectedByReferee: updated.referralRejectedByReferee,
+      referrer: {
+        id: ref.id,
+        email: ref.email,
+        name: name || null,
+        firstName: ref.firstName,
+        lastName: ref.lastName,
+      },
+    };
   }
 
   async upsertProfileByToken(token: string, profile: {
@@ -213,12 +407,45 @@ export class OnboardingService {
   async submitByToken(token: string) {
     const session = await this.getSessionByToken(token);
 
-    return this.prisma.onboardingSession.update({
+    const updated = await this.prisma.onboardingSession.update({
       where: { id: session.id },
       data: {
-        status: "SUBMITTED" as any
-      }
+        status: "SUBMITTED" as any,
+      },
     });
+
+    // Best-effort: advance any linked Nex-Net candidate + referral statuses.
+    try {
+      const normalizedEmail = this.normalizeEmail(session.email);
+
+      const candidates = await this.prisma.nexNetCandidate.findMany({
+        where: {
+          OR: [
+            { email: normalizedEmail },
+            session.userId ? { userId: session.userId } : undefined,
+          ].filter(Boolean) as any,
+        },
+      });
+
+      for (const c of candidates) {
+        await this.prisma.nexNetCandidate.update({
+          where: { id: c.id },
+          data: { status: NexNetStatus.SUBMITTED },
+        });
+
+        await this.prisma.referral.updateMany({
+          where: {
+            candidateId: c.id,
+            status: { in: [ReferralStatus.INVITED, ReferralStatus.CONFIRMED] as any },
+          },
+          data: { status: ReferralStatus.APPLIED },
+        });
+      }
+    } catch {
+      // Do not block candidate submission if Nex-Net linkage fails.
+    }
+
+    return updated;
   }
 
   async getSkillsForSessionByToken(token: string) {

@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Req,
+  Res,
   UseGuards,
   Query
 } from "@nestjs/common";
@@ -18,6 +19,13 @@ import { CreateProjectDto, AddProjectMemberDto, ImportXactDto, ImportXactCompone
 import { ImportJobsService } from "../import-jobs/import-jobs.service";
 import { ImportJobType } from "@prisma/client";
 import { GcsService } from "../../infra/storage/gcs.service";
+import { TaxJurisdictionService } from "./tax-jurisdiction.service";
+import {
+  buildCertifiedPayrollRows,
+  buildCertifiedPayrollCsv,
+  buildSourcesForProjectWeek,
+  CertifiedPayrollSource,
+} from "@repo/database";
 
 @Controller("projects")
 export class ProjectController {
@@ -25,6 +33,7 @@ export class ProjectController {
     private readonly projects: ProjectService,
     private readonly importJobs: ImportJobsService,
     private readonly gcs: GcsService,
+    private readonly taxJurisdictions: TaxJurisdictionService,
   ) {}
 
   @UseGuards(JwtAuthGuard)
@@ -124,6 +133,105 @@ export class ProjectController {
   delete(@Req() req: any, @Param("id") projectId: string) {
     const user = req.user as AuthenticatedUser;
     return this.projects.deleteProject(projectId, user.companyId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/tax-summary")
+  async getTaxSummary(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    const project = await this.projects.getProjectByIdForUser(projectId, user);
+    return this.taxJurisdictions.getProjectTaxSummary(project.id, project.companyId);
+  }
+
+  // Preview Certified Payroll CSV for a given project/week from provided
+  // CertifiedPayrollSource[] payload. This wires the CSV writer into the API;
+  // later we can replace the sources body with server-side time/payroll data.
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/certified-payroll/preview")
+  async previewCertifiedPayroll(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body() body: { sources: CertifiedPayrollSource[] },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    await this.projects.getProjectByIdForUser(projectId, user);
+
+    const sources = (body.sources || []).map((src) => ({
+      ...src,
+      companyId: user.companyId,
+      projectId,
+    }));
+
+    const rows = await buildCertifiedPayrollRows(sources);
+    const csv = buildCertifiedPayrollCsv(rows);
+
+    // For now, return CSV as a plain string; the caller can save as .csv
+    return csv;
+  }
+
+  // Download Certified Payroll CSV for a given project and weekEnd date,
+  // using server-side PayrollWeekRecord data as the source of truth.
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/certified-payroll.csv")
+  async downloadCertifiedPayrollCsv(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Query("weekEnd") weekEnd: string,
+    @Res() res: any,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const project = await this.projects.getProjectByIdForUser(projectId, user);
+
+    const weekEndDate = new Date(weekEnd);
+    if (Number.isNaN(weekEndDate.getTime())) {
+      throw new BadRequestException("Invalid weekEnd date");
+    }
+
+    const sources = await buildSourcesForProjectWeek({
+      companyId: project.companyId,
+      projectId: project.id,
+      weekEndDate,
+    });
+
+    const rows = await buildCertifiedPayrollRows(sources);
+    const csv = buildCertifiedPayrollCsv(rows);
+
+    res
+      .setHeader("Content-Type", "text/csv")
+      .setHeader(
+        "Content-Disposition",
+        `attachment; filename="certified-payroll-${project.id}-${weekEnd}.csv"`,
+      )
+      .send(csv);
+  }
+
+  // List distinct payroll employees for this project, aggregated from
+  // PayrollWeekRecord. This reflects the roster used for Certified Payroll
+  // exports (CBS/CCT for Nexus Fortified Structures in your BIA dataset).
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/employees")
+  async getProjectEmployeesRoster(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    const project = await this.projects.getProjectByIdForUser(projectId, user);
+    return this.projects.getProjectEmployees(project.companyId, project.id);
+  }
+
+  // Detailed payroll history for a single employee on this project, for use
+  // by foremen/PMs reviewing time, pay, and (future) reimbursements.
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/employees/:employeeId/payroll")
+  async getProjectEmployeePayroll(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("employeeId") employeeId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const project = await this.projects.getProjectByIdForUser(projectId, user);
+    return this.projects.getProjectEmployeePayroll(
+      project.companyId,
+      project.id,
+      employeeId,
+    );
   }
 
   @UseGuards(JwtAuthGuard)
