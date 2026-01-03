@@ -36,6 +36,39 @@ interface UserProfileDto {
     count: number;
     override: number | null;
   };
+  portfolio?: {
+    headline: string | null;
+    bio: string | null;
+    photoUrl: string | null;
+    updatedAt?: string;
+  } | null;
+  hr?: {
+    displayEmail?: string | null;
+    phone?: string | null;
+    addressLine1?: string | null;
+    addressLine2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postalCode?: string | null;
+    country?: string | null;
+  } | null;
+  worker?: {
+    id: string;
+    fullName: string | null;
+    status: string | null;
+    defaultProjectCode: string | null;
+    primaryClassCode: string | null;
+    phone: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+    unionLocal: string | null;
+    dateHired: string | null;
+    totalHoursCbs: number | null;
+    totalHoursCct: number | null;
+  } | null;
   skills: SkillRow[];
 }
 
@@ -211,6 +244,13 @@ export default function CompanyUserProfilePage() {
   }
 
   const displayedReputation = profile.reputation.override ?? profile.reputation.avg;
+  const hasHr = !!profile.hr;
+  const hasWorker = !!profile.worker;
+
+  const workerLink =
+    profile.worker && profile.worker.id
+      ? `/workers/${profile.worker.id}/weeks`
+      : null;
 
   async function handleAddEmployerRating(e: FormEvent) {
     e.preventDefault();
@@ -512,7 +552,13 @@ export default function CompanyUserProfilePage() {
         <section style={{ marginTop: 16 }}>
           <h2 style={{ fontSize: 16, marginBottom: 4 }}>Identity</h2>
           <p style={{ fontSize: 13 }}>
-            <strong>Email:</strong> {profile.email}
+            <strong>Email:</strong>{" "}
+            <a
+              href={`mailto:${profile.email}`}
+              style={{ color: "#2563eb", textDecoration: "none" }}
+            >
+              {profile.email}
+            </a>
           </p>
           <p style={{ fontSize: 13 }}>
             <strong>User type:</strong> {profile.userType}
@@ -521,6 +567,81 @@ export default function CompanyUserProfilePage() {
             <strong>Global role:</strong> {profile.globalRole}
           </p>
         </section>
+
+        {(hasHr || hasWorker) && (
+          <section style={{ marginTop: 16 }}>
+            <h2 style={{ fontSize: 16, marginBottom: 4 }}>Contact & HR</h2>
+
+            {hasWorker && profile.worker && (
+              <div style={{ fontSize: 13, marginBottom: 8 }}>
+                <div>
+                  <strong>Worker record:</strong>{" "}
+                  {profile.worker.fullName || "Imported worker"}
+                  {workerLink && (
+                    <>
+                      {" "}·{" "}
+                      <a
+                        href={workerLink}
+                        style={{ color: "#2563eb", textDecoration: "none", fontSize: 12 }}
+                      >
+                        View weekly hours
+                      </a>
+                    </>
+                  )}
+                </div>
+                {profile.worker.phone && (
+                  <div>
+                    <strong>Worker phone:</strong>{" "}
+                    {profile.worker.phone}
+                  </div>
+                )}
+                {profile.worker.city && (
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>
+                    {profile.worker.city}
+                    {profile.worker.state ? `, ${profile.worker.state}` : ""}
+                    {profile.worker.postalCode ? ` ${profile.worker.postalCode}` : ""}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {isAdminOrAbove && hasHr && profile.hr && (
+              <div
+                style={{
+                  marginTop: hasWorker ? 8 : 0,
+                  padding: 10,
+                  borderRadius: 6,
+                  border: "1px solid #fee2e2",
+                  background: "#fef2f2",
+                  fontSize: 13,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>HR (confidential)</div>
+                <p style={{ margin: 0 }}>
+                  <strong>HR email:</strong>{" "}
+                  {profile.hr.displayEmail || "—"}
+                </p>
+                <p style={{ margin: 0 }}>
+                  <strong>HR phone:</strong>{" "}
+                  {profile.hr.phone || "—"}
+                </p>
+                <p style={{ margin: 0, marginTop: 4 }}>
+                  <strong>Address:</strong>{" "}
+                  {profile.hr.addressLine1 || "—"}
+                  {profile.hr.addressLine2 ? `, ${profile.hr.addressLine2}` : ""}
+                  {profile.hr.city ? `, ${profile.hr.city}` : ""}
+                  {profile.hr.state ? `, ${profile.hr.state}` : ""}
+                  {profile.hr.postalCode ? ` ${profile.hr.postalCode}` : ""}
+                </p>
+                {profile.hr.country && (
+                  <p style={{ margin: 0, marginTop: 2, fontSize: 12, color: "#6b7280" }}>
+                    {profile.hr.country}
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
         <section style={{ marginTop: 16 }}>
           <h2 style={{ fontSize: 16, marginBottom: 4 }}>Reputation (overall)</h2>

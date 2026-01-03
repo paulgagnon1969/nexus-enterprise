@@ -964,31 +964,60 @@ export class ProjectService {
       }
     }
 
-    const latestVersion = await this.prisma.estimateVersion.findFirst({
-      where: { projectId },
+    // Prefer the latest estimate version that actually has PETL rows. This avoids
+    // picking placeholder or empty versions that would make the PETL view look
+    // blank even though a newer import populated SOW items.
+    let latestVersion = await this.prisma.estimateVersion.findFirst({
+      where: {
+        projectId,
+        sows: {
+          some: {
+            items: {
+              some: {},
+            },
+          },
+        },
+      },
       orderBy: [
         { sequenceNo: "desc" },
         { importedAt: "desc" },
-        { createdAt: "desc" }
-      ]
+        { createdAt: "desc" },
+      ],
     });
 
+    // Fallback: if no estimate version has SOW items yet, use the latest version
+    // regardless, so callers can still see an empty PETL for brand-new projects.
     if (!latestVersion) {
-      return { projectId, estimateVersionId: null, items: [] };
+      latestVersion = await this.prisma.estimateVersion.findFirst({
+        where: { projectId },
+        orderBy: [
+          { sequenceNo: "desc" },
+          { importedAt: "desc" },
+          { createdAt: "desc" },
+        ],
+      });
+    }
+
+    if (!latestVersion) {
+      return {
+        projectId,
+        estimateVersionId: null,
+        items: [],
+      };
     }
 
     const items = await this.prisma.sowItem.findMany({
       where: { estimateVersionId: latestVersion.id },
       orderBy: { lineNo: "asc" },
       include: {
-        projectParticle: true
-      }
+        projectParticle: true,
+      },
     });
 
     return {
       projectId,
       estimateVersionId: latestVersion.id,
-      items
+      items,
     };
   }
 
@@ -1007,8 +1036,8 @@ export class ProjectService {
           sowItemId,
           newPercent,
           acvOnly: acvOnly ?? false,
-        }
-      ]
+        },
+      ],
     });
   }
 
@@ -1684,14 +1713,36 @@ export class ProjectService {
       }
     }
 
-    const latestVersion = await this.prisma.estimateVersion.findFirst({
-      where: { projectId },
+    // Prefer the latest estimate version that has at least one PETL row, so
+    // summary numbers stay aligned with what the PETL tab shows.
+    let latestVersion = await this.prisma.estimateVersion.findFirst({
+      where: {
+        projectId,
+        sows: {
+          some: {
+            items: {
+              some: {},
+            },
+          },
+        },
+      },
       orderBy: [
         { sequenceNo: "desc" },
         { importedAt: "desc" },
-        { createdAt: "desc" }
-      ]
+        { createdAt: "desc" },
+      ],
     });
+
+    if (!latestVersion) {
+      latestVersion = await this.prisma.estimateVersion.findFirst({
+        where: { projectId },
+        orderBy: [
+          { sequenceNo: "desc" },
+          { importedAt: "desc" },
+          { createdAt: "desc" },
+        ],
+      });
+    }
 
     if (!latestVersion) {
       return {
@@ -1754,14 +1805,35 @@ export class ProjectService {
       }
     }
 
-    const latestVersion = await this.prisma.estimateVersion.findFirst({
-      where: { projectId },
+    // Financials should also follow the same estimate version as PETL.
+    let latestVersion = await this.prisma.estimateVersion.findFirst({
+      where: {
+        projectId,
+        sows: {
+          some: {
+            items: {
+              some: {},
+            },
+          },
+        },
+      },
       orderBy: [
         { sequenceNo: "desc" },
         { importedAt: "desc" },
         { createdAt: "desc" },
       ],
     });
+
+    if (!latestVersion) {
+      latestVersion = await this.prisma.estimateVersion.findFirst({
+        where: { projectId },
+        orderBy: [
+          { sequenceNo: "desc" },
+          { importedAt: "desc" },
+          { createdAt: "desc" },
+        ],
+      });
+    }
 
     if (!latestVersion) {
       return {

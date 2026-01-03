@@ -36,6 +36,9 @@ interface CompanyMemberRow {
     email: string;
     globalRole: GlobalRole;
     userType: UserType;
+    firstName?: string | null;
+    lastName?: string | null;
+    phone?: string | null;
   };
 }
 
@@ -834,7 +837,9 @@ function CompanyUsersPageInner() {
             >
               <thead>
                 <tr style={{ backgroundColor: "#f9fafb" }}>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Name</th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>Email</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Phone</th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>User type</th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>Global role</th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>Company role</th>
@@ -842,101 +847,136 @@ function CompanyUsersPageInner() {
                 </tr>
               </thead>
               <tbody>
-                {members.map(m => (
-                  <tr key={m.userId}>
-                    <td
-                      style={{
-                        padding: "4px 8px",
-                        borderTop: "1px solid #e5e7eb",
-                      }}
-                    >
-                      <a
-                        href={`/company/users/${m.user.id}`}
-                        style={{ color: "#2563eb", textDecoration: "none" }}
+                {members.map(m => {
+                  const nameParts = [m.user.firstName, m.user.lastName].filter(Boolean);
+                  const displayName = nameParts.length
+                    ? nameParts.join(" ")
+                    : m.user.email;
+
+                  return (
+                    <tr key={m.userId}>
+                      <td
+                        style={{
+                          padding: "4px 8px",
+                          borderTop: "1px solid #e5e7eb",
+                        }}
                       >
-                        {m.user.email}
-                      </a>
-                    </td>
-                    <td
-                      style={{
-                        padding: "4px 8px",
-                        borderTop: "1px solid #e5e7eb",
-                      }}
-                    >
-                      {m.user.userType ?? "WORKER"}
-                    </td>
-                    <td
-                      style={{
-                        padding: "4px 8px",
-                        borderTop: "1px solid #e5e7eb",
-                      }}
-                    >
-                      {m.user.globalRole ?? "NONE"}
-                    </td>
-                    <td
-                      style={{
-                        padding: "4px 8px",
-                        borderTop: "1px solid #e5e7eb",
-                      }}
-                    >
-                      {canManageMembers ? (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <select
-                            value={m.role}
-                            onChange={e =>
-                              handleChangeRole(
-                                m.userId,
-                                m.role,
-                                e.target.value as CompanyRole,
-                              )
-                            }
-                            style={{
-                              padding: "2px 6px",
-                              borderRadius: 4,
-                              border: "1px solid #d1d5db",
-                              fontSize: 12,
-                            }}
-                          >
-                            <option value="OWNER" disabled={!canGrantOwner}>
-                              OWNER
-                            </option>
-                            <option value="ADMIN">ADMIN</option>
-                            <option value="MEMBER">MEMBER</option>
-                            <option value="CLIENT">CLIENT</option>
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => openResetPasswordPanel(m.user.email, m.role)}
-                            style={{
-                              alignSelf: "flex-start",
-                              padding: 0,
-                              border: "none",
-                              background: "transparent",
-                              fontSize: 11,
-                              color: "#2563eb",
-                              textDecoration: "underline",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Set / reset password
-                          </button>
-                        </div>
-                      ) : (
-                        m.role
-                      )}
-                    </td>
-                    <td
-                      style={{
-                        padding: "4px 8px",
-                        borderTop: "1px solid #e5e7eb",
-                        fontSize: 12,
-                        color: "#6b7280",
-                      }}
-                    >
-                      {new Date(m.createdAt).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
+                        <a
+                          href={`/company/users/${m.user.id}`}
+                          style={{
+                            color: "#111827",
+                            textDecoration: "none",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {displayName}
+                        </a>
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 8px",
+                          borderTop: "1px solid #e5e7eb",
+                          fontSize: 12,
+                        }}
+                      >
+                        <a
+                          href={`mailto:${m.user.email}`}
+                          style={{ color: "#2563eb", textDecoration: "none" }}
+                        >
+                          {m.user.email}
+                        </a>
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 8px",
+                          borderTop: "1px solid #e5e7eb",
+                          fontSize: 12,
+                          color: "#111827",
+                        }}
+                      >
+                        {m.user.phone || "—"}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 8px",
+                          borderTop: "1px solid #e5e7eb",
+                        }}
+                      >
+                        {m.user.userType ?? "WORKER"}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 8px",
+                          borderTop: "1px solid #e5e7eb",
+                        }}
+                      >
+                        {m.user.globalRole ?? "NONE"}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 8px",
+                          borderTop: "1px solid #e5e7eb",
+                        }}
+                      >
+                        {canManageMembers ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            <select
+                              value={m.role}
+                              onChange={e =>
+                                handleChangeRole(
+                                  m.userId,
+                                  m.role,
+                                  e.target.value as CompanyRole,
+                                )
+                              }
+                              style={{
+                                padding: "2px 6px",
+                                borderRadius: 4,
+                                border: "1px solid #d1d5db",
+                                fontSize: 12,
+                              }}
+                            >
+                              <option value="OWNER" disabled={!canGrantOwner}>
+                                OWNER
+                              </option>
+                              <option value="ADMIN">ADMIN</option>
+                              <option value="MEMBER">MEMBER</option>
+                              <option value="CLIENT">CLIENT</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => openResetPasswordPanel(m.user.email, m.role)}
+                              style={{
+                                alignSelf: "flex-start",
+                                padding: 0,
+                                border: "none",
+                                background: "transparent",
+                                fontSize: 11,
+                                color: "#2563eb",
+                                textDecoration: "underline",
+                                cursor: "pointer",
+                              }}
+                            >
+                              Set / reset password
+                            </button>
+                          </div>
+                        ) : (
+                          m.role
+                        )}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 8px",
+                          borderTop: "1px solid #e5e7eb",
+                          fontSize: 12,
+                          color: "#6b7280",
+                        }}
+                      >
+                        {new Date(m.createdAt).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {members.length === 0 && (
                   <tr>
                     <td
@@ -1716,52 +1756,72 @@ function ProspectiveCandidatesPanel({
           }}
         >
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead>
-              <tr style={{ backgroundColor: "#f9fafb" }}>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Candidate</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Region</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>City</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>State</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Status</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Submitted</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(r => (
-                <tr key={r.id}>
-                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                    <div style={{ fontWeight: 600 }}>
-                      {(r.profile?.firstName || r.profile?.lastName)
-                        ? `${r.profile?.firstName ?? ""} ${r.profile?.lastName ?? ""}`.trim()
-                        : "(no name yet)"}
-                    </div>
-                    <div style={{ fontSize: 12, color: "#6b7280" }}>{r.email}</div>
-                  </td>
-                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
-                    {stateToRegion(r.profile?.state)}
-                  </td>
-                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
-                    {r.profile?.city || "—"}
-                  </td>
-                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
-                    {r.profile?.state || "—"}
-                  </td>
-                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
-                    {r.status}
-                  </td>
-                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12, color: "#6b7280" }}>
-                    {new Date(r.createdAt).toLocaleString()}
-                  </td>
+              <thead>
+                <tr style={{ backgroundColor: "#f9fafb" }}>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Candidate</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Region</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>City</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>State</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Status</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Submitted</th>
                 </tr>
-              ))}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={6} style={{ padding: 10, fontSize: 12, color: "#6b7280" }}>
-                    No candidates match your filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
+              </thead>
+              <tbody>
+                {filtered.map(r => {
+                  const nameText =
+                    (r.profile?.firstName || r.profile?.lastName)
+                      ? `${r.profile?.firstName ?? ""} ${r.profile?.lastName ?? ""}`.trim()
+                      : "(no name yet)";
+
+                  return (
+                    <tr key={r.id}>
+                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                        <div style={{ fontWeight: 600 }}>
+                          <a
+                            href={`/company/users/candidates/${r.id}`}
+                            style={{ color: "#111827", textDecoration: "none" }}
+                          >
+                            {nameText}
+                          </a>
+                        </div>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>
+                          <a
+                            href={`mailto:${r.email}`}
+                            style={{ color: "#2563eb", textDecoration: "none" }}
+                          >
+                            {r.email}
+                          </a>
+                        </div>
+                        {r.profile?.phone && (
+                          <div style={{ fontSize: 12, color: "#111827" }}>{r.profile.phone}</div>
+                        )}
+                      </td>
+                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
+                        {stateToRegion(r.profile?.state)}
+                      </td>
+                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
+                        {r.profile?.city || "—"}
+                      </td>
+                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
+                        {r.profile?.state || "—"}
+                      </td>
+                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
+                        {r.status}
+                      </td>
+                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12, color: "#6b7280" }}>
+                        {new Date(r.createdAt).toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={6} style={{ padding: 10, fontSize: 12, color: "#6b7280" }}>
+                      No candidates match your filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
           </table>
         </div>
       )}
