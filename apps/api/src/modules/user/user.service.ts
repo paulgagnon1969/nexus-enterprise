@@ -432,7 +432,7 @@ export class UserService {
     });
 
     // Optional portfolio for this user in the actor's company.
-    const portfolio = await this.prisma.userPortfolio.findUnique({
+    let portfolio = await this.prisma.userPortfolio.findUnique({
       where: {
         UserPortfolio_company_user_key: {
           companyId: actor.companyId,
@@ -441,12 +441,32 @@ export class UserService {
       },
       select: {
         id: true,
+        companyId: true,
         headline: true,
         bio: true,
         photoUrl: true,
         updatedAt: true,
       },
     });
+
+    // SUPER_ADMINs may be looking at a user in a company that does not own the
+    // canonical HR portfolio (e.g. Nexis recruiting pool lives in "Nexus System").
+    // In that case, fall back to any portfolio for this user so we can still
+    // surface HR contact details.
+    if (!portfolio && actor.globalRole === GlobalRole.SUPER_ADMIN) {
+      portfolio = await this.prisma.userPortfolio.findFirst({
+        where: { userId: targetUserId },
+        select: {
+          id: true,
+          companyId: true,
+          headline: true,
+          bio: true,
+          photoUrl: true,
+          updatedAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+    }
 
     let hrPublic: any = null;
     if (portfolio && this.canViewHrPortfolio(actor, targetUserId)) {
