@@ -431,6 +431,94 @@ export class UserService {
       };
     });
 
+    // Optional portfolio for this user in the actor's company.
+    const portfolio = await this.prisma.userPortfolio.findUnique({
+      where: {
+        UserPortfolio_company_user_key: {
+          companyId: actor.companyId,
+          userId: targetUserId,
+        },
+      },
+      select: {
+        id: true,
+        headline: true,
+        bio: true,
+        photoUrl: true,
+        updatedAt: true,
+      },
+    });
+
+    let hrPublic: any = null;
+    if (portfolio && this.canViewHrPortfolio(actor, targetUserId)) {
+      const hr = await this.prisma.userPortfolioHr.findUnique({
+        where: { portfolioId: portfolio.id },
+        select: {
+          encryptedJson: true,
+          ssnLast4: true,
+          itinLast4: true,
+          bankAccountLast4: true,
+          bankRoutingLast4: true,
+          updatedAt: true,
+        },
+      });
+
+      if (hr) {
+        const payload = decryptPortfolioHrJson(Buffer.from(hr.encryptedJson)) as PortfolioHrPayload;
+        hrPublic = {
+          displayEmail: payload.displayEmail ?? null,
+          phone: payload.phone ?? null,
+          addressLine1: payload.addressLine1 ?? null,
+          addressLine2: payload.addressLine2 ?? null,
+          city: payload.city ?? null,
+          state: payload.state ?? null,
+          postalCode: payload.postalCode ?? null,
+          country: payload.country ?? null,
+          bankName: payload.bankName ?? null,
+          bankAddress: payload.bankAddress ?? null,
+          hipaaNotes: payload.hipaaNotes ?? null,
+
+          ssnLast4: hr.ssnLast4 ?? null,
+          itinLast4: hr.itinLast4 ?? null,
+          bankAccountLast4: hr.bankAccountLast4 ?? null,
+          bankRoutingLast4: hr.bankRoutingLast4 ?? null,
+          hasSsn: this.hasValue(payload.ssn ?? null),
+          hasItin: this.hasValue(payload.itin ?? null),
+          hasBankAccount: this.hasValue(payload.bankAccountNumber ?? null),
+          hasBankRouting: this.hasValue(payload.bankRoutingNumber ?? null),
+        };
+      }
+    }
+
+    // Optional Worker record (BIA/LCP) matched by email, if any.
+    let worker: any = null;
+    if (user.email) {
+      worker = await this.prisma.worker.findFirst({
+        where: {
+          email: {
+            equals: user.email,
+            mode: "insensitive",
+          } as any,
+        },
+        select: {
+          id: true,
+          fullName: true,
+          status: true,
+          defaultProjectCode: true,
+          primaryClassCode: true,
+          phone: true,
+          addressLine1: true,
+          addressLine2: true,
+          city: true,
+          state: true,
+          postalCode: true,
+          unionLocal: true,
+          dateHired: true,
+          totalHoursCbs: true,
+          totalHoursCct: true,
+        },
+      });
+    }
+
     return {
       id: user.id,
       email: user.email,
@@ -443,6 +531,16 @@ export class UserService {
         count: user.reputationOverallCount,
         override: user.reputationOverallOverride,
       },
+      portfolio: portfolio
+        ? {
+            headline: portfolio.headline ?? null,
+            bio: portfolio.bio ?? null,
+            photoUrl: portfolio.photoUrl ?? null,
+            updatedAt: portfolio.updatedAt,
+          }
+        : null,
+      hr: hrPublic,
+      worker,
       skills,
     };
   }

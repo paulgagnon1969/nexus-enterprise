@@ -270,7 +270,7 @@ export class AuthService {
       throw new UnauthorizedException("Invalid refresh token");
     }
 
-    const payload = JSON.parse(stored) as {
+    let payload: {
       userId: string;
       companyId: string;
       role: Role;
@@ -278,6 +278,19 @@ export class AuthService {
       globalRole: GlobalRole;
       profileCode?: string | null;
     };
+
+    try {
+      payload = JSON.parse(stored);
+    } catch {
+      await redisClient.del(key);
+      throw new UnauthorizedException("Invalid refresh token");
+    }
+
+    // Validate required fields so we never mint tokens from malformed payloads.
+    if (!payload.userId || !payload.companyId || !payload.role || !payload.email) {
+      await redisClient.del(key);
+      throw new UnauthorizedException("Invalid refresh token");
+    }
 
     // Rotate refresh token
     await redisClient.del(key);

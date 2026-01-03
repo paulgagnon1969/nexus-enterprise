@@ -4,6 +4,7 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { randomBytes } from "node:crypto";
 import * as argon2 from "argon2";
 import { Role, UserType, NexNetStatus, ReferralStatus } from "@prisma/client";
+import { encryptPortfolioHrJson } from "../../common/crypto/portfolio-hr.crypto";
 
 @Injectable()
 export class OnboardingService {
@@ -15,6 +16,12 @@ export class OnboardingService {
 
   private normalizeEmail(email: string): string {
     return (email || "").trim().toLowerCase();
+  }
+
+  private normalizeProfileField(value?: string | null): string | null {
+    if (value == null) return null;
+    const trimmed = value.trim();
+    return trimmed === "" ? null : trimmed;
   }
 
   async startSession(
@@ -414,6 +421,15 @@ export class OnboardingService {
       },
     });
 
+    // Best-effort: hydrate the user's portfolio + HR contact info from the
+    // onboarding profile so that /settings/profile is pre-populated on first
+    // visit after submitting a Nexis profile.
+    try {
+      await this.syncProfileIntoUserPortfolio(session);
+    } catch {
+      // Non-fatal: never block candidate submission if profile sync fails.
+    }
+
     // Best-effort: advance any linked Nex-Net candidate + referral statuses.
     try {
       const normalizedEmail = this.normalizeEmail(session.email);
@@ -519,6 +535,109 @@ export class OnboardingService {
     });
 
     return this.getSkillsForSessionByToken(token);
+  }
+
+  // Copy basic identity + contact fields from an onboarding profile into the
+  // canonical User + UserPortfolioHr records. This is designed to run once
+  // when a candidate submits their Nexis profile. It is intentionally
+  // conservative: we only fill fields that are currently null / missing so we
+  // never overwrite data a user has already curated in /settings/profile.
+  private async syncProfileIntoUserPortfolio(session: any) {
+    if (!session.userId) return;
+    if (!session.profile) return;
+
+    const profile = session.profile as {
+      firstName?: string | null;
+      lastName?: string | null;
+      phone?: string | null;
+      addressLine1?: string | null;
+      addressLine2?: string | null;
+      city?: string | null;
+      state?: string | null;
+      postalCode?: string | null;
+      country?: string | null;
+    };
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1) Hydrate User first/last name if not already set.
+      const user = await tx.user.findUnique({
+        where: { id: session.userId },
+        select: { firstName: true, lastName: true },
+      });
+
+      if (user) {
+        const nextFirst = user.firstName ?? this.normalizeProfileField(profile.firstName ?? null);
+        const nextLast = user.lastName ?? this.normalizeProfileField(profile.lastName ?? null);
+
+        if (nextFirst !== user.firstName || nextLast !== user.lastName) {
+          await tx.user.update({
+            where: { id: session.userId },
+            data: {
+              firstName: nextFirst,
+              lastName: nextLast,
+            },
+          });
+        }
+      }
+
+      // 2) Ensure there is a portfolio for this (company, user).
+      const portfolio = await tx.userPortfolio.upsert({
+        where: {
+          UserPortfolio_company_user_key: {
+            companyId: session.companyId,
+            userId: session.userId,
+          },
+        },
+        update: {},
+        create: {
+          companyId: session.companyId,
+          userId: session.userId,
+        },
+        select: { id: true },
+      });
+
+      // If HR payload already exists, do not overwrite it.
+      const existingHr = await tx.userPortfolioHr.findUnique({
+        where: { portfolioId: portfolio.id },
+        select: { id: true },
+      });
+
+      if (existingHr) {
+        return;
+      }
+
+      const payload: any = {};
+      const setField = (key: string, value?: string | null) => {
+        const v = this.normalizeProfileField(value ?? null);
+        if (v != null) {
+          payload[key] = v;
+        }
+      };
+
+      // Use the onboarding email as the default HR contact email.
+      setField("displayEmail", session.email);
+      setField("phone", profile.phone ?? null);
+      setField("addressLine1", profile.addressLine1 ?? null);
+      setField("addressLine2", profile.addressLine2 ?? null);
+      setField("city", profile.city ?? null);
+      setField("state", profile.state ?? null);
+      setField("postalCode", profile.postalCode ?? null);
+      setField("country", profile.country ?? null);
+
+      const encryptedJson = encryptPortfolioHrJson(payload);
+      const encryptedBytes = Uint8Array.from(encryptedJson);
+
+      await tx.userPortfolioHr.create({
+        data: {
+          portfolioId: portfolio.id,
+          encryptedJson: encryptedBytes,
+          ssnLast4: null,
+          itinLast4: null,
+          bankAccountLast4: null,
+          bankRoutingLast4: null,
+        },
+      });
+    });
   }
 
   async listSessionsForCompany(companyId: string, actor: AuthenticatedUser, statuses?: string[]) {

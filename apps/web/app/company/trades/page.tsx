@@ -69,6 +69,7 @@ export default function CompanyTradesPage() {
   const [requirePhoto, setRequirePhoto] = useState(false);
   const [requireGovId, setRequireGovId] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [sortMode, setSortMode] = useState<"NAME" | "LATEST">("LATEST");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -165,7 +166,16 @@ export default function CompanyTradesPage() {
 
         return true;
       })
-      .sort((a, b) => (a.displayName || a.email).localeCompare(b.displayName || b.email));
+      .sort((a, b) => {
+        if (sortMode === "LATEST") {
+          const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          if (da !== db) return db - da; // newest first
+        }
+        const an = (a.displayName || a.email || "").toLowerCase();
+        const bn = (b.displayName || b.email || "").toLowerCase();
+        return an.localeCompare(bn);
+      });
   }, [
     rows,
     statusFilter,
@@ -177,6 +187,7 @@ export default function CompanyTradesPage() {
     skillSearch,
     minAvg,
     minRatedCount,
+    sortMode,
   ]);
 
   const visibleStatuses = useMemo(() => {
@@ -300,7 +311,19 @@ export default function CompanyTradesPage() {
           Has ID
         </label>
 
-        <div style={{ marginLeft: "auto", color: "#6b7280" }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 2, marginLeft: "auto" }}>
+          Sort by
+          <select
+            value={sortMode}
+            onChange={e => setSortMode(e.target.value as "NAME" | "LATEST")}
+            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", minWidth: 170 }}
+          >
+            <option value="LATEST">Latest registration</option>
+            <option value="NAME">Name (A–Z)</option>
+          </select>
+        </label>
+
+        <div style={{ color: "#6b7280" }}>
           Showing <strong>{filtered.length}</strong>
         </div>
       </div>
@@ -324,6 +347,7 @@ export default function CompanyTradesPage() {
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>Tradesperson</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>Designator</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>Location</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>Registered</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>Avg / Rated</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>Top trade</th>
               </tr>
@@ -369,6 +393,9 @@ export default function CompanyTradesPage() {
                         : "—"}
                     </td>
                     <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
+                      {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "—"}
+                    </td>
+                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
                       {r.stats.avgSelf == null ? "—" : `${r.stats.avgSelf.toFixed(1)}/5`} · {r.stats.ratedCount}
                     </td>
                     <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
@@ -380,7 +407,7 @@ export default function CompanyTradesPage() {
 
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} style={{ padding: 10, fontSize: 12, color: "#6b7280" }}>
+                  <td colSpan={6} style={{ padding: 10, fontSize: 12, color: "#6b7280" }}>
                     No tradespeople match your filters.
                   </td>
                 </tr>

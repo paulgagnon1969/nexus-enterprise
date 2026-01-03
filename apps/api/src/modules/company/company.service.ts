@@ -165,7 +165,7 @@ export class CompanyService {
       throw new Error("Cannot list members for a different company context");
     }
 
-    return this.prisma.companyMembership.findMany({
+    const memberships = await this.prisma.companyMembership.findMany({
       where: { companyId },
       select: {
         userId: true,
@@ -177,9 +177,52 @@ export class CompanyService {
             email: true,
             globalRole: true,
             userType: true,
+            firstName: true,
+            lastName: true,
+            portfolios: {
+              where: { companyId },
+              select: {
+                hr: {
+                  select: {
+                    encryptedJson: true,
+                  },
+                },
+              },
+              take: 1,
+            },
           },
         },
       },
+    });
+
+    // Decrypt HR contact info if available
+    const { decryptPortfolioHrJson } = require('../../common/crypto/portfolio-hr.crypto');
+
+    return memberships.map(m => {
+      let phone: string | null = null;
+      if (m.user.portfolios[0]?.hr?.encryptedJson) {
+        try {
+          const hrData = decryptPortfolioHrJson(m.user.portfolios[0].hr.encryptedJson);
+          phone = hrData.phone || null;
+        } catch {
+          // Skip decryption errors
+        }
+      }
+
+      return {
+        userId: m.userId,
+        role: m.role,
+        createdAt: m.createdAt,
+        user: {
+          id: m.user.id,
+          email: m.user.email,
+          globalRole: m.user.globalRole,
+          userType: m.user.userType,
+          firstName: m.user.firstName,
+          lastName: m.user.lastName,
+          phone,
+        },
+      };
     });
   }
 

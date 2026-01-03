@@ -5,16 +5,15 @@
 \margl1440\margr1440\vieww11520\viewh8400\viewkind0
 \pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
 
-\f0\fs24 \cf0 https://nexus-api-979156454944.us-central1.run.app\
+\f0\fs24 \cf0 cd /Users/pg/nexus-enterprise\
 \
-# 1) Revoke any stored user credentials\
-gcloud auth revoke --all || true\
+# Fill in your real DATABASE_URL here\
+DATABASE_URL=\{\{DATABASE_URL\}\} \\\
+BIA_COMPANY_ID=cmjqzic0v0003vtkv7s2jmylo \\\
+npx ts-node packages/database/src/scripts/validate-lcp-ww51.ts\
 \
-# 2) (Optional) Also reset application-default credentials\
-gcloud auth application-default revoke || true\
 \
-# 3) Re-auth as your Google account\
-gcloud auth login\
-\
-# 4) Ensure correct project\
-gcloud config set project nexus-enterprise-480610}
+cd /path/to/nexus-enterprise\
+export DATABASE_URL='postgres://<USER>:<PASSWORD>@<HOST_OR_PROXY>/<DB_NAME>'  # use your real prod DSN here\
+cd scripts/data-promotion\
+npx tsx import-to-env.ts --input-dir ../../promotion/2026-01-02-fortified}
