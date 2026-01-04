@@ -37,6 +37,15 @@ function ProjectImportPageInner() {
 
   const isAnyLoading = loading || componentsLoading;
 
+  const hasAnyJobs = !!rawJobId || !!componentsJobId;
+  const hasPendingJobs =
+    (rawJob && (rawJob.status === "QUEUED" || rawJob.status === "RUNNING")) ||
+    (componentsJob && (componentsJob.status === "QUEUED" || componentsJob.status === "RUNNING"));
+  const allJobsCompleted =
+    hasAnyJobs &&
+    (!rawJobId || rawJob?.status === "SUCCEEDED" || rawJob?.status === "FAILED") &&
+    (!componentsJobId || componentsJob?.status === "SUCCEEDED" || componentsJob?.status === "FAILED");
+
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -477,6 +486,43 @@ function ProjectImportPageInner() {
           Upload your Xactimate exports to populate estimate data for an existing
           project.
         </p>
+
+        {hasAnyJobs && (
+          <div style={{ marginTop: 10 }}>
+            {hasPendingJobs && (
+              <div
+                style={{
+                  padding: 8,
+                  borderRadius: 6,
+                  border: "1px solid #f97316",
+                  backgroundColor: "#fffbeb",
+                  color: "#7c2d12",
+                  fontSize: 12,
+                }}
+              >
+                <strong>Pending uploads in processing.</strong> Your CSVs are being
+                processed in the background. PETL and components may take a minute
+                or two to reflect the latest changes.
+              </div>
+            )}
+            {!hasPendingJobs && allJobsCompleted && (
+              <div
+                style={{
+                  padding: 8,
+                  borderRadius: 6,
+                  border: "1px solid #16a34a",
+                  backgroundColor: "#ecfdf3",
+                  color: "#166534",
+                  fontSize: 12,
+                }}
+              >
+                <strong>Process completed.</strong> All recent imports for this
+                project have finished. You can open the project PETL tab to review
+                the updated breakdown.
+              </div>
+            )}
+          </div>
+        )}
 
         <label style={{ marginTop: 8, fontSize: 13 }}>
           <span style={{ display: "block", marginBottom: 4 }}>Project</span>
