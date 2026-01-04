@@ -3,15 +3,17 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuditService } from "../../common/audit.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateDailyLogDto } from "./dto/create-daily-log.dto";
-import { Role, DailyLogStatus } from "@prisma/client";
+import { Role, DailyLogStatus, $Enums } from "@prisma/client";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { NotificationsService } from "../notifications/notifications.service";
 
 @Injectable()
 export class DailyLogService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private async assertProjectAccess(
@@ -255,6 +257,46 @@ export class DailyLogService {
       }
     });
 
+    // Best-effort: notify any explicitly tagged users on this log.
+    if (created.notifyUserIdsJson) {
+      try {
+        const ids = JSON.parse(created.notifyUserIdsJson) as string[];
+        if (Array.isArray(ids) && ids.length) {
+          const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+          const project = await this.prisma.project.findUnique({
+            where: { id: projectId },
+            select: { id: true, name: true },
+          });
+
+          const title = project
+            ? `New daily log on ${project.name}`
+            : "New daily log submitted";
+          const body = created.title
+            ? `${created.title} (${new Date(created.logDate).toLocaleDateString()})`
+            : `Daily log for ${new Date(created.logDate).toLocaleDateString()}`;
+
+          for (const userId of uniqueIds) {
+            await this.notifications.createNotification({
+              userId,
+              companyId,
+              projectId,
+              kind: $Enums.NotificationKind.PROJECT,
+              channel: $Enums.NotificationChannel.IN_APP,
+              title,
+              body,
+              metadata: {
+                type: "daily_log_created",
+                dailyLogId: created.id,
+                projectId,
+              },
+            });
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const { createdBy, notifyUserIdsJson: _n, tagsJson: _t, ...rest } = created as any;
 
     return {
@@ -297,6 +339,37 @@ export class DailyLogService {
         shareClient: log.shareClient,
       },
     });
+
+    // Best-effort: notify creator that their daily log was approved.
+    try {
+      if (log.createdById) {
+        const project = await this.prisma.project.findUnique({
+          where: { id: log.projectId },
+          select: { id: true, name: true },
+        });
+        const title = project
+          ? `Daily log approved on ${project.name}`
+          : "Daily log approved";
+        const body = `Your daily log for ${new Date(log.logDate).toLocaleDateString()} was approved.`;
+
+        await this.notifications.createNotification({
+          userId: log.createdById,
+          companyId,
+          projectId: log.projectId,
+          kind: $Enums.NotificationKind.PROJECT,
+          channel: $Enums.NotificationChannel.IN_APP,
+          title,
+          body,
+          metadata: {
+            type: "daily_log_approved",
+            dailyLogId: log.id,
+            projectId: log.projectId,
+          },
+        });
+      }
+    } catch {
+      // ignore
+    }
 
     return updated;
   }

@@ -7,55 +7,57 @@ datasource db {
 }
 
 model Company {
-  id                        String                       @id @default(cuid())
+  id                        String      @id @default(cuid())
   name                      String
-  createdAt                 DateTime                     @default(now())
-  updatedAt                 DateTime                     @updatedAt
-  reputationOverallAvg      Float                        @default(2)
-  reputationOverallCount    Int                          @default(0)
+  createdAt                 DateTime    @default(now())
+  updatedAt                 DateTime    @updatedAt
+  reputationOverallAvg      Float       @default(2)
+  reputationOverallCount    Int         @default(0)
   reputationOverallOverride Int?
-  kind                      CompanyKind                  @default(ORGANIZATION)
+  kind                      CompanyKind @default(ORGANIZATION)
 
   /// Optional default time zone for this organization (IANA name). Used as a
   /// sensible default for offices, projects, and payroll reporting.
-  defaultTimeZone           String?
+  defaultTimeZone String?
 
   /// Optional JSON configuration for organization-wide payroll defaults
   /// (e.g. federal EIN, default state unemployment account, overtime rules).
-  defaultPayrollConfig      Json?
+  defaultPayrollConfig Json?
 
   // Trial / subscription metadata (optional; used for self-serve demos and billing).
-  isTrial                   Boolean                      @default(false)
-  trialEndsAt               DateTime?
-  trialStatus               CompanyTrialStatus?
+  isTrial     Boolean             @default(false)
+  trialEndsAt DateTime?
+  trialStatus CompanyTrialStatus?
 
-  templateId                String?
-  templateVersionId         String?
-  template                  OrganizationTemplate?        @relation("CompanyTemplate", fields: [templateId], references: [id])
-  templateVersion           OrganizationTemplateVersion? @relation("CompanyTemplateVersion", fields: [templateVersionId], references: [id])
-  invites                   CompanyInvite[]
-  memberships               CompanyMembership[]
-  goldenPriceUpdates        GoldenPriceUpdateLog[]
-  importJobs                ImportJob[]
-  moduleOverrides           OrganizationModuleOverride[]
-  parcels                   Parcel[]
-  projects                  Project[]
-  buildings                 ProjectBuilding[]
-  projectMemberships        ProjectMembership[]
-  particles                 ProjectParticle[]
-  units                     ProjectUnit[]
-  roleProfiles              RoleProfile[]
-  tags                      Tag[]
-  tagAssignments            TagAssignment[]
-  tasks                     Task[]
-  userPortfolios            UserPortfolio[]
-  offices                   CompanyOffice[]
-  assets                    Asset[]
-  assetUsages               AssetUsage[]
-  assetTransactions         AssetTransaction[]
-  taxJurisdictions          TaxJurisdiction[]
-  payrollWeekRecords        PayrollWeekRecord[]
-  projectGroups             ProjectGroup[]
+  templateId         String?
+  templateVersionId  String?
+  template           OrganizationTemplate?        @relation("CompanyTemplate", fields: [templateId], references: [id])
+  templateVersion    OrganizationTemplateVersion? @relation("CompanyTemplateVersion", fields: [templateVersionId], references: [id])
+  invites            CompanyInvite[]
+  memberships        CompanyMembership[]
+  goldenPriceUpdates GoldenPriceUpdateLog[]
+  importJobs         ImportJob[]
+  moduleOverrides    OrganizationModuleOverride[]
+  parcels            Parcel[]
+  projects           Project[]
+  buildings          ProjectBuilding[]
+  projectMemberships ProjectMembership[]
+  particles          ProjectParticle[]
+  units              ProjectUnit[]
+  roleProfiles       RoleProfile[]
+  tags               Tag[]
+  tagAssignments     TagAssignment[]
+  tasks              Task[]
+  userPortfolios     UserPortfolio[]
+  offices            CompanyOffice[]
+  assets             Asset[]
+  assetUsages        AssetUsage[]
+  assetTransactions  AssetTransaction[]
+  taxJurisdictions   TaxJurisdiction[]
+  payrollWeekRecords PayrollWeekRecord[]
+  projectGroups      ProjectGroup[]
+  notifications      Notification[]
+  messageThreads     MessageThread[]
 }
 
 model OrganizationTemplate {
@@ -192,16 +194,103 @@ model User {
   referralsSent             Referral[]             @relation("ReferralsSent")
   referralsReceived         Referral[]             @relation("ReferralsReceived")
   nexNetCandidate           NexNetCandidate?
+
+  // System-wide per-user notifications
+  notifications       Notification[]
+  messageThreads      MessageThread[]
+  messageParticipants MessageParticipant[]
+  messages            Message[]
+}
+
+/// Notification delivered to a single user, optionally scoped to a company
+/// and/or project. Used for alerts like "Your referral confirmed you" or
+/// "New daily log submitted".
+model Notification {
+  id        String              @id @default(cuid())
+  userId    String
+  companyId String?
+  projectId String?
+  kind      NotificationKind    @default(GENERIC)
+  channel   NotificationChannel @default(IN_APP)
+  title     String
+  body      String
+  metadata  Json?
+  isRead    Boolean             @default(false)
+  readAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  user    User     @relation(fields: [userId], references: [id])
+  company Company? @relation(fields: [companyId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@index([userId, isRead, createdAt], map: "Notification_user_read_created_idx")
+  @@index([companyId, createdAt], map: "Notification_company_created_idx")
+  @@index([projectId, createdAt], map: "Notification_project_created_idx")
+}
+
+/// Threaded, tenant-scoped direct messaging between internal users and
+/// optional external email participants. Each thread belongs to a company
+/// and has one or more participants and messages.
+model MessageThread {
+  id          String   @id @default(cuid())
+  companyId   String
+  subject     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  createdById String
+
+  company      Company              @relation(fields: [companyId], references: [id])
+  createdBy    User                 @relation(fields: [createdById], references: [id])
+  participants MessageParticipant[]
+  messages     Message[]
+
+  @@index([companyId, updatedAt], map: "MessageThread_company_updated_idx")
+}
+
+/// Participant in a message thread. Either internal (userId) or purely
+/// external (email only).
+model MessageParticipant {
+  id          String    @id @default(cuid())
+  threadId    String
+  userId      String?
+  email       String?
+  displayName String?
+  isExternal  Boolean   @default(false)
+  lastReadAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  thread   MessageThread @relation(fields: [threadId], references: [id])
+  user     User?         @relation(fields: [userId], references: [id])
+  messages Message[]
+
+  @@index([threadId], map: "MessageParticipant_thread_idx")
+  @@index([userId], map: "MessageParticipant_user_idx")
+}
+
+/// Individual message in a thread.
+model Message {
+  id          String   @id @default(cuid())
+  threadId    String
+  senderId    String?
+  senderEmail String?
+  body        String
+  createdAt   DateTime @default(now())
+
+  thread     MessageThread        @relation(fields: [threadId], references: [id])
+  sender     User?                @relation(fields: [senderId], references: [id])
+  recipients MessageParticipant[]
+
+  @@index([threadId, createdAt], map: "Message_thread_created_idx")
 }
 
 /// BIA / LCP-imported field workers. These are human workers who may
 /// or may not have a corresponding User account in the system. Over time
 /// they can be linked to Users, skills, and communications.
 model Worker {
-  id                 String   @id @default(cuid())
+  id                 String       @id @default(cuid())
   firstName          String
   lastName           String
-  fullName           String   @unique
+  fullName           String       @unique
   ssnHash            String?
   email              String?
   phone              String?
@@ -215,14 +304,14 @@ model Worker {
   primaryClassCode   String?
   defaultProjectCode String? // "CBS" | "CCT" | "BOTH"
   dateHired          DateTime?
-  status             String?  // e.g. ACTIVE / INACTIVE
-  isForeman          Boolean  @default(false)
-  defaultPayRate     Float?   // hourly pay rate
+  status             String? // e.g. ACTIVE / INACTIVE
+  isForeman          Boolean      @default(false)
+  defaultPayRate     Float? // hourly pay rate
   unionLocal         String?
   firstSeenWeekEnd   DateTime?
   lastSeenWeekEnd    DateTime?
-  totalHoursCbs      Float?   @default(0)
-  totalHoursCct      Float?   @default(0)
+  totalHoursCbs      Float?       @default(0)
+  totalHoursCct      Float?       @default(0)
   notes              String?
   weeks              WorkerWeek[]
 }
@@ -232,13 +321,13 @@ model WorkerWeek {
   id           String   @id @default(cuid())
   workerId     String
   weekEndDate  DateTime
-  projectCode  String   // "CBS" | "CCT"
+  projectCode  String // "CBS" | "CCT"
   totalHours   Float
   totalHoursSt Float?
   totalHoursOt Float?
   sourceFile   String?
 
-  worker       Worker   @relation(fields: [workerId], references: [id])
+  worker Worker @relation(fields: [workerId], references: [id])
 
   @@unique([workerId, weekEndDate, projectCode])
   @@index([weekEndDate, projectCode], map: "WorkerWeek_week_scope_idx")
@@ -248,41 +337,41 @@ model WorkerWeek {
 /// canonical source for Certified Payroll exports. For legacy BIA/LCP data,
 /// this is populated from LCPUpload Template WWxx.csv files.
 model PayrollWeekRecord {
-  id              String   @id @default(cuid())
-  companyId       String
-  projectId       String?
-  projectCode     String?
-  workerId        String?
-  employeeId      String?
+  id          String  @id @default(cuid())
+  companyId   String
+  projectId   String?
+  projectCode String?
+  workerId    String?
+  employeeId  String?
 
-  firstName       String?
-  lastName        String?
-  ssn             String?
-  classCode       String?
+  firstName String?
+  lastName  String?
+  ssn       String?
+  classCode String?
 
   /// Week code derived from the original LCP template filename, e.g. "WW51".
-  weekCode        String?
-  weekEndDate     DateTime
+  weekCode    String?
+  weekEndDate DateTime
 
-  employmentType  String   // "W2" | "CONTRACTOR_1099" (stringly typed for now)
-  baseHourlyRate  Float?
-  dayRate         Float?
+  employmentType   String // "W2" | "CONTRACTOR_1099" (stringly typed for now)
+  baseHourlyRate   Float?
+  dayRate          Float?
   dayRateBaseHours Float?
 
-  totalPay        Float
-  totalHoursSt    Float?
-  totalHoursOt    Float?
-  totalHoursDt    Float?
+  totalPay     Float
+  totalHoursSt Float?
+  totalHoursOt Float?
+  totalHoursDt Float?
 
   /// JSON-encoded DailySodHours[7] array ({ st, ot, dt } per day).
-  dailyHoursJson  Json?
+  dailyHoursJson Json?
 
-  company         Company  @relation(fields: [companyId], references: [id])
-  project         Project? @relation(fields: [projectId], references: [id])
+  company Company  @relation(fields: [companyId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
 
+  @@unique([companyId, projectCode, weekEndDate, employeeId], name: "PayrollWeek_company_proj_week_emp_key")
   @@index([companyId, weekEndDate], map: "PayrollWeekRecord_company_week_idx")
   @@index([companyId, projectCode, weekEndDate], map: "PayrollWeekRecord_company_projcode_week_idx")
-  @@unique([companyId, projectCode, weekEndDate, employeeId], name: "PayrollWeek_company_proj_week_emp_key")
 }
 
 model UserPortfolio {
@@ -343,7 +432,7 @@ model CompanyInvite {
 }
 
 model CompanyOffice {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   companyId    String
   label        String
   addressLine1 String
@@ -351,9 +440,9 @@ model CompanyOffice {
   city         String
   state        String
   postalCode   String
-  country      String   @default("US")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  country      String    @default("US")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
 
   /// Optional JSON configuration for this office's payroll defaults, including
@@ -361,7 +450,7 @@ model CompanyOffice {
   /// Payroll. Structure is owned by the payroll module.
   payrollConfig Json?
 
-  company      Company  @relation(fields: [companyId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
 
   @@index([companyId, deletedAt], map: "CompanyOffice_company_deleted_idx")
 }
@@ -417,33 +506,33 @@ model RolePermission {
 }
 
 model Project {
-  id                   String                    @id @default(cuid())
-  companyId            String
-  name                 String
-  status               String                    @default("active")
-  createdAt            DateTime                  @default(now())
-  updatedAt            DateTime                  @updatedAt
-  addressLine1         String
-  addressLine2         String?
-  city                 String
-  country              String?                   @default("US")
-  createdByUserId      String?
-  geocodedAt           DateTime?
-  latitude             Float?
-  longitude            Float?
-  postalCode           String?
-  primaryContactEmail  String?
-  primaryContactName   String?
-  primaryContactPhone  String?
-  state                String
+  id                  String    @id @default(cuid())
+  companyId           String
+  name                String
+  status              String    @default("active")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  addressLine1        String
+  addressLine2        String?
+  city                String
+  country             String?   @default("US")
+  createdByUserId     String?
+  geocodedAt          DateTime?
+  latitude            Float?
+  longitude           Float?
+  postalCode          String?
+  primaryContactEmail String?
+  primaryContactName  String?
+  primaryContactPhone String?
+  state               String
   /// Optional external claim / file ID used to link imports
-  externalId           String?                   @unique
+  externalId          String?   @unique
 
   /// Optional tax jurisdiction used for Certified Payroll and related
   /// payroll reporting. When null, we will fall back to company-level
   /// defaults and the global Tapout baseline tax profile.
-  taxJurisdictionId    String?
-  groupId              String?
+  taxJurisdictionId String?
+  groupId           String?
 
   allocationRules      ComponentAllocationRule[]
   componentSummaries   ComponentSummary[]
@@ -467,6 +556,7 @@ model Project {
   taxJurisdiction      TaxJurisdiction?          @relation(fields: [taxJurisdictionId], references: [id])
   payrollWeekRecords   PayrollWeekRecord[]
   group                ProjectGroup?             @relation(fields: [groupId], references: [id])
+  notifications        Notification[]
 
   @@index([companyId, groupId], map: "Project_company_group_idx")
 }
@@ -481,21 +571,21 @@ model ProjectGroup {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  company    Company  @relation(fields: [companyId], references: [id])
-  projects   Project[]
+  company  Company   @relation(fields: [companyId], references: [id])
+  projects Project[]
 
   @@index([companyId, label], map: "ProjectGroup_company_label_idx")
 }
 
 model TaxJurisdiction {
-  id           String         @id @default(cuid())
+  id String @id @default(cuid())
 
   /// Tenant that owns this jurisdiction configuration.
-  companyId    String
-  company      Company        @relation(fields: [companyId], references: [id])
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
 
   /// Basic location key for payroll/tax purposes.
-  country      String         @default("US")
+  country      String  @default("US")
   state        String
   county       String?
   city         String?
@@ -511,20 +601,20 @@ model TaxJurisdiction {
 
   /// Option B semantics: show taxes in dts_* and offset via in-lieu so
   /// net == 1099 total.
-  representational Boolean    @default(true)
+  representational Boolean @default(true)
 
   /// Where these rates came from.
-  source       TaxRateSource  @default(TAPOUT_BASELINE)
+  source TaxRateSource @default(TAPOUT_BASELINE)
 
   /// If true, PMs should see a red light + "Tax rate review" on the
   /// project dashboard.
-  needsReview  Boolean        @default(true)
+  needsReview Boolean @default(true)
 
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   /// All projects for this company that are using this jurisdiction.
-  projects     Project[]
+  projects Project[]
 
   @@index([companyId, state, postalCode])
   @@index([companyId, state, postalPrefix])
@@ -1367,8 +1457,24 @@ enum GlobalRole {
 
 enum TaxRateSource {
   TAPOUT_BASELINE
-  MANUAL
-  AUTO_SUGGESTED
+  COMPANY_OVERRIDE
+}
+
+/// High-level category for notifications so the UI can group them.
+enum NotificationKind {
+  GENERIC
+  REFERRAL
+  ONBOARDING
+  PROJECT
+  SYSTEM
+  DIRECT_MESSAGE
+}
+
+/// Delivery channel used for a notification. IN_APP is always recorded; EMAIL
+/// indicates that an email was also sent.
+enum NotificationChannel {
+  IN_APP
+  EMAIL
 }
 
 enum CompanyKind {
@@ -1517,23 +1623,23 @@ enum ReputationModerationStatus {
 
 /// v1 Asset-centric models (coexist alongside legacy v0 schema)
 model Asset {
-  id              String        @id @default(cuid())
+  id              String             @id @default(cuid())
   companyId       String
   name            String
   code            String?
   description     String?
   assetType       AssetType
   baseUnit        String?
-  baseRate        Decimal?      @db.Decimal(12, 4)
+  baseRate        Decimal?           @db.Decimal(12, 4)
   costBreakdown   Json?
   attributes      Json?
-  isTrackable     Boolean       @default(false)
-  isConsumable    Boolean       @default(false)
+  isTrackable     Boolean            @default(false)
+  isConsumable    Boolean            @default(false)
   priceListItemId String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  company         Company       @relation(fields: [companyId], references: [id])
-  priceListItem   PriceListItem? @relation(fields: [priceListItemId], references: [id])
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  company         Company            @relation(fields: [companyId], references: [id])
+  priceListItem   PriceListItem?     @relation(fields: [priceListItemId], references: [id])
   usages          AssetUsage[]
   transactions    AssetTransaction[]
 
@@ -1541,32 +1647,32 @@ model Asset {
 }
 
 model AssetUsage {
-  id                    String        @id @default(cuid())
+  id                    String             @id @default(cuid())
   assetId               String
   companyId             String
   projectId             String
   sowItemId             String?
   dailyLogId            String?
   billingMode           BillingMode
-  status                UsageStatus  @default(PLANNED)
-  quantity              Decimal?      @db.Decimal(12, 4)
+  status                UsageStatus        @default(PLANNED)
+  quantity              Decimal?           @db.Decimal(12, 4)
   unit                  String?
-  overrideRate          Decimal?      @db.Decimal(12, 4)
-  snapshotRate          Decimal?      @db.Decimal(12, 4)
+  overrideRate          Decimal?           @db.Decimal(12, 4)
+  snapshotRate          Decimal?           @db.Decimal(12, 4)
   snapshotCostBreakdown Json?
-  actualCost            Decimal?      @db.Decimal(14, 2)
+  actualCost            Decimal?           @db.Decimal(14, 2)
   startDate             DateTime?
   endDate               DateTime?
   notes                 String?
   createdByUserId       String?
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
-  asset                 Asset         @relation(fields: [assetId], references: [id])
-  company               Company       @relation(fields: [companyId], references: [id])
-  project               Project       @relation(fields: [projectId], references: [id])
-  sowItem               SowItem?      @relation(fields: [sowItemId], references: [id])
-  dailyLog              DailyLog?     @relation(fields: [dailyLogId], references: [id])
-  createdBy             User?         @relation(fields: [createdByUserId], references: [id])
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  asset                 Asset              @relation(fields: [assetId], references: [id])
+  company               Company            @relation(fields: [companyId], references: [id])
+  project               Project            @relation(fields: [projectId], references: [id])
+  sowItem               SowItem?           @relation(fields: [sowItemId], references: [id])
+  dailyLog              DailyLog?          @relation(fields: [dailyLogId], references: [id])
+  createdBy             User?              @relation(fields: [createdByUserId], references: [id])
   transactions          AssetTransaction[]
 
   @@index([companyId, projectId], map: "AssetUsage_company_project_idx")
@@ -1640,18 +1746,18 @@ model DevMigrationTest {
 }
 
 model NexNetCandidate {
-  id                 String           @id @default(cuid())
-  userId             String?          @unique
+  id                 String       @id @default(cuid())
+  userId             String?      @unique
   firstName          String?
   lastName           String?
   email              String?
   phone              String?
-  source             NexNetSource     @default(REFERRAL)
-  status             NexNetStatus     @default(NOT_STARTED)
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-  user               User?            @relation(fields: [userId], references: [id])
-  referralsAsReferee Referral[]       @relation("RefereeCandidate")
+  source             NexNetSource @default(REFERRAL)
+  status             NexNetStatus @default(NOT_STARTED)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  user               User?        @relation(fields: [userId], references: [id])
+  referralsAsReferee Referral[]   @relation("RefereeCandidate")
 }
 
 model Referral {

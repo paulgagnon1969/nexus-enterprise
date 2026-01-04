@@ -5,6 +5,8 @@ import { GlobalRole, Role } from "../auth/auth.guards";
 import { AuditService } from "../../common/audit.service";
 import { EmailService } from "../../common/email.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
+import { NotificationsService } from "../notifications/notifications.service";
+import { $Enums } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { UpsertOfficeDto } from "./dto/office.dto";
 import { UpsertLandingConfigDto } from "./dto/landing-config.dto";
@@ -19,6 +21,7 @@ export class CompanyService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly email: EmailService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async getCurrentCompany(companyId: string, userId: string) {
@@ -155,6 +158,32 @@ export class CompanyService {
       });
     } catch {
       // Don't block invite creation if email delivery fails.
+    }
+
+    // Best-effort: notify the inviter themselves that the invite was created,
+    // so they can track it from the Activity feed.
+    try {
+      if (actor.userId) {
+        const title = "Company invite sent";
+        const body = `You invited ${email} to join this company as ${String(role)}.`;
+
+        await this.notifications.createNotification({
+          userId: actor.userId,
+          companyId,
+          kind: $Enums.NotificationKind.SYSTEM,
+          channel: $Enums.NotificationChannel.IN_APP,
+          title,
+          body,
+          metadata: {
+            type: "company_invite_created",
+            inviteId: invite.id,
+            email,
+            role,
+          },
+        });
+      }
+    } catch {
+      // ignore
     }
 
     return invite;

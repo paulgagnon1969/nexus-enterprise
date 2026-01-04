@@ -34,6 +34,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [globalRole, setGlobalRole] = useState<string | null>(null);
   const [userType, setUserType] = useState<string | null>(null);
   const [currentCompanyName, setCurrentCompanyName] = useState<string | null>(null);
+  const [unreadCount, setUnreadCount] = useState<number | null>(null);
 
   const path = pathname ?? "/";
   const isSystemRoute = path.startsWith("/system");
@@ -269,6 +270,38 @@ export function AppShell({ children }: { children: ReactNode }) {
       });
   }, []);
 
+  // Poll for unread notifications to drive the header badge.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    async function loadOnce() {
+      try {
+        const res = await fetch(`${API_BASE}/notifications?onlyUnread=true`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const json: any[] = await res.json();
+        if (cancelled) return;
+        setUnreadCount(Array.isArray(json) ? json.length : 0);
+      } catch {
+        if (!cancelled) setUnreadCount(null);
+      }
+    }
+
+    void loadOnce();
+
+    const interval = window.setInterval(loadOnce, 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
+
   // On first load after login, if we have a remembered lastCompanyId and the
   // user has access (or is SUPER_ADMIN), auto-switch company context once so
   // the dropdown and API context match their last selection.
@@ -487,6 +520,52 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="app-header-right">
           <LanguageToggle />
+
+          {/* Notifications bell */}
+          <Link
+            href="/activity"
+            style={{
+              position: "relative",
+              marginLeft: 8,
+              marginRight: 4,
+              padding: "4px 8px",
+              borderRadius: 999,
+              border: "1px solid #e5e7eb",
+              backgroundColor: "#ffffff",
+              color: "#111827",
+              fontSize: 13,
+              textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              minWidth: 32,
+            }}
+          >
+            <span style={{ fontSize: 16, lineHeight: 1 }}>🔔</span>
+            {typeof unreadCount === "number" && unreadCount > 0 && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: -4,
+                  right: -4,
+                  minWidth: 16,
+                  height: 16,
+                  borderRadius: 999,
+                  backgroundColor: "#ef4444",
+                  color: "#f9fafb",
+                  fontSize: 10,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "0 4px",
+                }}
+              >
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </Link>
+
           {/* Global referral CTA */}
           <Link
             href="/referrals"
