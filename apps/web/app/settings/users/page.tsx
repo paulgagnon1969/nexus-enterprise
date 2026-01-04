@@ -200,7 +200,12 @@ export default function CompanyUsersPage() {
                 {members.map((m) => (
                   <tr key={m.userId}>
                     <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
-                      {m.user.email}
+                      <a
+                        href={`mailto:${m.user.email}`}
+                        style={{ color: "#2563eb", textDecoration: "none" }}
+                      >
+                        {m.user.email}
+                      </a>
                     </td>
                     <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
                       {m.role}
@@ -312,7 +317,12 @@ export default function CompanyUsersPage() {
                   return (
                     <tr key={i.id}>
                       <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
-                        {i.email}
+                        <a
+                          href={`mailto:${i.email}`}
+                          style={{ color: "#2563eb", textDecoration: "none" }}
+                        >
+                          {i.email}
+                        </a>
                       </td>
                       <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
                         {i.role}

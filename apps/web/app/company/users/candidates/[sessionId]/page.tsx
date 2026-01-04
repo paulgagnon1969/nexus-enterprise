@@ -254,7 +254,16 @@ export default function CandidateDetailPage() {
         </p>
         <p style={{ fontSize: 13 }}>
           <strong>Phone:</strong>{" "}
-          <span>{session.profile?.phone || "—"}</span>
+          {session.profile?.phone ? (
+            <a
+              href={`tel:${session.profile.phone.replace(/[^\\d+]/g, "")}`}
+              style={{ color: "#2563eb", textDecoration: "none" }}
+            >
+              {session.profile.phone}
+            </a>
+          ) : (
+            <span>—</span>
+          )}
         </p>
       </section>
 
@@ -343,11 +352,31 @@ export default function CandidateDetailPage() {
           <h2 style={{ fontSize: 16, marginBottom: 4 }}>HR (confidential)</h2>
           <p style={{ fontSize: 13 }}>
             <strong>Address:</strong>{" "}
-            {session.profile?.addressLine1 || "—"}
-            {session.profile?.addressLine2 ? `, ${session.profile.addressLine2}` : ""}
-            {session.profile?.city ? `, ${session.profile.city}` : ""}
-            {session.profile?.state ? `, ${session.profile.state}` : ""}
-            {session.profile?.postalCode ? ` ${session.profile.postalCode}` : ""}
+            {(() => {
+              const parts: string[] = [];
+              if (session.profile?.addressLine1) parts.push(session.profile.addressLine1);
+              if (session.profile?.addressLine2) parts.push(session.profile.addressLine2);
+              const cityState = [session.profile?.city, session.profile?.state]
+                .filter(Boolean)
+                .join(", ");
+              if (cityState) parts.push(cityState);
+              if (session.profile?.postalCode) parts.push(session.profile.postalCode);
+              const addr = parts.join(", ");
+              if (!addr) return "—";
+              const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                addr,
+              )}`;
+              return (
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "#2563eb", textDecoration: "none" }}
+                >
+                  {addr}
+                </a>
+              );
+            })()}
           </p>
           {session.bankInfo && (
             <div

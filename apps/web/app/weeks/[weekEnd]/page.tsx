@@ -178,7 +178,18 @@ export default async function WeekDetailPage({ params, searchParams }: PageProps
                     : ""}
                 </td>
                 <td className="border px-2 py-1">{r.status ?? ""}</td>
-                <td className="border px-2 py-1">{r.phone ?? ""}</td>
+                <td className="border px-2 py-1">
+                  {r.phone ? (
+                    <a
+                      href={`tel:${String(r.phone).replace(/[^\\d+]/g, "")}`}
+                      style={{ color: "#2563eb", textDecoration: "none" }}
+                    >
+                      {r.phone}
+                    </a>
+                  ) : (
+                    ""
+                  )}
+                </td>
               </tr>
             ))}
             {rows.length === 0 && (
