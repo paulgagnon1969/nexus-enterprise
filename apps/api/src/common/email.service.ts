@@ -27,13 +27,104 @@ export class EmailService {
     });
   }
 
+  /**
+   * Low-level helper to send via Resend if configured.
+   * Returns null if Resend is not configured so callers can fall back to SMTP.
+   */
+  private async sendViaResend(params: {
+    to: string;
+    subject: string;
+    html: string;
+    text?: string;
+    from: string;
+  }): Promise<
+    | null
+    | {
+        ok: boolean;
+        provider: "resend";
+        status?: number;
+        body?: any;
+        error?: string;
+      }
+  > {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      return null;
+    }
+
+    try {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          from: params.from,
+          to: params.to,
+          subject: params.subject,
+          html: params.html,
+          text: params.text,
+        }),
+      });
+
+      const textBody = await response.text();
+      let json: any = null;
+      try {
+        json = textBody ? JSON.parse(textBody) : null;
+      } catch {
+        // non-JSON body from Resend; ignore
+      }
+
+      if (!response.ok) {
+        this.logger.error(
+          `Resend email send failed (status ${response.status}) to ${params.to}: ${textBody}`,
+        );
+        return {
+          ok: false,
+          provider: "resend",
+          status: response.status,
+          body: json ?? textBody,
+        };
+      }
+
+      this.logger.log(`Sent email via Resend to ${params.to}`);
+      return { ok: true, provider: "resend", status: response.status, body: json ?? textBody };
+    } catch (err: any) {
+      const message = err?.message ?? String(err);
+      this.logger.error(`Resend email send threw for ${params.to}: ${message}`);
+      return { ok: false, provider: "resend", error: message };
+    }
+  }
+
   async sendMail(params: { to: string; subject: string; html: string; text?: string }) {
-    const from = process.env.EMAIL_FROM;
+    const from = process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM;
     if (!from) {
-      this.logger.warn("EMAIL_FROM is not set; skipping email send.");
+      this.logger.warn(
+        "RESEND_FROM_EMAIL/EMAIL_FROM is not set; skipping email send.",
+      );
       return { ok: false, skipped: true };
     }
 
+    // Prefer Resend when configured.
+    const resendResult = await this.sendViaResend({
+      to: params.to,
+      subject: params.subject,
+      html: params.html,
+      text: params.text,
+      from,
+    });
+
+    if (resendResult) {
+      // If Resend is configured but failed, surface that result directly and
+      // do not fall back silently to SMTP.
+      if (!resendResult.ok) {
+        return resendResult;
+      }
+      return resendResult;
+    }
+
+    // Fallback: classic SMTP via nodemailer.
     const transport = this.getTransport();
     if (!transport) {
       this.logger.warn(
@@ -50,7 +141,8 @@ export class EmailService {
       text: params.text,
     });
 
-    return { ok: true };
+    this.logger.log(`Sent email via SMTP to ${params.to}`);
+    return { ok: true, provider: "smtp" as const };
   }
 
   async sendCompanyInvite(params: {

@@ -25,6 +25,8 @@ import { AddressModule } from "./modules/address/address.module";
 import { AssetModule } from "./modules/asset/asset.module";
 import { ReferralsModule } from "./modules/referrals/referrals.module";
 import { ProjectGroupModule } from "./modules/project-group/project-group.module";
+import { NotificationsModule } from "./modules/notifications/notifications.module";
+import { MessagingModule } from "./modules/messaging/messaging.module";
 
 @Module({
   imports: [
@@ -58,6 +60,8 @@ import { ProjectGroupModule } from "./modules/project-group/project-group.module
     AssetModule,
     ReferralsModule,
     ProjectGroupModule,
+    NotificationsModule,
+    MessagingModule,
   ],
   controllers: [DevController]
 })

@@ -3,12 +3,18 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { randomBytes } from "node:crypto";
 import * as argon2 from "argon2";
-import { Role, UserType, NexNetStatus, ReferralStatus } from "@prisma/client";
+import { Role, UserType, NexNetStatus, ReferralStatus, $Enums } from "@prisma/client";
 import { encryptPortfolioHrJson } from "../../common/crypto/portfolio-hr.crypto";
+import { NotificationsService } from "../notifications/notifications.service";
+import { EmailService } from "../../common/email.service";
 
 @Injectable()
 export class OnboardingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+    private readonly email: EmailService,
+  ) {}
 
   private generateToken(): string {
     return randomBytes(24).toString("hex");
@@ -327,6 +333,54 @@ export class OnboardingService {
     const ref = updated.referrer;
     const name = [ref.firstName, ref.lastName].filter(Boolean).join(" ");
 
+    // Best-effort: notify the referrer that their referral confirmed or rejected them.
+    if (ref?.id && ref.email) {
+      const title = accepted
+        ? "Your referral confirmed you as their referrer"
+        : "Your referral status was updated";
+      const body = accepted
+        ? `A candidate using ${normalizedEmail} confirmed you as their referrer on Nex-Net.`
+        : `A candidate using ${normalizedEmail} indicated they were not referred by you. This may reflect a mis-click or an incorrect email.`;
+
+      try {
+        await this.notifications.createNotification({
+          userId: ref.id,
+          kind: $Enums.NotificationKind.REFERRAL,
+          channel: $Enums.NotificationChannel.EMAIL,
+          title,
+          body,
+          metadata: {
+            type: "referral_confirmation_decision",
+            accepted,
+            referralId: updated.id,
+            candidateEmail: normalizedEmail,
+          },
+        });
+      } catch {
+        // non-fatal
+      }
+
+      try {
+        const subject = accepted
+          ? "Your Nex-Net referral confirmed you"
+          : "Your Nex-Net referral status was updated";
+
+        const html = `
+          <div style="font-family: system-ui, -apple-system, Segoe UI, sans-serif; line-height: 1.5;">
+            <h2 style="margin: 0 0 12px;">${title}</h2>
+            <p style="margin: 0 0 8px;">${body}</p>
+            <p style="margin: 0; font-size: 12px; color: #6b7280;">
+              You can view the status of all your referrals in the Referrals section of Nexus.
+            </p>
+          </div>
+        `;
+
+        await this.email.sendMail({ to: ref.email, subject, html });
+      } catch {
+        // non-fatal
+      }
+    }
+
     return {
       id: updated.id,
       token: updated.token,
@@ -456,6 +510,68 @@ export class OnboardingService {
           },
           data: { status: ReferralStatus.APPLIED },
         });
+
+        // Notify referrers that their candidate has submitted a profile.
+        const appliedReferrals = await this.prisma.referral.findMany({
+          where: {
+            candidateId: c.id,
+            status: ReferralStatus.APPLIED,
+          },
+          include: {
+            referrer: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+        });
+
+        for (const r of appliedReferrals) {
+          const ref = r.referrer;
+          if (!ref?.id || !ref.email) continue;
+          const refName = [ref.firstName, ref.lastName].filter(Boolean).join(" ");
+
+          const title = "Your referral submitted their Nexis profile";
+          const body = `A candidate using ${normalizedEmail} has submitted their Nexis profile. Once they are matched to a tenant, any referral incentives will follow your normal program rules.`;
+
+          try {
+            await this.notifications.createNotification({
+              userId: ref.id,
+              kind: $Enums.NotificationKind.REFERRAL,
+              channel: $Enums.NotificationChannel.EMAIL,
+              title,
+              body,
+              metadata: {
+                type: "referral_submission",
+                referralId: r.id,
+                candidateEmail: normalizedEmail,
+                candidateId: c.id,
+              },
+            });
+          } catch {
+            // ignore
+          }
+
+          try {
+            const subject = "Your Nex-Net referral submitted their profile";
+            const html = `
+              <div style="font-family: system-ui, -apple-system, Segoe UI, sans-serif; line-height: 1.5;">
+                <h2 style="margin: 0 0 12px;">Your referral submitted their Nexis profile</h2>
+                <p style="margin: 0 0 8px;">${body}</p>
+                <p style="margin: 0; font-size: 12px; color: #6b7280;">
+                  You can review all of your referrals and their statuses from the Referrals page in Nexus.
+                </p>
+              </div>
+            `;
+
+            await this.email.sendMail({ to: ref.email, subject, html });
+          } catch {
+            // ignore
+          }
+        }
       }
     } catch {
       // Do not block candidate submission if Nex-Net linkage fails.
