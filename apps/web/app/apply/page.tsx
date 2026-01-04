@@ -279,7 +279,7 @@ function ApplyPageInner() {
         />
       )}
 
-      {referrerName || referrerEmail ? (
+        {referrerName || referrerEmail ? (
         <div
           style={{
             marginTop: 12,
@@ -295,7 +295,33 @@ function ApplyPageInner() {
         >
           <strong>You were referred to Nexis</strong>
           <div style={{ marginTop: 4 }}>
-            by {referrerName || referrerEmail}.
+            by {referrerName ? (
+              <>
+                {referrerName}
+                {referrerEmail && (
+                  <>
+                    {" ("}
+                    <a
+                      href={`mailto:${referrerEmail}`}
+                      style={{ color: "#2563eb", textDecoration: "none" }}
+                    >
+                      {referrerEmail}
+                    </a>
+                    {")"}
+                  </>
+                )}
+              </>
+            ) : referrerEmail ? (
+              <a
+                href={`mailto:${referrerEmail}`}
+                style={{ color: "#2563eb", textDecoration: "none" }}
+              >
+                {referrerEmail}
+              </a>
+            ) : (
+              "someone"
+            )}
+            .
           </div>
         </div>
       ) : null}

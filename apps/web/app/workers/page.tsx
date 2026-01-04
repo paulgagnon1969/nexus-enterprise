@@ -312,7 +312,18 @@ export default async function WorkersPage({ searchParams }: PageProps) {
                 <td className="border border-gray-300 px-2 py-1">
                   {jobLabelByWorker.get(w.id) ?? w.defaultProjectCode ?? ""}
                 </td>
-                <td className="border border-gray-300 px-2 py-1">{w.phone ?? ""}</td>
+                <td className="border border-gray-300 px-2 py-1">
+                  {w.phone ? (
+                    <a
+                      href={`tel:${String(w.phone).replace(/[^\\d+]/g, "")}`}
+                      style={{ color: "#2563eb", textDecoration: "none" }}
+                    >
+                      {w.phone}
+                    </a>
+                  ) : (
+                    ""
+                  )}
+                </td>
                 {weekColumns.map((week) => {
                   const byWeek = hoursByWorker.get(w.id);
                   const hours = byWeek?.get(week) ?? 0;

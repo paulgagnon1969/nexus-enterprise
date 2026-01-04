@@ -307,7 +307,17 @@ export default function ProfileSettingsPage() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 980 }}>
           <div style={{ fontSize: 12, color: "var(--color-muted)" }}>
-            Signed in as <strong style={{ color: "var(--color-text)" }}>{me?.email}</strong>
+            Signed in as{" "}
+            {me?.email ? (
+              <a
+                href={`mailto:${me.email}`}
+                style={{ color: "var(--color-text)", textDecoration: "none" }}
+              >
+                {me.email}
+              </a>
+            ) : (
+              <strong style={{ color: "var(--color-text)" }}>{me?.email}</strong>
+            )}
           </div>
 
 

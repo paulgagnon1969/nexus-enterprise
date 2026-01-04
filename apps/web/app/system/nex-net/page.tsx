@@ -328,10 +328,28 @@ export default function NexNetSystemPage() {
                           <tr key={p.id}>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>{name}</td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
-                              {p.email || "—"}
+                              {p.email ? (
+                                <a
+                                  href={`mailto:${p.email}`}
+                                  style={{ color: "#2563eb", textDecoration: "none" }}
+                                >
+                                  {p.email}
+                                </a>
+                              ) : (
+                                "—"
+                              )}
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
-                              {p.phone || "—"}
+                              {p.phone ? (
+                                <a
+                                  href={`tel:${p.phone.replace(/[^\\d+]/g, "")}`}
+                                  style={{ color: "#6b7280", textDecoration: "none" }}
+                                >
+                                  {p.phone}
+                                </a>
+                              ) : (
+                                "—"
+                              )}
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
                               {p.source || "—"}
@@ -340,7 +358,16 @@ export default function NexNetSystemPage() {
                               {p.status || "—"}
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
-                              {p.referrerEmail || "—"}
+                              {p.referrerEmail ? (
+                                <a
+                                  href={`mailto:${p.referrerEmail}`}
+                                  style={{ color: "#2563eb", textDecoration: "none" }}
+                                >
+                                  {p.referrerEmail}
+                                </a>
+                              ) : (
+                                "—"
+                              )}
                             </td>
                           </tr>
                         );
@@ -415,16 +442,43 @@ export default function NexNetSystemPage() {
                           <tr key={r.id}>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>{name}</td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
-                              {r.prospectEmail || "—"}
+                              {r.prospectEmail ? (
+                                <a
+                                  href={`mailto:${r.prospectEmail}`}
+                                  style={{ color: "#2563eb", textDecoration: "none" }}
+                                >
+                                  {r.prospectEmail}
+                                </a>
+                              ) : (
+                                "—"
+                              )}
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
-                              {r.prospectPhone || "—"}
+                              {r.prospectPhone ? (
+                                <a
+                                  href={`tel:${r.prospectPhone.replace(/[^\\d+]/g, "")}`}
+                                  style={{ color: "#6b7280", textDecoration: "none" }}
+                                >
+                                  {r.prospectPhone}
+                                </a>
+                              ) : (
+                                "—"
+                              )}
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
                               {r.status || "—"}
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
-                              {r.referrerEmail || "—"}
+                              {r.referrerEmail ? (
+                                <a
+                                  href={`mailto:${r.referrerEmail}`}
+                                  style={{ color: "#2563eb", textDecoration: "none" }}
+                                >
+                                  {r.referrerEmail}
+                                </a>
+                              ) : (
+                                "—"
+                              )}
                             </td>
                             <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6", color: decisionColor }}>
                               {decisionLabel}

@@ -253,7 +253,13 @@ export default function CandidateHomePage() {
               Status: <strong>{statusLabel(session.status)}</strong>
             </p>
             <p style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
-              Submitted email: <strong>{session.email}</strong>
+              Submitted email: {" "}
+              <a
+                href={`mailto:${session.email}`}
+                style={{ color: "#2563eb", textDecoration: "none" }}
+              >
+                {session.email}
+              </a>
             </p>
             {session.profile && (
               <p style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>

@@ -681,8 +681,36 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
         >
           <div style={{ fontWeight: 600, marginBottom: 4 }}>Referral confirmation</div>
           <p style={{ marginTop: 0, marginBottom: 6 }}>
-            Our records show that you were referred by {referrer.referrer.name || referrer.referrer.email}.
-            Please confirm whether this is correct. This helps us credit your referrer for bringing you into
+            Our records show that you were referred by {" "}
+            {referrer.referrer.name || referrer.referrer.email ? (
+              referrer.referrer.name ? (
+                <>
+                  {referrer.referrer.name}
+                  {referrer.referrer.email && (
+                    <>
+                      {" ("}
+                      <a
+                        href={`mailto:${referrer.referrer.email}`}
+                        style={{ color: "#2563eb", textDecoration: "none" }}
+                      >
+                        {referrer.referrer.email}
+                      </a>
+                      {")"}
+                    </>
+                  )}
+                </>
+              ) : (
+                <a
+                  href={`mailto:${referrer.referrer.email}`}
+                  style={{ color: "#2563eb", textDecoration: "none" }}
+                >
+                  {referrer.referrer.email}
+                </a>
+              )
+            ) : (
+              "someone in the network"
+            )}
+            . Please confirm whether this is correct. This helps us credit your referrer for bringing you into
             the Nexis network.
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1208,7 +1236,13 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
       </section>
 
       <div style={{ marginTop: 18, fontSize: 12, color: "#6b7280" }}>
-        Nexis profile email: <strong>{session.email}</strong>
+        Nexis profile email: {" "}
+        <a
+          href={`mailto:${session.email}`}
+          style={{ color: "#2563eb", textDecoration: "none" }}
+        >
+          {session.email}
+        </a>
       </div>
     </main>
   );

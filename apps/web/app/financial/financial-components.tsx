@@ -90,10 +90,10 @@ export const GoldenComponentsCoverageCard = memo(function GoldenComponentsCovera
   }, [componentsSummary]);
 
   let lastUploadLabel: string | null = null;
-  let lastUploadBy: string | null = null;
+  const lastUploadByName = lastComponentsUpload?.byName ?? null;
+  const lastUploadByEmail = lastComponentsUpload?.byEmail ?? null;
   if (lastComponentsUpload?.at) {
     lastUploadLabel = new Date(lastComponentsUpload.at).toLocaleString();
-    lastUploadBy = lastComponentsUpload.byName || lastComponentsUpload.byEmail || null;
   }
 
   return (
@@ -160,9 +160,22 @@ export const GoldenComponentsCoverageCard = memo(function GoldenComponentsCovera
           {lastUploadLabel && (
             <p style={{ margin: "4px 0 0", color: "#6b7280" }}>
               Last components upload: {lastUploadLabel}
-              {lastUploadBy && (
+              {(lastUploadByName || lastUploadByEmail) && (
                 <>
-                  {" "}by <strong>{lastUploadBy}</strong>
+                  {" "}by{" "}
+                  {lastUploadByName && <strong>{lastUploadByName}</strong>}
+                  {lastUploadByEmail && (
+                    <>
+                      {lastUploadByName && " ("}
+                      <a
+                        href={`mailto:${lastUploadByEmail}`}
+                        style={{ color: "#2563eb", textDecoration: "none" }}
+                      >
+                        {lastUploadByEmail}
+                      </a>
+                      {lastUploadByName && ")"}
+                    </>
+                  )}
                 </>
               )}
             </p>
