@@ -63,6 +63,8 @@ model Company {
   notifications      Notification[]
   messageThreads     MessageThread[]
   recipientGroups    MessageRecipientGroup[]
+  projectFileFolders ProjectFileFolder[]
+  projectFiles       ProjectFile[]
 }
 
 model OrganizationTemplate {
@@ -334,17 +336,19 @@ model MessageRecipientGroupMember {
 
 /// Attachment linked to a message (file or URL).
 model MessageAttachment {
-  id        String         @id @default(cuid())
-  messageId String
-  kind      AttachmentKind
-  url       String
-  filename  String?
-  mimeType  String?
-  sizeBytes Int?
-  assetId   String?
-  createdAt DateTime       @default(now())
+  id           String         @id @default(cuid())
+  messageId    String
+  kind         AttachmentKind
+  url          String
+  filename     String?
+  mimeType     String?
+  sizeBytes    Int?
+  assetId      String?
+  projectFileId String?
+  createdAt    DateTime       @default(now())
 
-  message Message @relation(fields: [messageId], references: [id])
+  message     Message      @relation(fields: [messageId], references: [id])
+  projectFile ProjectFile? @relation(fields: [projectFileId], references: [id])
 
   @@index([messageId], map: "MessageAttachment_message_idx")
 }
@@ -624,6 +628,8 @@ model Project {
   group                ProjectGroup?             @relation(fields: [groupId], references: [id])
   notifications        Notification[]
   messageThreads       MessageThread[]
+  projectFileFolders   ProjectFileFolder[]
+  projectFiles         ProjectFile[]
 
   @@index([companyId, groupId], map: "Project_company_group_idx")
 }
@@ -703,6 +709,48 @@ model Parcel {
   company           Company          @relation(fields: [companyId], references: [id])
   project           Project          @relation(fields: [projectId], references: [id])
   projectParticle   ProjectParticle? @relation(fields: [projectParticleId], references: [id])
+}
+
+model ProjectFileFolder {
+  id        String   @id @default(cuid())
+  companyId String
+  projectId String
+  parentId  String?
+  name      String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+  project Project @relation(fields: [projectId], references: [id])
+  parent  ProjectFileFolder? @relation("ProjectFileFolderParent", fields: [parentId], references: [id])
+  children ProjectFileFolder[] @relation("ProjectFileFolderParent")
+  files    ProjectFile[]
+
+  @@index([companyId, projectId], map: "ProjectFileFolder_company_project_idx")
+}
+
+model ProjectFile {
+  id         String   @id @default(cuid())
+  companyId  String
+  projectId  String
+  folderId   String?
+
+  storageUrl String
+  fileName   String
+  mimeType   String?
+  sizeBytes  Int?
+
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  company Company @relation(fields: [companyId], references: [id])
+  project Project @relation(fields: [projectId], references: [id])
+  folder  ProjectFileFolder? @relation(fields: [folderId], references: [id])
+  attachments MessageAttachment[]
+  dailyLogAttachments DailyLogAttachment[]
+
+  @@index([companyId, projectId], map: "ProjectFile_company_project_idx")
 }
 
 /// Global list of job / project statuses (e.g. Open, Closed, Warranty).
@@ -1203,14 +1251,17 @@ model DailyLog {
 }
 
 model DailyLogAttachment {
-  id         String   @id @default(cuid())
-  dailyLogId String
-  fileUrl    String
-  fileName   String?
-  mimeType   String?
-  sizeBytes  Int?
-  createdAt  DateTime @default(now())
-  dailyLog   DailyLog @relation(fields: [dailyLogId], references: [id])
+  id           String   @id @default(cuid())
+  dailyLogId   String
+  projectFileId String?
+  fileUrl      String
+  fileName     String?
+  mimeType     String?
+  sizeBytes    Int?
+  createdAt    DateTime @default(now())
+
+  dailyLog    DailyLog     @relation(fields: [dailyLogId], references: [id])
+  projectFile ProjectFile? @relation(fields: [projectFileId], references: [id])
 
   @@index([dailyLogId], map: "DailyLogAttachment_log_idx")
 }

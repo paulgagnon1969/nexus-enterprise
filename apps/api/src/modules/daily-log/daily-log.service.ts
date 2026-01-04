@@ -163,7 +163,7 @@ export class DailyLogService {
       throw new NotFoundException("No file uploaded");
     }
 
-    // For now, store files on local disk under a simple uploads directory.
+    // For now, continue storing files on local disk under an uploads directory.
     const uploadsRoot = path.resolve(process.cwd(), "uploads/daily-logs");
     if (!fs.existsSync(uploadsRoot)) {
       fs.mkdirSync(uploadsRoot, { recursive: true });
@@ -177,9 +177,23 @@ export class DailyLogService {
 
     const publicUrl = `/uploads/daily-logs/${fileName}`;
 
+    // Create a ProjectFile record so this attachment is visible in the project Files container.
+    const projectFile = await this.prisma.projectFile.create({
+      data: {
+        companyId,
+        projectId: log.projectId,
+        storageUrl: publicUrl,
+        fileName: file.originalname || fileName,
+        mimeType: file.mimetype || null,
+        sizeBytes: typeof file.size === "number" ? file.size : null,
+        createdById: actor.userId,
+      },
+    });
+
     const attachment = await this.prisma.dailyLogAttachment.create({
       data: {
         dailyLogId,
+        projectFileId: projectFile.id,
         fileUrl: publicUrl,
         fileName: file.originalname || fileName,
         mimeType: file.mimetype,
@@ -194,6 +208,7 @@ export class DailyLogService {
         dailyLogId,
         attachmentId: attachment.id,
         fileName: attachment.fileName,
+        projectFileId: projectFile.id,
       },
     });
 

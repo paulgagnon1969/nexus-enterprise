@@ -63,17 +63,13 @@ export class AdminService {
     const updated = await this.prisma.company.update({
       where: { id: companyId },
       // When the Prisma client has been regenerated against the updated schema,
-      // this will set Company.deletedAt. Until then, this call will fail in
-      // TypeScript and should only be used after `prisma generate`.
+      // this will set Company.deletedAt.
       data: {
-        // @ts-expect-error: deletedAt is added in the Prisma schema but may not
-        // yet be present in the generated client types until `prisma generate`.
         deletedAt: new Date(),
       },
       select: {
         id: true,
         name: true,
-        // @ts-expect-error: see note above about regenerated Prisma client.
         deletedAt: true,
         kind: true,
       },
