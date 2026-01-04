@@ -9,6 +9,15 @@ interface CreateThreadDto {
   subject?: string | null;
   participantUserIds?: string[];
   externalEmails?: string[];
+  groupIds?: string[];
+  attachments?: {
+    kind: $Enums.AttachmentKind;
+    url: string;
+    filename?: string | null;
+    mimeType?: string | null;
+    sizeBytes?: number | null;
+    assetId?: string | null;
+  }[];
   body: string;
 }
 
@@ -33,6 +42,7 @@ export class MessagingService {
     return this.prisma.messageThread.findMany({
       where: {
         companyId,
+        type: $Enums.MessageThreadType.DIRECT,
         participants: {
           some: {
             OR: [
@@ -61,15 +71,31 @@ export class MessagingService {
     });
   }
 
+  async listBoardThreads(actor: AuthenticatedUser) {
+    const companyId = this.assertCompanyContext(actor);
+
+    return this.prisma.messageThread.findMany({
+      where: {
+        companyId,
+        type: $Enums.MessageThreadType.BOARD,
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 50,
+    });
+  }
+
   async getThread(actor: AuthenticatedUser, id: string) {
     const companyId = this.assertCompanyContext(actor);
 
     const thread = await this.prisma.messageThread.findFirst({
-      where: { id, companyId },
+      where: { id, companyId, type: $Enums.MessageThreadType.DIRECT },
       include: {
         participants: true,
         messages: {
           orderBy: { createdAt: "asc" },
+          include: {
+            attachments: true,
+          },
         },
       },
     });
@@ -88,15 +114,60 @@ export class MessagingService {
     return thread;
   }
 
+  async getBoardThread(actor: AuthenticatedUser, id: string) {
+    const companyId = this.assertCompanyContext(actor);
+
+    const thread = await this.prisma.messageThread.findFirst({
+      where: { id, companyId, type: $Enums.MessageThreadType.BOARD },
+      include: {
+        participants: true,
+        messages: {
+          orderBy: { createdAt: "asc" },
+          include: {
+            attachments: true,
+          },
+        },
+      },
+    });
+
+    if (!thread) {
+      throw new NotFoundException("Board thread not found");
+    }
+
+    return thread;
+  }
+
   async createThread(actor: AuthenticatedUser, dto: CreateThreadDto) {
     const companyId = this.assertCompanyContext(actor);
 
-    const participantUserIds = Array.from(
-      new Set([actor.userId, ...(dto.participantUserIds || [])].filter(Boolean)),
-    );
-    const externalEmails = Array.from(
-      new Set((dto.externalEmails || []).map(e => e.trim()).filter(Boolean)),
-    );
+    const baseUserIds = new Set<string>([actor.userId, ...(dto.participantUserIds || [])]);
+    const baseEmails = new Set<string>((dto.externalEmails || []).map(e => e.trim()).filter(Boolean));
+
+    // Expand any recipient groups into concrete userIds/emails
+    if (dto.groupIds && dto.groupIds.length > 0) {
+      const groups = await this.prisma.messageRecipientGroup.findMany({
+        where: {
+          id: { in: dto.groupIds },
+          companyId,
+          ownerId: actor.userId,
+        },
+        include: { members: true },
+      });
+
+      for (const g of groups) {
+        for (const m of g.members) {
+          if (m.userId) {
+            baseUserIds.add(m.userId);
+          }
+          if (m.email) {
+            baseEmails.add(m.email.trim());
+          }
+        }
+      }
+    }
+
+    const participantUserIds = Array.from(baseUserIds).filter(Boolean);
+    const externalEmails = Array.from(baseEmails);
 
     const result = await this.prisma.$transaction(async tx => {
       const thread = await tx.messageThread.create({
@@ -104,6 +175,7 @@ export class MessagingService {
           companyId,
           subject: dto.subject ?? null,
           createdById: actor.userId,
+          type: $Enums.MessageThreadType.DIRECT,
         },
       });
 
@@ -137,6 +209,20 @@ export class MessagingService {
           body: dto.body,
         },
       });
+
+      if (dto.attachments && dto.attachments.length > 0) {
+        await tx.messageAttachment.createMany({
+          data: dto.attachments.map(a => ({
+            messageId: message.id,
+            kind: a.kind,
+            url: a.url,
+            filename: a.filename || null,
+            mimeType: a.mimeType || null,
+            sizeBytes: typeof a.sizeBytes === "number" ? a.sizeBytes : null,
+            assetId: a.assetId || null,
+          })),
+        });
+      }
 
       return { thread, participants, message };
     });
@@ -179,11 +265,88 @@ export class MessagingService {
     return result;
   }
 
-  async addMessage(actor: AuthenticatedUser, threadId: string, body: string) {
+  async createBoardThread(
+    actor: AuthenticatedUser,
+    dto: {
+      subject?: string | null;
+      body: string;
+      attachments?: {
+        kind: $Enums.AttachmentKind;
+        url: string;
+        filename?: string | null;
+        mimeType?: string | null;
+        sizeBytes?: number | null;
+        assetId?: string | null;
+      }[];
+    },
+  ) {
+    const companyId = this.assertCompanyContext(actor);
+
+    const result = await this.prisma.$transaction(async tx => {
+      const thread = await tx.messageThread.create({
+        data: {
+          companyId,
+          subject: dto.subject ?? null,
+          createdById: actor.userId,
+          type: $Enums.MessageThreadType.BOARD,
+        },
+      });
+
+      // Ensure author is a participant for tracking/read-state purposes.
+      await tx.messageParticipant.create({
+        data: {
+          threadId: thread.id,
+          userId: actor.userId,
+          isExternal: false,
+        },
+      });
+
+      const message = await tx.message.create({
+        data: {
+          threadId: thread.id,
+          senderId: actor.userId,
+          senderEmail: null,
+          body: dto.body,
+        },
+      });
+
+      if (dto.attachments && dto.attachments.length > 0) {
+        await tx.messageAttachment.createMany({
+          data: dto.attachments.map(a => ({
+            messageId: message.id,
+            kind: a.kind,
+            url: a.url,
+            filename: a.filename || null,
+            mimeType: a.mimeType || null,
+            sizeBytes: typeof a.sizeBytes === "number" ? a.sizeBytes : null,
+            assetId: a.assetId || null,
+          })),
+        });
+      }
+
+      return { thread, message };
+    });
+
+    return result;
+  }
+
+  async addMessage(
+    actor: AuthenticatedUser,
+    threadId: string,
+    body: string,
+    attachments?: {
+      kind: $Enums.AttachmentKind;
+      url: string;
+      filename?: string | null;
+      mimeType?: string | null;
+      sizeBytes?: number | null;
+      assetId?: string | null;
+    }[],
+  ) {
     const companyId = this.assertCompanyContext(actor);
 
     const thread = await this.prisma.messageThread.findFirst({
-      where: { id: threadId, companyId },
+      where: { id: threadId, companyId, type: $Enums.MessageThreadType.DIRECT },
       include: { participants: true },
     });
     if (!thread) {
@@ -205,6 +368,20 @@ export class MessagingService {
         body,
       },
     });
+
+    if (attachments && attachments.length > 0) {
+      await this.prisma.messageAttachment.createMany({
+        data: attachments.map(a => ({
+          messageId: message.id,
+          kind: a.kind,
+          url: a.url,
+          filename: a.filename || null,
+          mimeType: a.mimeType || null,
+          sizeBytes: typeof a.sizeBytes === "number" ? a.sizeBytes : null,
+          assetId: a.assetId || null,
+        })),
+      });
+    }
 
     await this.prisma.messageThread.update({
       where: { id: threadId },
@@ -239,6 +416,73 @@ export class MessagingService {
         ),
       );
     }
+
+    return message;
+  }
+
+  async addBoardMessage(
+    actor: AuthenticatedUser,
+    threadId: string,
+    body: string,
+    attachments?: {
+      kind: $Enums.AttachmentKind;
+      url: string;
+      filename?: string | null;
+      mimeType?: string | null;
+      sizeBytes?: number | null;
+      assetId?: string | null;
+    }[],
+  ) {
+    const companyId = this.assertCompanyContext(actor);
+
+    const thread = await this.prisma.messageThread.findFirst({
+      where: { id: threadId, companyId, type: $Enums.MessageThreadType.BOARD },
+      include: { participants: true },
+    });
+    if (!thread) {
+      throw new NotFoundException("Board thread not found");
+    }
+
+    // If actor is not yet a participant, add them so future DM-like features can
+    // track read-state per user.
+    const isParticipant = thread.participants.some(p => p.userId === actor.userId);
+    if (!isParticipant) {
+      await this.prisma.messageParticipant.create({
+        data: {
+          threadId,
+          userId: actor.userId,
+          isExternal: false,
+        },
+      });
+    }
+
+    const message = await this.prisma.message.create({
+      data: {
+        threadId,
+        senderId: actor.userId,
+        senderEmail: null,
+        body,
+      },
+    });
+
+    if (attachments && attachments.length > 0) {
+      await this.prisma.messageAttachment.createMany({
+        data: attachments.map(a => ({
+          messageId: message.id,
+          kind: a.kind,
+          url: a.url,
+          filename: a.filename || null,
+          mimeType: a.mimeType || null,
+          sizeBytes: typeof a.sizeBytes === "number" ? a.sizeBytes : null,
+          assetId: a.assetId || null,
+        })),
+      });
+    }
+
+    await this.prisma.messageThread.update({
+      where: { id: threadId },
+      data: { updatedAt: new Date() },
+    });
 
     return message;
   }

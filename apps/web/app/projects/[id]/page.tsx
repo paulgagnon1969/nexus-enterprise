@@ -286,6 +286,10 @@ export default function ProjectDetailPage({
   const [payrollLoading, setPayrollLoading] = useState(false);
   const [payrollError, setPayrollError] = useState<string | null>(null);
 
+  // Actor identity + project-level roles (for header display)
+  const [actorDisplayName, setActorDisplayName] = useState<string | null>(null);
+  const [actorProjectRoles, setActorProjectRoles] = useState<string[] | null>(null);
+
   const [dailyLogs, setDailyLogs] = useState<DailyLog[]>([]);
   const [dailyLogsLoading, setDailyLogsLoading] = useState(false);
   const [dailyLogSaving, setDailyLogSaving] = useState(false);
@@ -412,6 +416,9 @@ export default function ProjectDetailPage({
   } | null>(null);
   const [structureOpen, setStructureOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("SUMMARY");
+
+  // Reveal PID only after user clicks the project name in the header
+  const [showPid, setShowPid] = useState(false);
 
   // When the PETL tab is opened and we have groups, auto-expand the first room once
   useEffect(() => {
@@ -806,10 +813,18 @@ export default function ProjectDetailPage({
           }),
         ]);
 
+        let myUserId: string | null = null;
+
         if (!cancelled && meRes.ok) {
           const meJson: any = await meRes.json();
           const globalRole: GlobalRole = meJson.globalRole ?? "NONE";
           setActorGlobalRole(globalRole);
+
+          myUserId = meJson.id ?? null;
+          const fullNameParts = [meJson.firstName, meJson.lastName].filter(Boolean);
+          const fullName = fullNameParts.length ? fullNameParts.join(" ") : null;
+          const displayName = fullName ? `${fullName} (${meJson.email})` : meJson.email;
+          setActorDisplayName(displayName || null);
 
           const storedCompanyId =
             typeof window !== "undefined"
@@ -867,6 +882,14 @@ export default function ProjectDetailPage({
             myOrganization: json.myOrganization ?? [],
             collaborators: json.collaborators ?? [],
           });
+
+          if (myUserId) {
+            const mine: Participant[] = (json.myOrganization ?? []).filter(
+              (p: Participant) => p.userId === myUserId,
+            );
+            const roles = Array.from(new Set(mine.map(p => p.role).filter(Boolean)));
+            setActorProjectRoles(roles.length ? roles : null);
+          }
         }
       } catch {
         // optional; safe to ignore for now
@@ -1365,14 +1388,42 @@ export default function ProjectDetailPage({
           {!editProjectMode && (
             <>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                <h1 style={{ marginTop: 0, fontSize: 20 }}>{project.name}</h1>
-                <span style={{ fontSize: 11, color: "#9ca3af" }}>
-                  PID: {project.id}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowPid(true)}
+                  style={{
+                    margin: 0,
+                    padding: 0,
+                    border: "none",
+                    background: "transparent",
+                    fontSize: 20,
+                    fontWeight: 600,
+                    color: "#111827",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  {project.name}
+                </button>
+                {showPid && (
+                  <span style={{ fontSize: 11, color: "#9ca3af" }}>
+                    PID: {project.id}
+                  </span>
+                )}
               </div>
               <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
                 Status: {project.status}
               </p>
+              {actorDisplayName && (
+                <p style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                  You are logged in as {actorDisplayName}
+                  {actorProjectRoles && actorProjectRoles.length > 0 && (
+                    <>
+                      {" "}· Project role(s): {actorProjectRoles.join(", ")}
+                    </>
+                  )}
+                </p>
+              )}
               <p style={{ fontSize: 13, marginTop: 8 }}>
                 {projectMapsUrl && projectAddress ? (
                   <a

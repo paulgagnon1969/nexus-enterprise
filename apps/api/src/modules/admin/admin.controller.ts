@@ -74,6 +74,14 @@ export class AdminController {
     return this.admin.provisionCompanyFromTemplate(actor, { name, templateId });
   }
 
+  // Soft-deactivate an organization (tenant) so it no longer appears in
+  // tenant lists or allows login / company switching. SUPER_ADMIN only.
+  @Post("companies/:id/deactivate")
+  deactivateCompany(@Param("id") companyId: string, @Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.deactivateCompany(actor, companyId);
+  }
+
   // Provision a TRIAL organization from a template (admin-only helper for now).
   @Post("trials/provision")
   provisionTrialCompany(

@@ -45,6 +45,9 @@ export default function SystemOrganizationPage({
     petlEdits: any[];
   } | null>(null);
 
+  const [deactivating, setDeactivating] = useState(false);
+  const [deactivateMessage, setDeactivateMessage] = useState<string | null>(null);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -122,6 +125,47 @@ export default function SystemOrganizationPage({
     () => projects.find(p => p.id === selectedProjectId) ?? null,
     [projects, selectedProjectId],
   );
+
+  const handleDeactivateOrg = async () => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setError("Missing access token. Please login again.");
+      return;
+    }
+    const confirmed = window.confirm(
+      "This will deactivate this organization and remove it from tenant lists. Users will no longer be able to switch into it. Continue?",
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeactivating(true);
+      setDeactivateMessage(null);
+      const res = await fetch(`${API_BASE}/admin/companies/${companyId}/deactivate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to deactivate organization (${res.status}) ${text}`);
+      }
+      setDeactivateMessage(
+        "Organization deactivated. It will no longer appear in tenant lists or allow login.",
+      );
+      // After a brief delay, navigate back to the System overview so the org
+      // disappears from the list.
+      setTimeout(() => {
+        window.location.href = "/system";
+      }, 800);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to deactivate organization");
+    } finally {
+      setDeactivating(false);
+    }
+  };
 
   // Load recent activity dashboard data when a project is selected
   useEffect(() => {
@@ -243,7 +287,36 @@ export default function SystemOrganizationPage({
         >
           {showCompanyId ? "Hide TID" : "Show TID"}
         </button>
+        <button
+          type="button"
+          onClick={handleDeactivateOrg}
+          disabled={deactivating}
+          style={{
+            marginLeft: "auto",
+            padding: "4px 10px",
+            borderRadius: 999,
+            border: "1px solid #fecaca",
+            background: "#fef2f2",
+            color: "#b91c1c",
+            fontSize: 11,
+            cursor: deactivating ? "default" : "pointer",
+          }}
+        >
+          {deactivating ? "Deactivating…" : "Deactivate org"}
+        </button>
       </div>
+      {deactivateMessage && (
+        <p
+          style={{
+            marginTop: 2,
+            marginBottom: 6,
+            fontSize: 11,
+            color: "#16a34a",
+          }}
+        >
+          {deactivateMessage}
+        </p>
+      )}
       {showCompanyId && (
         <div
           style={{

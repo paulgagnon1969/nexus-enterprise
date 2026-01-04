@@ -97,19 +97,47 @@ async function runXactComponentsIngestionJob(prisma: PrismaService, job: any) {
   let estimateVersionId = job.estimateVersionId ?? null;
 
   if (!estimateVersionId) {
-    const latest = await prisma.estimateVersion.findFirst({
-      where: { projectId: job.projectId as string },
+    const projectId = job.projectId as string;
+
+    // Prefer the latest estimate version that actually has SOW/PETL rows so
+    // components attach to the same version that backs the PETL view and
+    // estimate/financial summaries. This avoids mismatches where components
+    // are imported against a placeholder or failed estimate version.
+    let latest = await prisma.estimateVersion.findFirst({
+      where: {
+        projectId,
+        sows: {
+          some: {
+            items: {
+              some: {},
+            },
+          },
+        },
+      },
       orderBy: [
         { sequenceNo: "desc" },
         { importedAt: "desc" },
         { createdAt: "desc" },
       ],
     });
+
+    if (!latest) {
+      latest = await prisma.estimateVersion.findFirst({
+        where: { projectId },
+        orderBy: [
+          { sequenceNo: "desc" },
+          { importedAt: "desc" },
+          { createdAt: "desc" },
+        ],
+      });
+    }
+
     if (!latest) {
       throw new Error(
         "No estimate version found. Import Xactimate raw line items first.",
       );
     }
+
     estimateVersionId = latest.id;
   }
 

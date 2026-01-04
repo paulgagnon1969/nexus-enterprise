@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PageCard } from "../../ui-shell";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -53,10 +54,12 @@ interface MyPortfolioResponse {
 
 
 export default function ProfileSettingsPage() {
+  const router = useRouter();
   const [me, setMe] = useState<MeDto | null>(null);
   const [portfolio, setPortfolio] = useState<PortfolioDto | null>(null);
   const [hr, setHr] = useState<PortfolioHrDto | null>(null);
   const [canViewHr, setCanViewHr] = useState(false);
+  const [hrEnabled, setHrEnabled] = useState(false);
 
   // Public
   const [firstName, setFirstName] = useState("");
@@ -117,6 +120,19 @@ export default function ProfileSettingsPage() {
         setPortfolio(json.portfolio);
         setCanViewHr(!!json.canViewHr);
         setHr(json.hr ?? null);
+
+        // If any sensitive HR data already exists, assume consent has been
+        // given previously and start with the sensitive section enabled.
+        const hasStoredSensitive = !!json.hr && (
+          !!json.hr.hasSsn ||
+          !!json.hr.hasItin ||
+          !!json.hr.hasBankAccount ||
+          !!json.hr.hasBankRouting ||
+          !!json.hr.bankName ||
+          !!json.hr.bankAddress ||
+          !!json.hr.hipaaNotes
+        );
+        setHrEnabled(hasStoredSensitive);
 
         setFirstName(json.user.firstName ?? "");
         setLastName(json.user.lastName ?? "");
@@ -228,8 +244,8 @@ export default function ProfileSettingsPage() {
 
       setMessage("Saved.");
 
-      // Reload so the header initials update.
-      window.location.reload();
+      // After updating your portfolio, continue to update and view skills.
+      router.push("/settings/skills");
     } catch (e: any) {
       setError(e?.message ?? "Save failed");
     } finally {
@@ -415,15 +431,20 @@ export default function ProfileSettingsPage() {
             <div
               style={{
                 flex: "1 1 420px",
-                border: "1px solid var(--color-text)",
+                border: "1px solid #fef3c7", // very light amber/tan border
                 borderRadius: 10,
                 padding: 14,
-                background: "#ffffff",
+                background: "#fffbeb", // very light yellow/tan background
                 minWidth: 320,
+                position: "relative",
+                overflow: "hidden",
               }}
             >
               <div style={{ fontSize: 13, fontWeight: 700, color: "var(--color-text)" }}>
                 My Portfolio — HR ONLY
+                <span style={{ marginLeft: 6, fontSize: 11, color: "#b91c1c", fontWeight: 500 }}>
+                  · Complete HR information for employment
+                </span>
               </div>
               <div style={{ marginTop: 6, fontSize: 12, color: "var(--color-muted)" }}>
                 Private information. Visible to you, HR, and Nexus System Super Users.
@@ -561,137 +582,258 @@ export default function ProfileSettingsPage() {
                     </label>
                   </div>
 
-                  <div style={{ height: 1, background: "var(--color-border-subtle)", margin: "12px 0" }} />
+                  {/* Sensitive section (stored encrypted) — gated with modal overlay */}
+                  <div style={{ marginTop: 12, position: "relative" }}>
+                    <div
+                      style={{
+                        height: 1,
+                        background: "var(--color-border-subtle)",
+                        margin: "12px 0 8px 0",
+                      }}
+                    />
 
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--color-text)" }}>
-                    Sensitive (stored encrypted)
-                  </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: "var(--color-text)",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      <span>Sensitive (stored encrypted)</span>
+                      {hrEnabled && (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            color: "#16a34a",
+                            fontSize: 11,
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 14,
+                              height: 14,
+                              borderRadius: 9999,
+                              background: "#22c55e",
+                              color: "#f9fafb",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 10,
+                              fontWeight: 700,
+                            }}
+                          >
+                            ✓
+                          </span>
+                          <span>Confirmed</span>
+                        </span>
+                      )}
+                    </div>
 
-                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
-                    <label style={{ flex: "1 1 200px" }}>
-                      <div style={{ fontSize: 12, color: "var(--color-muted)" }}>SSN / ITIN</div>
-                      <input
-                        value={ssn}
-                        onChange={e => setSsn(e.target.value)}
-                        placeholder={hr?.ssnLast4 ? `Stored (ends in ${hr.ssnLast4})` : "Enter SSN"}
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
+                      <label style={{ flex: "1 1 200px" }}>
+                        <div style={{ fontSize: 12, color: "var(--color-muted)" }}>SSN / ITIN</div>
+                        <input
+                          value={ssn}
+                          onChange={e => setSsn(e.target.value)}
+                          placeholder={hr?.ssnLast4 ? `Stored (ends in ${hr.ssnLast4})` : "Enter SSN"}
+                          disabled={!hrEnabled}
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: 6,
+                            border: "1px solid #d1d5db",
+                            fontSize: 13,
+                          }}
+                        />
+                        <div style={{ marginTop: 4, fontSize: 11, color: "var(--color-muted)" }}>
+                          Leave blank to keep existing.
+                        </div>
+                      </label>
+
+                      <label style={{ flex: "1 1 200px" }}>
+                        <div style={{ fontSize: 12, color: "var(--color-muted)" }}>ITIN (optional)</div>
+                        <input
+                          value={itin}
+                          onChange={e => setItin(e.target.value)}
+                          placeholder={hr?.itinLast4 ? `Stored (ends in ${hr.itinLast4})` : "Enter ITIN"}
+                          disabled={!hrEnabled}
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: 6,
+                            border: "1px solid #d1d5db",
+                            fontSize: 13,
+                          }}
+                        />
+                        <div style={{ marginTop: 4, fontSize: 11, color: "var(--color-muted)" }}>
+                          Leave blank to keep existing.
+                        </div>
+                      </label>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
+                      <label style={{ flex: "1 1 200px" }}>
+                        <div style={{ fontSize: 12, color: "var(--color-muted)" }}>Bank account #</div>
+                        <input
+                          value={bankAccountNumber}
+                          onChange={e => setBankAccountNumber(e.target.value)}
+                          placeholder={
+                            hr?.bankAccountLast4 ? `Stored (ends in ${hr.bankAccountLast4})` : "Enter account number"
+                          }
+                          disabled={!hrEnabled}
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: 6,
+                            border: "1px solid #d1d5db",
+                            fontSize: 13,
+                          }}
+                        />
+                      </label>
+                      <label style={{ flex: "1 1 200px" }}>
+                        <div style={{ fontSize: 12, color: "var(--color-muted)" }}>Routing #</div>
+                        <input
+                          value={bankRoutingNumber}
+                          onChange={e => setBankRoutingNumber(e.target.value)}
+                          placeholder={
+                            hr?.bankRoutingLast4 ? `Stored (ends in ${hr.bankRoutingLast4})` : "Enter routing number"
+                          }
+                          disabled={!hrEnabled}
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: 6,
+                            border: "1px solid #d1d5db",
+                            fontSize: 13,
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
+                      <label style={{ flex: "1 1 240px" }}>
+                        <div style={{ fontSize: 12, color: "var(--color-muted)" }}>Bank name</div>
+                        <input
+                          value={bankName}
+                          onChange={e => setBankName(e.target.value)}
+                          disabled={!hrEnabled}
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: 6,
+                            border: "1px solid #d1d5db",
+                            fontSize: 13,
+                          }}
+                        />
+                      </label>
+                      <label style={{ flex: "1 1 240px" }}>
+                        <div style={{ fontSize: 12, color: "var(--color-muted)" }}>Bank address</div>
+                        <input
+                          value={bankAddress}
+                          onChange={e => setBankAddress(e.target.value)}
+                          disabled={!hrEnabled}
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: 6,
+                            border: "1px solid #d1d5db",
+                            fontSize: 13,
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    <div style={{ marginTop: 10 }}>
+                      <label>
+                        <div style={{ fontSize: 12, color: "var(--color-muted)" }}>HIPAA / private notes</div>
+                        <textarea
+                          value={hipaaNotes}
+                          onChange={e => setHipaaNotes(e.target.value)}
+                          rows={4}
+                          disabled={!hrEnabled}
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: 6,
+                            border: "1px solid #d1d5db",
+                            fontSize: 13,
+                            resize: "vertical",
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    {canViewHr && !hrEnabled && (
+                      <div
                         style={{
-                          width: "100%",
-                          padding: "8px 10px",
-                          borderRadius: 6,
-                          border: "1px solid #d1d5db",
-                          fontSize: 13,
+                          position: "absolute",
+                          inset: 0,
+                          background: "rgba(15, 23, 42, 0.12)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: 12,
+                          zIndex: 1,
                         }}
-                      />
-                      <div style={{ marginTop: 4, fontSize: 11, color: "var(--color-muted)" }}>
-                        Leave blank to keep existing.
+                      >
+                        <label
+                          style={{
+                            maxWidth: 440,
+                            width: "100%",
+                            borderRadius: 10,
+                            background: "#eff6ff", // light Nexus blue background
+                            border: "1px solid #dbeafe",
+                            padding: 14,
+                            boxShadow: "0 10px 25px rgba(15, 23, 42, 0.2)",
+                            fontSize: 12,
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: 8,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={hrEnabled}
+                            onChange={e => {
+                              const checked = e.target.checked;
+                              setHrEnabled(checked);
+                              try {
+                                if (checked) {
+                                  window.localStorage.setItem("ncc_hr_enabled", "1");
+                                } else {
+                                  window.localStorage.removeItem("ncc_hr_enabled");
+                                }
+                              } catch {
+                                // ignore storage errors
+                              }
+                            }}
+                            style={{ marginTop: 2 }}
+                          />
+                          <div style={{ color: "#0f172a" }}>
+                            <div style={{ fontWeight: 600, color: "#b91c1c" }}>
+                              Click checkbox to complete employment application.
+                              <span style={{ marginLeft: 4 }}>
+                                / Haga clic en la casilla para completar la solicitud de empleo.
+                              </span>
+                            </div>
+                            <div style={{ marginTop: 6, color: "#1f2937" }}>
+                              This section contains sensitive HR details. Your data is encrypted and only you,
+                              your direct manager, authorized HR, and Nexus System Super Users can view it.
+                            </div>
+                            <div style={{ marginTop: 6, fontSize: 11, color: "#374151" }}>
+                              You can still edit your HR contact details above at any time; this checkbox
+                              is only required before entering SSN, banking, or HIPAA-protected information.
+                            </div>
+                          </div>
+                        </label>
                       </div>
-                    </label>
-
-                    <label style={{ flex: "1 1 200px" }}>
-                      <div style={{ fontSize: 12, color: "var(--color-muted)" }}>ITIN (optional)</div>
-                      <input
-                        value={itin}
-                        onChange={e => setItin(e.target.value)}
-                        placeholder={hr?.itinLast4 ? `Stored (ends in ${hr.itinLast4})` : "Enter ITIN"}
-                        style={{
-                          width: "100%",
-                          padding: "8px 10px",
-                          borderRadius: 6,
-                          border: "1px solid #d1d5db",
-                          fontSize: 13,
-                        }}
-                      />
-                      <div style={{ marginTop: 4, fontSize: 11, color: "var(--color-muted)" }}>
-                        Leave blank to keep existing.
-                      </div>
-                    </label>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
-                    <label style={{ flex: "1 1 200px" }}>
-                      <div style={{ fontSize: 12, color: "var(--color-muted)" }}>Bank account #</div>
-                      <input
-                        value={bankAccountNumber}
-                        onChange={e => setBankAccountNumber(e.target.value)}
-                        placeholder={
-                          hr?.bankAccountLast4 ? `Stored (ends in ${hr.bankAccountLast4})` : "Enter account number"
-                        }
-                        style={{
-                          width: "100%",
-                          padding: "8px 10px",
-                          borderRadius: 6,
-                          border: "1px solid #d1d5db",
-                          fontSize: 13,
-                        }}
-                      />
-                    </label>
-                    <label style={{ flex: "1 1 200px" }}>
-                      <div style={{ fontSize: 12, color: "var(--color-muted)" }}>Routing #</div>
-                      <input
-                        value={bankRoutingNumber}
-                        onChange={e => setBankRoutingNumber(e.target.value)}
-                        placeholder={
-                          hr?.bankRoutingLast4 ? `Stored (ends in ${hr.bankRoutingLast4})` : "Enter routing number"
-                        }
-                        style={{
-                          width: "100%",
-                          padding: "8px 10px",
-                          borderRadius: 6,
-                          border: "1px solid #d1d5db",
-                          fontSize: 13,
-                        }}
-                      />
-                    </label>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
-                    <label style={{ flex: "1 1 240px" }}>
-                      <div style={{ fontSize: 12, color: "var(--color-muted)" }}>Bank name</div>
-                      <input
-                        value={bankName}
-                        onChange={e => setBankName(e.target.value)}
-                        style={{
-                          width: "100%",
-                          padding: "8px 10px",
-                          borderRadius: 6,
-                          border: "1px solid #d1d5db",
-                          fontSize: 13,
-                        }}
-                      />
-                    </label>
-                    <label style={{ flex: "1 1 240px" }}>
-                      <div style={{ fontSize: 12, color: "var(--color-muted)" }}>Bank address</div>
-                      <input
-                        value={bankAddress}
-                        onChange={e => setBankAddress(e.target.value)}
-                        style={{
-                          width: "100%",
-                          padding: "8px 10px",
-                          borderRadius: 6,
-                          border: "1px solid #d1d5db",
-                          fontSize: 13,
-                        }}
-                      />
-                    </label>
-                  </div>
-
-                  <div style={{ marginTop: 10 }}>
-                    <label>
-                      <div style={{ fontSize: 12, color: "var(--color-muted)" }}>HIPAA / private notes</div>
-                      <textarea
-                        value={hipaaNotes}
-                        onChange={e => setHipaaNotes(e.target.value)}
-                        rows={4}
-                        style={{
-                          width: "100%",
-                          padding: "8px 10px",
-                          borderRadius: 6,
-                          border: "1px solid #d1d5db",
-                          fontSize: 13,
-                          resize: "vertical",
-                        }}
-                      />
-                    </label>
+                    )}
                   </div>
                 </>
               )}
@@ -716,7 +858,7 @@ export default function ProfileSettingsPage() {
               width: 180,
             }}
           >
-            {saving ? "Saving…" : "Save portfolio"}
+            {saving ? "Saving…" : "Update and view skills"}
           </button>
 
           <section style={{ marginTop: 24 }}>

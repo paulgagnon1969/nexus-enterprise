@@ -1280,14 +1280,36 @@ export class ProjectService {
       }
     }
 
-    const latestVersion = await this.prisma.estimateVersion.findFirst({
-      where: { projectId },
+    // Prefer the same estimate version that backs the PETL grid and summary so
+    // room groupings stay aligned with what the user sees in the PETL tab.
+    let latestVersion = await this.prisma.estimateVersion.findFirst({
+      where: {
+        projectId,
+        sows: {
+          some: {
+            items: {
+              some: {},
+            },
+          },
+        },
+      },
       orderBy: [
         { sequenceNo: "desc" },
         { importedAt: "desc" },
-        { createdAt: "desc" }
-      ]
+        { createdAt: "desc" },
+      ],
     });
+
+    if (!latestVersion) {
+      latestVersion = await this.prisma.estimateVersion.findFirst({
+        where: { projectId },
+        orderBy: [
+          { sequenceNo: "desc" },
+          { importedAt: "desc" },
+          { createdAt: "desc" },
+        ],
+      });
+    }
 
     if (!latestVersion) {
       return { projectId, groups: [] };

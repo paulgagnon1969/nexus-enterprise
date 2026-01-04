@@ -189,6 +189,9 @@ export class AuthService {
       where: { email: { equals: email, mode: "insensitive" } },
       include: {
         memberships: {
+          // NOTE: Once the Prisma client has been regenerated with
+          // Company.deletedAt, we can filter memberships here by
+          // `company.deletedAt: null` to exclude deactivated orgs from login.
           include: {
             company: true,
             profile: { select: { code: true } },
@@ -236,7 +239,7 @@ export class AuthService {
       await this.ensureSuperAdminMemberships(user.id);
     }
 
-    const membership = user.memberships[0];
+    const membership = (user as any).memberships[0];
     if (!membership) {
       throw new UnauthorizedException("User is not a member of any company");
     }
@@ -525,11 +528,22 @@ export class AuthService {
         isTrial: true,
         trialEndsAt: true,
         trialStatus: true,
+        // When the Prisma client has been regenerated, we will also project
+        // deletedAt here to block switching into deactivated orgs.
+        // @ts-expect-error: deletedAt is added in Prisma schema but may not be
+        // in the generated client types until `prisma generate`.
+        deletedAt: true,
       },
     });
 
     if (!company) {
       throw new UnauthorizedException("Company not found");
+    }
+
+    // Once deletedAt is available on the client type, enforce that the target
+    // organization is still active.
+    if ((company as any).deletedAt) {
+      throw new UnauthorizedException("Company not found or inactive");
     }
 
     // Block switching into expired trial organizations unless they have been
