@@ -1,0 +1,1694 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww27140\viewh29960\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 \
+USER:\
+I'd like the walk through\
+\
+AGENT:\
+\
+\
+**Files Read:**\
+\
+**/Users/pg/nexus-enterprise/apps/web/app/api/projects/[projectId]/import-xact/route.ts**\
+```\
+import \{ NextRequest, NextResponse \} from "next/server";\
+import fs from "node:fs/promises";\
+import path from "node:path";\
+import os from "node:os";\
+\
+export const dynamic = "force-dynamic";\
+\
+export async function POST(\
+  req: NextRequest,\
+  context: \{ params: Promise<\{ projectId: string \}> \}\
+) \{\
+  const \{ projectId \} = await context.params;\
+\
+  try \{\
+    const form = await req.formData();\
+    const file = form.get("file");\
+    const tokenField = form.get("accessToken");\
+    const accessToken =\
+      typeof tokenField === "string" ? tokenField : tokenField instanceof File ? await tokenField.text() : undefined;\
+\
+    if (!(file instanceof File)) \{\
+      return NextResponse.json(\
+        \{ error: "Missing file field in form-data" \},\
+        \{ status: 400 \}\
+      );\
+    \}\
+\
+    const arrayBuffer = await file.arrayBuffer();\
+    const buffer = Buffer.from(arrayBuffer);\
+\
+    // Use OS tmp dir (or NCC_UPLOAD_TMP_DIR) so this works on read-only /var/task\
+    const baseTmpDir = process.env.NCC_UPLOAD_TMP_DIR || os.tmpdir();\
+    const uploadDir = path.join(baseTmpDir, "ncc_uploads");\
+    await fs.mkdir(uploadDir, \{ recursive: true \});\
+\
+    const safeName = file.name.replace(/[^a-zA-Z0-9_.-]/g, "_");\
+    const filePath = path.join(\
+      uploadDir,\
+      `$\{projectId\}-$\{Date.now()\}-$\{safeName\}`\
+    );\
+\
+    await fs.writeFile(filePath, buffer);\
+\
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";\
+    const authHeaderFromReq = req.headers.get("authorization") ?? undefined;\
+    const authHeader = accessToken\
+      ? `Bearer $\{accessToken\}`\
+      : authHeaderFromReq;\
+\
+    const isLocalApi = /localhost|127\\.0\\.0\\.1/.test(apiBase);\
+\
+    if (isLocalApi) \{\
+      // Local dev: enqueue an async import job that reads from the shared\
+      // filesystem on the same host as the API/worker.\
+      const endpoint = `$\{apiBase\}/projects/$\{projectId\}/import-jobs/xact-raw`;\
+      const payload = \{ csvPath: filePath \};\
+\
+      const apiRes = await fetch(endpoint, \{\
+        method: "POST",\
+        headers: \{\
+          "Content-Type": "application/json",\
+          ...(authHeader ? \{ Authorization: authHeader \} : \{\}),\
+        \},\
+        body: JSON.stringify(payload),\
+      \});\
+\
+      const json = await apiRes.json().catch(() => (\{\}));\
+\
+      if (!apiRes.ok) \{\
+        return NextResponse.json(\
+          \{ error: "API import failed", detail: json \},\
+          \{ status: apiRes.status \},\
+        );\
+      \}\
+\
+      return NextResponse.json(json, \{ status: 200 \});\
+    \}\
+\
+    // Cloud / remote API path: use GCS signed uploads and URI-based import.\
+    // 1) Ask the API for a signed upload URL in the configured XACT_UPLOADS_BUCKET.\
+    const uploadMetaRes = await fetch(\
+      `$\{apiBase\}/projects/$\{projectId\}/xact-raw/upload-url`,\
+      \{\
+        method: "POST",\
+        headers: \{\
+          "Content-Type": "application/json",\
+          ...(authHeader ? \{ Authorization: authHeader \} : \{\}),\
+        \},\
+        body: JSON.stringify(\{ contentType: file.type || "text/csv" \}),\
+      \},\
+    );\
+\
+    const uploadMeta = await uploadMetaRes.json().catch(() => (\{\} as any));\
+\
+    if (!uploadMetaRes.ok) \{\
+      return NextResponse.json(\
+        \{ error: "Failed to create upload URL", detail: uploadMeta \},\
+        \{ status: uploadMetaRes.status \},\
+      );\
+    \}\
+\
+    const \{ uploadUrl, fileUri \} = uploadMeta as \{\
+      uploadUrl?: string;\
+      fileUri?: string;\
+    \};\
+\
+    if (!uploadUrl || !fileUri) \{\
+      return NextResponse.json(\
+        \{ error: "Upload URL response missing uploadUrl or fileUri" \},\
+        \{ status: 500 \},\
+      );\
+    \}\
+\
+    // 2) Upload the CSV to GCS using the signed URL.\
+    const uploadRes = await fetch(uploadUrl, \{\
+      method: "PUT",\
+      headers: \{\
+        "Content-Type": file.type || "text/csv",\
+      \},\
+      body: buffer,\
+    \});\
+\
+    if (!uploadRes.ok) \{\
+      const text = await uploadRes.text().catch(() => "");\
+      return NextResponse.json(\
+        \{ error: "Upload to storage failed", detail: text || undefined \},\
+        \{ status: uploadRes.status \},\
+      );\
+    \}\
+\
+    // 3) Ask the API to create an XACT_RAW ImportJob from the GCS URI. The\
+    // worker will download and process the file in chunks.\
+    const importRes = await fetch(\
+      `$\{apiBase\}/projects/$\{projectId\}/import-xact-from-uri`,\
+      \{\
+        method: "POST",\
+        headers: \{\
+          "Content-Type": "application/json",\
+          ...(authHeader ? \{ Authorization: authHeader \} : \{\}),\
+        \},\
+        body: JSON.stringify(\{ fileUri \}),\
+      \},\
+    );\
+\
+    const importJson = await importRes.json().catch(() => (\{\}));\
+\
+    if (!importRes.ok) \{\
+      return NextResponse.json(\
+        \{ error: "API import failed", detail: importJson \},\
+        \{ status: importRes.status \},\
+      );\
+    \}\
+\
+    return NextResponse.json(importJson, \{ status: 200 \});\
+  \} catch (err: any) \{\
+    console.error("Error in import-xact route", err);\
+    return NextResponse.json(\
+      \{ error: "Internal error in import route", detail: err?.message ?? String(err) \},\
+      \{ status: 500 \}\
+    );\
+  \}\
+\}\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/apps/web/app/api/projects/[projectId]/import-xact-components/route.ts**\
+```\
+import \{ NextRequest, NextResponse \} from "next/server";\
+import fs from "node:fs/promises";\
+import path from "node:path";\
+import os from "node:os";\
+\
+export const dynamic = "force-dynamic";\
+\
+export async function POST(\
+  req: NextRequest,\
+  context: \{ params: Promise<\{ projectId: string \}> \},\
+) \{\
+  const \{ projectId \} = await context.params;\
+\
+  try \{\
+    const form = await req.formData();\
+    const file = form.get("file");\
+    const tokenField = form.get("accessToken");\
+    const accessToken =\
+      typeof tokenField === "string" ? tokenField : tokenField instanceof File ? await tokenField.text() : undefined;\
+\
+    if (!(file instanceof File)) \{\
+      return NextResponse.json(\
+        \{ error: "Missing file field in form-data" \},\
+        \{ status: 400 \},\
+      );\
+    \}\
+\
+    const arrayBuffer = await file.arrayBuffer();\
+    const buffer = Buffer.from(arrayBuffer);\
+\
+    // Use OS tmp dir (or NCC_UPLOAD_TMP_DIR) so this works on read-only /var/task\
+    const baseTmpDir = process.env.NCC_UPLOAD_TMP_DIR || os.tmpdir();\
+    const uploadDir = path.join(baseTmpDir, "ncc_uploads");\
+    await fs.mkdir(uploadDir, \{ recursive: true \});\
+\
+    const safeName = file.name.replace(/[^a-zA-Z0-9_.-]/g, "_");\
+    const filePath = path.join(\
+      uploadDir,\
+      `$\{projectId\}-$\{Date.now()\}-$\{safeName\}`,\
+    );\
+\
+    await fs.writeFile(filePath, buffer);\
+\
+    const apiBase =\
+      process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";\
+    const authHeaderFromReq = req.headers.get("authorization") ?? undefined;\
+    const authHeader = accessToken\
+      ? `Bearer $\{accessToken\}`\
+      : authHeaderFromReq;\
+\
+    const isLocalApi = /localhost|127\\.0\\.0\\.1/.test(apiBase);\
+\
+    const endpoint = isLocalApi\
+      ? `$\{apiBase\}/projects/$\{projectId\}/import-jobs/xact-components`\
+      : `$\{apiBase\}/projects/$\{projectId\}/import-xact-components`;\
+\
+    const payload = isLocalApi ? \{ csvPath: filePath \} : \{ csvPath: filePath \};\
+\
+    const apiRes = await fetch(endpoint, \{\
+      method: "POST",\
+      headers: \{\
+        "Content-Type": "application/json",\
+        ...(authHeader ? \{ Authorization: authHeader \} : \{\}),\
+      \},\
+      body: JSON.stringify(payload),\
+    \});\
+\
+    const json = await apiRes.json().catch(() => (\{\}));\
+\
+    if (!apiRes.ok) \{\
+      return NextResponse.json(\
+        \{ error: "API components import failed", detail: json \},\
+        \{ status: apiRes.status \},\
+      );\
+    \}\
+\
+    return NextResponse.json(json, \{ status: 200 \});\
+  \} catch (err: any) \{\
+    console.error("Error in import-xact-components route", err);\
+    return NextResponse.json(\
+      \{\
+        error: "Internal error in components import route",\
+        detail: err?.message ?? String(err),\
+      \},\
+      \{ status: 500 \},\
+    );\
+  \}\
+\}\
+\
+```\
+\
+**/Users/pg/nexus-enterprise/apps/web/app/projects/import/page.tsx**\
+```\
+"use client";\
+\
+import \{ FormEvent, useEffect, useState, Suspense \} from "react";\
+import \{ useSearchParams \} from "next/navigation";\
+\
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";\
+\
+interface Project \{\
+  id: string;\
+  name: string;\
+\}\
+\
+function ProjectImportPageInner() \{\
+  const [projects, setProjects] = useState<Project[]>([]);\
+  const [projectId, setProjectId] = useState<string>("");\
+  const [file, setFile] = useState<File | null>(null);\
+  const [loading, setLoading] = useState(false);\
+  const [result, setResult] = useState<any>(null);\
+  const [error, setError] = useState<string | null>(null);\
+  const [progress, setProgress] = useState(0);\
+\
+  const [componentsFile, setComponentsFile] = useState<File | null>(null);\
+  const [componentsLoading, setComponentsLoading] = useState(false);\
+  const [componentsResult, setComponentsResult] = useState<any>(null);\
+  const [componentsError, setComponentsError] = useState<string | null>(null);\
+\
+  // Async import job tracking (local dev / worker mode)\
+  const [rawJobId, setRawJobId] = useState<string | null>(null);\
+  const [rawJob, setRawJob] = useState<any>(null);\
+  const [componentsJobId, setComponentsJobId] = useState<string | null>(null);\
+  const [componentsJob, setComponentsJob] = useState<any>(null);\
+\
+  // Lightweight "script window" logs for RAW and Components jobs so users can\
+  // see progress messages similar to the worker console.\
+  const [rawJobLog, setRawJobLog] = useState<string[]>([]);\
+  const [componentsJobLog, setComponentsJobLog] = useState<string[]>([]);\
+\
+  const isAnyLoading = loading || componentsLoading;\
+\
+  const searchParams = useSearchParams();\
+\
+  useEffect(() => \{\
+    const token = localStorage.getItem("accessToken");\
+    if (!token) return;\
+\
+    async function loadProjects() \{\
+      try \{\
+        const res = await fetch(`$\{API_BASE\}/projects`, \{\
+          headers: \{ Authorization: `Bearer $\{token\}` \}\
+        \});\
+        if (!res.ok) return;\
+        const data: Project[] = await res.json();\
+        setProjects(data);\
+\
+        const fromQuery = searchParams.get("projectId");\
+        if (fromQuery && data.some(p => p.id === fromQuery)) \{\
+          setProjectId(fromQuery);\
+        \}\
+      \} catch \{\
+        // ignore for now\
+      \}\
+    \}\
+\
+    loadProjects();\
+  \}, [searchParams]);\
+\
+  useEffect(() => \{\
+    if (!isAnyLoading) return;\
+\
+    // This progress bar represents *upload + request time*, not the async import job.\
+    // The job progress is shown separately once we receive a jobId.\
+    setProgress(5);\
+\
+    const id = window.setInterval(() => \{\
+      setProgress(prev => \{\
+        if (prev >= 85) return prev;\
+        return Math.min(prev + 4, 85);\
+      \});\
+    \}, 1000);\
+\
+    return () => \{\
+      window.clearInterval(id);\
+      setProgress(100);\
+    \};\
+  \}, [isAnyLoading]);\
+\
+  useEffect(() => \{\
+    if (!rawJobId) return;\
+    const token = localStorage.getItem("accessToken");\
+    if (!token) return;\
+\
+    let done = false;\
+\
+    async function poll() \{\
+      try \{\
+        const res = await fetch(`$\{API_BASE\}/import-jobs/$\{rawJobId\}`, \{\
+          headers: \{ Authorization: `Bearer $\{token\}` \},\
+        \});\
+        if (!res.ok) return;\
+        const json = await res.json();\
+        setRawJob(json);\
+\
+        // Append a concise log line when the job meaningfully changes state.\
+        // Keep the newest entries at the top and limit to the most recent 10.\
+        setRawJobLog(prev => \{\
+          const ts = new Date().toLocaleTimeString();\
+          const status = json?.status as string | undefined;\
+          const msg = (json?.message as string | undefined) ?? "";\
+          const key = `$\{status\}:$\{msg\}`;\
+          const first = prev[0] ?? "";\
+\
+          if (first.includes(key)) \{\
+            return prev;\
+          \}\
+\
+          let line: string | null = null;\
+          if (status === "QUEUED") \{\
+            line = `[$\{ts\}] Job queued`;\
+          \} else if (status === "RUNNING" && msg) \{\
+            line = `[$\{ts\}] $\{msg\}`;\
+          \} else if (status === "SUCCEEDED") \{\
+            line = `[$\{ts\}] RAW import completed successfully`;\
+          \} else if (status === "FAILED") \{\
+            line = `[$\{ts\}] RAW import failed  see error details`;\
+          \}\
+\
+          if (!line) return prev;\
+\
+          // Newest first, at most 10 lines.\
+          return [line, ...prev].slice(0, 10);\
+        \});\
+        if (json?.status === "SUCCEEDED" || json?.status === "FAILED") \{\
+          done = true;\
+        \}\
+      \} catch \{\
+        // ignore\
+      \}\
+    \}\
+\
+    void poll();\
+    const id = window.setInterval(() => \{\
+      if (done) return;\
+      void poll();\
+    \}, 1500);\
+\
+    return () => \{\
+      window.clearInterval(id);\
+      done = true;\
+    \};\
+  \}, [rawJobId]);\
+\
+  useEffect(() => \{\
+    if (!componentsJobId) return;\
+    const token = localStorage.getItem("accessToken");\
+    if (!token) return;\
+\
+    let done = false;\
+\
+    async function poll() \{\
+      try \{\
+        const res = await fetch(`$\{API_BASE\}/import-jobs/$\{componentsJobId\}`, \{\
+          headers: \{ Authorization: `Bearer $\{token\}` \},\
+        \});\
+        if (!res.ok) return;\
+        const json = await res.json();\
+        setComponentsJob(json);\
+\
+        setComponentsJobLog(prev => \{\
+          const ts = new Date().toLocaleTimeString();\
+          const status = json?.status as string | undefined;\
+          const msg = (json?.message as string | undefined) ?? "";\
+          const key = `$\{status\}:$\{msg\}`;\
+          const first = prev[0] ?? "";\
+\
+          if (first.includes(key)) \{\
+            return prev;\
+          \}\
+\
+          let line: string | null = null;\
+          if (status === "QUEUED") \{\
+            line = `[$\{ts\}] Job queued`;\
+          \} else if (status === "RUNNING" && msg) \{\
+            line = `[$\{ts\}] $\{msg\}`;\
+          \} else if (status === "SUCCEEDED") \{\
+            line = `[$\{ts\}] Components import and allocation completed successfully`;\
+          \} else if (status === "FAILED") \{\
+            line = `[$\{ts\}] Components import failed  see error details`;\
+          \}\
+\
+          if (!line) return prev;\
+\
+          // Newest first, at most 10 lines.\
+          return [line, ...prev].slice(0, 10);\
+        \});\
+        if (json?.status === "SUCCEEDED" || json?.status === "FAILED") \{\
+          done = true;\
+        \}\
+      \} catch \{\
+        // ignore\
+      \}\
+    \}\
+\
+    void poll();\
+    const id = window.setInterval(() => \{\
+      if (done) return;\
+      void poll();\
+    \}, 1500);\
+\
+    return () => \{\
+      window.clearInterval(id);\
+      done = true;\
+    \};\
+  \}, [componentsJobId]);\
+\
+  async function performRawImport(): Promise<boolean> \{\
+    setError(null);\
+    setResult(null);\
+\
+    if (!projectId) \{\
+      setError("Please choose a project to import into.");\
+      return false;\
+    \}\
+\
+    if (!file) \{\
+      setError("Please choose a CSV file to upload.");\
+      return false;\
+    \}\
+\
+    try \{\
+      setLoading(true);\
+      setProgress(0);\
+      const token = localStorage.getItem("accessToken");\
+      if (!token) \{\
+        setError("Missing access token. Please login again.");\
+        return false;\
+      \}\
+\
+      const isLocalApi = /localhost|127\\.0\\.0\\.1/.test(API_BASE);\
+\
+      if (isLocalApi) \{\
+        // Local dev: use the Next.js route which writes to local disk and\
+        // enqueues an async ImportJob via the API.\
+        const form = new FormData();\
+        form.append("file", file);\
+        form.append("accessToken", token);\
+\
+        const res = await fetch(`/api/projects/$\{projectId\}/import-xact`, \{\
+          method: "POST",\
+          headers: \{\
+            Authorization: `Bearer $\{token\}`,\
+          \},\
+          body: form,\
+        \});\
+\
+        const json = await res.json().catch(() => null);\
+\
+        if (!res.ok) \{\
+          setError(\
+            `Import failed: $\{\
+              json ? JSON.stringify(json) : `$\{res.status\} $\{res.statusText\}`\
+            \}`,\
+          );\
+          return false;\
+        \}\
+\
+        setResult(json);\
+\
+        if (json?.jobId) \{\
+          setRawJobId(String(json.jobId));\
+          if (componentsFile && !componentsJobId) \{\
+            void performComponentsImport();\
+          \}\
+          return true;\
+        \}\
+\
+        alert("Import complete. Opening PETL list for this project\'85");\
+        window.location.href = `/projects/$\{projectId\}?tab=PETL`;\
+        return true;\
+      \}\
+\
+      // Prod / remote API: use signed upload URL + ImportJob from fileUri.\
+      const uploadUrlRes = await fetch(\
+        `$\{API_BASE\}/projects/$\{projectId\}/xact-raw/upload-url`,\
+        \{\
+          method: "POST",\
+          headers: \{\
+            "Content-Type": "application/json",\
+            Authorization: `Bearer $\{token\}`,\
+          \},\
+          body: JSON.stringify(\{ contentType: file.type || "text/csv" \}),\
+        \},\
+      );\
+\
+      const uploadUrlJson = await uploadUrlRes.json().catch(() => null);\
+      if (!uploadUrlRes.ok || !uploadUrlJson?.uploadUrl || !uploadUrlJson?.fileUri) \{\
+        setError(\
+          `Import failed (upload-url): $\{\
+            uploadUrlJson\
+              ? JSON.stringify(uploadUrlJson)\
+              : `$\{uploadUrlRes.status\} $\{uploadUrlRes.statusText\}`\
+          \}`,\
+        );\
+        return false;\
+      \}\
+\
+      const \{ uploadUrl, fileUri \} = uploadUrlJson as \{\
+        uploadUrl: string;\
+        fileUri: string;\
+      \};\
+\
+      // Upload CSV directly to storage.\
+      const uploadRes = await fetch(uploadUrl, \{\
+        method: "PUT",\
+        headers: \{\
+          "Content-Type": file.type || "text/csv",\
+        \},\
+        body: file,\
+      \});\
+\
+      if (!uploadRes.ok) \{\
+        setError(\
+          `Import failed (upload PUT): $\{uploadRes.status\} $\{uploadRes.statusText\}`,\
+        );\
+        return false;\
+      \}\
+\
+      // Ask API to create ImportJob from fileUri, which the worker will\
+      // download from storage and process.\
+      const startRes = await fetch(\
+        `$\{API_BASE\}/projects/$\{projectId\}/import-xact-from-uri`,\
+        \{\
+          method: "POST",\
+          headers: \{\
+            "Content-Type": "application/json",\
+            Authorization: `Bearer $\{token\}`,\
+          \},\
+          body: JSON.stringify(\{ fileUri \}),\
+        \},\
+      );\
+\
+      const startJson = await startRes.json().catch(() => null);\
+      if (!startRes.ok || !startJson?.jobId) \{\
+        setError(\
+          `Import failed (start job): $\{\
+            startJson\
+              ? JSON.stringify(startJson)\
+              : `$\{startRes.status\} $\{startRes.statusText\}`\
+          \}`,\
+        );\
+        return false;\
+      \}\
+\
+      setResult(startJson);\
+\
+      setRawJobId(String(startJson.jobId));\
+      if (componentsFile && !componentsJobId) \{\
+        void performComponentsImport();\
+      \}\
+      return true;\
+    \} catch (err: any) \{\
+      setError(err.message ?? String(err));\
+      return false;\
+    \} finally \{\
+      setLoading(false);\
+    \}\
+  \}\
+\
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) \{\
+    e.preventDefault();\
+    void performRawImport();\
+  \}\
+\
+  async function performComponentsImport(): Promise<boolean> \{\
+    setComponentsError(null);\
+    setComponentsResult(null);\
+\
+    if (!projectId) \{\
+      setComponentsError("Please choose a project first.");\
+      return false;\
+    \}\
+\
+    if (!componentsFile) \{\
+      setComponentsError("Please choose a components CSV file to upload.");\
+      return false;\
+    \}\
+\
+    try \{\
+      setComponentsLoading(true);\
+      const token = localStorage.getItem("accessToken");\
+      if (!token) \{\
+        setComponentsError("Missing access token. Please login again.");\
+        return false;\
+      \}\
+\
+      const form = new FormData();\
+      form.append("file", componentsFile);\
+      form.append("accessToken", token);\
+\
+      const res = await fetch(\
+        `/api/projects/$\{projectId\}/import-xact-components`,\
+        \{\
+          method: "POST",\
+          headers: \{\
+            Authorization: `Bearer $\{token\}`,\
+          \},\
+          body: form,\
+        \},\
+      );\
+\
+      const json = await res.json().catch(() => null);\
+\
+      if (!res.ok) \{\
+        setComponentsError(\
+          `Components import failed: $\{\
+            json ? JSON.stringify(json) : `$\{res.status\} $\{res.statusText\}`\
+          \}`,\
+        );\
+        return false;\
+      \}\
+\
+      setComponentsResult(json);\
+\
+      if (json?.jobId) \{\
+        setComponentsJobId(String(json.jobId));\
+      \}\
+\
+      return true;\
+    \} catch (err: any) \{\
+      setComponentsError(err.message ?? String(err));\
+      return false;\
+    \} finally \{\
+      setComponentsLoading(false);\
+    \}\
+  \}\
+\
+  async function handleComponentsSubmit(e: FormEvent<HTMLFormElement>) \{\
+    e.preventDefault();\
+\
+    // If both CSVs are selected and we have not yet kicked off a RAW import job\
+    // in this session, run the RAW import first so that Components always has\
+    // an estimate version and PETL rows to attach to.\
+    if (file && !rawJobId) \{\
+      const ok = await performRawImport();\
+      if (!ok) \{\
+        return;\
+      \}\
+    \}\
+\
+    void performComponentsImport();\
+  \}\
+\
+  return (\
+    <div\
+      style=\{\{\
+        display: "flex",\
+        justifyContent: "center",\
+        alignItems: "flex-start",\
+        paddingTop: 32,\
+        position: "relative",\
+      \}\}\
+    >\
+      <form\
+        onSubmit=\{handleSubmit\}\
+        className="app-card"\
+        style=\{\{\
+          width: 560,\
+          maxWidth: "100%",\
+          padding: 24,\
+          display: "flex",\
+          flexDirection: "column",\
+          gap: 12,\
+          fontSize: 13\
+        \}\}\
+      >\
+        <h1 style=\{\{ fontSize: 18, fontWeight: 600, margin: 0 \}\}>Import project CSVs</h1>\
+        <p style=\{\{ fontSize: 12, color: "#6b7280", margin: 0 \}\}>\
+          Upload your Xactimate exports to populate estimate data for an existing\
+          project.\
+        </p>\
+\
+        <label style=\{\{ marginTop: 8, fontSize: 13 \}\}>\
+          <span style=\{\{ display: "block", marginBottom: 4 \}\}>Project</span>\
+          <select\
+            value=\{projectId\}\
+            onChange=\{e => setProjectId(e.target.value)\}\
+            style=\{\{\
+              width: "100%",\
+              padding: "6px 8px",\
+              borderRadius: 6,\
+              border: "1px solid #d1d5db",\
+              fontSize: 13\
+            \}\}\
+          >\
+            <option value="">Select a project\'85</option>\
+            \{projects.map(p => (\
+              <option key=\{p.id\} value=\{p.id\}>\
+                \{p.name\}\
+              </option>\
+            ))\}\
+          </select>\
+        </label>\
+\
+        <label style=\{\{ fontSize: 13 \}\}>\
+          <span style=\{\{ display: "block", marginBottom: 4 \}\}>\
+            Step 1 \'96 Estimate line items CSV (RAW)\
+          </span>\
+          <input\
+            type="file"\
+            accept=".csv,text/csv"\
+            onChange=\{e => setFile(e.target.files?.[0] ?? null)\}\
+            style=\{\{ marginTop: 2, fontSize: 12 \}\}\
+          />\
+        </label>\
+\
+        \{error && (\
+          <div style=\{\{ color: "#b91c1c", fontSize: 12 \}\}>\{error\}</div>\
+        )\}\
+\
+        <button\
+          type="submit"\
+          disabled=\{loading\}\
+          style=\{\{\
+            marginTop: 8,\
+            padding: "8px 12px",\
+            borderRadius: 6,\
+            border: "none",\
+            backgroundColor: loading ? "#e5e7eb" : "#2563eb",\
+            color: loading ? "#4b5563" : "#f9fafb",\
+            fontSize: 13,\
+            fontWeight: 500,\
+            cursor: loading ? "default" : "pointer"\
+          \}\}\
+        >\
+          \{loading ? "Importing\'85" : "Upload & import"\}\
+        </button>\
+\
+        \{rawJobId && (\
+          <div style=\{\{ marginTop: 8, fontSize: 12 \}\}>\
+            <div style=\{\{ fontWeight: 600, marginBottom: 4 \}\}>\
+              RAW import job: \{rawJobId\}\
+            </div>\
+            <div style=\{\{ color: "#6b7280", marginBottom: 6 \}\}>\
+              Status: \{rawJob?.status ?? "\'85"\} \'b7 Progress: \{rawJob?.progress ?? 0\}%\
+              \{rawJob?.message ? ` \'b7 $\{rawJob.message\}` : ""\}\
+            </div>\
+            \{rawJob?.status === "SUCCEEDED" && (\
+              <div\
+                style=\{\{\
+                  marginBottom: 6,\
+                  padding: 8,\
+                  borderRadius: 6,\
+                  backgroundColor: "#ecfdf3",\
+                  border: "1px solid #16a34a",\
+                  color: "#166534",\
+                \}\}\
+              >\
+                RAW import complete. Completed at\{" "\}\
+                \{new Date(rawJob.finishedAt ?? rawJob.updatedAt ?? Date.now()).toLocaleString()\}\
+                . You can safely leave this page or open the project to review\
+                PETL.\
+              </div>\
+            )\}\
+            \{rawJob?.status === "FAILED" && (\
+              <div\
+                style=\{\{\
+                  marginBottom: 6,\
+                  padding: 8,\
+                  borderRadius: 6,\
+                  backgroundColor: "#fef2f2",\
+                  border: "1px solid #b91c1c",\
+                  color: "#991b1b",\
+                \}\}\
+              >\
+                RAW import failed. Completed at\{" "\}\
+                \{new Date(rawJob.finishedAt ?? rawJob.updatedAt ?? Date.now()).toLocaleString()\}\
+                . Please check the job details and try again.\
+              </div>\
+            )\}\
+\
+            \{/* RAW job script window */\}\
+            <div\
+              style=\{\{\
+                marginTop: 4,\
+                padding: 8,\
+                borderRadius: 6,\
+                backgroundColor: "#020617",\
+                border: "1px solid #1f2937",\
+                color: "#e5e7eb",\
+                fontFamily:\
+                  "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",\
+                fontSize: 11,\
+                maxHeight: 120,\
+                overflowY: "auto",\
+              \}\}\
+            >\
+              \{rawJobLog.length === 0 ? (\
+                <div>\
+                  [\{new Date().toLocaleTimeString()\}] Waiting for worker\'85\
+                </div>\
+              ) : (\
+                rawJobLog.map((line, idx) => (\
+                  <div key=\{idx\}>\{line\}</div>\
+                ))\
+              )\}\
+            </div>\
+\
+            <div\
+              style=\{\{\
+                width: "100%",\
+                height: 8,\
+                borderRadius: 999,\
+                backgroundColor: "#e5e7eb",\
+                overflow: "hidden",\
+              \}\}\
+            >\
+              <div\
+                style=\{\{\
+                  width: `$\{rawJob?.progress ?? 0\}%`,\
+                  height: "100%",\
+                  backgroundColor:\
+                    rawJob?.status === "FAILED" ? "#ef4444" : "#2563eb",\
+                  transition: "width 0.4s ease-out",\
+                \}\}\
+              />\
+            </div>\
+          </div>\
+        )\}\
+\
+        \{result && (\
+          <pre\
+            style=\{\{\
+              marginTop: 8,\
+              backgroundColor: "#111827",\
+              color: "#e5e7eb",\
+              padding: 12,\
+              borderRadius: 6,\
+              fontSize: 11,\
+              maxHeight: 240,\
+              overflow: "auto"\
+            \}\}\
+          >\
+            \{JSON.stringify(result, null, 2)\}\
+          </pre>\
+        )\}\
+\
+        <hr style=\{\{ marginTop: 20, marginBottom: 12, borderColor: "#e5e7eb" \}\} />\
+\
+        <div\
+          style=\{\{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 \}\}\
+        >\
+          <div style=\{\{ fontWeight: 600 \}\}>Step 2 \'96 Components CSV (optional but recommended)</div>\
+          <p style=\{\{ fontSize: 12, color: "#6b7280", margin: 0 \}\}>\
+            Import the Xactimate components CSV to break each task into precise\
+            materials, labor, and equipment components.\
+          </p>\
+\
+          <label style=\{\{ fontSize: 13 \}\}>\
+            <span style=\{\{ display: "block", marginBottom: 4 \}\}>Components CSV file</span>\
+            <input\
+              type="file"\
+              accept=".csv,text/csv"\
+              onChange=\{e => setComponentsFile(e.target.files?.[0] ?? null)\}\
+              style=\{\{ marginTop: 2, fontSize: 12 \}\}\
+            />\
+          </label>\
+\
+          \{componentsError && (\
+            <div style=\{\{ color: "#b91c1c", fontSize: 12 \}\}>\{componentsError\}</div>\
+          )\}\
+\
+          <button\
+            type="button"\
+            disabled=\{componentsLoading\}\
+            style=\{\{\
+              marginTop: 4,\
+              padding: "6px 10px",\
+              borderRadius: 6,\
+              border: "none",\
+              backgroundColor: componentsLoading ? "#e5e7eb" : "#0f172a",\
+              color: componentsLoading ? "#4b5563" : "#f9fafb",\
+              fontSize: 13,\
+              fontWeight: 500,\
+              cursor: componentsLoading ? "default" : "pointer",\
+            \}\}\
+            onClick=\{e => \{\
+              // Reuse the same handler but avoid nested form semantics\
+              void handleComponentsSubmit(e as any);\
+            \}\}\
+          >\
+            \{componentsLoading ? "Importing components\'85" : "Upload components CSV"\}\
+          </button>\
+\
+          \{componentsJobId && (\
+            <div style=\{\{ marginTop: 8, fontSize: 12 \}\}>\
+              <div style=\{\{ fontWeight: 600, marginBottom: 4 \}\}>\
+                Components import job: \{componentsJobId\}\
+              </div>\
+              <div style=\{\{ color: "#6b7280", marginBottom: 6 \}\}>\
+                Status: \{componentsJob?.status ?? "\'85"\} \'b7 Progress: \{componentsJob?.progress ?? 0\}%\
+                \{componentsJob?.message ? ` \'b7 $\{componentsJob.message\}` : ""\}\
+              </div>\
+              \{componentsJob?.status === "SUCCEEDED" && (\
+                <div\
+                  style=\{\{\
+                    marginBottom: 6,\
+                    padding: 8,\
+                    borderRadius: 6,\
+                    backgroundColor: "#ecfdf3",\
+                    border: "1px solid #16a34a",\
+                    color: "#166534",\
+                  \}\}\
+                >\
+                  Components import complete. Completed at\{" "\}\
+                  \{new Date(\
+                    componentsJob.finishedAt ?? componentsJob.updatedAt ?? Date.now(),\
+                  ).toLocaleString()\}\
+                  . Component breakdowns are now available in the project.\
+                </div>\
+              )\}\
+              \{componentsJob?.status === "FAILED" && (\
+                <div\
+                  style=\{\{\
+                    marginBottom: 6,\
+                    padding: 8,\
+                    borderRadius: 6,\
+                    backgroundColor: "#fef2f2",\
+                    border: "1px solid #b91c1c",\
+                    color: "#b91c1c",\
+                  \}\}\
+                >\
+                  Components import failed. Completed at\{" "\}\
+                  \{new Date(\
+                    componentsJob.finishedAt ?? componentsJob.updatedAt ?? Date.now(),\
+                  ).toLocaleString()\}\
+                  . Please check the job details and try again.\
+                </div>\
+              )\}\
+\
+              \{/* Components job script window */\}\
+              <div\
+                style=\{\{\
+                  marginTop: 4,\
+                  padding: 8,\
+                  borderRadius: 6,\
+                  backgroundColor: "#020617",\
+                  border: "1px solid #1f2937",\
+                  color: "#e5e7eb",\
+                  fontFamily:\
+                    "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",\
+                  fontSize: 11,\
+                  maxHeight: 120,\
+                  overflowY: "auto",\
+                \}\}\
+              >\
+                \{componentsJobLog.length === 0 ? (\
+                  <div>\
+                    [\{new Date().toLocaleTimeString()\}] Waiting for worker\'85\
+                  </div>\
+                ) : (\
+                  componentsJobLog.map((line, idx) => (\
+                    <div key=\{idx\}>\{line\}</div>\
+                  ))\
+                )\}\
+              </div>\
+\
+              <div\
+                style=\{\{\
+                  width: "100%",\
+                  height: 8,\
+                  borderRadius: 999,\
+                  backgroundColor: "#e5e7eb",\
+                  overflow: "hidden",\
+                \}\}\
+              >\
+                <div\
+                  style=\{\{\
+                    width: `$\{componentsJob?.progress ?? 0\}%`,\
+                    height: "100%",\
+                    backgroundColor:\
+                      componentsJob?.status === "FAILED" ? "#ef4444" : "#0f172a",\
+                    transition: "width 0.4s ease-out",\
+                  \}\}\
+                />\
+              </div>\
+            </div>\
+          )\}\
+\
+          \{componentsResult && (\
+            <pre\
+              style=\{\{\
+                marginTop: 8,\
+                backgroundColor: "#111827",\
+                color: "#e5e7eb",\
+                padding: 12,\
+                borderRadius: 6,\
+                fontSize: 11,\
+                maxHeight: 200,\
+                overflow: "auto",\
+              \}\}\
+            >\
+              \{JSON.stringify(componentsResult, null, 2)\}\
+            </pre>\
+          )\}\
+        </div>\
+      </form>\
+\
+      \{isAnyLoading && (\
+        <div\
+          style=\{\{\
+            position: "absolute",\
+            inset: 0,\
+            backgroundColor: "rgba(15,23,42,0.45)",\
+            display: "flex",\
+            alignItems: "center",\
+            justifyContent: "center",\
+            zIndex: 20,\
+          \}\}\
+        >\
+          <div\
+            className="app-card"\
+            style=\{\{\
+              padding: 16,\
+              borderRadius: 8,\
+              maxWidth: 360,\
+              textAlign: "center",\
+              fontSize: 13,\
+            \}\}\
+          >\
+            <div style=\{\{ fontWeight: 600, marginBottom: 8 \}\}>Importing CSV\'85</div>\
+            <div style=\{\{ color: "#6b7280", marginBottom: 4 \}\}>\
+              We\'92re processing your Xactimate file. This can take a little while for\
+              large projects.\
+            </div>\
+            <div\
+              style=\{\{\
+                marginTop: 8,\
+                width: "100%",\
+                height: 8,\
+                borderRadius: 999,\
+                backgroundColor: "#e5e7eb",\
+                overflow: "hidden",\
+              \}\}\
+            >\
+              <div\
+                style=\{\{\
+                  width: `$\{progress\}%`,\
+                  height: "100%",\
+                  backgroundColor: "#2563eb",\
+                  transition: "width 0.4s ease-out",\
+                \}\}\
+              />\
+            </div>\
+            <div style=\{\{ color: "#9ca3af", marginTop: 4 \}\}>\{progress\}% complete (upload)</div>\
+            <div style=\{\{ color: "#9ca3af", marginTop: 2 \}\}>\
+              You can keep working once the upload finishes; processing runs in the background.\
+            </div>\
+          </div>\
+        </div>\
+      )\}\
+    </div>\
+  );\
+\}\
+\
+export default function ProjectImportPage() \{\
+  return (\
+    <Suspense fallback=\{<div style=\{\{ padding: 32 \}\}>Loading project import\'85</div>\}>\
+      <ProjectImportPageInner />\
+    </Suspense>\
+  );\
+\}\
+\
+```\
+\
+\
+\
+Here\'92s the end-to-end walkthrough for the **Xact RAW** flow, then the **components** flow.\
+\
+---\
+\
+## A. Xact RAW import: UI \uc0\u8594  API \u8594  worker \u8594  Postgres\
+\
+### 1) User uploads CSV in the web UI\
+\
+File: `apps/web/app/projects/import/page.tsx`\
+\
+- The \'93Step 1 \'96 Estimate line items CSV (RAW)\'94 form calls `performRawImport()` on submit:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/web/app/projects/import/page.tsx" start=215 end=236\
+  async function performRawImport(): Promise<boolean> \{\
+    // ... validation ...\
+\
+    const isLocalApi = /localhost|127\\.0\\.0\\.1/.test(API_BASE);\
+\
+    if (isLocalApi) \{\
+      // Local dev: use the Next.js route\
+      const form = new FormData();\
+      form.append("file", file);\
+      form.append("accessToken", token);\
+\
+      const res = await fetch(`/api/projects/$\{projectId\}/import-xact`, \{\
+        method: "POST",\
+        headers: \{ Authorization: `Bearer $\{token\}` \},\
+        body: form,\
+      \});\
+\
+      const json = await res.json().catch(() => null);\
+      // if ok, json?.jobId => setRawJobId(...)\
+    \}\
+    // else: prod path with signed upload URL (see below)\
+  \}\
+```\
+**Local dev path:** hits the Next.js route `/api/projects/[projectId]/import-xact`.\
+\
+**Prod path:** uploads to GCS then calls an API endpoint (`/projects/:projectId/import-xact-from-uri`) that creates a job using a `fileUri`. The worker later downloads that URI.\
+\
+---\
+\
+### 2) Next.js route writes CSV to tmp and calls API\
+\
+File: `apps/web/app/api/projects/[projectId]/import-xact/route.ts`\
+\
+- Receives the multipart form, extracts `file` and optionally `accessToken`.\
+- Writes the file to a temp location on disk:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/web/app/api/projects/[projectId]/import-xact/route.ts" start=28 end=38\
+  const arrayBuffer = await file.arrayBuffer();\
+  const buffer = Buffer.from(arrayBuffer);\
+\
+  const baseTmpDir = process.env.NCC_UPLOAD_TMP_DIR || os.tmpdir();\
+  const uploadDir = path.join(baseTmpDir, "ncc_uploads");\
+  await fs.mkdir(uploadDir, \{ recursive: true \});\
+\
+  const safeName = file.name.replace(/[^a-zA-Z0-9_.-]/g, "_");\
+  const filePath = path.join(uploadDir, `$\{projectId\}-$\{Date.now()\}-$\{safeName\}`);\
+\
+  await fs.writeFile(filePath, buffer);\
+```\
+- Figures out the API base and auth header:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/web/app/api/projects/[projectId]/import-xact/route.ts" start=44 end=48\
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";\
+  const authHeaderFromReq = req.headers.get("authorization") ?? undefined;\
+  const authHeader = accessToken ? `Bearer $\{accessToken\}` : authHeaderFromReq;\
+\
+  const isLocalApi = /localhost|127\\.0\\.0\\.1/.test(apiBase);\
+```\
+- **Local API case**: calls the Nest API import\uc0\u8209 jobs endpoint with a `csvPath`:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/web/app/api/projects/[projectId]/import-xact/route.ts" start=52 end=66\
+  if (isLocalApi) \{\
+    const endpoint = `$\{apiBase\}/projects/$\{projectId\}/import-jobs/xact-raw`;\
+    const payload = \{ csvPath: filePath \};\
+\
+    const apiRes = await fetch(endpoint, \{\
+      method: "POST",\
+      headers: \{\
+        "Content-Type": "application/json",\
+        ...(authHeader ? \{ Authorization: authHeader \} : \{\}),\
+      \},\
+      body: JSON.stringify(payload),\
+    \});\
+    const json = await apiRes.json().catch(() => (\{\}));\
+    return NextResponse.json(json, \{ status: 200 \});\
+  \}\
+```\
+- **Remote API case**: requests a signed upload URL, uploads to GCS, then calls `/projects/:projectId/import-xact-from-uri` and passes `fileUri` instead of `csvPath`. That code ultimately feeds into the same worker flow, using the GCS download helper.\
+\
+---\
+\
+### 3) API controller creates an ImportJob\
+\
+File: `apps/api/src/modules/import-jobs/import-jobs.controller.ts`\
+\
+- The `xact-raw` route:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/modules/import-jobs/import-jobs.controller.ts" start=13 end=31\
+  @Roles(Role.OWNER, Role.ADMIN)\
+  @Post("xact-raw")\
+  async enqueueXactRaw(\
+    @Req() req: any,\
+    @Param("projectId") projectId: string,\
+    @Body() dto: CreateXactRawImportJobDto\
+  ) \{\
+    const user = req.user as AuthenticatedUser;\
+\
+    const job = await this.jobs.createJob(\{\
+      companyId: user.companyId,\
+      projectId,\
+      createdByUserId: user.userId,\
+      type: ImportJobType.XACT_RAW,\
+      csvPath: dto.csvPath\
+    \});\
+\
+    return \{ jobId: job.id \};\
+  \}\
+```\
+This is where the API first \'93receives\'94 the CSV path (`csvPath` on the same host as the API/worker). In the GCS case, the `createJob` call will use `fileUri` instead.\
+\
+---\
+\
+### 4) ImportJobsService persists job + enqueues BullMQ message\
+\
+File: `apps/api/src/modules/import-jobs/import-jobs.service.ts`\
+\
+- `createJob` validates, creates an `importJob` record, and pushes a Bull job:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/modules/import-jobs/import-jobs.service.ts" start=39 end=72\
+  const normalizedCsvPath = csvPath?.trim();\
+  const normalizedFileUri = fileUri?.trim();\
+\
+  const requiresFile = type !== ImportJobType.XACT_COMPONENTS_ALLOCATE;\
+\
+  if (requiresFile && !normalizedCsvPath && !normalizedFileUri) \{\
+    throw new BadRequestException("csvPath or fileUri is required");\
+  \}\
+\
+  const job = await this.prisma.importJob.create(\{\
+    data: \{\
+      companyId,\
+      projectId,\
+      createdByUserId,\
+      type,\
+      status: ImportJobStatus.QUEUED,\
+      progress: 0,\
+      csvPath: normalizedCsvPath || null,\
+      fileUri: normalizedFileUri || null,\
+      estimateVersionId: estimateVersionId?.trim() || null\
+    \}\
+  \});\
+\
+  const queue = getImportQueue();\
+  await queue.add(\
+    "process",\
+    \{ importJobId: job.id \},\
+    \{\
+      attempts: 1,\
+      removeOnComplete: 1000,\
+      removeOnFail: 1000,\
+      priority,\
+    \}\
+  );\
+```\
+At this point:\
+\
+- The CSV is on disk (local) or in GCS (remote).\
+- A DB row in `importJob` references it.\
+- A BullMQ job is queued with `\{ importJobId \}`.\
+\
+---\
+\
+### 5) Worker picks up the Bull job and resolves the CSV source\
+\
+File: `apps/api/src/worker.ts`\
+\
+- Worker wiring:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/worker.ts" start=708 end=728\
+  export async function startWorker() \{\
+    const app = await NestFactory.createApplicationContext(AppModule, \{\
+      logger: ["log", "warn", "error"],\
+    \});\
+\
+    const prisma = app.get(PrismaService);\
+\
+    const worker = new Worker<ImportJobPayload>(\
+      IMPORT_QUEUE_NAME,\
+      async (bullJob: Job<ImportJobPayload>) => \{\
+        const data = bullJob.data;\
+        if ((data as ChunkJobPayload).kind === "chunk") \{\
+          await processImportChunk(prisma, data as ChunkJobPayload);\
+        \} else \{\
+          await processImportJob(prisma, (data as ParentJobPayload).importJobId);\
+        \}\
+      \},\
+      \{ connection: getBullRedisConnection(), concurrency: Number(process.env.IMPORT_WORKER_CONCURRENCY || 1) \},\
+    );\
+    // ...\
+  \}\
+```\
+- `processImportJob` loads the `importJob` row and ensures it has a CSV source:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/worker.ts" start=359 end=386\
+  async function processImportJob(prisma: PrismaService, importJobId: string) \{\
+    const job = await prisma.importJob.findUnique(\{ where: \{ id: importJobId \} \});\
+\
+    await prisma.importJob.update(\{\
+      where: \{ id: importJobId \},\
+      data: \{\
+        status: ImportJobStatus.RUNNING,\
+        startedAt: new Date(),\
+        progress: 5,\
+        message: "Starting import...",\
+      \},\
+    \});\
+\
+    const csvPath = job.csvPath?.trim();\
+    const fileUri = job.fileUri?.trim();\
+\
+    if (\
+      job.type !== ImportJobType.XACT_COMPONENTS_ALLOCATE &&\
+      !csvPath &&\
+      !fileUri\
+    ) \{\
+      throw new Error("Import job has no csvPath or fileUri to read from");\
+    \}\
+\
+    if (csvPath && !fs.existsSync(csvPath)) \{\
+      throw new Error(`CSV not found at $\{csvPath\}`);\
+    \}\
+  \}\
+```\
+- For **XACT_RAW** jobs, it may download from GCS, then calls the DB helper:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/worker.ts" start=400 end=434\
+  if (job.type === ImportJobType.XACT_RAW) \{\
+    // ...logging...\
+\
+    if (!job.projectId) \{\
+      throw new Error("XACT_RAW import job is missing projectId");\
+    \}\
+\
+    let effectiveCsvPath = csvPath;\
+\
+    if ((!effectiveCsvPath || !effectiveCsvPath.trim()) && job.fileUri) \{\
+      // GCS \uc0\u8594  tmp file\
+      effectiveCsvPath = await downloadGcsToTmp(job.fileUri);\
+    \}\
+\
+    if (!effectiveCsvPath || !effectiveCsvPath.trim()) \{\
+      throw new Error("XACT_RAW import job has no csvPath or fileUri to read from");\
+    \}\
+\
+    const result = await importXactCsvForProject(\{\
+      projectId: job.projectId,\
+      csvPath: effectiveCsvPath,\
+      importedByUserId: job.createdByUserId,\
+    \});\
+\
+    await prisma.importJob.update(\{\
+      where: \{ id: importJobId \},\
+      data: \{\
+        status: ImportJobStatus.SUCCEEDED,\
+        finishedAt: new Date(),\
+        progress: 100,\
+        message: "Import complete",\
+        resultJson: result as any,\
+      \},\
+    \});\
+  \}\
+```\
+So the worker is the single place that **bridges ImportJob \uc0\u8594  CSV \u8594  DB helper**.\
+\
+---\
+\
+### 6) Shared DB helper parses CSV and writes to Postgres\
+\
+File: `packages/database/src/import-xact.ts`\
+\
+- Validates and creates an `estimateVersion` row:\
+\
+```ts path="/Users/pg/nexus-enterprise/packages/database/src/import-xact.ts" start=309 end=339\
+  export async function importXactCsvForProject(options: \{\
+    projectId: string;\
+    csvPath: string;\
+    importedByUserId?: string;\
+  \}) \{\
+    const \{ projectId, csvPath, importedByUserId \} = options;\
+\
+    if (!fs.existsSync(csvPath)) \{\
+      throw new Error(`CSV not found at $\{csvPath\}`);\
+    \}\
+\
+    const project = await prisma.project.findUnique(\{ where: \{ id: projectId \} \});\
+    if (!project) \{\
+      throw new Error("Project not found");\
+    \}\
+\
+    const csvRelativePath = path.relative(process.cwd(), csvPath);\
+\
+    const estimateVersion = await prisma.estimateVersion.create(\{\
+      data: \{\
+        projectId,\
+        sourceType: "xact_raw_carrier",\
+        fileName: path.basename(csvPath),\
+        storedPath: csvRelativePath,\
+        estimateKind: "initial",\
+        sequenceNo: 0,\
+        defaultPayerType: "carrier",\
+        status: "parsing",\
+        importedByUserId\
+      \}\
+    \});\
+```\
+- **Parses CSV** with `csv-parse/sync`:\
+\
+```ts path="/Users/pg/nexus-enterprise/packages/database/src/import-xact.ts" start=341 end=345\
+  const rawCsv = fs.readFileSync(csvPath, "utf8");\
+  const records: any[] = parse(rawCsv, \{\
+    columns: true,\
+    skip_empty_lines: true\
+  \});\
+```\
+- **Loops over rows and writes to Postgres** in several phases:\
+\
+  1. Map `records` \uc0\u8594  payloads for `rawXactRow` and `createMany` in bulk.\
+  2. Read back `rawXactRow`s ordered by `lineNo`.\
+  3. Precompute units/particles/logical items, creating them via `createMany`.\
+  4. Create `sow` and bulk insert `sowItem` rows in chunks.\
+  5. Compute totals and update `estimateVersion` + `sow`.\
+  6. Optionally update Golden price list via `updateGoldenFromEstimate`.\
+\
+This is the heart of the \'93parse CSV and populate Postgres\'94 logic.\
+\
+---\
+\
+## B. Xact Components import: UI \uc0\u8594  API \u8594  worker \u8594  DB\
+\
+The pattern is the same, with different endpoints and helpers.\
+\
+### 1) UI step 2 \'96 Components CSV\
+\
+Still `apps/web/app/projects/import/page.tsx`:\
+\
+- When you click **Upload components CSV**, `handleComponentsSubmit` is used:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/web/app/projects/import/page.tsx" start=436 end=446\
+  async function handleComponentsSubmit(e: FormEvent<HTMLFormElement>) \{\
+    e.preventDefault();\
+\
+    // If both CSVs are selected and we haven't kicked off RAW, do RAW first\
+    if (file && !rawJobId) \{\
+      const ok = await performRawImport();\
+      if (!ok) return;\
+    \}\
+\
+    void performComponentsImport();\
+  \}\
+```\
+- `performComponentsImport` calls the Next.js components route:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/web/app/projects/import/page.tsx" start=395 end=408\
+  const form = new FormData();\
+  form.append("file", componentsFile);\
+  form.append("accessToken", token);\
+\
+  const res = await fetch(\
+    `/api/projects/$\{projectId\}/import-xact-components`,\
+    \{\
+      method: "POST",\
+      headers: \{ Authorization: `Bearer $\{token\}` \},\
+      body: form,\
+    \},\
+  );\
+  const json = await res.json().catch(() => null);\
+  if (json?.jobId) setComponentsJobId(String(json.jobId));\
+```\
+---\
+\
+### 2) Next.js route for components\
+\
+File: `apps/web/app/api/projects/[projectId]/import-xact-components/route.ts`\
+\
+- Writes CSV to tmp dir (same pattern as RAW).\
+- Computes `apiBase` and `authHeader`.\
+- Chooses endpoint based on local vs remote:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/web/app/api/projects/[projectId]/import-xact-components/route.ts" start=44 end=66\
+  const apiBase =\
+    process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";\
+  const authHeaderFromReq = req.headers.get("authorization") ?? undefined;\
+  const authHeader = accessToken\
+    ? `Bearer $\{accessToken\}`\
+    : authHeaderFromReq;\
+\
+  const isLocalApi = /localhost|127\\.0\\.0\\.1/.test(apiBase);\
+\
+  const endpoint = isLocalApi\
+    ? `$\{apiBase\}/projects/$\{projectId\}/import-jobs/xact-components`\
+    : `$\{apiBase\}/projects/$\{projectId\}/import-xact-components`;\
+\
+  const payload = isLocalApi ? \{ csvPath: filePath \} : \{ csvPath: filePath \};\
+\
+  const apiRes = await fetch(endpoint, \{\
+    method: "POST",\
+    headers: \{\
+      "Content-Type": "application/json",\
+      ...(authHeader ? \{ Authorization: authHeader \} : \{\}),\
+    \},\
+    body: JSON.stringify(payload),\
+  \});\
+```\
+For local dev, you\'92re again hitting the **import\uc0\u8209 jobs** controller and enqueuing a Bull job.\
+\
+---\
+\
+### 3) API import\uc0\u8209 jobs controller for components\
+\
+Same controller file as earlier:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/modules/import-jobs/import-jobs.controller.ts" start=33 end=52\
+@Roles(Role.OWNER, Role.ADMIN)\
+@Post("xact-components")\
+async enqueueXactComponents(\
+  @Req() req: any,\
+  @Param("projectId") projectId: string,\
+  @Body() dto: CreateXactComponentsImportJobDto\
+) \{\
+  const user = req.user as AuthenticatedUser;\
+\
+  const job = await this.jobs.createJob(\{\
+    companyId: user.companyId,\
+    projectId,\
+    createdByUserId: user.userId,\
+    type: ImportJobType.XACT_COMPONENTS,\
+    csvPath: dto.csvPath,\
+    estimateVersionId: dto.estimateVersionId\
+  \});\
+\
+  return \{ jobId: job.id \};\
+\}\
+```\
+This again calls `ImportJobsService.createJob`, creating an `importJob` row and queueing a job.\
+\
+---\
+\
+### 4) Worker processes XACT_COMPONENTS jobs (chunked ingest + allocation)\
+\
+Back in `apps/api/src/worker.ts`:\
+\
+- For `ImportJobType.XACT_COMPONENTS`:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/worker.ts" start=469 end=479\
+  if (job.type === ImportJobType.XACT_COMPONENTS) \{\
+    console.log(\
+      "[worker] XACT_COMPONENTS ingestion (chunked) job start importJobId=%s csvPath=%s",\
+      importJobId,\
+      csvPath,\
+    );\
+\
+    await runXactComponentsIngestionJob(prisma, job);\
+\
+    return;\
+  \}\
+```\
+- `runXactComponentsIngestionJob`:\
+\
+  - Validates `csvPath`, resolves `estimateVersionId`, wipes prior component state for that estimate.\
+  - Reads CSV + parses via `csv-parse/sync`.\
+  - Computes chunking strategy (chunk size, chunk count).\
+  - Writes out **chunk CSVs** into `NCC_UPLOAD_TMP_DIR` or `os.tmpdir()`.\
+  - Enqueues **chunk jobs** onto the Bull queue; each job has `kind: "chunk"`, strategy `"XACT_COMPONENTS:line-range"`, and a `payload` with `csvPath` to the chunk.\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/worker.ts" start=123 end=128\
+  const rawCsv = fs.readFileSync(csvPath, "utf8");\
+  const records: any[] = parse(rawCsv, \{\
+    columns: true,\
+    skip_empty_lines: true,\
+  \});\
+  // compute records.length, chunking, write chunk-*.csv, queue.add("process", \{ kind: "chunk", ... \})\
+```\
+- Each chunk job is handled by `processImportChunk`:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/worker.ts" start=593 end=607\
+  if (strategy === "XACT_COMPONENTS:line-range") \{\
+    const \{ estimateVersionId, projectId, csvPath \} = chunkPayload as \{\
+      estimateVersionId: string;\
+      projectId: string;\
+      csvPath: string;\
+    \};\
+\
+    const chunkResult = await importXactComponentsChunkForEstimate(\{\
+      estimateVersionId,\
+      projectId,\
+      csvPath,\
+    \});\
+    // ... update ImportJob.completedChunks/progress, then when all chunks done,\
+    // create a follow-up ImportJob of type XACT_COMPONENTS_ALLOCATE\
+  \}\
+```\
+The worker again delegates the *row-by-row DB writes* to a shared helper: `importXactComponentsChunkForEstimate` from `@repo/database`.\
+\
+---\
+\
+### 5) Components import DB helper\
+\
+You saw the Golden components helper in `packages/database/src/import-pricelist-components.ts`, and for XACT components you have similar helpers such as `importXactComponentsChunkForEstimate` in `packages/database/src/import-xact-components.ts` (already referenced by the worker). That code:\
+\
+- Reads its **chunk CSV path**.\
+- Parses using `csv-parse/sync`.\
+- Applies the domain logic to create/update `rawComponentRow`, `componentSummary`, etc. via Prisma.\
+\
+(You already have that file in `packages/database/src/import-xact-components.ts` if you want to inspect the exact per-row mapping.)\
+\
+---\
+\
+## C. How to mentally trace / debug this\
+\
+If you want to verify end\uc0\u8209 to\u8209 end behavior for a specific project:\
+\
+1. **Upload from the UI** (`/projects/import`), watch for:\
+\
+   - `rawJobId` / `componentsJobId` appearing.\
+   - `import-jobs/:jobId` polling updates (status, progress, message).\
+\
+2. **On the API side**, you can inspect the `importJob` table (via psql or Prisma Studio) to verify:\
+\
+   - `csvPath` or `fileUri` is set as you expect.\
+   - `type` matches (`XACT_RAW`, `XACT_COMPONENTS`, etc.).\
+   - `status` transitions from `QUEUED` \uc0\u8594  `RUNNING` \u8594  `SUCCEEDED`/`FAILED`.\
+\
+3. **Worker logs** (stdout) show:\
+\
+   - `"[worker] XACT_RAW start"` and `"... complete"`.\
+   - For components, the chunk-level logs and the allocation queueing.\
+\
+If you tell me which part you\'92re most interested in (e.g. \'93where exactly do we map column X \uc0\u8594  DB column Y?\'94 or \'93how do we know which estimateVersion we attach components to?\'94), I can zoom in on just that slice of the flow.}

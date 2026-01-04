@@ -136,6 +136,80 @@ export class ProjectController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get(":id/files")
+  async listProjectFiles(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Query("folderId") folderId?: string,
+    @Query("search") search?: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.listProjectFiles({
+      projectId,
+      actor: user,
+      folderId: folderId || undefined,
+      search: search || undefined,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Post(":id/files/upload-url")
+  async getProjectFileUploadUrl(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body() body: { contentType?: string; fileName?: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const contentType = body.contentType || "application/octet-stream";
+
+    // Validate project access
+    await this.projects.getProjectByIdForUser(projectId, user);
+
+    const key = [
+      "project-files",
+      user.companyId,
+      projectId,
+      `${Date.now()}`,
+      Math.random().toString(36).slice(2),
+    ].join("/");
+
+    const { uploadUrl, fileUri } = await this.gcs.createSignedUploadUrl({
+      key,
+      contentType,
+    });
+
+    return { uploadUrl, fileUri };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Post(":id/files")
+  async registerProjectFile(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body()
+    body: {
+      fileUri: string;
+      fileName: string;
+      mimeType?: string;
+      sizeBytes?: number;
+      folderId?: string | null;
+    },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.registerProjectFile({
+      projectId,
+      actor: user,
+      fileUri: body.fileUri,
+      fileName: body.fileName,
+      mimeType: body.mimeType,
+      sizeBytes: typeof body.sizeBytes === "number" ? body.sizeBytes : null,
+      folderId: body.folderId ?? null,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(":id/tax-summary")
   async getTaxSummary(@Req() req: any, @Param("id") projectId: string) {
     const user = req.user as AuthenticatedUser;

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { PageCard } from "../ui-shell";
+import ProjectFilePicker, { ProjectFileSummary } from "./project-file-picker";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -86,6 +87,15 @@ export default function MessagingPage() {
   const [replyLinkLabel, setReplyLinkLabel] = useState("");
   const [replyLinks, setReplyLinks] = useState<{ url: string; label?: string }[]>([]);
 
+  const [showNewMessageAttachments, setShowNewMessageAttachments] = useState(false);
+  const [showReplyAttachments, setShowReplyAttachments] = useState(false);
+  const [showProjectFilePicker, setShowProjectFilePicker] = useState<
+    "new" | "reply" | null
+  >(null);
+  const [selectedThreadProjectId, setSelectedThreadProjectId] = useState<string | null>(
+    null,
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const token = window.localStorage.getItem("accessToken");
@@ -159,7 +169,7 @@ export default function MessagingPage() {
 
     let cancelled = false;
 
-    async function loadThread() {
+  async function loadThread() {
       try {
         setLoadingThread(true);
         const res = await fetch(`${API_BASE}/messages/threads/${selectedId}`, {
@@ -171,6 +181,8 @@ export default function MessagingPage() {
         const json = (await res.json()) as ThreadWithMessages;
         if (cancelled) return;
         setSelectedThread(json);
+        // Remember project context for this thread so we can select project files.
+        setSelectedThreadProjectId((json as any).projectId ?? null);
       } catch {
         if (!cancelled) setSelectedThread(null);
       } finally {
@@ -500,80 +512,194 @@ export default function MessagingPage() {
                 </div>
 
                 <div>
-                  <div style={{ marginTop: 6, marginBottom: 2 }}>Attachments (links)</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    {newMessageLinks.length > 0 && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                        {newMessageLinks.map(l => (
-                          <span
-                            key={l.url}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 4,
-                              padding: "2px 6px",
-                              borderRadius: 999,
-                              border: "1px solid #d1d5db",
-                              backgroundColor: "#eef2ff",
-                            }}
-                          >
-                            <span>{l.label || l.url}</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewMessageAttachments(v => !v)}
+                    style={{
+                      marginTop: 6,
+                      padding: "4px 8px",
+                      borderRadius: 999,
+                      border: "1px solid #d1d5db",
+                      backgroundColor: "#ffffff",
+                      fontSize: 11,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {showNewMessageAttachments ? "Hide attachments" : "Add attachments"}
+                  </button>
+
+                  {showNewMessageAttachments && (
+                    <div
+                      style={{
+                        marginTop: 6,
+                        padding: 8,
+                        borderRadius: 8,
+                        border: "1px solid #e5e7eb",
+                        backgroundColor: "#f9fafb",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 6,
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 600 }}>Attachments</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11 }}>
+                        <button
+                          type="button"
+                          disabled
+                          style={{
+                            textAlign: "left",
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            border: "1px solid #e5e7eb",
+                            backgroundColor: "#f9fafb",
+                            color: "#9ca3af",
+                            cursor: "default",
+                          }}
+                          title="Select from Project files (coming soon)"
+                        >
+                          1. Select file from Project files (coming soon)
+                        </button>
+                        <button
+                          type="button"
+                          disabled
+                          style={{
+                            textAlign: "left",
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            border: "1px solid #e5e7eb",
+                            backgroundColor: "#f9fafb",
+                            color: "#9ca3af",
+                            cursor: "default",
+                          }}
+                          title="Upload from your device (coming soon)"
+                        >
+                          2. Upload from your device (coming soon)
+                        </button>
+                        <button
+                          type="button"
+                          disabled
+                          style={{
+                            textAlign: "left",
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            border: "1px solid #e5e7eb",
+                            backgroundColor: "#f9fafb",
+                            color: "#9ca3af",
+                            cursor: "default",
+                          }}
+                          title="Create a new file in Project files (stub – future session)"
+                        >
+                          3. Create a new file in Project files (stub)
+                        </button>
+                      </div>
+
+                      <div style={{ marginTop: 4 }}>
+                        <div style={{ marginBottom: 4, fontSize: 11 }}>Select from Project files</div>
+                        <button
+                          type="button"
+                          disabled={!selectedThreadProjectId}
+                          onClick={() => setShowProjectFilePicker("new")}
+                          style={{
+                            textAlign: "left",
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            border: "1px solid #d1d5db",
+                            backgroundColor: selectedThreadProjectId
+                              ? "#ffffff"
+                              : "#f3f4f6",
+                            color: selectedThreadProjectId ? "#111827" : "#9ca3af",
+                            fontSize: 11,
+                            cursor: selectedThreadProjectId ? "pointer" : "default",
+                            marginBottom: 6,
+                          }}
+                          title={
+                            selectedThreadProjectId
+                              ? "Attach an existing file from this project"
+                              : "Open a thread linked to a project to select files"
+                          }
+                        >
+                          Choose file from project Files
+                        </button>
+
+                        <div style={{ marginTop: 4, marginBottom: 2, fontSize: 11 }}>
+                          Or attach an external link
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          {newMessageLinks.length > 0 && (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                              {newMessageLinks.map(l => (
+                                <span
+                                  key={l.url}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    padding: "2px 6px",
+                                    borderRadius: 999,
+                                    border: "1px solid #d1d5db",
+                                    backgroundColor: "#eef2ff",
+                                  }}
+                                >
+                                  <span>{l.label || l.url}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeNewMessageLink(l.url)}
+                                    style={{ border: "none", background: "transparent", cursor: "pointer" }}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <input
+                              type="url"
+                              value={newLinkUrl}
+                              onChange={e => setNewLinkUrl(e.target.value)}
+                              placeholder="https://example.com/file.pdf"
+                              style={{
+                                flex: 2,
+                                border: "1px solid #d1d5db",
+                                borderRadius: 6,
+                                padding: "4px 6px",
+                                fontSize: 11,
+                              }}
+                            />
+                            <input
+                              type="text"
+                              value={newLinkLabel}
+                              onChange={e => setNewLinkLabel(e.target.value)}
+                              placeholder="Optional label"
+                              style={{
+                                flex: 1,
+                                border: "1px solid #d1d5db",
+                                borderRadius: 6,
+                                padding: "4px 6px",
+                                fontSize: 11,
+                              }}
+                            />
                             <button
                               type="button"
-                              onClick={() => removeNewMessageLink(l.url)}
-                              style={{ border: "none", background: "transparent", cursor: "pointer" }}
+                              onClick={addNewMessageLink}
+                              disabled={!newLinkUrl.trim()}
+                              style={{
+                                padding: "4px 8px",
+                                borderRadius: 999,
+                                border: "none",
+                                backgroundColor: newLinkUrl.trim() ? "#6366f1" : "#e5e7eb",
+                                color: "#f9fafb",
+                                fontSize: 11,
+                                cursor: newLinkUrl.trim() ? "pointer" : "default",
+                              }}
                             >
-                              ×
+                              Add link
                             </button>
-                          </span>
-                        ))}
+                          </div>
+                        </div>
                       </div>
-                    )}
-                    <div style={{ display: "flex", gap: 4 }}>
-                      <input
-                        type="url"
-                        value={newLinkUrl}
-                        onChange={e => setNewLinkUrl(e.target.value)}
-                        placeholder="https://example.com/file.pdf"
-                        style={{
-                          flex: 2,
-                          border: "1px solid #d1d5db",
-                          borderRadius: 6,
-                          padding: "4px 6px",
-                          fontSize: 11,
-                        }}
-                      />
-                      <input
-                        type="text"
-                        value={newLinkLabel}
-                        onChange={e => setNewLinkLabel(e.target.value)}
-                        placeholder="Optional label"
-                        style={{
-                          flex: 1,
-                          border: "1px solid #d1d5db",
-                          borderRadius: 6,
-                          padding: "4px 6px",
-                          fontSize: 11,
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={addNewMessageLink}
-                        disabled={!newLinkUrl.trim()}
-                        style={{
-                          padding: "4px 8px",
-                          borderRadius: 999,
-                          border: "none",
-                          backgroundColor: newLinkUrl.trim() ? "#6366f1" : "#e5e7eb",
-                          color: "#f9fafb",
-                          fontSize: 11,
-                          cursor: newLinkUrl.trim() ? "pointer" : "default",
-                        }}
-                      >
-                        Add
-                      </button>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 <div>
@@ -720,9 +846,39 @@ export default function MessagingPage() {
             </p>
           )}
 
-          {selectedThread && (
-            <>
-              <header style={{ marginBottom: 8 }}>
+        {selectedThread && (
+          <>
+            {showProjectFilePicker && selectedThreadProjectId && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 60,
+                  right: 16,
+                  zIndex: 30,
+                }}
+              >
+                <ProjectFilePicker
+                  projectId={selectedThreadProjectId}
+                  mode={showProjectFilePicker}
+                  onClose={() => setShowProjectFilePicker(null)}
+                  onSelect={(file: ProjectFileSummary) => {
+                    // For now, just attach as external link to keep backend unchanged.
+                    const asLink = {
+                      url: file.storageUrl,
+                      label: file.fileName,
+                    };
+                    if (showProjectFilePicker === "new") {
+                      setNewMessageLinks(prev => [...prev, asLink]);
+                    } else {
+                      setReplyLinks(prev => [...prev, asLink]);
+                    }
+                    setShowProjectFilePicker(null);
+                  }}
+                />
+              </div>
+            )}
+
+            <header style={{ marginBottom: 8 }}>
                 <h3 style={{ marginTop: 0, marginBottom: 2, fontSize: 15 }}>
                   {selectedThread.subject || "(no subject)"}
                 </h3>
@@ -787,80 +943,194 @@ export default function MessagingPage() {
                   }}
                 />
                 <div>
-                  <div style={{ marginTop: 2, marginBottom: 2, fontSize: 11 }}>Attachments (links)</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    {replyLinks.length > 0 && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                        {replyLinks.map(l => (
-                          <span
-                            key={l.url}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 4,
-                              padding: "2px 6px",
-                              borderRadius: 999,
-                              border: "1px solid #d1d5db",
-                              backgroundColor: "#eef2ff",
-                            }}
-                          >
-                            <span>{l.label || l.url}</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowReplyAttachments(v => !v)}
+                    style={{
+                      marginTop: 2,
+                      padding: "4px 8px",
+                      borderRadius: 999,
+                      border: "1px solid #d1d5db",
+                      backgroundColor: "#ffffff",
+                      fontSize: 11,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {showReplyAttachments ? "Hide attachments" : "Add attachments"}
+                  </button>
+
+                  {showReplyAttachments && (
+                    <div
+                      style={{
+                        marginTop: 6,
+                        padding: 8,
+                        borderRadius: 8,
+                        border: "1px solid #e5e7eb",
+                        backgroundColor: "#f9fafb",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 6,
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 600 }}>Attachments</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11 }}>
+                        <button
+                          type="button"
+                          disabled
+                          style={{
+                            textAlign: "left",
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            border: "1px solid #e5e7eb",
+                            backgroundColor: "#f9fafb",
+                            color: "#9ca3af",
+                            cursor: "default",
+                          }}
+                          title="Select from Project files (coming soon)"
+                        >
+                          1. Select file from Project files (coming soon)
+                        </button>
+                        <button
+                          type="button"
+                          disabled
+                          style={{
+                            textAlign: "left",
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            border: "1px solid #e5e7eb",
+                            backgroundColor: "#f9fafb",
+                            color: "#9ca3af",
+                            cursor: "default",
+                          }}
+                          title="Upload from your device (coming soon)"
+                        >
+                          2. Upload from your device (coming soon)
+                        </button>
+                        <button
+                          type="button"
+                          disabled
+                          style={{
+                            textAlign: "left",
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            border: "1px solid #e5e7eb",
+                            backgroundColor: "#f9fafb",
+                            color: "#9ca3af",
+                            cursor: "default",
+                          }}
+                          title="Create a new file in Project files (stub – future session)"
+                        >
+                          3. Create a new file in Project files (stub)
+                        </button>
+                      </div>
+
+                      <div style={{ marginTop: 4 }}>
+                        <div style={{ marginBottom: 4, fontSize: 11 }}>Select from Project files</div>
+                        <button
+                          type="button"
+                          disabled={!selectedThreadProjectId}
+                          onClick={() => setShowProjectFilePicker("reply")}
+                          style={{
+                            textAlign: "left",
+                            padding: "4px 8px",
+                            borderRadius: 6,
+                            border: "1px solid #d1d5db",
+                            backgroundColor: selectedThreadProjectId
+                              ? "#ffffff"
+                              : "#f3f4f6",
+                            color: selectedThreadProjectId ? "#111827" : "#9ca3af",
+                            fontSize: 11,
+                            cursor: selectedThreadProjectId ? "pointer" : "default",
+                            marginBottom: 6,
+                          }}
+                          title={
+                            selectedThreadProjectId
+                              ? "Attach an existing file from this project"
+                              : "Open a thread linked to a project to select files"
+                          }
+                        >
+                          Choose file from project Files
+                        </button>
+
+                        <div style={{ marginTop: 4, marginBottom: 2, fontSize: 11 }}>
+                          Or attach an external link
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          {replyLinks.length > 0 && (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                              {replyLinks.map(l => (
+                                <span
+                                  key={l.url}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    padding: "2px 6px",
+                                    borderRadius: 999,
+                                    border: "1px solid #d1d5db",
+                                    backgroundColor: "#eef2ff",
+                                  }}
+                                >
+                                  <span>{l.label || l.url}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeReplyLink(l.url)}
+                                    style={{ border: "none", background: "transparent", cursor: "pointer" }}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <input
+                              type="url"
+                              value={replyLinkUrl}
+                              onChange={e => setReplyLinkUrl(e.target.value)}
+                              placeholder="https://example.com/file.pdf"
+                              style={{
+                                flex: 2,
+                                border: "1px solid #d1d5db",
+                                borderRadius: 6,
+                                padding: "4px 6px",
+                                fontSize: 11,
+                              }}
+                            />
+                            <input
+                              type="text"
+                              value={replyLinkLabel}
+                              onChange={e => setReplyLinkLabel(e.target.value)}
+                              placeholder="Optional label"
+                              style={{
+                                flex: 1,
+                                border: "1px solid #d1d5db",
+                                borderRadius: 6,
+                                padding: "4px 6px",
+                                fontSize: 11,
+                              }}
+                            />
                             <button
                               type="button"
-                              onClick={() => removeReplyLink(l.url)}
-                              style={{ border: "none", background: "transparent", cursor: "pointer" }}
+                              onClick={addReplyLink}
+                              disabled={!replyLinkUrl.trim()}
+                              style={{
+                                padding: "4px 8px",
+                                borderRadius: 999,
+                                border: "none",
+                                backgroundColor: replyLinkUrl.trim() ? "#6366f1" : "#e5e7eb",
+                                color: "#f9fafb",
+                                fontSize: 11,
+                                cursor: replyLinkUrl.trim() ? "pointer" : "default",
+                              }}
                             >
-                              ×
+                              Add link
                             </button>
-                          </span>
-                        ))}
+                          </div>
+                        </div>
                       </div>
-                    )}
-                    <div style={{ display: "flex", gap: 4 }}>
-                      <input
-                        type="url"
-                        value={replyLinkUrl}
-                        onChange={e => setReplyLinkUrl(e.target.value)}
-                        placeholder="https://example.com/file.pdf"
-                        style={{
-                          flex: 2,
-                          border: "1px solid #d1d5db",
-                          borderRadius: 6,
-                          padding: "4px 6px",
-                          fontSize: 11,
-                        }}
-                      />
-                      <input
-                        type="text"
-                        value={replyLinkLabel}
-                        onChange={e => setReplyLinkLabel(e.target.value)}
-                        placeholder="Optional label"
-                        style={{
-                          flex: 1,
-                          border: "1px solid #d1d5db",
-                          borderRadius: 6,
-                          padding: "4px 6px",
-                          fontSize: 11,
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={addReplyLink}
-                        disabled={!replyLinkUrl.trim()}
-                        style={{
-                          padding: "4px 8px",
-                          borderRadius: 999,
-                          border: "none",
-                          backgroundColor: replyLinkUrl.trim() ? "#6366f1" : "#e5e7eb",
-                          color: "#f9fafb",
-                          fontSize: 11,
-                          cursor: replyLinkUrl.trim() ? "pointer" : "default",
-                        }}
-                      >
-                        Add
-                      </button>
                     </div>
-                  </div>
+                  )}
                 </div>
                 <button
                   type="submit"

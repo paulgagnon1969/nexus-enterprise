@@ -1,0 +1,75 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww23940\viewh23520\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 1. What kinds of messages do you want the system to support?\
+   Examples:\
+\'95  \'93Operational\'94 notifications:\
+\uc0\u9702   Project milestones (task assigned, deadline moved, RFI response, change order approved).\
+\uc0\u9702   Payroll events (timesheet approved, payment sent, referral earnings added).\
+\'95  \'93Engagement\'94 nudges:\
+\uc0\u9702   \'93Complete your Nexis profile.\'94\
+\uc0\u9702   \'93Invite your crew to Nexis Connect.\'94\
+\'95  \'93Broadcasts\'94:\
+\uc0\u9702   Tenant\u8209 wide announcements (\'93We\'92re doing maintenance on Saturday\'94).\
+\uc0\u9702   Channel\u8209 style updates (per project, per team).\
+2. Who are the audiences?\
+   For each type, who should receive it?\
+\'95  Tenant admins / PMs (internal users).\
+\'95  Field workers / subs.\
+\'95  Clients / owners.\
+\'95  Nex\uc0\u8209 Net candidates (applicants).\
+\'95  Everyone in the tenant vs specific roles.\
+3. What delivery channels do you care about in v1?\
+\uc0\u9702   In\u8209 app only (notification center, banners, badges).\
+\uc0\u9702   Email.\
+\uc0\u9702   SMS.\
+\uc0\u9702   Push (later).\
+\
+   My suggestion is: start with in\uc0\u8209 app + email for certain events, then add SMS where critical.\
+\
+4. Do you want a central \'93Inbox\'94 / \'93Activity\'94 surface?\
+\uc0\u9702   One place per user where they can see:\
+\uc0\u9642   \'93You were added to project X\'94\
+\uc0\u9642   \'93Your timesheet was approved\'94\
+\uc0\u9642   \'93Your referral just earned $N\'94\
+\uc0\u9702   Or keep it scoped (only inside each feature area) for now?\
+5. Tenant\uc0\u8209 specific messaging\
+   For \'93system\uc0\u8209 wide messaging for the tenant\'94, are you picturing:\
+\
+\'95  An Org Announcement system:\
+\uc0\u9702   Admin writes a message: \'93New safety policy effective Monday\'94.\
+\uc0\u9702   System delivers it:\
+\uc0\u9642   As an in\u8209 app banner for all users in that tenant.\
+\uc0\u9642   Optionally as email to roles (e.g. all field workers).\
+\'95  Or more basic: a configurable tenant welcome / helper message in key screens?\
+\
+\
+\
+Proposed structure we can work toward\
+\
+Once I have your answers, I\'92d propose a messaging model along these lines:\
+\
+\'95  Conceptual entities:\
+\uc0\u9702   Notification (per recipient, per event).\
+\uc0\u9702   Announcement (tenant\u8209 wide or scoped to role/project, fan\u8209 out into notifications).\
+\'95  Surfaces:\
+\uc0\u9702   Header notification bell with unread count.\
+\uc0\u9702   /activity or /inbox page listing messages.\
+\uc0\u9702   Opt\u8209 in/out and preferences per channel.\
+\'95  First\uc0\u8209 class tenant messaging:\
+\uc0\u9702   Admin UI under /settings/messaging to:\
+\uc0\u9642   Post announcements.\
+\uc0\u9642   See who received/read them.\
+\
+And then we hook specific events (referrals, onboarding, payroll, projects) into that backbone rather than inventing one\uc0\u8209 off messaging per feature.\
+\
+If you can sketch:\
+\
+\'95  The top 3\'965 kinds of messages you want in the next few weeks.\
+\'95  Who should see each, and via which channel.\
+\
+I can turn that into a concrete V1 messaging architecture and then we can start implementing it on the feature/messaging-referrals branch.}

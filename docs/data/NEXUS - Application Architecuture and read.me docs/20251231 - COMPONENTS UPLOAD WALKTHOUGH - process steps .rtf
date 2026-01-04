@@ -1,0 +1,433 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww17160\viewh34180\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 can you provide me the same for the components csv upload?\
+\
+Here\'92s the **components CSV** flow end\uc0\u8209 to\u8209 end, mirroring the RAW walkthrough.\
+\
+I\'92ll focus on the path you use in **local dev** (Next route \uc0\u8594  `import-jobs` \u8594  worker), since that\'92s the clearest.\
+\
+---\
+\
+## 1) User uploads components CSV in the UI\
+\
+File: `apps/web/app/projects/import/page.tsx`\
+\
+### Trigger point\
+\
+- The \'93Step 2 \'96 Components CSV\'94 section uses a button that calls `handleComponentsSubmit`:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/web/app/projects/import/page.tsx" start=436 end=450\
+async function handleComponentsSubmit(e: FormEvent<HTMLFormElement>) \{\
+  e.preventDefault();\
+\
+  // If both CSVs are selected and we have not yet kicked off a RAW import job\
+  // in this session, run the RAW import first so Components always has an estimate\
+  // to attach to.\
+  if (file && !rawJobId) \{\
+    const ok = await performRawImport();\
+    if (!ok) \{\
+      return;\
+    \}\
+  \}\
+\
+  void performComponentsImport();\
+\}\
+```\
+### Upload request\
+\
+- `performComponentsImport` builds a `FormData` and POSTs to the **Next.js route**:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/web/app/projects/import/page.tsx" start=373 end=405\
+async function performComponentsImport(): Promise<boolean> \{\
+  // ...validation & token checks...\
+\
+  const form = new FormData();\
+  form.append("file", componentsFile);\
+  form.append("accessToken", token);\
+\
+  const res = await fetch(\
+    `/api/projects/$\{projectId\}/import-xact-components`,\
+    \{\
+      method: "POST",\
+      headers: \{\
+        Authorization: `Bearer $\{token\}`,\
+      \},\
+      body: form,\
+    \},\
+  );\
+\
+  const json = await res.json().catch(() => null);\
+\
+  if (!res.ok) \{\
+    // show error\
+    return false;\
+  \}\
+\
+  setComponentsResult(json);\
+\
+  if (json?.jobId) \{\
+    setComponentsJobId(String(json.jobId));\
+  \}\
+\
+  return true;\
+\}\
+```\
+So from the browser\'92s POV, the main \'93endpoint\'94 is:\
+\
+- `POST /api/projects/:projectId/import-xact-components` (Next route).\
+\
+---\
+\
+## 2) Next.js route writes components CSV to tmp + calls API\
+\
+File: `apps/web/app/api/projects/[projectId]/import-xact-components/route.ts`\
+\
+### Receive form and write file\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/web/app/api/projects/[projectId]/import-xact-components/route.ts" start=15 end=46\
+const form = await req.formData();\
+const file = form.get("file");\
+const tokenField = form.get("accessToken");\
+const accessToken =\
+  typeof tokenField === "string"\
+    ? tokenField\
+    : tokenField instanceof File\
+    ? await tokenField.text()\
+    : undefined;\
+\
+if (!(file instanceof File)) \{\
+  return NextResponse.json(\
+    \{ error: "Missing file field in form-data" \},\
+    \{ status: 400 \},\
+  );\
+\}\
+\
+const arrayBuffer = await file.arrayBuffer();\
+const buffer = Buffer.from(arrayBuffer);\
+\
+// Use OS tmp dir (or NCC_UPLOAD_TMP_DIR) so this works on read-only /var/task\
+const baseTmpDir = process.env.NCC_UPLOAD_TMP_DIR || os.tmpdir();\
+const uploadDir = path.join(baseTmpDir, "ncc_uploads");\
+await fs.mkdir(uploadDir, \{ recursive: true \});\
+\
+const safeName = file.name.replace(/[^a-zA-Z0-9_.-]/g, "_");\
+const filePath = path.join(\
+  uploadDir,\
+  `$\{projectId\}-$\{Date.now()\}-$\{safeName\}`,\
+);\
+\
+await fs.writeFile(filePath, buffer);\
+```\
+### Call API to enqueue import job\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/web/app/api/projects/[projectId]/import-xact-components/route.ts" start=44 end=67\
+const apiBase =\
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";\
+const authHeaderFromReq = req.headers.get("authorization") ?? undefined;\
+const authHeader = accessToken\
+  ? `Bearer $\{accessToken\}`\
+  : authHeaderFromReq;\
+\
+const isLocalApi = /localhost|127\\.0\\.0\\.1/.test(apiBase);\
+\
+const endpoint = isLocalApi\
+  ? `$\{apiBase\}/projects/$\{projectId\}/import-jobs/xact-components`\
+  : `$\{apiBase\}/projects/$\{projectId\}/import-xact-components`;\
+\
+const payload = isLocalApi ? \{ csvPath: filePath \} : \{ csvPath: filePath \};\
+\
+const apiRes = await fetch(endpoint, \{\
+  method: "POST",\
+  headers: \{\
+    "Content-Type": "application/json",\
+    ...(authHeader ? \{ Authorization: authHeader \} : \{\}),\
+  \},\
+  body: JSON.stringify(payload),\
+\});\
+const json = await apiRes.json().catch(() => (\{\}));\
+```\
+- **Local dev**: hits `POST /projects/:projectId/import-jobs/xact-components` on the Nest API with a local `csvPath`.\
+- **Remote API**: hits a different controller route, still ultimately resulting in an `importJob` row that the worker will process.\
+\
+The JSON response (`\{ jobId \}`) is proxied back to the browser so the UI can poll `/import-jobs/:jobId`.\
+\
+---\
+\
+## 3) API controller creates an XACT_COMPONENTS ImportJob\
+\
+File: `apps/api/src/modules/import-jobs/import-jobs.controller.ts`\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/modules/import-jobs/import-jobs.controller.ts" start=33 end=52\
+@Roles(Role.OWNER, Role.ADMIN)\
+@Post("xact-components")\
+async enqueueXactComponents(\
+  @Req() req: any,\
+  @Param("projectId") projectId: string,\
+  @Body() dto: CreateXactComponentsImportJobDto\
+) \{\
+  const user = req.user as AuthenticatedUser;\
+\
+  const job = await this.jobs.createJob(\{\
+    companyId: user.companyId,\
+    projectId,\
+    createdByUserId: user.userId,\
+    type: ImportJobType.XACT_COMPONENTS,\
+    csvPath: dto.csvPath,\
+    estimateVersionId: dto.estimateVersionId\
+  \});\
+\
+  return \{ jobId: job.id \};\
+\}\
+```\
+This is the \'93controller/route handler\'94 for components.\
+\
+---\
+\
+## 4) ImportJobsService saves job + enqueues BullMQ work\
+\
+Same service as for RAW:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/modules/import-jobs/import-jobs.service.ts" start=39 end=72\
+const normalizedCsvPath = csvPath?.trim();\
+const normalizedFileUri = fileUri?.trim();\
+\
+const requiresFile = type !== ImportJobType.XACT_COMPONENTS_ALLOCATE;\
+\
+if (requiresFile && !normalizedCsvPath && !normalizedFileUri) \{\
+  throw new BadRequestException("csvPath or fileUri is required");\
+\}\
+\
+const job = await this.prisma.importJob.create(\{\
+  data: \{\
+    companyId,\
+    projectId,\
+    createdByUserId,\
+    type,\
+    status: ImportJobStatus.QUEUED,\
+    progress: 0,\
+    csvPath: normalizedCsvPath || null,\
+    fileUri: normalizedFileUri || null,\
+    estimateVersionId: estimateVersionId?.trim() || null\
+  \}\
+\});\
+\
+const queue = getImportQueue();\
+await queue.add(\
+  "process",\
+  \{ importJobId: job.id \},\
+  \{\
+    attempts: 1,\
+    removeOnComplete: 1000,\
+    removeOnFail: 1000,\
+    priority,\
+  \}\
+);\
+```\
+- `type = ImportJobType.XACT_COMPONENTS`\
+- `csvPath` points to the temp file written by the Next route.\
+- `estimateVersionId` (optional) ties the components to a specific estimate.\
+\
+---\
+\
+## 5) Worker handles XACT_COMPONENTS ingestion (plan + chunk jobs)\
+\
+File: `apps/api/src/worker.ts`\
+\
+### Dispatch based on ImportJobType\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/worker.ts" start=469 end=479\
+if (job.type === ImportJobType.XACT_COMPONENTS) \{\
+  console.log(\
+    "[worker] XACT_COMPONENTS ingestion (chunked) job start importJobId=%s csvPath=%s",\
+    importJobId,\
+    csvPath,\
+  );\
+\
+  await runXactComponentsIngestionJob(prisma, job);\
+\
+  return;\
+\}\
+```\
+### Ingestion job (plan chunking, not DB writes yet)\
+\
+Also in `worker.ts`:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/worker.ts" start=71 end=100\
+async function runXactComponentsIngestionJob(prisma: PrismaService, job: any) \{\
+  const importJobId = job.id;\
+  const csvPath = job.csvPath?.trim();\
+  if (!csvPath) \{\
+    throw new Error("XACT_COMPONENTS ingestion job has no csvPath.");\
+  \}\
+  if (!fs.existsSync(csvPath)) \{\
+    throw new Error(`Components CSV not found at $\{csvPath\}`);\
+  \}\
+\
+  // resolve estimateVersionId (or create/fetch latest), load estimate + project\
+\
+  // wipe prior component import for that estimate\
+  await prisma.$transaction([\
+    prisma.rawComponentRow.deleteMany(\{ where: \{ estimateVersionId \} \}),\
+    prisma.componentSummary.deleteMany(\{ where: \{ estimateVersionId \} \}),\
+  ]);\
+\
+  const rawCsv = fs.readFileSync(csvPath, "utf8");\
+  const records: any[] = parse(rawCsv, \{\
+    columns: true,\
+    skip_empty_lines: true,\
+  \});\
+\
+  const totalRecords = records.length;\
+  // choose chunking strategy (maxRecordsPerChunk, maxChunks, chunkCount, chunkSize)\
+  // build chunkDir under NCC_UPLOAD_TMP_DIR / os.tmpdir()\
+  // serialize records into multiple chunk-*.csv files\
+  // enqueue a BullMQ job per chunk\
+\}\
+```\
+Important behaviors:\
+\
+- **This function parses the entire CSV once** to plan chunks, but it does *not* write to Postgres.\
+- It writes each subset of `records` to a separate `chunk-<index>.csv` under:\
+\
+```text\
+  <tmp>/ncc_uploads/xact_components_chunks/<importJobId>/chunk-0.csv\
+```\
+- For each chunk, it enqueues a BullMQ job with:\
+\
+  - `kind: "chunk"`\
+  - `strategy: "XACT_COMPONENTS:line-range"`\
+  - `payload: \{ estimateVersionId, projectId, csvPath: chunkPath \}`\
+\
+- It also updates the parent `importJob` row with metadata (chunkCount, progress, etc.)\
+\
+---\
+\
+## 6) Worker processes each chunk \uc0\u8594  DB writes via helper\
+\
+Still in `worker.ts`:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/worker.ts" start=575 end=607\
+async function processImportChunk(prisma: PrismaService, payload: ChunkJobPayload) \{\
+  const \{ importJobId, chunkIndex, chunkCount, strategy, payload: chunkPayload \} = payload;\
+\
+  const parentJob = await prisma.importJob.findUnique(\{ where: \{ id: importJobId \} \});\
+  if (!parentJob) \{\
+    throw new Error(`Parent ImportJob not found for chunk: $\{importJobId\}`);\
+  \}\
+\
+  if (parentJob.status !== ImportJobStatus.RUNNING) \{\
+    // Ignore chunks for non-running parents\
+    return;\
+  \}\
+\
+  if (strategy === "XACT_COMPONENTS:line-range") \{\
+    const \{ estimateVersionId, projectId, csvPath \} = chunkPayload as \{\
+      estimateVersionId: string;\
+      projectId: string;\
+      csvPath: string;\
+    \};\
+\
+    const chunkResult = await importXactComponentsChunkForEstimate(\{\
+      estimateVersionId,\
+      projectId,\
+      csvPath,\
+    \});\
+\
+    // update completedChunks/progress in a transaction\
+    // when last chunk finishes, mark parent job SUCCEEDED\
+    // and enqueue an ImportJob of type XACT_COMPONENTS_ALLOCATE\
+  \}\
+\
+  // else error: unsupported strategy\
+\}\
+```\
+Key point:\
+\
+- **`importXactComponentsChunkForEstimate` is the actual \'93loop rows \uc0\u8594  write to Postgres\'94 function**, living in `@repo/database` (likely `packages/database/src/import-xact-components.ts`).\
+\
+That helper:\
+\
+- Opens the chunk CSV (`csvPath`).\
+- Parses with `csv-parse/sync`.\
+- Applies your mapping rules:\
+  - Xact components \uc0\u8594  `rawComponentRow`, `componentSummary`, or similar tables.\
+  - Uses Prisma `createMany` / `update` in batch.\
+\
+Once each chunk is processed, the worker updates the parent `importJob`\'92s `completedChunks` and `progress`. After the last chunk, it:\
+\
+1. Marks XACT_COMPONENTS job as `SUCCEEDED`.\
+2. Creates a **follow\uc0\u8209 up job** of type `XACT_COMPONENTS_ALLOCATE`.\
+3. Enqueues that allocation job on the same Bull queue.\
+\
+---\
+\
+## 7) Allocation job: turn ingested component rows into allocations\
+\
+Back in `worker.ts`:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/worker.ts" start=320 end=345\
+async function runXactComponentsAllocationJob(prisma: PrismaService, job: any) \{\
+  const importJobId = job.id;\
+  const estimateVersionId = job.estimateVersionId?.trim();\
+\
+  if (!estimateVersionId) \{\
+    throw new Error("XACT_COMPONENTS_ALLOCATE job is missing estimateVersionId");\
+  \}\
+\
+  const allocationResult = await allocateComponentsForEstimate(\{\
+    estimateVersionId,\
+  \});\
+\
+  await prisma.importJob.update(\{\
+    where: \{ id: importJobId \},\
+    data: \{\
+      status: ImportJobStatus.SUCCEEDED,\
+      finishedAt: new Date(),\
+      progress: 100,\
+      message: "Components allocation complete",\
+      resultJson: \{\
+        phase: "allocation",\
+        allocation: allocationResult,\
+      \} as any,\
+    \},\
+  \});\
+\}\
+```\
+The worker\'92s `processImportJob` dispatches to this when it sees:\
+\
+```ts path="/Users/pg/nexus-enterprise/apps/api/src/worker.ts" start=481 end=485\
+if (job.type === ImportJobType.XACT_COMPONENTS_ALLOCATE) \{\
+  // mark progress, then:\
+  await runXactComponentsAllocationJob(prisma, job);\
+  return;\
+\}\
+```\
+So the **components CSV upload** pipeline is:\
+\
+1. **UI**: upload form in `ProjectImportPage` \uc0\u8594  `performComponentsImport`.\
+2. **Next route**: `/api/projects/:projectId/import-xact-components`:\
+   - Save CSV to `NCC_UPLOAD_TMP_DIR` / `os.tmpdir()`.\
+   - Call Nest API `POST /projects/:projectId/import-jobs/xact-components` with `csvPath`.\
+3. **API controller**: `ProjectImportJobsController.enqueueXactComponents`\
+   - Calls `ImportJobsService.createJob`.\
+4. **Service**: `ImportJobsService.createJob`\
+   - Creates `importJob` row (`type = XACT_COMPONENTS`, has `csvPath`).\
+   - Enqueues BullMQ job `\{ importJobId \}`.\
+5. **Worker** (`apps/api/src/worker.ts`):\
+   - `processImportJob`:\
+     - For XACT_COMPONENTS \uc0\u8594  `runXactComponentsIngestionJob`:\
+       - Parse full CSV, plan chunking, write chunk CSVs, enqueue chunk jobs.\
+   - `processImportChunk`:\
+     - For each chunk job:\
+       - Calls `importXactComponentsChunkForEstimate` (shared DB helper).\
+       - Updates progress.\
+       - On last chunk, enqueues XACT_COMPONENTS_ALLOCATE job.\
+   - `runXactComponentsAllocationJob`:\
+     - Calls `allocateComponentsForEstimate`, finalizes allocation, marks job succeeded.\
+\
+If you\'92d like, next I can zoom into `importXactComponentsChunkForEstimate` and walk line\uc0\u8209 by\u8209 line how a single CSV row\'92s columns (Cat/Sel/Activity/etc.) map into specific Prisma models/fields.}

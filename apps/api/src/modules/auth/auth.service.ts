@@ -530,8 +530,6 @@ export class AuthService {
         trialStatus: true,
         // When the Prisma client has been regenerated, we will also project
         // deletedAt here to block switching into deactivated orgs.
-        // @ts-expect-error: deletedAt is added in Prisma schema but may not be
-        // in the generated client types until `prisma generate`.
         deletedAt: true,
       },
     });
