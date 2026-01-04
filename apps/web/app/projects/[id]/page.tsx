@@ -1279,6 +1279,17 @@ export default function ProjectDetailPage({
     actorCompanyRole === "OWNER" ||
     actorCompanyRole === "ADMIN";
 
+  // Precompute a formatted project address and a Google Maps link for click-to-open behavior
+  const projectAddressParts: string[] = [];
+  if (project.addressLine1) projectAddressParts.push(project.addressLine1);
+  if (project.addressLine2) projectAddressParts.push(project.addressLine2);
+  const cityState = [project.city, project.state].filter(Boolean).join(", ");
+  if (cityState) projectAddressParts.push(cityState);
+  const projectAddress = projectAddressParts.join(", ");
+  const projectMapsUrl = projectAddress
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(projectAddress)}`
+    : null;
+
   const beginEditProject = () => {
     if (!project) return;
     setEditProjectMessage(null);
@@ -1363,10 +1374,23 @@ export default function ProjectDetailPage({
                 Status: {project.status}
               </p>
               <p style={{ fontSize: 13, marginTop: 8 }}>
-                {project.addressLine1}
-                {project.addressLine2 ? `, ${project.addressLine2}` : ""}
-                <br />
-                {project.city}, {project.state}
+                {projectMapsUrl && projectAddress ? (
+                  <a
+                    href={projectMapsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "#2563eb", textDecoration: "none" }}
+                  >
+                    {projectAddress}
+                  </a>
+                ) : (
+                  <>
+                    {project.addressLine1}
+                    {project.addressLine2 ? `, ${project.addressLine2}` : ""}
+                    <br />
+                    {project.city}, {project.state}
+                  </>
+                )}
               </p>
             </>
           )}
@@ -1784,9 +1808,19 @@ export default function ProjectDetailPage({
                 <div><strong>Job Group:</strong> N/A</div>
                 <div><strong>Contract Type:</strong> N/A</div>
                 <div>
-                  <strong>Address:</strong> {project.addressLine1}
-                  {project.addressLine2 ? `, ${project.addressLine2}` : ""}
-                  , {project.city}, {project.state}
+                  <strong>Address:</strong>{" "}
+                  {projectMapsUrl && projectAddress ? (
+                    <a
+                      href={projectMapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "#2563eb", textDecoration: "none" }}
+                    >
+                      {projectAddress}
+                    </a>
+                  ) : (
+                    projectAddress || "N/A"
+                  )}
                 </div>
                 <div><strong>Square Feet:</strong> N/A</div>
                 <div><strong>Lot Info:</strong> N/A</div>
@@ -2037,7 +2071,16 @@ export default function ProjectDetailPage({
                   <ul style={{ margin: 0, paddingLeft: 16 }}>
                     {participants.myOrganization.map((m, index) => (
                       <li key={`${m.id ?? m.userId ?? "member"}-${index}`}>
-                        {m.user?.email ?? "(user)"}
+                        {m.user?.email ? (
+                          <a
+                            href={`mailto:${m.user.email}`}
+                            style={{ color: "#2563eb", textDecoration: "none" }}
+                          >
+                            {m.user.email}
+                          </a>
+                        ) : (
+                          "(user)"
+                        )}
                         {m.role && (
                           <span style={{ color: "#6b7280" }}> — {m.role}</span>
                         )}
@@ -2070,14 +2113,23 @@ export default function ProjectDetailPage({
                       <div key={companyName} style={{ marginBottom: 6 }}>
                         <div style={{ fontWeight: 600 }}>{companyName}</div>
                         <ul style={{ margin: 0, paddingLeft: 16 }}>
-                          {members.map((m, index) => (
-                            <li key={`${m.id ?? m.userId ?? "collab"}-${index}`}>
-                              {m.user?.email ?? "(user)"}
-                              {m.role && (
-                                <span style={{ color: "#6b7280" }}> — {m.role}</span>
-                              )}
-                            </li>
-                          ))}
+                            {members.map((m, index) => (
+                              <li key={`${m.id ?? m.userId ?? "collab"}-${index}`}>
+                                {m.user?.email ? (
+                                  <a
+                                    href={`mailto:${m.user.email}`}
+                                    style={{ color: "#2563eb", textDecoration: "none" }}
+                                  >
+                                    {m.user.email}
+                                  </a>
+                                ) : (
+                                  "(user)"
+                                )}
+                                {m.role && (
+                                  <span style={{ color: "#6b7280" }}> — {m.role}</span>
+                                )}
+                              </li>
+                            ))}
                         </ul>
                       </div>
                     ))}
