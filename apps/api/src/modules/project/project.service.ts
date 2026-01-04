@@ -344,6 +344,85 @@ export class ProjectService {
    * List distinct payroll employees for a given project, based on
    * PayrollWeekRecord rows (Certified Payroll source of truth).
    */
+  async listProjectFiles(options: {
+    projectId: string;
+    actor: AuthenticatedUser;
+    folderId?: string;
+    search?: string;
+  }) {
+    const { projectId, actor, folderId, search } = options;
+    const { companyId } = actor;
+
+    // Reuse existing access control
+    await this.getProjectByIdForUser(projectId, actor);
+
+    const where: any = {
+      companyId,
+      projectId,
+    };
+    if (folderId) {
+      where.folderId = folderId;
+    }
+    if (search && search.trim()) {
+      const q = search.trim();
+      where.fileName = { contains: q, mode: "insensitive" };
+    }
+
+    return this.prisma.projectFile.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+  }
+
+  async registerProjectFile(options: {
+    projectId: string;
+    actor: AuthenticatedUser;
+    fileUri: string;
+    fileName: string;
+    mimeType?: string;
+    sizeBytes?: number | null;
+    folderId?: string | null;
+  }) {
+    const { projectId, actor, fileUri, fileName, mimeType, sizeBytes, folderId } = options;
+    const { companyId, userId } = actor;
+
+    if (!fileUri || !fileUri.trim()) {
+      throw new BadRequestException("fileUri is required");
+    }
+    if (!fileName || !fileName.trim()) {
+      throw new BadRequestException("fileName is required");
+    }
+
+    // Validate project access (throws if not allowed)
+    await this.getProjectByIdForUser(projectId, actor);
+
+    const file = await this.prisma.projectFile.create({
+      data: {
+        companyId,
+        projectId,
+        folderId: folderId || undefined,
+        storageUrl: fileUri,
+        fileName,
+        mimeType: mimeType || null,
+        sizeBytes: typeof sizeBytes === "number" ? sizeBytes : null,
+        createdById: userId,
+      },
+    });
+
+    await this.audit.log(actor, "PROJECT_FILE_REGISTERED", {
+      companyId,
+      projectId,
+      metadata: {
+        fileId: file.id,
+        fileName: file.fileName,
+        storageUrl: file.storageUrl,
+      },
+    });
+
+    return file;
+  }
+
   async getProjectEmployees(companyId: string, projectId: string) {
     const records = await this.prisma.payrollWeekRecord.findMany({
       where: { companyId, projectId },
@@ -1411,14 +1490,36 @@ export class ProjectService {
       }
     }
 
-    const latestVersion = await this.prisma.estimateVersion.findFirst({
-      where: { projectId },
+    // Prefer the same estimate version that backs the PETL grid so selection
+    // summaries stay aligned with what the user sees in the PETL tab.
+    let latestVersion = await this.prisma.estimateVersion.findFirst({
+      where: {
+        projectId,
+        sows: {
+          some: {
+            items: {
+              some: {},
+            },
+          },
+        },
+      },
       orderBy: [
         { sequenceNo: "desc" },
         { importedAt: "desc" },
-        { createdAt: "desc" }
-      ]
+        { createdAt: "desc" },
+      ],
     });
+
+    if (!latestVersion) {
+      latestVersion = await this.prisma.estimateVersion.findFirst({
+        where: { projectId },
+        orderBy: [
+          { sequenceNo: "desc" },
+          { importedAt: "desc" },
+          { createdAt: "desc" },
+        ],
+      });
+    }
 
     if (!latestVersion) {
       return {
@@ -1593,14 +1694,36 @@ export class ProjectService {
       }
     }
 
-    const latestVersion = await this.prisma.estimateVersion.findFirst({
-      where: { projectId },
+    // Prefer the same estimate version that backs the PETL grid so components
+    // are drawn from the same baseline as the PETL rows.
+    let latestVersion = await this.prisma.estimateVersion.findFirst({
+      where: {
+        projectId,
+        sows: {
+          some: {
+            items: {
+              some: {},
+            },
+          },
+        },
+      },
       orderBy: [
         { sequenceNo: "desc" },
         { importedAt: "desc" },
         { createdAt: "desc" },
       ],
     });
+
+    if (!latestVersion) {
+      latestVersion = await this.prisma.estimateVersion.findFirst({
+        where: { projectId },
+        orderBy: [
+          { sequenceNo: "desc" },
+          { importedAt: "desc" },
+          { createdAt: "desc" },
+        ],
+      });
+    }
 
     if (!latestVersion) {
       return {
