@@ -175,8 +175,16 @@ export default function ReferralsPage() {
   };
 
   const handleCopyRecruitLink = async () => {
-    if (typeof navigator === "undefined" || !recruitApplyUrl) {
-      setRecruitStatus("Copy is not available in this browser; you can still share the link manually.");
+    if (typeof navigator === "undefined") {
+      setRecruitStatus(
+        "Copy to clipboard is not supported in this environment; you can still highlight and copy the link manually.",
+      );
+      return;
+    }
+    if (!recruitApplyUrl) {
+      setRecruitStatus(
+        "Create a tracked referral first so we can generate a link, then use 'Copy invite link' to copy it.",
+      );
       return;
     }
     try {
@@ -184,7 +192,7 @@ export default function ReferralsPage() {
       setRecruitStatus("Invite link copied.");
       setTimeout(() => setRecruitStatus(null), 3000);
     } catch {
-      setRecruitStatus("Could not copy link; you can still share it manually.");
+      setRecruitStatus("Could not copy the invite link automatically; you can still highlight and copy it manually.");
     }
   };
 
