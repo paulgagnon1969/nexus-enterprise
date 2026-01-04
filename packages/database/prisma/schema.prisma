@@ -16,6 +16,10 @@ model Company {
   reputationOverallOverride Int?
   kind                      CompanyKind @default(ORGANIZATION)
 
+  /// When set, this organization has been deactivated / removed from the
+  /// marketplace and should no longer appear in tenant lists or allow login.
+  deletedAt                 DateTime?
+
   /// Optional default time zone for this organization (IANA name). Used as a
   /// sensible default for offices, projects, and payroll reporting.
   defaultTimeZone String?
@@ -58,6 +62,7 @@ model Company {
   projectGroups      ProjectGroup[]
   notifications      Notification[]
   messageThreads     MessageThread[]
+  recipientGroups    MessageRecipientGroup[]
 }
 
 model OrganizationTemplate {
@@ -200,6 +205,10 @@ model User {
   messageThreads      MessageThread[]
   messageParticipants MessageParticipant[]
   messages            Message[]
+
+  // Messaging recipient groups owned by this user
+  ownedRecipientGroups MessageRecipientGroup[]    @relation("UserOwnedRecipientGroups")
+  recipientGroupMembers MessageRecipientGroupMember[]
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -232,19 +241,24 @@ model Notification {
 /// optional external email participants. Each thread belongs to a company
 /// and has one or more participants and messages.
 model MessageThread {
-  id          String   @id @default(cuid())
+  id          String           @id @default(cuid())
   companyId   String
+  projectId   String?
   subject     String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now()) @updatedAt
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @default(now()) @updatedAt
   createdById String
+  type        MessageThreadType @default(DIRECT)
 
   company      Company              @relation(fields: [companyId], references: [id])
+  project      Project?             @relation(fields: [projectId], references: [id])
   createdBy    User                 @relation(fields: [createdById], references: [id])
   participants MessageParticipant[]
   messages     Message[]
 
   @@index([companyId, updatedAt], map: "MessageThread_company_updated_idx")
+  @@index([companyId, type, updatedAt], map: "MessageThread_company_type_updated_idx")
+  @@index([projectId, type, updatedAt], map: "MessageThread_project_type_updated_idx")
 }
 
 /// Participant in a message thread. Either internal (userId) or purely
@@ -276,11 +290,63 @@ model Message {
   body        String
   createdAt   DateTime @default(now())
 
-  thread     MessageThread        @relation(fields: [threadId], references: [id])
-  sender     User?                @relation(fields: [senderId], references: [id])
-  recipients MessageParticipant[]
+  thread       MessageThread        @relation(fields: [threadId], references: [id])
+  sender       User?                @relation(fields: [senderId], references: [id])
+  recipients   MessageParticipant[]
+  attachments  MessageAttachment[]
 
   @@index([threadId, createdAt], map: "Message_thread_created_idx")
+}
+
+/// User-defined recipient group ("Favorites") scoped to a company and owner.
+model MessageRecipientGroup {
+  id        String   @id @default(cuid())
+  companyId String
+  ownerId   String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+  owner   User    @relation("UserOwnedRecipientGroups", fields: [ownerId], references: [id])
+  members MessageRecipientGroupMember[]
+
+  @@index([companyId, ownerId], map: "MessageRecipientGroup_company_owner_idx")
+}
+
+/// Member of a user-defined recipient group. Can be an internal user or
+/// an external contact identified by email/phone.
+model MessageRecipientGroupMember {
+  id       String  @id @default(cuid())
+  groupId  String
+  userId   String?
+  email    String?
+  phone    String?
+  name     String?
+  isExternal Boolean @default(false)
+
+  group MessageRecipientGroup @relation(fields: [groupId], references: [id])
+  user  User?                 @relation(fields: [userId], references: [id])
+
+  @@index([groupId], map: "MessageRecipientGroupMember_group_idx")
+  @@index([userId], map: "MessageRecipientGroupMember_user_idx")
+}
+
+/// Attachment linked to a message (file or URL).
+model MessageAttachment {
+  id        String         @id @default(cuid())
+  messageId String
+  kind      AttachmentKind
+  url       String
+  filename  String?
+  mimeType  String?
+  sizeBytes Int?
+  assetId   String?
+  createdAt DateTime       @default(now())
+
+  message Message @relation(fields: [messageId], references: [id])
+
+  @@index([messageId], map: "MessageAttachment_message_idx")
 }
 
 /// BIA / LCP-imported field workers. These are human workers who may
@@ -557,6 +623,7 @@ model Project {
   payrollWeekRecords   PayrollWeekRecord[]
   group                ProjectGroup?             @relation(fields: [groupId], references: [id])
   notifications        Notification[]
+  messageThreads       MessageThread[]
 
   @@index([companyId, groupId], map: "Project_company_group_idx")
 }
@@ -1477,6 +1544,12 @@ enum NotificationChannel {
   EMAIL
 }
 
+enum MessageThreadType {
+  DIRECT
+  BOARD
+  CUSTOMER
+}
+
 enum CompanyKind {
   SYSTEM
   ORGANIZATION
@@ -1557,6 +1630,12 @@ enum ProjectParticleType {
   ROOM
   ZONE
   EXTERIOR
+}
+
+enum AttachmentKind {
+  INTERNAL_FILE
+  UPLOADED_FILE
+  EXTERNAL_LINK
 }
 
 enum TaskStatus {

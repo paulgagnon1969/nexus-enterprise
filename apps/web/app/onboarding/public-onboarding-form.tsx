@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import StarRating from "../components/star-rating";
 
@@ -100,6 +100,8 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
   const [phone, setPhone] = useState("");
   const [dob, setDob] = useState("");
   const [addressLine1, setAddressLine1] = useState("");
+
+  const addressLine1Ref = useRef<HTMLInputElement | null>(null);
   const [addressLine2, setAddressLine2] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
@@ -802,7 +804,14 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
               type="date"
               autoComplete="bday"
               value={dob}
-              onChange={e => setDob(e.target.value)}
+              onChange={e => {
+                const value = e.target.value;
+                setDob(value);
+                // When a full date is entered, move focus to the next field.
+                if (value && addressLine1Ref.current) {
+                  addressLine1Ref.current.focus();
+                }
+              }}
               onBlur={() => void saveProfileIfNeeded()}
               style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
             />
@@ -817,6 +826,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
               value={addressLine1}
               onChange={e => setAddressLine1(e.target.value)}
               onBlur={() => void saveProfileIfNeeded()}
+              ref={addressLine1Ref}
               style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
             />
           </label>

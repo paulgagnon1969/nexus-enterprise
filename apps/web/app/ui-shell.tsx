@@ -379,18 +379,150 @@ export function AppShell({ children }: { children: ReactNode }) {
     path.startsWith("/company/users/") ||
     path === "/settings/skills";
 
-  // Hide the main app navigation for:
-  // - Prospective candidates (APPLICANT) so they stay focused on their Nexis
-  //   portfolio until promoted into an organization tenant.
-  // - Auth routes like /login so the global menu doesn&apos;t distract first-time
-  //   candidates during sign-in.
-  const hideNavForApplicant = userType === "APPLICANT" || isAuthRoute;
+  // Hide the main app navigation on auth routes like /login so the global menu
+  // doesn&apos;t distract first-time candidates during sign-in. For APPLICANT
+  // users, we now show a limited Nexus Marketplace nav (Learning + FAQs).
+  const hideNavForApplicant = isAuthRoute;
 
   if (isPublicRoute) {
     return (
       <main style={{ minHeight: "100vh", background: "#ffffff" }}>{children}</main>
     );
   }
+
+  const renderApplicantNav = () => (
+    <nav className="app-nav">
+      <Link
+        href="/learning"
+        className={
+          "app-nav-link" + (isActive("/learning") ? " app-nav-link-active" : "")
+        }
+      >
+        {h.learning}
+      </Link>
+      <Link
+        href="/marketplace-faqs"
+        className={
+          "app-nav-link" +
+          (isActive("/marketplace-faqs") ? " app-nav-link-active" : "")
+        }
+      >
+        {h.marketplaceFaqs}
+      </Link>
+    </nav>
+  );
+
+  const renderStandardNav = () => (
+    <nav className="app-nav">
+      {globalRole === "SUPER_ADMIN" && !isSystemRoute && (
+        <Link
+          href="/system"
+          className={
+            "app-nav-link" +
+            (isActive("/system") ? " app-nav-link-active" : "")
+          }
+        >
+          {h.nexusSystem}
+        </Link>
+      )}
+
+      {(!isSystemRoute || globalRole !== "SUPER_ADMIN") && (
+        <>
+          {/* Proj Overview = main project workspace (current /projects section) */}
+          <Link
+            href="/projects"
+            className={
+              "app-nav-link" +
+              (isActive("/projects") ? " app-nav-link-active" : "")
+            }
+          >
+            {h.projOverview}
+          </Link>
+
+          {/* Placeholder tabs matching Buildertrend-style menu (without Sales) */}
+          <Link
+            href="/project-management"
+            className={
+              "app-nav-link" +
+              (isActive("/project-management")
+                ? " app-nav-link-active"
+                : "")
+            }
+          >
+            {h.projectManagement}
+          </Link>
+          <Link
+            href="/files"
+            className={
+              "app-nav-link" +
+              (isActive("/files") ? " app-nav-link-active" : "")
+            }
+          >
+            {h.files}
+          </Link>
+          <Link
+            href="/messaging"
+            className={
+              "app-nav-link" +
+              (isActive("/messaging") ? " app-nav-link-active" : "")
+            }
+          >
+            {h.messaging}
+          </Link>
+          <Link
+            href="/financial"
+            className={
+              "app-nav-link" +
+              (isActive("/financial") ? " app-nav-link-active" : "")
+            }
+          >
+            {h.financial}
+          </Link>
+          <Link
+            href="/reports"
+            className={
+              "app-nav-link" +
+              (isActive("/reports") ? " app-nav-link-active" : "")
+            }
+          >
+            {h.reports}
+          </Link>
+          <NavDropdown
+            label={h.people}
+            active={path.startsWith("/company/") || path.startsWith("/workers")}
+            items={[
+              { label: h.workerProfiles, href: "/company/users" },
+              {
+                label: h.prospectiveCandidates,
+                href: "/company/users?tab=candidates",
+              },
+              { label: h.openTradesProfile, href: "/company/trades" },
+              { label: h.clientProfiles, href: "/company/clients" },
+              { label: h.fieldWorkersBia, href: "/workers" },
+            ]}
+          />
+          <Link
+            href="/learning"
+            className={
+              "app-nav-link" +
+              (isActive("/learning") ? " app-nav-link-active" : "")
+            }
+          >
+            {h.learning}
+          </Link>
+          <Link
+            href="/marketplace-faqs"
+            className={
+              "app-nav-link" +
+              (isActive("/marketplace-faqs") ? " app-nav-link-active" : "")
+            }
+          >
+            {h.marketplaceFaqs}
+          </Link>
+        </>
+      )}
+    </nav>
+  );
 
   return (
     <div className="app-shell">
@@ -418,102 +550,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           )}
 
-          {/* Primary app navigation. For prospective candidates (APPLICANT) who are
-              only in the Nexus System recruiting tenant, we hide the nav entirely
-              so they stay focused on their Nexis portfolio. Once they are assigned
-              to an organization tenant, the nav appears as normal. */}
+          {/* Primary app navigation.
+              - For APPLICANT users, show a focused Nexus Marketplace nav (Learning + FAQs).
+              - For others, show the full tenant workspace navigation. */}
           {!hideNavForApplicant && (
-            <nav className="app-nav">
-              {globalRole === "SUPER_ADMIN" && !isSystemRoute && (
-                <Link
-                  href="/system"
-                  className={
-                    "app-nav-link" +
-                    (isActive("/system") ? " app-nav-link-active" : "")
-                  }
-                >
-                  {h.nexusSystem}
-                </Link>
-              )}
-
-              {(!isSystemRoute || globalRole !== "SUPER_ADMIN") && (
-                <>
-                  {/* Proj Overview = main project workspace (current /projects section) */}
-                  <Link
-                    href="/projects"
-                    className={
-                      "app-nav-link" +
-                      (isActive("/projects") ? " app-nav-link-active" : "")
-                    }
-                  >
-                    {h.projOverview}
-                  </Link>
-
-                  {/* Placeholder tabs matching Buildertrend-style menu (without Sales) */}
-                  <Link
-                    href="/project-management"
-                    className={
-                      "app-nav-link" +
-                      (isActive("/project-management")
-                        ? " app-nav-link-active"
-                        : "")
-                    }
-                  >
-                    {h.projectManagement}
-                  </Link>
-                  <Link
-                    href="/files"
-                    className={
-                      "app-nav-link" +
-                      (isActive("/files") ? " app-nav-link-active" : "")
-                    }
-                  >
-                    {h.files}
-                  </Link>
-                  <Link
-                    href="/messaging"
-                    className={
-                      "app-nav-link" +
-                      (isActive("/messaging") ? " app-nav-link-active" : "")
-                    }
-                  >
-                    {h.messaging}
-                  </Link>
-                  <Link
-                    href="/financial"
-                    className={
-                      "app-nav-link" +
-                      (isActive("/financial") ? " app-nav-link-active" : "")
-                    }
-                  >
-                    {h.financial}
-                  </Link>
-                  <Link
-                    href="/reports"
-                    className={
-                      "app-nav-link" +
-                      (isActive("/reports") ? " app-nav-link-active" : "")
-                    }
-                  >
-                    {h.reports}
-                  </Link>
-                  <NavDropdown
-                    label={h.people}
-                    active={path.startsWith("/company/") || path.startsWith("/workers")}
-                    items={[
-                      { label: h.workerProfiles, href: "/company/users" },
-                      {
-                        label: h.prospectiveCandidates,
-                        href: "/company/users?tab=candidates",
-                      },
-                      { label: h.openTradesProfile, href: "/company/trades" },
-                      { label: h.clientProfiles, href: "/company/clients" },
-                      { label: h.fieldWorkersBia, href: "/workers" },
-                    ]}
-                  />
-                </>
-              )}
-            </nav>
+            userType === "APPLICANT" ? renderApplicantNav() : renderStandardNav()
           )}
         </div>
         {/* Inline Superuser menu strip moved into SystemLayout; header stays clean here */}

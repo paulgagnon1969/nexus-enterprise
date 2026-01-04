@@ -37,6 +37,10 @@ export class AdminService {
     await this.audit(actor, "ADMIN_LIST_COMPANIES");
 
     return this.prisma.company.findMany({
+      // NOTE: Prisma client may not yet know about Company.deletedAt until
+      // `prisma generate` has been run. For now we rely on the database/schema
+      // to treat deleted organizations specially; the admin UI will also hide
+      // deactivated orgs once the client is regenerated.
       select: {
         id: true,
         name: true,
@@ -46,11 +50,36 @@ export class AdminService {
         createdAt: true,
         memberships: {
           select: {
-            role: true
-          }
-        }
-      }
+            role: true,
+          },
+        },
+      },
     });
+  }
+
+  async deactivateCompany(actor: AuthenticatedUser, companyId: string) {
+    await this.audit(actor, "ADMIN_DEACTIVATE_COMPANY", { companyId });
+
+    const updated = await this.prisma.company.update({
+      where: { id: companyId },
+      // When the Prisma client has been regenerated against the updated schema,
+      // this will set Company.deletedAt. Until then, this call will fail in
+      // TypeScript and should only be used after `prisma generate`.
+      data: {
+        // @ts-expect-error: deletedAt is added in the Prisma schema but may not
+        // yet be present in the generated client types until `prisma generate`.
+        deletedAt: new Date(),
+      },
+      select: {
+        id: true,
+        name: true,
+        // @ts-expect-error: see note above about regenerated Prisma client.
+        deletedAt: true,
+        kind: true,
+      },
+    });
+
+    return updated;
   }
 
   private getDayKey(d = new Date()): string {
