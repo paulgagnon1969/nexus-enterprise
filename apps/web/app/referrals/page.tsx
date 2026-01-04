@@ -583,9 +583,25 @@ export default function ReferralsPage() {
                             {r.prospectName || r.prospectEmail || "(No name)"}
                           </td>
                           <td style={{ padding: "6px 10px", borderTop: "1px solid #e5e7eb" }}>
-                            <div>{r.prospectEmail}</div>
+                            <div>
+                              {r.prospectEmail && (
+                                <a
+                                  href={`mailto:${r.prospectEmail}`}
+                                  style={{ color: "#2563eb", textDecoration: "none" }}
+                                >
+                                  {r.prospectEmail}
+                                </a>
+                              )}
+                            </div>
                             {r.prospectPhone && (
-                              <div style={{ fontSize: 12, color: "#6b7280" }}>{r.prospectPhone}</div>
+                              <div style={{ fontSize: 12 }}>
+                                <a
+                                  href={`tel:${r.prospectPhone.replace(/[^\\d+]/g, "")}`}
+                                  style={{ color: "#6b7280", textDecoration: "none" }}
+                                >
+                                  {r.prospectPhone}
+                                </a>
+                              </div>
                             )}
                           </td>
                           <td

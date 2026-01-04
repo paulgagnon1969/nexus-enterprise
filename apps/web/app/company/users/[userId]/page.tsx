@@ -592,7 +592,12 @@ export default function CompanyUserProfilePage() {
                 {profile.worker.phone && (
                   <div>
                     <strong>Worker phone:</strong>{" "}
-                    {profile.worker.phone}
+                    <a
+                      href={`tel:${profile.worker.phone.replace(/[^\\d+]/g, "")}`}
+                      style={{ color: "#2563eb", textDecoration: "none" }}
+                    >
+                      {profile.worker.phone}
+                    </a>
                   </div>
                 )}
                 {profile.worker.city && (
@@ -619,19 +624,57 @@ export default function CompanyUserProfilePage() {
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>HR (confidential)</div>
                 <p style={{ margin: 0 }}>
                   <strong>HR email:</strong>{" "}
-                  {profile.hr.displayEmail || "—"}
+                  {profile.hr.displayEmail ? (
+                    <a
+                      href={`mailto:${profile.hr.displayEmail}`}
+                      style={{ color: "#2563eb", textDecoration: "none" }}
+                    >
+                      {profile.hr.displayEmail}
+                    </a>
+                  ) : (
+                    "—"
+                  )}
                 </p>
                 <p style={{ margin: 0 }}>
                   <strong>HR phone:</strong>{" "}
-                  {profile.hr.phone || "—"}
+                  {profile.hr.phone ? (
+                    <a
+                      href={`tel:${profile.hr.phone.replace(/[^\\d+]/g, "")}`}
+                      style={{ color: "#2563eb", textDecoration: "none" }}
+                    >
+                      {profile.hr.phone}
+                    </a>
+                  ) : (
+                    "—"
+                  )}
                 </p>
                 <p style={{ margin: 0, marginTop: 4 }}>
                   <strong>Address:</strong>{" "}
-                  {profile.hr.addressLine1 || "—"}
-                  {profile.hr.addressLine2 ? `, ${profile.hr.addressLine2}` : ""}
-                  {profile.hr.city ? `, ${profile.hr.city}` : ""}
-                  {profile.hr.state ? `, ${profile.hr.state}` : ""}
-                  {profile.hr.postalCode ? ` ${profile.hr.postalCode}` : ""}
+                  {(() => {
+                    const parts: string[] = [];
+                    if (profile.hr.addressLine1) parts.push(profile.hr.addressLine1);
+                    if (profile.hr.addressLine2) parts.push(profile.hr.addressLine2);
+                    const cityStateHr = [profile.hr.city, profile.hr.state]
+                      .filter(Boolean)
+                      .join(", ");
+                    if (cityStateHr) parts.push(cityStateHr);
+                    if (profile.hr.postalCode) parts.push(profile.hr.postalCode);
+                    const addr = parts.join(", ");
+                    if (!addr) return "—";
+                    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                      addr,
+                    )}`;
+                    return (
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: "#2563eb", textDecoration: "none" }}
+                      >
+                        {addr}
+                      </a>
+                    );
+                  })()}
                 </p>
                 {profile.hr.country && (
                   <p style={{ margin: 0, marginTop: 2, fontSize: 12, color: "#6b7280" }}>

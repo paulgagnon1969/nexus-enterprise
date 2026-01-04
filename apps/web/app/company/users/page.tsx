@@ -894,7 +894,16 @@ function CompanyUsersPageInner() {
                           color: "#111827",
                         }}
                       >
-                        {m.user.phone || "—"}
+                        {m.user.phone ? (
+                          <a
+                            href={`tel:${m.user.phone.replace(/[^\\d+]/g, "")}`}
+                            style={{ color: "#2563eb", textDecoration: "none" }}
+                          >
+                            {m.user.phone}
+                          </a>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td
                         style={{
