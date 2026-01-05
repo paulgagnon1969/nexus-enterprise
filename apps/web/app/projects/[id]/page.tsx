@@ -1409,64 +1409,6 @@ export default function ProjectDetailPage({
   // No separate deactivate/delete functions anymore; state is controlled via
   // the Project state toggle + status field and saved in saveEditProject.
 
-  const markProjectDeleted = async () => {
-    if (!project) return;
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(
-        "This will mark the project as deleted (soft delete). It will be removed from active lists but data/files will be retained. Continue?",
-      )
-    ) {
-      return;
-    }
-
-    const STATE_TAG_CODES = ["project_state_deleted", "project_state_archived"];
-    const deletedTag = availableTags.find(t => t.code === "project_state_deleted");
-    if (!deletedTag) {
-      setDeleteProjectMessage(
-        "No 'Deleted' project tag found (code project_state_deleted). Ask an admin to create it.",
-      );
-      return;
-    }
-
-    const token = localStorage.getItem("accessToken");
-    if (!token) {
-      setDeleteProjectMessage("Missing access token. Please login again.");
-      return;
-    }
-
-    const nonStateTagIds = projectTags
-      .filter(t => !STATE_TAG_CODES.includes(t.tag.code))
-      .map(t => t.tagId);
-    const nextTagIds = Array.from(new Set([...nonStateTagIds, deletedTag.id]));
-
-    setEditProjectSaving(true);
-    setDeleteProjectMessage(null);
-    setTagsSaving(true);
-    try {
-      const res = await fetch(`${API_BASE}/tags/projects/${id}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ tagIds: nextTagIds }),
-      });
-      if (!res.ok) {
-        setDeleteProjectMessage(`Failed to apply deleted tag (${res.status}).`);
-        return;
-      }
-      const updatedAssignments: TagAssignmentDto[] = await res.json();
-      setProjectTags(updatedAssignments || []);
-      setDeleteProjectMessage("Project marked as deleted.");
-    } catch (err: any) {
-      setDeleteProjectMessage(err?.message ?? "Error marking project deleted.");
-    } finally {
-      setEditProjectSaving(false);
-      setTagsSaving(false);
-    }
-  };
-
   return (
     <div className="app-card">
       <div
@@ -1798,40 +1740,6 @@ export default function ProjectDetailPage({
                 </button>
               </div>
             )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
-              <button
-                type="button"
-                onClick={deactivateProject}
-                disabled={editProjectSaving}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 999,
-                  border: "1px solid #eab308",
-                  background: "#fef9c3",
-                  color: "#854d0e",
-                  fontSize: 11,
-                  cursor: editProjectSaving ? "default" : "pointer",
-                }}
-              >
-                Deactivate (set status to closed)
-              </button>
-              <button
-                type="button"
-                onClick={markProjectDeleted}
-                disabled={editProjectSaving}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 999,
-                  border: "1px solid #b91c1c",
-                  background: "#fef2f2",
-                  color: "#b91c1c",
-                  fontSize: 11,
-                  cursor: editProjectSaving ? "default" : "pointer",
-                }}
-              >
-                Mark deleted (danger)
-              </button>
-            </div>
             {editProjectMessage && (
               <p
                 style={{
@@ -1843,19 +1751,6 @@ export default function ProjectDetailPage({
                 }}
               >
                 {editProjectMessage}
-              </p>
-            )}
-            {deleteProjectMessage && (
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 11,
-                  color: deleteProjectMessage.toLowerCase().includes("fail")
-                    ? "#b91c1c"
-                    : "#b91c1c",
-                }}
-              >
-                {deleteProjectMessage}
               </p>
             )}
           </div>

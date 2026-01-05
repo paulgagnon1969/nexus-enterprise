@@ -544,6 +544,24 @@ export default function CompanyUserProfilePage() {
       }}
     >
       <div style={{ flex: "0 0 auto" }}>
+        <div style={{ marginBottom: 8 }}>
+          <a
+            href="/company/users"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12,
+              color: "#2563eb",
+              textDecoration: "none",
+            }}
+          >
+            <span aria-hidden="true" style={{ fontSize: 14 }}>
+              ←
+            </span>
+            <span>Return to Company users list</span>
+          </a>
+        </div>
         <h1 style={{ marginTop: 0, fontSize: 20 }}>Worker profile</h1>
         <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
           {profile.company.name} · {profile.companyRole}
