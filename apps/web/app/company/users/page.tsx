@@ -1615,6 +1615,7 @@ function ProspectiveCandidatesPanel({
   const [cityFilter, setCityFilter] = useState<string>("");
   const [searchEmail, setSearchEmail] = useState<string>("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   useEffect(() => {
     const token = window.localStorage.getItem("accessToken");
@@ -1667,6 +1668,50 @@ function ProspectiveCandidatesPanel({
       return true;
     })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const selectedCount = selectedIds.filter(id => filtered.some(r => r.id === id)).length;
+  const allFilteredSelected = filtered.length > 0 && selectedCount === filtered.length;
+
+  function handleToggleSelectAllFiltered() {
+    if (allFilteredSelected) {
+      setSelectedIds(prev => prev.filter(id => !filtered.some(r => r.id === id)));
+    } else {
+      const filteredIds = filtered.map(r => r.id);
+      setSelectedIds(prev => {
+        const set = new Set(prev);
+        filteredIds.forEach(id => set.add(id));
+        return Array.from(set);
+      });
+    }
+  }
+
+  function handleClearSelection() {
+    setSelectedIds([]);
+  }
+
+  function handleBulkMessageToSelected() {
+    if (typeof window === "undefined") return;
+    const selectedRows = filtered.filter(r => selectedIds.includes(r.id));
+    if (!selectedRows.length) return;
+    const emails = Array.from(
+      new Set(
+        selectedRows
+          .map(r => r.email)
+          .map(e => e.trim())
+          .filter(Boolean),
+      ),
+    );
+    if (!emails.length) return;
+    try {
+      window.localStorage.setItem(
+        "messagingDraftFromCandidates",
+        JSON.stringify({ externalEmails: emails }),
+      );
+    } catch {
+      // non-fatal; fall through to navigation
+    }
+    window.location.href = "/messaging";
+  }
 
   return (
     <section style={{ marginTop: 8 }}>
@@ -1747,8 +1792,60 @@ function ProspectiveCandidatesPanel({
           />
         </label>
 
-        <div style={{ marginLeft: "auto", color: "#6b7280" }}>
-          Showing <strong>{filtered.length}</strong>
+        <div style={{ marginLeft: "auto", display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+          <div style={{ color: "#6b7280" }}>
+            Showing <strong>{filtered.length}</strong> · Selected <strong>{selectedCount}</strong>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              onClick={handleToggleSelectAllFiltered}
+              disabled={filtered.length === 0}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 999,
+                border: "1px solid #d1d5db",
+                backgroundColor: filtered.length === 0 ? "#f9fafb" : "#ffffff",
+                color: "#111827",
+                fontSize: 11,
+                cursor: filtered.length === 0 ? "default" : "pointer",
+              }}
+            >
+              {allFilteredSelected ? "Deselect all (filtered)" : "Select all (filtered)"}
+            </button>
+            <button
+              type="button"
+              onClick={handleClearSelection}
+              disabled={selectedCount === 0}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 999,
+                border: "1px solid #e5e7eb",
+                backgroundColor: selectedCount === 0 ? "#f9fafb" : "#ffffff",
+                color: selectedCount === 0 ? "#9ca3af" : "#111827",
+                fontSize: 11,
+                cursor: selectedCount === 0 ? "default" : "pointer",
+              }}
+            >
+              Clear selection
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkMessageToSelected}
+              disabled={selectedCount === 0}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: "1px solid #0f172a",
+                backgroundColor: selectedCount === 0 ? "#e5e7eb" : "#0f172a",
+                color: selectedCount === 0 ? "#4b5563" : "#f9fafb",
+                fontSize: 11,
+                cursor: selectedCount === 0 ? "default" : "pointer",
+              }}
+            >
+              Send note / update to selected
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1777,6 +1874,7 @@ function ProspectiveCandidatesPanel({
                 <th style={{ textAlign: "right", padding: "6px 8px" }}>
                   <span style={{ visibility: "hidden" }}>Actions</span>
                 </th>
+                <th style={{ textAlign: "center", padding: "6px 8px" }}>Select</th>
               </tr>
             </thead>
             <tbody>
@@ -1785,6 +1883,7 @@ function ProspectiveCandidatesPanel({
                   (r.profile?.firstName || r.profile?.lastName)
                     ? `${r.profile?.firstName ?? ""} ${r.profile?.lastName ?? ""}`.trim()
                     : "(no name yet)";
+                const isSelected = selectedIds.includes(r.id);
 
                 return (
                   <tr key={r.id}>
@@ -1928,12 +2027,32 @@ function ProspectiveCandidatesPanel({
                         </div>
                       )}
                     </td>
+                    <td
+                      style={{
+                        padding: "6px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        textAlign: "center",
+                        width: 1,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {
+                          setSelectedIds(prev =>
+                            prev.includes(r.id)
+                              ? prev.filter(id => id !== r.id)
+                              : [...prev, r.id],
+                          );
+                        }}
+                      />
+                    </td>
                   </tr>
                 );
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ padding: 10, fontSize: 12, color: "#6b7280" }}>
+                  <td colSpan={8} style={{ padding: 10, fontSize: 12, color: "#6b7280" }}>
                     No candidates match your filters.
                   </td>
                 </tr>
