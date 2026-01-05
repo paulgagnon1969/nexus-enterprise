@@ -118,6 +118,14 @@ export default function MessagingPage() {
               .map(v => (typeof v === "string" ? v.trim() : ""))
               .filter(Boolean)
           : [];
+        const submittedFrom: string | null =
+          typeof parsed.submittedFrom === "string" && parsed.submittedFrom.trim()
+            ? parsed.submittedFrom.trim()
+            : null;
+        const submittedTo: string | null =
+          typeof parsed.submittedTo === "string" && parsed.submittedTo.trim()
+            ? parsed.submittedTo.trim()
+            : null;
         if (!emails.length) {
           window.localStorage.removeItem("messagingDraftFromCandidates");
           return;
@@ -134,9 +142,19 @@ export default function MessagingPage() {
 
         // Best-effort: automatically codify this cohort as a recipient group for reuse
         try {
-          const nameBase = "Prospective candidates cohort";
-          const ts = new Date().toISOString().slice(0, 19).replace("T", " ");
-          const groupName = `${nameBase} – ${ts} (${emails.length})`;
+          const nameBase = "Hiring class";
+          const ts = new Date().toISOString().slice(0, 10);
+          let rangeLabel = ts;
+
+          if (submittedFrom && submittedTo) {
+            rangeLabel = `${submittedFrom} → ${submittedTo}`;
+          } else if (submittedFrom) {
+            rangeLabel = `from ${submittedFrom}`;
+          } else if (submittedTo) {
+            rangeLabel = `through ${submittedTo}`;
+          }
+
+          const groupName = `${nameBase} ${rangeLabel} (${emails.length})`;
 
           const res = await fetch(`${API_BASE}/messages/recipient-groups`, {
             method: "POST",

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -1614,6 +1614,8 @@ function ProspectiveCandidatesPanel({
   const [stateFilter, setStateFilter] = useState<string>("");
   const [cityFilter, setCityFilter] = useState<string>("");
   const [searchEmail, setSearchEmail] = useState<string>("");
+  const [submittedFrom, setSubmittedFrom] = useState<string>("");
+  const [submittedTo, setSubmittedTo] = useState<string>("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
@@ -1654,6 +1656,30 @@ function ProspectiveCandidatesPanel({
     void load();
   }, [companyId, statusFilter]);
 
+  const stateOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) {
+      const st = (r.profile?.state || "").trim();
+      if (!st) continue;
+      if (regionFilter && stateToRegion(st) !== regionFilter) continue;
+      set.add(st);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [rows, regionFilter]);
+
+  const cityOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) {
+      const st = (r.profile?.state || "").trim();
+      const city = (r.profile?.city || "").trim();
+      if (!city) continue;
+      if (regionFilter && stateToRegion(st) !== regionFilter) continue;
+      if (stateFilter.trim() && st.toLowerCase() !== stateFilter.trim().toLowerCase()) continue;
+      set.add(city);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [rows, regionFilter, stateFilter]);
+
   const filtered = rows
     .filter(r => {
       if (searchEmail.trim() && !r.email.toLowerCase().includes(searchEmail.trim().toLowerCase())) {
@@ -1665,6 +1691,21 @@ function ProspectiveCandidatesPanel({
       if (stateFilter.trim() && st.toLowerCase() !== stateFilter.trim().toLowerCase()) return false;
       if (cityFilter.trim() && !city.toLowerCase().includes(cityFilter.trim().toLowerCase())) return false;
       if (regionFilter && stateToRegion(st) !== regionFilter) return false;
+
+      // Submitted date range filter
+      if (submittedFrom.trim() || submittedTo.trim()) {
+        const createdTime = new Date(r.createdAt).getTime();
+        if (!Number.isFinite(createdTime)) return false;
+        if (submittedFrom.trim()) {
+          const fromTime = new Date(`${submittedFrom.trim()}T00:00:00`).getTime();
+          if (Number.isFinite(fromTime) && createdTime < fromTime) return false;
+        }
+        if (submittedTo.trim()) {
+          const toTime = new Date(`${submittedTo.trim()}T23:59:59`).getTime();
+          if (Number.isFinite(toTime) && createdTime > toTime) return false;
+        }
+      }
+
       return true;
     })
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -1702,10 +1743,17 @@ function ProspectiveCandidatesPanel({
       ),
     );
     if (!emails.length) return;
+
+    const draftPayload = {
+      externalEmails: emails,
+      submittedFrom: submittedFrom.trim() || null,
+      submittedTo: submittedTo.trim() || null,
+    };
+
     try {
       window.localStorage.setItem(
         "messagingDraftFromCandidates",
-        JSON.stringify({ externalEmails: emails }),
+        JSON.stringify(draftPayload),
       );
     } catch {
       // non-fatal; fall through to navigation
@@ -1764,21 +1812,53 @@ function ProspectiveCandidatesPanel({
 
         <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           State
-          <input
+          <select
             value={stateFilter}
             onChange={e => setStateFilter(e.target.value)}
-            placeholder="FL"
-            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", width: 80 }}
-          />
+            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", minWidth: 100 }}
+          >
+            <option value="">All states</option>
+            {stateOptions.map(st => (
+              <option key={st} value={st}>
+                {st}
+              </option>
+            ))}
+          </select>
         </label>
 
         <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           City
-          <input
+          <select
             value={cityFilter}
             onChange={e => setCityFilter(e.target.value)}
-            placeholder="Miami"
             style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", minWidth: 160 }}
+          >
+            <option value="">All cities</option>
+            {cityOptions.map(city => (
+              <option key={city} value={city}>
+                {city}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          Submitted from
+          <input
+            type="date"
+            value={submittedFrom}
+            onChange={e => setSubmittedFrom(e.target.value)}
+            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db" }}
+          />
+        </label>
+
+        <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          Submitted to
+          <input
+            type="date"
+            value={submittedTo}
+            onChange={e => setSubmittedTo(e.target.value)}
+            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db" }}
           />
         </label>
 
