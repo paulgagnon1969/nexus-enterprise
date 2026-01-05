@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -72,8 +72,46 @@ export default function CandidateDetailPage() {
   const [skills, setSkills] = useState<OnboardingSkillRow[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillsError, setSkillsError] = useState<string | null>(null);
-
+ 
   const [canViewHr, setCanViewHr] = useState(false);
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
+
+  const categoryGroups = useMemo(
+    () => {
+      if (!skills.length) return [] as {
+        categoryLabel: string;
+        skills: OnboardingSkillRow[];
+        ratedCount: number;
+        totalCount: number;
+        avgSelf: number | null;
+      }[];
+
+      const byCategory = new Map<string, OnboardingSkillRow[]>();
+      for (const skill of skills) {
+        const cat = (skill.categoryLabel || "Other").trim() || "Other";
+        const existing = byCategory.get(cat) ?? [];
+        existing.push(skill);
+        byCategory.set(cat, existing);
+      }
+
+      return Array.from(byCategory.entries())
+        .map(([categoryLabel, groupSkills]) => {
+          const rated = groupSkills.filter(s => typeof s.level === "number" && s.level != null);
+          const avgSelf = rated.length
+            ? rated.reduce((sum, s) => sum + (s.level ?? 0), 0) / rated.length
+            : null;
+          return {
+            categoryLabel,
+            skills: groupSkills,
+            ratedCount: rated.length,
+            totalCount: groupSkills.length,
+            avgSelf,
+          };
+        })
+        .sort((a, b) => a.categoryLabel.localeCompare(b.categoryLabel));
+    },
+    [skills],
+  );
 
   useEffect(() => {
     if (!sessionId) return;
@@ -496,33 +534,93 @@ export default function CandidateDetailPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ backgroundColor: "#f9fafb" }}>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Division / functional area</th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>Skill</th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>Trade</th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>Level</th>
                 </tr>
               </thead>
               <tbody>
-                {skills
-                  .filter(s => s.level != null)
-                  .sort((a, b) => (b.level ?? 0) - (a.level ?? 0))
-                  .map(s => (
-                    <tr key={s.id}>
-                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>{s.label}</td>
-                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
-                        {s.tradeLabel || "—"}
-                      </td>
-                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
-                        {s.level != null ? (
+                {categoryGroups.map(group => {
+                  const ratedSkills = group.skills.filter(s => s.level != null);
+                  if (!ratedSkills.length) {
+                    return null;
+                  }
+
+                  const expanded = !!expandedCategories[group.categoryLabel];
+
+                  return (
+                    <>
+                      <tr key={group.categoryLabel} style={{ backgroundColor: "#f3f4f6" }}>
+                        <td
+                          colSpan={4}
+                          onClick={() =>
+                            setExpandedCategories(prev => ({
+                              ...prev,
+                              [group.categoryLabel]: !prev[group.categoryLabel],
+                            }))
+                          }
+                          style={{
+                            padding: "6px 8px",
+                            borderTop: "1px solid #e5e7eb",
+                            fontWeight: 600,
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            cursor: "pointer",
+                          }}
+                        >
                           <span>
-                            {renderStars(s.level, 12)}{" "}
-                            <span style={{ marginLeft: 4 }}>{s.level}/5</span>
+                            {expanded ? "▾" : "▸"} {group.categoryLabel}
                           </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                          <span style={{ fontSize: 11, color: "#6b7280" }}>
+                            Rated {group.ratedCount}/{group.totalCount}
+                            {group.avgSelf != null && (
+                              <>
+                                {" · "}
+                                {group.avgSelf.toFixed(1)}/5 avg
+                              </>
+                            )}
+                          </span>
+                        </td>
+                      </tr>
+                      {expanded &&
+                        ratedSkills
+                          .sort((a, b) => (b.level ?? 0) - (a.level ?? 0))
+                          .map(skill => (
+                            <tr key={skill.id}>
+                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }} />
+                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>{skill.label}</td>
+                              <td
+                                style={{
+                                  padding: "6px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  fontSize: 12,
+                                }}
+                              >
+                                {skill.tradeLabel || "—"}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "6px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  fontSize: 12,
+                                }}
+                              >
+                                {skill.level != null ? (
+                                  <span>
+                                    {renderStars(skill.level, 12)}{" "}
+                                    <span style={{ marginLeft: 4 }}>{skill.level}/5</span>
+                                  </span>
+                                ) : (
+                                  "—"
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                    </>
+                  );
+                })}
               </tbody>
             </table>
           </div>

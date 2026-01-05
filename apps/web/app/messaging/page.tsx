@@ -56,6 +56,12 @@ interface ThreadWithMessages extends ThreadDto {
   messages?: MessageDto[];
 }
 
+interface DraftRecipient {
+  email: string;
+  name?: string | null;
+  field: "to" | "cc" | "bcc";
+}
+
 export default function MessagingPage() {
   const [threads, setThreads] = useState<ThreadDto[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -72,8 +78,18 @@ export default function MessagingPage() {
   const [groups, setGroups] = useState<RecipientGroupDto[] | null>(null);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
-  const [externalEmailInput, setExternalEmailInput] = useState("");
-  const [externalEmails, setExternalEmails] = useState<string[]>([]);
+
+  // External email recipients, split by header line (To / CC / BCC)
+  const [toExternalEmailInput, setToExternalEmailInput] = useState("");
+  const [toExternalEmails, setToExternalEmails] = useState<string[]>([]);
+  const [ccExternalEmailInput, setCcExternalEmailInput] = useState("");
+  const [ccExternalEmails, setCcExternalEmails] = useState<string[]>([]);
+  const [bccExternalEmailInput, setBccExternalEmailInput] = useState("");
+  const [bccExternalEmails, setBccExternalEmails] = useState<string[]>([]);
+
+  // Draft recipients coming from other pages (e.g., Prospective candidates list)
+  const [draftRecipients, setDraftRecipients] = useState<DraftRecipient[] | null>(null);
+
   const [newGroupName, setNewGroupName] = useState("");
 
   const [replyBody, setReplyBody] = useState("");
@@ -92,6 +108,8 @@ export default function MessagingPage() {
   const [showProjectFilePicker, setShowProjectFilePicker] = useState<
     "new" | "reply" | null
   >(null);
+  const [showGroupDropdown, setShowGroupDropdown] = useState(false);
+  const [showTeamDropdown, setShowTeamDropdown] = useState(false);
   const [selectedThreadProjectId, setSelectedThreadProjectId] = useState<string | null>(
     null,
   );
@@ -131,12 +149,13 @@ export default function MessagingPage() {
           return;
         }
 
-        // Pre-populate external emails in the composer
-        setExternalEmails(prev => {
-          const set = new Set<string>(prev);
-          for (const email of emails) set.add(email);
-          return Array.from(set);
-        });
+        const initialRecipients: DraftRecipient[] = emails.map(email => ({
+          email,
+          name: email,
+          field: "bcc",
+        }));
+        setDraftRecipients(initialRecipients);
+        syncExternalHeadersFromDraft(initialRecipients);
 
         window.localStorage.removeItem("messagingDraftFromCandidates");
 
@@ -193,6 +212,16 @@ export default function MessagingPage() {
         const res = await fetch(`${API_BASE}/messages/threads`, {
           headers: { Authorization: `Bearer ${token}` },
         });
+
+        // If the backend does not yet expose /messages/threads in this environment,
+        // treat 404 as "no threads yet" instead of a hard error.
+        if (res.status === 404) {
+          if (!cancelled) {
+            setThreads([]);
+          }
+          return;
+        }
+
         if (!res.ok) {
           throw new Error(`Failed to load threads (${res.status})`);
         }
@@ -231,6 +260,9 @@ export default function MessagingPage() {
       }
     }
 
+    // First, hydrate any draft recipient cohort (e.g. from Prospective candidates list).
+    void hydrateFromDraftAndMaybeCreateGroup();
+    // Then load existing threads and recipient favorites.
     void loadThreads();
 
     return () => {
@@ -290,14 +322,24 @@ export default function MessagingPage() {
   }
 
   function addExternalEmailChip() {
-    const v = externalEmailInput.trim();
+    const v = toExternalEmailInput.trim();
     if (!v) return;
-    setExternalEmails(prev => (prev.includes(v) ? prev : [...prev, v]));
-    setExternalEmailInput("");
+    setToExternalEmails(prev => (prev.includes(v) ? prev : [...prev, v]));
+    setToExternalEmailInput("");
+  }
+ 
+  function removeExternalEmailChip(email: string) {
+    setToExternalEmails(prev => prev.filter(e => e !== email));
+    setDraftRecipients(prev => (prev ? prev.filter(r => r.email !== email) : prev));
   }
 
-  function removeExternalEmailChip(email: string) {
-    setExternalEmails(prev => prev.filter(e => e !== email));
+  function syncExternalHeadersFromDraft(recipients: DraftRecipient[]) {
+    const to = recipients.filter(r => r.field === "to").map(r => r.email);
+    const cc = recipients.filter(r => r.field === "cc").map(r => r.email);
+    const bcc = recipients.filter(r => r.field === "bcc").map(r => r.email);
+    setToExternalEmails(to);
+    setCcExternalEmails(cc);
+    setBccExternalEmails(bcc);
   }
 
   async function handleSaveFavoriteGroup(ev: React.FormEvent) {
@@ -308,7 +350,12 @@ export default function MessagingPage() {
 
     const name = newGroupName.trim();
     if (!name) return;
-    if (selectedUserIds.length === 0 && externalEmails.length === 0) {
+
+    const allExternal = Array.from(
+      new Set([...toExternalEmails, ...ccExternalEmails, ...bccExternalEmails]),
+    );
+
+    if (selectedUserIds.length === 0 && allExternal.length === 0) {
       setError("Select at least one recipient before saving a favorite group.");
       return;
     }
@@ -324,7 +371,7 @@ export default function MessagingPage() {
           name,
           members: [
             ...selectedUserIds.map(userId => ({ userId })),
-            ...externalEmails.map(email => ({ email })),
+            ...allExternal.map(email => ({ email })),
           ],
         }),
       });
@@ -378,6 +425,9 @@ export default function MessagingPage() {
 
     try {
       setCreating(true);
+      const allExternal = Array.from(
+        new Set([...toExternalEmails, ...ccExternalEmails, ...bccExternalEmails]),
+      );
       const res = await fetch(`${API_BASE}/messages/threads`, {
         method: "POST",
         headers: {
@@ -388,7 +438,13 @@ export default function MessagingPage() {
           subject: newSubject.trim() || null,
           body: newBody.trim(),
           participantUserIds: selectedUserIds,
-          externalEmails,
+          // Prefer explicit header buckets so the API can assign proper
+          // To/CC/BCC header roles.
+          toExternalEmails,
+          ccExternalEmails,
+          bccExternalEmails,
+          // Keep legacy externalEmails for backwards compatibility if needed.
+          externalEmails: allExternal,
           groupIds: selectedGroupIds,
           attachments:
             newMessageLinks.length > 0
@@ -407,7 +463,9 @@ export default function MessagingPage() {
       setNewBody("");
       setSelectedUserIds([]);
       setSelectedGroupIds([]);
-      setExternalEmails([]);
+      setToExternalEmails([]);
+      setCcExternalEmails([]);
+      setBccExternalEmails([]);
       setNewMessageLinks([]);
 
       const threadsRes = await fetch(`${API_BASE}/messages/threads`, {
@@ -480,72 +538,362 @@ export default function MessagingPage() {
             <p style={{ fontSize: 12, color: "#b91c1c" }}>Error: {error}</p>
           )}
 
+          {/* Group Distribution List (favorites) */}
+          {groups && groups.length > 0 && (
+            <div style={{ marginTop: 8, marginBottom: 8, fontSize: 11 }}>
+              <div
+                style={{
+                  marginBottom: 4,
+                  color: "#4b5563",
+                  fontWeight: 600,
+                }}
+              >
+                Group Distribution List
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowGroupDropdown(v => !v)}
+                  style={{
+                    alignSelf: "flex-start",
+                    padding: "4px 8px",
+                    borderRadius: 999,
+                    border: "1px solid #d1d5db",
+                    backgroundColor: "#ffffff",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    fontSize: 11,
+                  }}
+                >
+                  <span>
+                    {selectedGroupIds.length > 0
+                      ? `${selectedGroupIds.length} group${selectedGroupIds.length > 1 ? "s" : ""} selected`
+                      : "Select groups"}
+                  </span>
+                  <span style={{ fontSize: 9 }}>{showGroupDropdown ? "▲" : "▼"}</span>
+                </button>
+                {showGroupDropdown && (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      borderRadius: 8,
+                      border: "1px solid #e5e7eb",
+                      backgroundColor: "#ffffff",
+                      padding: 6,
+                      maxHeight: 180,
+                      overflowY: "auto",
+                      boxShadow:
+                        "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)",
+                    }}
+                  >
+                    {groups.map(g => {
+                      const active = selectedGroupIds.includes(g.id);
+                      return (
+                        <label
+                          key={g.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            padding: "2px 4px",
+                            cursor: "pointer",
+                            fontSize: 11,
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={active}
+                            onChange={() => toggleSelectedGroup(g.id)}
+                            style={{ cursor: "pointer" }}
+                          />
+                          <span>{g.name}</span>
+                        </label>
+                      );
+                    })}
+                    {groups.length === 0 && (
+                      <div style={{ fontSize: 11, color: "#9ca3af" }}>
+                        No groups yet. Use "Save as favorite" below to create one.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <div style={{ marginTop: 8, marginBottom: 12 }}>
+            {draftRecipients && draftRecipients.length > 0 && (
+              <div
+                style={{
+                  marginBottom: 8,
+                  padding: 8,
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                  backgroundColor: "#f9fafb",
+                  fontSize: 11,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>Map candidate emails to To / CC / BCC</div>
+                    <div style={{ color: "#6b7280" }}>
+                      Adjust how this cohort appears in the message headers before sending.
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button
+                      type="button"
+                          onClick={() =>
+                        setDraftRecipients(prev => {
+                          if (!prev) return prev;
+                          const next: DraftRecipient[] = prev.map(r => ({
+                            ...r,
+                            field: "to" as DraftRecipient["field"],
+                          }));
+                          syncExternalHeadersFromDraft(next);
+                          return next;
+                        })
+                      }
+                      style={{
+                        padding: "2px 6px",
+                        borderRadius: 999,
+                        border: "1px solid #d1d5db",
+                        backgroundColor: "#e0f2fe",
+                        cursor: "pointer",
+                      }}
+                    >
+                      All To
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDraftRecipients(prev => {
+                          if (!prev) return prev;
+                          const next: DraftRecipient[] = prev.map(r => ({
+                            ...r,
+                            field: "cc" as DraftRecipient["field"],
+                          }));
+                          syncExternalHeadersFromDraft(next);
+                          return next;
+                        })
+                      }
+                      style={{
+                        padding: "2px 6px",
+                        borderRadius: 999,
+                        border: "1px solid #d1d5db",
+                        backgroundColor: "#fef9c3",
+                        cursor: "pointer",
+                      }}
+                    >
+                      All CC
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDraftRecipients(prev => {
+                          if (!prev) return prev;
+                          const next: DraftRecipient[] = prev.map(r => ({
+                            ...r,
+                            field: "bcc" as DraftRecipient["field"],
+                          }));
+                          syncExternalHeadersFromDraft(next);
+                          return next;
+                        })
+                      }
+                      style={{
+                        padding: "2px 6px",
+                        borderRadius: 999,
+                        border: "1px solid #d1d5db",
+                        backgroundColor: "#dcfce7",
+                        cursor: "pointer",
+                      }}
+                    >
+                      All BCC
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 6, maxHeight: 140, overflowY: "auto" }}>
+                  {draftRecipients.map(rec => (
+                    <div
+                      key={rec.email}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "2px 0",
+                        borderTop: "1px solid #e5e7eb",
+                      }}
+                    >
+                      <div style={{ fontSize: 11 }}>
+                        <span style={{ fontWeight: 500 }}>{rec.email}</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftRecipients(prev => {
+                              if (!prev) return prev;
+                              const next: DraftRecipient[] = prev.map(r =>
+                                r.email === rec.email
+                                  ? { ...r, field: "to" as DraftRecipient["field"] }
+                                  : r,
+                              );
+                              syncExternalHeadersFromDraft(next);
+                              return next;
+                            })
+                          }
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: 999,
+                            border: "1px solid #d1d5db",
+                            backgroundColor: rec.field === "to" ? "#dbeafe" : "#ffffff",
+                            cursor: "pointer",
+                          }}
+                        >
+                          To
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftRecipients(prev => {
+                              if (!prev) return prev;
+                              const next: DraftRecipient[] = prev.map(r =>
+                                r.email === rec.email
+                                  ? { ...r, field: "cc" as DraftRecipient["field"] }
+                                  : r,
+                              );
+                              syncExternalHeadersFromDraft(next);
+                              return next;
+                            })
+                          }
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: 999,
+                            border: "1px solid #d1d5db",
+                            backgroundColor: rec.field === "cc" ? "#fef3c7" : "#ffffff",
+                            cursor: "pointer",
+                          }}
+                        >
+                          CC
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftRecipients(prev => {
+                              if (!prev) return prev;
+                              const next: DraftRecipient[] = prev.map(r =>
+                                r.email === rec.email
+                                  ? { ...r, field: "bcc" as DraftRecipient["field"] }
+                                  : r,
+                              );
+                              syncExternalHeadersFromDraft(next);
+                              return next;
+                            })
+                          }
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: 999,
+                            border: "1px solid #d1d5db",
+                            backgroundColor: rec.field === "bcc" ? "#dcfce7" : "#ffffff",
+                            cursor: "pointer",
+                          }}
+                        >
+                          BCC
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleCreateThread} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {/* TO: internal team + groups + external */}
               <div style={{ fontSize: 11, color: "#4b5563" }}>To:</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11 }}>
                 {members && members.length > 0 && (
                   <div>
-                    <div style={{ marginBottom: 2 }}>Team</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                      {members.map(m => {
-                        const label =
-                          (m.user.firstName || m.user.lastName)
-                            ? `${m.user.firstName || ""} ${m.user.lastName || ""}`.trim()
-                            : m.user.email;
-                        const active = selectedUserIds.includes(m.userId);
-                        return (
-                          <button
-                            key={m.userId}
-                            type="button"
-                            onClick={() => toggleSelectedUser(m.userId)}
-                            style={{
-                              padding: "2px 6px",
-                              borderRadius: 999,
-                              border: "1px solid #d1d5db",
-                              backgroundColor: active ? "#dbeafe" : "#f9fafb",
-                              cursor: "pointer",
-                            }}
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <div style={{ marginBottom: 2 }}>Team selection</div>
+                    <button
+                      type="button"
+                      onClick={() => setShowTeamDropdown(v => !v)}
+                      style={{
+                        alignSelf: "flex-start",
+                        padding: "4px 8px",
+                        borderRadius: 999,
+                        border: "1px solid #d1d5db",
+                        backgroundColor: "#ffffff",
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontSize: 11,
+                        marginBottom: 4,
+                      }}
+                    >
+                      <span>
+                        {selectedUserIds.length > 0
+                          ? `${selectedUserIds.length} team member${
+                              selectedUserIds.length > 1 ? "s" : ""
+                            } selected`
+                          : "Select team members"}
+                      </span>
+                      <span style={{ fontSize: 9 }}>{showTeamDropdown ? "▲" : "▼"}</span>
+                    </button>
+                    {showTeamDropdown && (
+                      <div
+                        style={{
+                          borderRadius: 8,
+                          border: "1px solid #e5e7eb",
+                          backgroundColor: "#ffffff",
+                          padding: 6,
+                          maxHeight: 200,
+                          overflowY: "auto",
+                          boxShadow:
+                            "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)",
+                        }}
+                      >
+                        {members.map(m => {
+                          const label =
+                            (m.user.firstName || m.user.lastName)
+                              ? `${m.user.firstName || ""} ${m.user.lastName || ""}`.trim()
+                              : m.user.email;
+                          const active = selectedUserIds.includes(m.userId);
+                          return (
+                            <label
+                              key={m.userId}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                padding: "2px 4px",
+                                cursor: "pointer",
+                                fontSize: 11,
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={active}
+                                onChange={() => toggleSelectedUser(m.userId)}
+                                style={{ cursor: "pointer" }}
+                              />
+                              <span>{label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {groups && groups.length > 0 && (
-                  <div>
-                    <div style={{ marginTop: 4, marginBottom: 2 }}>Favorites</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                      {groups.map(g => {
-                        const active = selectedGroupIds.includes(g.id);
-                        return (
-                          <button
-                            key={g.id}
-                            type="button"
-                            onClick={() => toggleSelectedGroup(g.id)}
-                            style={{
-                              padding: "2px 6px",
-                              borderRadius: 999,
-                              border: "1px solid #d1d5db",
-                              backgroundColor: active ? "#dcfce7" : "#f9fafb",
-                              cursor: "pointer",
-                            }}
-                          >
-                            {g.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
 
                 <div>
-                  <div style={{ marginTop: 4, marginBottom: 2 }}>External emails</div>
+                  <div style={{ marginTop: 4, marginBottom: 2 }}>External emails (To)</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {externalEmails.map(email => (
+                    {toExternalEmails.map(email => (
                       <span
                         key={email}
                         style={{
@@ -570,8 +918,8 @@ export default function MessagingPage() {
                     ))}
                     <input
                       type="email"
-                      value={externalEmailInput}
-                      onChange={e => setExternalEmailInput(e.target.value)}
+                      value={toExternalEmailInput}
+                      onChange={e => setToExternalEmailInput(e.target.value)}
                       onBlur={addExternalEmailChip}
                       onKeyDown={e => {
                         if (e.key === "Enter" || e.key === ",") {
@@ -580,6 +928,122 @@ export default function MessagingPage() {
                         }
                       }}
                       placeholder="Add email and press Enter"
+                      style={{
+                        minWidth: 120,
+                        border: "1px solid #d1d5db",
+                        borderRadius: 6,
+                        padding: "4px 6px",
+                        fontSize: 11,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* CC: external only for now */}
+              <div style={{ fontSize: 11, color: "#4b5563", marginTop: 6 }}>CC:</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11 }}>
+                <div>
+                  <div style={{ marginBottom: 2 }}>External emails (CC)</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {ccExternalEmails.map(email => (
+                      <span
+                        key={email}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          padding: "2px 6px",
+                          borderRadius: 999,
+                          border: "1px solid #d1d5db",
+                          backgroundColor: "#f3f4f6",
+                        }}
+                      >
+                        <span>{email}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setCcExternalEmails(prev => prev.filter(eaddr => eaddr !== email))
+                          }
+                          style={{ border: "none", background: "transparent", cursor: "pointer" }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="email"
+                      value={ccExternalEmailInput}
+                      onChange={e => setCcExternalEmailInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" || e.key === ",") {
+                          e.preventDefault();
+                          const v = ccExternalEmailInput.trim();
+                          if (v) {
+                            setCcExternalEmails(prev => (prev.includes(v) ? prev : [...prev, v]));
+                            setCcExternalEmailInput("");
+                          }
+                        }
+                      }}
+                      placeholder="Add CC email and press Enter"
+                      style={{
+                        minWidth: 120,
+                        border: "1px solid #d1d5db",
+                        borderRadius: 6,
+                        padding: "4px 6px",
+                        fontSize: 11,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* BCC: external only; candidate cohorts land here by default */}
+              <div style={{ fontSize: 11, color: "#4b5563", marginTop: 6 }}>BCC:</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11 }}>
+                <div>
+                  <div style={{ marginBottom: 2 }}>External emails (BCC)</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {bccExternalEmails.map(email => (
+                      <span
+                        key={email}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          padding: "2px 6px",
+                          borderRadius: 999,
+                          border: "1px solid #d1d5db",
+                          backgroundColor: "#f3f4f6",
+                        }}
+                      >
+                        <span>{email}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setBccExternalEmails(prev => prev.filter(eaddr => eaddr !== email))
+                          }
+                          style={{ border: "none", background: "transparent", cursor: "pointer" }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="email"
+                      value={bccExternalEmailInput}
+                      onChange={e => setBccExternalEmailInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" || e.key === ",") {
+                          e.preventDefault();
+                          const v = bccExternalEmailInput.trim();
+                          if (v) {
+                            setBccExternalEmails(prev => (prev.includes(v) ? prev : [...prev, v]));
+                            setBccExternalEmailInput("");
+                          }
+                        }
+                      }}
+                      placeholder="Add BCC email and press Enter"
                       style={{
                         minWidth: 120,
                         border: "1px solid #d1d5db",
@@ -783,7 +1247,7 @@ export default function MessagingPage() {
                 </div>
 
                 <div>
-                  <div style={{ marginTop: 6, marginBottom: 2 }}>Save as favorite</div>
+                  <div style={{ marginTop: 6, marginBottom: 2 }}>Save Group Distribution</div>
                   <div style={{ display: "flex", gap: 4 }}>
                     <input
                       type="text"
@@ -803,7 +1267,10 @@ export default function MessagingPage() {
                       onClick={ev => void handleSaveFavoriteGroup(ev as any)}
                       disabled={
                         !newGroupName.trim() ||
-                        (selectedUserIds.length === 0 && externalEmails.length === 0)
+                        (selectedUserIds.length === 0 &&
+                          toExternalEmails.length === 0 &&
+                          ccExternalEmails.length === 0 &&
+                          bccExternalEmails.length === 0)
                       }
                       style={{
                         padding: "4px 8px",
@@ -811,14 +1278,18 @@ export default function MessagingPage() {
                         border: "none",
                         backgroundColor:
                           !newGroupName.trim() ||
-                          (selectedUserIds.length === 0 && externalEmails.length === 0)
+                          (selectedUserIds.length === 0 &&
+                            toExternalEmails.length === 0 &&
+                            ccExternalEmails.length === 0 &&
+                            bccExternalEmails.length === 0)
                             ? "#e5e7eb"
                             : "#0ea5e9",
-                        color: "#f9fafb",
-                        fontSize: 11,
                         cursor:
                           !newGroupName.trim() ||
-                          (selectedUserIds.length === 0 && externalEmails.length === 0)
+                          (selectedUserIds.length === 0 &&
+                            toExternalEmails.length === 0 &&
+                            ccExternalEmails.length === 0 &&
+                            bccExternalEmails.length === 0)
                             ? "default"
                             : "pointer",
                       }}

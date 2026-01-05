@@ -32,7 +32,9 @@ export class EmailService {
    * Returns null if Resend is not configured so callers can fall back to SMTP.
    */
   private async sendViaResend(params: {
-    to: string;
+    to: string | string[];
+    cc?: string | string[];
+    bcc?: string | string[];
     subject: string;
     html: string;
     text?: string;
@@ -62,6 +64,8 @@ export class EmailService {
         body: JSON.stringify({
           from: params.from,
           to: params.to,
+          cc: params.cc,
+          bcc: params.bcc,
           subject: params.subject,
           html: params.html,
           text: params.text,
@@ -97,7 +101,14 @@ export class EmailService {
     }
   }
 
-  async sendMail(params: { to: string; subject: string; html: string; text?: string }) {
+  async sendMail(params: {
+    to: string | string[];
+    cc?: string | string[];
+    bcc?: string | string[];
+    subject: string;
+    html: string;
+    text?: string;
+  }) {
     const from = process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM;
     if (!from) {
       this.logger.warn(
@@ -106,9 +117,23 @@ export class EmailService {
       return { ok: false, skipped: true };
     }
 
+    const toList = Array.isArray(params.to) ? params.to : [params.to];
+    const ccList = params.cc
+      ? Array.isArray(params.cc)
+        ? params.cc
+        : [params.cc]
+      : [];
+    const bccList = params.bcc
+      ? Array.isArray(params.bcc)
+        ? params.bcc
+        : [params.bcc]
+      : [];
+
     // Prefer Resend when configured.
     const resendResult = await this.sendViaResend({
-      to: params.to,
+      to: toList,
+      cc: ccList.length > 0 ? ccList : undefined,
+      bcc: bccList.length > 0 ? bccList : undefined,
       subject: params.subject,
       html: params.html,
       text: params.text,
@@ -128,20 +153,22 @@ export class EmailService {
     const transport = this.getTransport();
     if (!transport) {
       this.logger.warn(
-        `SMTP not configured (EMAIL_SMTP_HOST/USER/PASS). Skipping email send to ${params.to}.`,
+        `SMTP not configured (EMAIL_SMTP_HOST/USER/PASS). Skipping email send to ${toList.join(",")}.`,
       );
       return { ok: false, skipped: true };
     }
 
     await transport.sendMail({
       from,
-      to: params.to,
+      to: toList,
+      cc: ccList.length > 0 ? ccList : undefined,
+      bcc: bccList.length > 0 ? bccList : undefined,
       subject: params.subject,
       html: params.html,
       text: params.text,
     });
 
-    this.logger.log(`Sent email via SMTP to ${params.to}`);
+    this.logger.log(`Sent email via SMTP to ${toList.join(",")}`);
     return { ok: true, provider: "smtp" as const };
   }
 

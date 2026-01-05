@@ -71,6 +71,16 @@ export default function MessageBoardPage() {
         const res = await fetch(`${API_BASE}/messages/board/threads`, {
           headers: { Authorization: `Bearer ${token}` },
         });
+
+        // If the backend does not yet expose /messages/board/threads here,
+        // treat 404 as "no board threads yet" instead of a hard error.
+        if (res.status === 404) {
+          if (!cancelled) {
+            setThreads([]);
+          }
+          return;
+        }
+
         if (!res.ok) {
           throw new Error(`Failed to load board threads (${res.status})`);
         }

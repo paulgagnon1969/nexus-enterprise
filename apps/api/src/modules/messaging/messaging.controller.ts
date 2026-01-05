@@ -40,6 +40,9 @@ export class MessagingController {
     body: {
       subject?: string | null;
       participantUserIds?: string[];
+      toExternalEmails?: string[];
+      ccExternalEmails?: string[];
+      bccExternalEmails?: string[];
       externalEmails?: string[];
       groupIds?: string[];
       attachments?: {
