@@ -312,6 +312,88 @@ export default function CandidateDetailPage() {
         </p>
       </section>
 
+      {canViewHr && (
+        <section style={{ marginTop: 16 }}>
+          <h2 style={{ fontSize: 16, marginBottom: 4 }}>Onboarding profile (HR view)</h2>
+          <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
+            Read-only snapshot of the candidates self-entered profile fields so HR can quickly
+            see what is complete or missing.
+          </p>
+          <div
+            style={{
+              marginTop: 6,
+              padding: 10,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+              fontSize: 13,
+            }}
+          >
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+              <div style={{ minWidth: 180 }}>
+                <p style={{ margin: 0 }}>
+                  <strong>First name:</strong>{" "}
+                  <span style={{ color: session.profile?.firstName ? "#111827" : "#b91c1c" }}>
+                    {session.profile?.firstName || "(missing)"}
+                  </span>
+                </p>
+                <p style={{ margin: 0 }}>
+                  <strong>Last name:</strong>{" "}
+                  <span style={{ color: session.profile?.lastName ? "#111827" : "#b91c1c" }}>
+                    {session.profile?.lastName || "(missing)"}
+                  </span>
+                </p>
+                <p style={{ margin: 0 }}>
+                  <strong>Phone:</strong>{" "}
+                  <span style={{ color: session.profile?.phone ? "#111827" : "#b91c1c" }}>
+                    {session.profile?.phone || "(missing)"}
+                  </span>
+                </p>
+                <p style={{ margin: 0 }}>
+                  <strong>Date of birth:</strong>{" "}
+                  <span style={{ color: session.profile?.dob ? "#111827" : "#b91c1c" }}>
+                    {session.profile?.dob ? String(session.profile.dob).slice(0, 10) : "(missing)"}
+                  </span>
+                </p>
+              </div>
+
+              <div style={{ minWidth: 220 }}>
+                <p style={{ margin: 0 }}>
+                  <strong>Address line 1:</strong>{" "}
+                  <span style={{ color: session.profile?.addressLine1 ? "#111827" : "#b91c1c" }}>
+                    {session.profile?.addressLine1 || "(missing)"}
+                  </span>
+                </p>
+                <p style={{ margin: 0 }}>
+                  <strong>Address line 2:</strong>{" "}
+                  <span style={{ color: session.profile?.addressLine2 ? "#111827" : "#6b7280" }}>
+                    {session.profile?.addressLine2 || "(none)"}
+                  </span>
+                </p>
+                <p style={{ margin: 0 }}>
+                  <strong>City:</strong>{" "}
+                  <span style={{ color: session.profile?.city ? "#111827" : "#b91c1c" }}>
+                    {session.profile?.city || "(missing)"}
+                  </span>
+                </p>
+                <p style={{ margin: 0 }}>
+                  <strong>State:</strong>{" "}
+                  <span style={{ color: session.profile?.state ? "#111827" : "#b91c1c" }}>
+                    {session.profile?.state || "(missing)"}
+                  </span>
+                </p>
+                <p style={{ margin: 0 }}>
+                  <strong>Postal code:</strong>{" "}
+                  <span style={{ color: session.profile?.postalCode ? "#111827" : "#b91c1c" }}>
+                    {session.profile?.postalCode || "(missing)"}
+                  </span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section style={{ marginTop: 16 }}>
         <h2 style={{ fontSize: 16, marginBottom: 4 }}>Self-assessed skills</h2>
         {skillsLoading ? (
