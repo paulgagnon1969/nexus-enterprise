@@ -199,8 +199,12 @@ type TabKey =
   | "FILES"
   | "FINANCIAL";
 
-// Logical project state buckets driven by tags (project_state_*)
-type ProjectStateChoice = "ACTIVE" | "ARCHIVED" | "DELETED" | "WARRANTY";
+// Logical project state buckets backed by Project.status
+// OPEN  -> status "open" (or "active")
+// ARCHIVED -> status "archived"
+// DELETED  -> status "deleted"
+// WARRANTY -> status "warranty"
+type ProjectStateChoice = "OPEN" | "ARCHIVED" | "DELETED" | "WARRANTY";
 
 export default function ProjectDetailPage({
   params,
@@ -252,6 +256,8 @@ export default function ProjectDetailPage({
   const [availableTags, setAvailableTags] = useState<SimpleTag[]>([]);
   const [projectTags, setProjectTags] = useState<TagAssignmentDto[]>([]);
   const [tagsSaving, setTagsSaving] = useState(false);
+  const [showTagManager, setShowTagManager] = useState(false);
+  const [newTagLabel, setNewTagLabel] = useState("");
 
   // Progress controls state
   const [groupLoading, setGroupLoading] = useState(false);
@@ -457,7 +463,7 @@ export default function ProjectDetailPage({
   const [editProjectSaving, setEditProjectSaving] = useState(false);
   const [editProjectMessage, setEditProjectMessage] = useState<string | null>(null);
   const [deleteProjectMessage, setDeleteProjectMessage] = useState<string | null>(null);
-  const [editProjectState, setEditProjectState] = useState<ProjectStateChoice>("ACTIVE");
+  const [editProjectState, setEditProjectState] = useState<ProjectStateChoice>("OPEN");
 
   const searchParams = useSearchParams();
 
@@ -1334,23 +1340,11 @@ export default function ProjectDetailPage({
       state: project.state,
     });
 
-    // Derive initial state choice from current project tags
-    const stateAssignment = projectTags.find(t =>
-      t.tag.code === "project_state_archived" ||
-      t.tag.code === "project_state_deleted" ||
-      t.tag.code === "project_state_warranty",
-    );
-    if (!stateAssignment) {
-      setEditProjectState("ACTIVE");
-    } else if (stateAssignment.tag.code === "project_state_archived") {
-      setEditProjectState("ARCHIVED");
-    } else if (stateAssignment.tag.code === "project_state_deleted") {
-      setEditProjectState("DELETED");
-    } else if (stateAssignment.tag.code === "project_state_warranty") {
-      setEditProjectState("WARRANTY");
-    } else {
-      setEditProjectState("ACTIVE");
-    }
+    const s = (project.status || "").toLowerCase();
+    if (s === "archived") setEditProjectState("ARCHIVED");
+    else if (s === "deleted") setEditProjectState("DELETED");
+    else if (s === "warranty") setEditProjectState("WARRANTY");
+    else setEditProjectState("OPEN");
 
     setEditProjectMode(true);
   };
@@ -1373,10 +1367,17 @@ export default function ProjectDetailPage({
     setEditProjectMessage(null);
     setDeleteProjectMessage(null);
     try {
-      // 1) Save core project fields
+      // Map the chosen state to a canonical status string
+      let nextStatus = editProject.status || project.status || "open";
+      const state = editProjectState;
+      if (state === "ARCHIVED") nextStatus = "archived";
+      else if (state === "DELETED") nextStatus = "deleted";
+      else if (state === "WARRANTY") nextStatus = "warranty";
+      else if (state === "OPEN") nextStatus = "open";
+
       const body: any = {
         name: editProject.name,
-        status: editProject.status,
+        status: nextStatus,
         addressLine1: editProject.addressLine1,
         addressLine2: editProject.addressLine2,
         city: editProject.city,
@@ -1396,72 +1397,8 @@ export default function ProjectDetailPage({
       }
       const updated = (await res.json()) as Project;
       setProject(updated);
-
-      // 2) Apply state via tags (ACTIVE / ARCHIVED / DELETED / WARRANTY)
-      const STATE_TAG_CODES = [
-        "project_state_deleted",
-        "project_state_archived",
-        "project_state_warranty",
-      ];
-
-      let targetCode: string | null = null;
-      if (editProjectState === "ARCHIVED") targetCode = "project_state_archived";
-      else if (editProjectState === "DELETED") targetCode = "project_state_deleted";
-      else if (editProjectState === "WARRANTY") targetCode = "project_state_warranty";
-
-      let nextTagIds = projectTags
-        .filter(t => !STATE_TAG_CODES.includes(t.tag.code))
-        .map(t => t.tagId);
-
-      if (targetCode) {
-        const targetTag = availableTags.find(t => t.code === targetCode);
-        if (!targetTag) {
-          const label =
-            editProjectState === "ARCHIVED"
-              ? "Archived"
-              : editProjectState === "DELETED"
-              ? "Deleted"
-              : "Warranty";
-          setEditProjectMessage(
-            `Project updated, but no '${label}' state tag found (code ${targetCode}). Ask an admin to create it.`,
-          );
-        } else {
-          nextTagIds = Array.from(new Set([...nextTagIds, targetTag.id]));
-        }
-      }
-
-      // Only call tag API if we actually changed the target tag set
-      const currentNonStateIds = projectTags
-        .filter(t => !STATE_TAG_CODES.includes(t.tag.code))
-        .map(t => t.tagId)
-        .sort();
-      const desiredIds = [...nextTagIds].sort();
-      const changed =
-        currentNonStateIds.length !== desiredIds.length ||
-        currentNonStateIds.some((id, idx) => id !== desiredIds[idx]);
-
-      if (changed) {
-        const tagRes = await fetch(`${API_BASE}/tags/projects/${id}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ tagIds: nextTagIds }),
-        });
-        if (tagRes.ok) {
-          const updatedAssignments: TagAssignmentDto[] = await tagRes.json();
-          setProjectTags(updatedAssignments || []);
-        } else {
-          setEditProjectMessage(
-            prev =>
-              prev ?? `Project saved, but failed to update project state tags (${tagRes.status}).`,
-          );
-        }
-      }
-
       setEditProjectMode(false);
-      setEditProjectMessage(prev => prev ?? "Project updated.");
+      setEditProjectMessage("Project updated.");
     } catch (err: any) {
       setEditProjectMessage(err?.message ?? "Error saving project.");
     } finally {
@@ -1469,55 +1406,8 @@ export default function ProjectDetailPage({
     }
   };
 
-  const deactivateProject = async () => {
-    if (!project) return;
-
-    const STATE_TAG_CODES = ["project_state_deleted", "project_state_archived"];
-    const archivedTag = availableTags.find(t => t.code === "project_state_archived");
-    if (!archivedTag) {
-      setEditProjectMessage(
-        "No 'Archived' project tag found (code project_state_archived). Ask an admin to create it.",
-      );
-      return;
-    }
-
-    const token = localStorage.getItem("accessToken");
-    if (!token) {
-      setEditProjectMessage("Missing access token. Please login again.");
-      return;
-    }
-
-    const nonStateTagIds = projectTags
-      .filter(t => !STATE_TAG_CODES.includes(t.tag.code))
-      .map(t => t.tagId);
-    const nextTagIds = Array.from(new Set([...nonStateTagIds, archivedTag.id]));
-
-    setEditProjectSaving(true);
-    setEditProjectMessage(null);
-    setTagsSaving(true);
-    try {
-      const res = await fetch(`${API_BASE}/tags/projects/${id}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ tagIds: nextTagIds }),
-      });
-      if (!res.ok) {
-        setEditProjectMessage(`Failed to apply archive tag (${res.status}).`);
-        return;
-      }
-      const updatedAssignments: TagAssignmentDto[] = await res.json();
-      setProjectTags(updatedAssignments || []);
-      setEditProjectMessage("Project archived (tag applied).");
-    } catch (err: any) {
-      setEditProjectMessage(err?.message ?? "Error archiving project.");
-    } finally {
-      setEditProjectSaving(false);
-      setTagsSaving(false);
-    }
-  };
+  // No separate deactivate/delete functions anymore; state is controlled via
+  // the Project state toggle + status field and saved in saveEditProject.
 
   const markProjectDeleted = async () => {
     if (!project) return;
@@ -1793,7 +1683,7 @@ export default function ProjectDetailPage({
                 </div>
               </div>
 
-              {/* Project state toggle (Active / Archived / Deleted / Warranty) */}
+              {/* Project state toggle (Open / Archived / Deleted / Warranty) */}
               <div style={{ marginTop: 8 }}>
                 <label style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
                   Project state
@@ -1808,7 +1698,7 @@ export default function ProjectDetailPage({
                 >
                   {(
                     [
-                      { key: "ACTIVE", label: "Active" },
+                      { key: "OPEN", label: "Open" },
                       { key: "ARCHIVED", label: "Archived" },
                       { key: "DELETED", label: "Deleted" },
                       { key: "WARRANTY", label: "Warranty" },
@@ -1838,9 +1728,8 @@ export default function ProjectDetailPage({
                   })}
                 </div>
                 <p style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
-                  State is implemented via project tags (project_state_*). Active = no
-                  state tag; Archived / Deleted / Warranty = specific tags applied and
-                  used for filtering.
+                  This state is saved directly on the project (status field) and used
+                  for filtering in the projects list.
                 </p>
               </div>
             </div>
@@ -2296,39 +2185,8 @@ export default function ProjectDetailPage({
                   {availableTags.map(tag => {
                     const isSelected = projectTags.some(t => t.tagId === tag.id);
                     return (
-                      <button
+                      <span
                         key={tag.id}
-                        type="button"
-                        onClick={async () => {
-                          const token = localStorage.getItem("accessToken");
-                          if (!token) {
-                            alert("Missing access token; please log in again.");
-                            return;
-                          }
-                          if (tagsSaving) return;
-                          setTagsSaving(true);
-                          const nextTagIds = isSelected
-                            ? projectTags
-                                .filter(t => t.tagId !== tag.id)
-                                .map(t => t.tagId)
-                            : [...projectTags.map(t => t.tagId), tag.id];
-                          try {
-                            const res = await fetch(`${API_BASE}/tags/projects/${id}`, {
-                              method: "POST",
-                              headers: {
-                                "Content-Type": "application/json",
-                                Authorization: `Bearer ${token}`,
-                              },
-                              body: JSON.stringify({ tagIds: nextTagIds }),
-                            });
-                            if (res.ok) {
-                              const updated: TagAssignmentDto[] = await res.json();
-                              setProjectTags(updated || []);
-                            }
-                          } finally {
-                            setTagsSaving(false);
-                          }
-                        }}
                         style={{
                           borderRadius: 999,
                           border: isSelected
@@ -2338,11 +2196,10 @@ export default function ProjectDetailPage({
                           color: "#111827",
                           padding: "2px 10px",
                           fontSize: 12,
-                          cursor: "pointer",
                         }}
                       >
                         {tag.label}
-                      </button>
+                      </span>
                     );
                   })}
                 </div>
@@ -2352,8 +2209,267 @@ export default function ProjectDetailPage({
                   Saving tags…
                 </div>
               )}
+              {(actorCompanyRole === "OWNER" || actorCompanyRole === "ADMIN") && (
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowTagManager(true)}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 999,
+                      border: "1px solid #d1d5db",
+                      background: "#ffffff",
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Manage tags (PM+)
+                  </button>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Tag manager overlay for PM+ */}
+          {showTagManager && (actorCompanyRole === "OWNER" || actorCompanyRole === "ADMIN") && (
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(15,23,42,0.35)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 40,
+              }}
+            >
+              <div
+                style={{
+                  width: 360,
+                  maxWidth: "90vw",
+                  background: "#ffffff",
+                  borderRadius: 8,
+                  boxShadow: "0 10px 25px rgba(15,23,42,0.35)",
+                  border: "1px solid #e5e7eb",
+                  padding: 12,
+                  fontSize: 13,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 8,
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>Manage job tags</div>
+                  <button
+                    type="button"
+                    onClick={() => setShowTagManager(false)}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      fontSize: 14,
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ marginBottom: 4 }}>Attach existing tags</div>
+                  {availableTags.length === 0 ? (
+                    <div style={{ color: "#6b7280" }}>No tags defined for this company yet.</div>
+                  ) : (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 6,
+                        padding: 4,
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        maxHeight: 180,
+                        overflowY: "auto",
+                      }}
+                    >
+                      {availableTags.map(tag => {
+                        const isSelected = projectTags.some(t => t.tagId === tag.id);
+                        return (
+                          <button
+                            key={tag.id}
+                            type="button"
+                            disabled={tagsSaving}
+                            onClick={async () => {
+                              const token = localStorage.getItem("accessToken");
+                              if (!token) {
+                                alert("Missing access token; please log in again.");
+                                return;
+                              }
+                              if (tagsSaving) return;
+                              setTagsSaving(true);
+                              const nextTagIds = isSelected
+                                ? projectTags
+                                    .filter(t => t.tagId !== tag.id)
+                                    .map(t => t.tagId)
+                                : [...projectTags.map(t => t.tagId), tag.id];
+                              try {
+                                const res = await fetch(`${API_BASE}/tags/projects/${id}`, {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                  body: JSON.stringify({ tagIds: nextTagIds }),
+                                });
+                                if (res.ok) {
+                                  const updated: TagAssignmentDto[] = await res.json();
+                                  setProjectTags(updated || []);
+                                } else if (res.status === 403) {
+                                  alert("You do not have permission to edit tags for this project.");
+                                  setShowTagManager(false);
+                                }
+                              } finally {
+                                setTagsSaving(false);
+                              }
+                            }}
+                            style={{
+                              borderRadius: 999,
+                              border: isSelected
+                                ? "1px solid #2563eb"
+                                : "1px solid #d1d5db",
+                              backgroundColor: isSelected ? "#eff6ff" : "#ffffff",
+                              color: "#111827",
+                              padding: "2px 10px",
+                              fontSize: 12,
+                              cursor: tagsSaving ? "default" : "pointer",
+                            }}
+                          >
+                            {tag.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* New tag */}
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ marginBottom: 4 }}>New tag label</div>
+                  <input
+                    value={newTagLabel}
+                    onChange={e => setNewTagLabel(e.target.value)}
+                    placeholder="e.g. Group: Fortified Structures"
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={tagsSaving || !newTagLabel.trim()}
+                    onClick={async () => {
+                      const label = newTagLabel.trim();
+                      if (!label) return;
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) {
+                        alert("Missing access token; please log in again.");
+                        return;
+                      }
+                      setTagsSaving(true);
+                      try {
+                        const res = await fetch(`${API_BASE}/tags/projects/${id}/create`, {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({ label }),
+                        });
+                        if (!res.ok) {
+                          const text = await res.text().catch(() => "");
+                          alert(
+                            `Failed to create tag (${res.status}). ${text || "Check your permissions."}`,
+                          );
+                          if (res.status === 403) {
+                            setShowTagManager(false);
+                          }
+                          return;
+                        }
+                        const created: { id: string; code: string; label: string; color: string | null } =
+                          await res.json();
+                        // Refresh available tags list and mark it selected for this project
+                        const newAvailable = [
+                          ...availableTags,
+                          {
+                            id: created.id,
+                            code: created.code,
+                            label: created.label,
+                            color: created.color,
+                          },
+                        ];
+                        setAvailableTags(newAvailable);
+
+                        const resAssign = await fetch(`${API_BASE}/tags/projects/${id}`, {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({ tagIds: [...projectTags.map(t => t.tagId), created.id] }),
+                        });
+                        if (resAssign.ok) {
+                          const updated: TagAssignmentDto[] = await resAssign.json();
+                          setProjectTags(updated || []);
+                          setNewTagLabel("");
+                        }
+                      } finally {
+                        setTagsSaving(false);
+                      }
+                    }}
+                    style={{
+                      marginTop: 6,
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #0f172a",
+                      background: tagsSaving ? "#e5e7eb" : "#0f172a",
+                      color: tagsSaving ? "#4b5563" : "#f9fafb",
+                      fontSize: 12,
+                      cursor: tagsSaving ? "default" : "pointer",
+                    }}
+                  >
+                    {tagsSaving ? "Saving…" : "Create & attach"}
+                  </button>
+                  <p style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                    PMs/Owners/Admins can create project tags here. Codes are derived
+                    automatically from labels.
+                  </p>
+                </div>
+
+                <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowTagManager(false)}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      background: "#ffffff",
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Participants card */}
           <div
