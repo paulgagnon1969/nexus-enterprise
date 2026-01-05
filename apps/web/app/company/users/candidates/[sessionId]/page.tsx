@@ -31,6 +31,14 @@ interface CandidateSessionForReview {
     accountNumberMasked?: string | null;
     bankName?: string | null;
   } | null;
+  // Optional checklist from onboarding (profile/documents/skills completion flags).
+  checklist?: {
+    profileComplete?: boolean;
+    photoUploaded?: boolean;
+    govIdUploaded?: boolean;
+    skillsComplete?: boolean;
+    [key: string]: any;
+  } | null;
 }
 
 interface MeMembership {
@@ -102,6 +110,7 @@ export default function CandidateDetailPage() {
           token: json.token,
           profile: json.profile ?? null,
           bankInfo: json.bankInfo ?? null,
+          checklist: json.checklist ?? null,
         });
       } catch (e: any) {
         setError(e?.message ?? "Failed to load candidate.");
@@ -232,6 +241,18 @@ export default function CandidateDetailPage() {
   const nameParts = [session.profile?.firstName, session.profile?.lastName].filter(Boolean);
   const displayName = nameParts.length ? nameParts.join(" ") : "(no name yet)";
 
+  const checklist = (session as any).checklist || {};
+  const checklistItems: { key: string; label: string }[] = [
+    { key: "profileComplete", label: "Profile information" },
+    { key: "photoUploaded", label: "Photo uploaded" },
+    { key: "govIdUploaded", label: "Government ID uploaded" },
+    { key: "skillsComplete", label: "Skills self-assessment" },
+  ];
+  const completedChecklistCount = checklistItems.filter(i => checklist[i.key]).length;
+  const checklistPercent = Math.round(
+    (completedChecklistCount / (checklistItems.length || 1)) * 100,
+  );
+
   return (
     <div className="app-card">
       <div style={{ marginBottom: 8 }}>
@@ -321,6 +342,40 @@ export default function CandidateDetailPage() {
           </p>
           <div
             style={{
+              marginTop: 4,
+              fontSize: 12,
+              color: "#4b5563",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <span>
+              Profile completion:
+              {" "}
+              <strong>{isNaN(checklistPercent) ? "0" : checklistPercent}%</strong>
+            </span>
+            <span
+              style={{
+                flex: "0 0 120px",
+                height: 6,
+                borderRadius: 999,
+                background: "#e5e7eb",
+                overflow: "hidden",
+              }}
+            >
+              <span
+                style={{
+                  display: "block",
+                  height: "100%",
+                  width: `${Math.min(100, Math.max(0, checklistPercent))}%`,
+                  background: checklistPercent >= 80 ? "#16a34a" : "#f97316",
+                }}
+              />
+            </span>
+          </div>
+          <div
+            style={{
               marginTop: 6,
               padding: 10,
               borderRadius: 8,
@@ -329,6 +384,33 @@ export default function CandidateDetailPage() {
               fontSize: 13,
             }}
           >
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>Checklist</div>
+              <ul style={{ paddingLeft: 18, margin: 0, fontSize: 12 }}>
+                {checklistItems.map(item => {
+                  const done = !!checklist[item.key];
+                  return (
+                    <li key={item.key} style={{ marginBottom: 2 }}>
+                      <span
+                        style={{
+                          display: "inline-block",
+                          width: 12,
+                          marginRight: 4,
+                          color: done ? "#16a34a" : "#b91c1c",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {done ? "✓" : "!"}
+                      </span>
+                      <span>{item.label}</span>
+                      {!done && (
+                        <span style={{ marginLeft: 4, color: "#b91c1c" }}>(missing)</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
               <div style={{ minWidth: 180 }}>
                 <p style={{ margin: 0 }}>
