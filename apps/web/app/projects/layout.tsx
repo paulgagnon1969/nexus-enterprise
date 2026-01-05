@@ -26,9 +26,10 @@ interface ProjectTag {
 
 interface FilterState {
   savedFilter: string;
-  groups: string[]; // array of tag IDs
-  status: string;
+  groups: string[]; // array of non-state tag IDs
+  status: string;   // "Open" / "Closed" / "Warranty" (legacy)
   managers: string[];
+  stateBucket: "ACTIVE" | "ARCHIVED" | "DELETED" | "WARRANTY";
 }
 
 const DEFAULT_FILTERS: FilterState = {
@@ -37,6 +38,7 @@ const DEFAULT_FILTERS: FilterState = {
   // Treat "Open" as the default "active jobs" filter
   status: "Open",
   managers: [],
+  stateBucket: "ACTIVE",
 };
 
 const NEW_PROJECT_DEFAULT = {
@@ -79,6 +81,10 @@ export default function ProjectsLayout({ children }: { children: ReactNode }) {
       try {
         const params = new URLSearchParams();
         if (filters.status) params.set("status", filters.status);
+
+        // For now, the backend still takes a single tagIds filter; we use it
+        // only for non-state tags here. State buckets (ACTIVE / ARCHIVED /
+        // DELETED / WARRANTY) are applied client-side after fetching.
         if (filters.groups.length) params.set("tagIds", filters.groups.join(","));
 
         const url = `${API_BASE}/projects${params.toString() ? `?${params.toString()}` : ""}`;
@@ -151,6 +157,7 @@ export default function ProjectsLayout({ children }: { children: ReactNode }) {
     if (filters.savedFilter) parts.push(filters.savedFilter);
     if (filters.groups.length) parts.push(`${filters.groups.length} group(s)`);
     if (filters.status) parts.push(filters.status);
+    if (filters.stateBucket && filters.stateBucket !== "ACTIVE") parts.push(filters.stateBucket);
     if (filters.managers.length) parts.push(`${filters.managers.length} manager(s)`);
     if (!parts.length) return "No filters";
     return parts.join(" · ");
@@ -160,6 +167,7 @@ export default function ProjectsLayout({ children }: { children: ReactNode }) {
     let count = 0;
     // Status filter (Open / Closed / Warranty) is always considered a filter
     if (filters.status) count += 1;
+    if (filters.stateBucket && filters.stateBucket !== "ACTIVE") count += 1;
     if (filters.savedFilter !== DEFAULT_FILTERS.savedFilter) count += 1;
     if (filters.groups.length) count += 1;
     if (filters.managers.length) count += 1;
@@ -167,7 +175,33 @@ export default function ProjectsLayout({ children }: { children: ReactNode }) {
   };
 
   const filteredProjects = projects.filter(p => {
-    // Backend already applied status + tag filters; only apply soft search by name here.
+    // First, apply state bucket via project_state_* tags (client-side), then
+    // apply free-text search.
+    const stateTagCodes = new Set([
+      "project_state_archived",
+      "project_state_deleted",
+      "project_state_warranty",
+    ]);
+
+    // We approximate state based on project.tags if present. If the
+    // API response already includes tags, we can filter here. If not, all
+    // projects are treated as ACTIVE for now.
+    const anyTag = (p as any).tags as
+      | { tag: { code: string } }[]
+      | undefined
+      | null;
+
+    const hasArchived = anyTag?.some(t => t.tag.code === "project_state_archived");
+    const hasDeleted = anyTag?.some(t => t.tag.code === "project_state_deleted");
+    const hasWarranty = anyTag?.some(t => t.tag.code === "project_state_warranty");
+
+    if (filters.stateBucket === "ARCHIVED" && !hasArchived) return false;
+    if (filters.stateBucket === "DELETED" && !hasDeleted) return false;
+    if (filters.stateBucket === "WARRANTY" && !hasWarranty) return false;
+    if (filters.stateBucket === "ACTIVE" && (hasArchived || hasDeleted || hasWarranty))
+      return false;
+
+    // Backend already applied status + non-state tag filters; only apply soft search by name here.
     if (search.trim()) {
       const q = search.toLowerCase();
       if (!p.name.toLowerCase().includes(q)) return false;

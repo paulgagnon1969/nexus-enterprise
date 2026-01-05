@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -68,6 +68,7 @@ interface TagAssignmentDto {
 
 interface SimpleTag {
   id: string;
+  code: string;
   label: string;
   color: string | null;
 }
@@ -198,12 +199,16 @@ type TabKey =
   | "FILES"
   | "FINANCIAL";
 
+// Logical project state buckets driven by tags (project_state_*)
+type ProjectStateChoice = "ACTIVE" | "ARCHIVED" | "DELETED" | "WARRANTY";
+
 export default function ProjectDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = React.use(params);
+  const router = useRouter();
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -451,6 +456,8 @@ export default function ProjectDetailPage({
   >(null);
   const [editProjectSaving, setEditProjectSaving] = useState(false);
   const [editProjectMessage, setEditProjectMessage] = useState<string | null>(null);
+  const [deleteProjectMessage, setDeleteProjectMessage] = useState<string | null>(null);
+  const [editProjectState, setEditProjectState] = useState<ProjectStateChoice>("ACTIVE");
 
   const searchParams = useSearchParams();
 
@@ -865,6 +872,7 @@ export default function ProjectDetailPage({
           setAvailableTags(
             (tagsJson || []).map((t) => ({
               id: t.id,
+              code: t.code,
               label: t.label,
               color: t.color ?? null,
             })),
@@ -1316,6 +1324,7 @@ export default function ProjectDetailPage({
   const beginEditProject = () => {
     if (!project) return;
     setEditProjectMessage(null);
+    setDeleteProjectMessage(null);
     setEditProject({
       name: project.name,
       status: project.status,
@@ -1324,12 +1333,32 @@ export default function ProjectDetailPage({
       city: project.city,
       state: project.state,
     });
+
+    // Derive initial state choice from current project tags
+    const stateAssignment = projectTags.find(t =>
+      t.tag.code === "project_state_archived" ||
+      t.tag.code === "project_state_deleted" ||
+      t.tag.code === "project_state_warranty",
+    );
+    if (!stateAssignment) {
+      setEditProjectState("ACTIVE");
+    } else if (stateAssignment.tag.code === "project_state_archived") {
+      setEditProjectState("ARCHIVED");
+    } else if (stateAssignment.tag.code === "project_state_deleted") {
+      setEditProjectState("DELETED");
+    } else if (stateAssignment.tag.code === "project_state_warranty") {
+      setEditProjectState("WARRANTY");
+    } else {
+      setEditProjectState("ACTIVE");
+    }
+
     setEditProjectMode(true);
   };
 
   const cancelEditProject = () => {
     setEditProjectMode(false);
     setEditProjectMessage(null);
+    setDeleteProjectMessage(null);
   };
 
   const saveEditProject = async () => {
@@ -1342,7 +1371,9 @@ export default function ProjectDetailPage({
     }
     setEditProjectSaving(true);
     setEditProjectMessage(null);
+    setDeleteProjectMessage(null);
     try {
+      // 1) Save core project fields
       const body: any = {
         name: editProject.name,
         status: editProject.status,
@@ -1365,12 +1396,184 @@ export default function ProjectDetailPage({
       }
       const updated = (await res.json()) as Project;
       setProject(updated);
+
+      // 2) Apply state via tags (ACTIVE / ARCHIVED / DELETED / WARRANTY)
+      const STATE_TAG_CODES = [
+        "project_state_deleted",
+        "project_state_archived",
+        "project_state_warranty",
+      ];
+
+      let targetCode: string | null = null;
+      if (editProjectState === "ARCHIVED") targetCode = "project_state_archived";
+      else if (editProjectState === "DELETED") targetCode = "project_state_deleted";
+      else if (editProjectState === "WARRANTY") targetCode = "project_state_warranty";
+
+      let nextTagIds = projectTags
+        .filter(t => !STATE_TAG_CODES.includes(t.tag.code))
+        .map(t => t.tagId);
+
+      if (targetCode) {
+        const targetTag = availableTags.find(t => t.code === targetCode);
+        if (!targetTag) {
+          const label =
+            editProjectState === "ARCHIVED"
+              ? "Archived"
+              : editProjectState === "DELETED"
+              ? "Deleted"
+              : "Warranty";
+          setEditProjectMessage(
+            `Project updated, but no '${label}' state tag found (code ${targetCode}). Ask an admin to create it.`,
+          );
+        } else {
+          nextTagIds = Array.from(new Set([...nextTagIds, targetTag.id]));
+        }
+      }
+
+      // Only call tag API if we actually changed the target tag set
+      const currentNonStateIds = projectTags
+        .filter(t => !STATE_TAG_CODES.includes(t.tag.code))
+        .map(t => t.tagId)
+        .sort();
+      const desiredIds = [...nextTagIds].sort();
+      const changed =
+        currentNonStateIds.length !== desiredIds.length ||
+        currentNonStateIds.some((id, idx) => id !== desiredIds[idx]);
+
+      if (changed) {
+        const tagRes = await fetch(`${API_BASE}/tags/projects/${id}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ tagIds: nextTagIds }),
+        });
+        if (tagRes.ok) {
+          const updatedAssignments: TagAssignmentDto[] = await tagRes.json();
+          setProjectTags(updatedAssignments || []);
+        } else {
+          setEditProjectMessage(
+            prev =>
+              prev ?? `Project saved, but failed to update project state tags (${tagRes.status}).`,
+          );
+        }
+      }
+
       setEditProjectMode(false);
-      setEditProjectMessage("Project updated.");
+      setEditProjectMessage(prev => prev ?? "Project updated.");
     } catch (err: any) {
       setEditProjectMessage(err?.message ?? "Error saving project.");
     } finally {
       setEditProjectSaving(false);
+    }
+  };
+
+  const deactivateProject = async () => {
+    if (!project) return;
+
+    const STATE_TAG_CODES = ["project_state_deleted", "project_state_archived"];
+    const archivedTag = availableTags.find(t => t.code === "project_state_archived");
+    if (!archivedTag) {
+      setEditProjectMessage(
+        "No 'Archived' project tag found (code project_state_archived). Ask an admin to create it.",
+      );
+      return;
+    }
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setEditProjectMessage("Missing access token. Please login again.");
+      return;
+    }
+
+    const nonStateTagIds = projectTags
+      .filter(t => !STATE_TAG_CODES.includes(t.tag.code))
+      .map(t => t.tagId);
+    const nextTagIds = Array.from(new Set([...nonStateTagIds, archivedTag.id]));
+
+    setEditProjectSaving(true);
+    setEditProjectMessage(null);
+    setTagsSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/tags/projects/${id}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ tagIds: nextTagIds }),
+      });
+      if (!res.ok) {
+        setEditProjectMessage(`Failed to apply archive tag (${res.status}).`);
+        return;
+      }
+      const updatedAssignments: TagAssignmentDto[] = await res.json();
+      setProjectTags(updatedAssignments || []);
+      setEditProjectMessage("Project archived (tag applied).");
+    } catch (err: any) {
+      setEditProjectMessage(err?.message ?? "Error archiving project.");
+    } finally {
+      setEditProjectSaving(false);
+      setTagsSaving(false);
+    }
+  };
+
+  const markProjectDeleted = async () => {
+    if (!project) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "This will mark the project as deleted (soft delete). It will be removed from active lists but data/files will be retained. Continue?",
+      )
+    ) {
+      return;
+    }
+
+    const STATE_TAG_CODES = ["project_state_deleted", "project_state_archived"];
+    const deletedTag = availableTags.find(t => t.code === "project_state_deleted");
+    if (!deletedTag) {
+      setDeleteProjectMessage(
+        "No 'Deleted' project tag found (code project_state_deleted). Ask an admin to create it.",
+      );
+      return;
+    }
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setDeleteProjectMessage("Missing access token. Please login again.");
+      return;
+    }
+
+    const nonStateTagIds = projectTags
+      .filter(t => !STATE_TAG_CODES.includes(t.tag.code))
+      .map(t => t.tagId);
+    const nextTagIds = Array.from(new Set([...nonStateTagIds, deletedTag.id]));
+
+    setEditProjectSaving(true);
+    setDeleteProjectMessage(null);
+    setTagsSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/tags/projects/${id}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ tagIds: nextTagIds }),
+      });
+      if (!res.ok) {
+        setDeleteProjectMessage(`Failed to apply deleted tag (${res.status}).`);
+        return;
+      }
+      const updatedAssignments: TagAssignmentDto[] = await res.json();
+      setProjectTags(updatedAssignments || []);
+      setDeleteProjectMessage("Project marked as deleted.");
+    } catch (err: any) {
+      setDeleteProjectMessage(err?.message ?? "Error marking project deleted.");
+    } finally {
+      setEditProjectSaving(false);
+      setTagsSaving(false);
     }
   };
 
@@ -1589,12 +1792,70 @@ export default function ProjectDetailPage({
                   />
                 </div>
               </div>
+
+              {/* Project state toggle (Active / Archived / Deleted / Warranty) */}
+              <div style={{ marginTop: 8 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
+                  Project state
+                </label>
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 6,
+                    marginTop: 4,
+                  }}
+                >
+                  {(
+                    [
+                      { key: "ACTIVE", label: "Active" },
+                      { key: "ARCHIVED", label: "Archived" },
+                      { key: "DELETED", label: "Deleted" },
+                      { key: "WARRANTY", label: "Warranty" },
+                    ] as { key: ProjectStateChoice; label: string }[]
+                  ).map(option => {
+                    const isSelected = editProjectState === option.key;
+                    return (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => setEditProjectState(option.key)}
+                        style={{
+                          padding: "3px 10px",
+                          borderRadius: 999,
+                          border: isSelected
+                            ? "1px solid #0f172a"
+                            : "1px solid #d1d5db",
+                          backgroundColor: isSelected ? "#0f172a" : "#ffffff",
+                          color: isSelected ? "#f9fafb" : "#374151",
+                          fontSize: 11,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
+                  State is implemented via project tags (project_state_*). Active = no
+                  state tag; Archived / Deleted / Warranty = specific tags applied and
+                  used for filtering.
+                </p>
+              </div>
             </div>
           )}
         </div>
 
         {canEditProjectHeader && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-end",
+              gap: 6,
+            }}
+          >
             {!editProjectMode && (
               <button
                 type="button"
@@ -1648,6 +1909,40 @@ export default function ProjectDetailPage({
                 </button>
               </div>
             )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
+              <button
+                type="button"
+                onClick={deactivateProject}
+                disabled={editProjectSaving}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  border: "1px solid #eab308",
+                  background: "#fef9c3",
+                  color: "#854d0e",
+                  fontSize: 11,
+                  cursor: editProjectSaving ? "default" : "pointer",
+                }}
+              >
+                Deactivate (set status to closed)
+              </button>
+              <button
+                type="button"
+                onClick={markProjectDeleted}
+                disabled={editProjectSaving}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  border: "1px solid #b91c1c",
+                  background: "#fef2f2",
+                  color: "#b91c1c",
+                  fontSize: 11,
+                  cursor: editProjectSaving ? "default" : "pointer",
+                }}
+              >
+                Mark deleted (danger)
+              </button>
+            </div>
             {editProjectMessage && (
               <p
                 style={{
@@ -1659,6 +1954,19 @@ export default function ProjectDetailPage({
                 }}
               >
                 {editProjectMessage}
+              </p>
+            )}
+            {deleteProjectMessage && (
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 11,
+                  color: deleteProjectMessage.toLowerCase().includes("fail")
+                    ? "#b91c1c"
+                    : "#b91c1c",
+                }}
+              >
+                {deleteProjectMessage}
               </p>
             )}
           </div>
