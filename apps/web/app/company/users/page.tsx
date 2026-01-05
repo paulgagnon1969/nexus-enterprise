@@ -1874,7 +1874,15 @@ function ProspectiveCandidatesPanel({
                 <th style={{ textAlign: "right", padding: "6px 8px" }}>
                   <span style={{ visibility: "hidden" }}>Actions</span>
                 </th>
-                <th style={{ textAlign: "center", padding: "6px 8px" }}>Select</th>
+                <th style={{ textAlign: "center", padding: "6px 8px" }}>
+                  <input
+                    type="checkbox"
+                    aria-label="Select all candidates in current filter"
+                    checked={allFilteredSelected && filtered.length > 0}
+                    disabled={filtered.length === 0}
+                    onChange={handleToggleSelectAllFiltered}
+                  />
+                </th>
               </tr>
             </thead>
             <tbody>

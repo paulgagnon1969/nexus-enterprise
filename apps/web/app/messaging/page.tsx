@@ -104,28 +104,69 @@ export default function MessagingPage() {
       return;
     }
 
-    // Optional draft recipients coming from other pages (e.g. candidates list)
-    try {
-      const draft = window.localStorage.getItem("messagingDraftFromCandidates");
-      if (draft) {
-        const parsed = JSON.parse(draft);
-        if (Array.isArray(parsed.externalEmails)) {
-          setExternalEmails(prev => {
-            const set = new Set<string>(prev);
-            for (const email of parsed.externalEmails) {
-              const v = typeof email === "string" ? email.trim() : "";
-              if (v) set.add(v);
-            }
-            return Array.from(set);
-          });
-        }
-        window.localStorage.removeItem("messagingDraftFromCandidates");
-      }
-    } catch {
-      // ignore malformed draft payloads
-    }
-
     let cancelled = false;
+
+    // Optional draft recipients coming from other pages (e.g. candidates list)
+    async function hydrateFromDraftAndMaybeCreateGroup() {
+      try {
+        const draft = window.localStorage.getItem("messagingDraftFromCandidates");
+        if (!draft) return;
+        const parsed = JSON.parse(draft);
+        const emailsRaw: unknown = parsed.externalEmails;
+        const emails = Array.isArray(emailsRaw)
+          ? emailsRaw
+              .map(v => (typeof v === "string" ? v.trim() : ""))
+              .filter(Boolean)
+          : [];
+        if (!emails.length) {
+          window.localStorage.removeItem("messagingDraftFromCandidates");
+          return;
+        }
+
+        // Pre-populate external emails in the composer
+        setExternalEmails(prev => {
+          const set = new Set<string>(prev);
+          for (const email of emails) set.add(email);
+          return Array.from(set);
+        });
+
+        window.localStorage.removeItem("messagingDraftFromCandidates");
+
+        // Best-effort: automatically codify this cohort as a recipient group for reuse
+        try {
+          const nameBase = "Prospective candidates cohort";
+          const ts = new Date().toISOString().slice(0, 19).replace("T", " ");
+          const groupName = `${nameBase} – ${ts} (${emails.length})`;
+
+          const res = await fetch(`${API_BASE}/messages/recipient-groups`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              name: groupName,
+              members: emails.map(email => ({ email })),
+            }),
+          });
+
+          if (!res.ok || cancelled) return;
+          const created: any = await res.json();
+          const createdId = String(created.id || "");
+          const createdName = String(created.name || groupName);
+
+          setGroups(prev => {
+            const base = Array.isArray(prev) ? prev : [];
+            if (base.some(g => g.id === createdId)) return base;
+            return [...base, { id: createdId, name: createdName }];
+          });
+        } catch {
+          // If group creation fails, we still have the externalEmails prefilled.
+        }
+      } catch {
+        // ignore malformed draft payloads
+      }
+    }
 
     async function loadThreads() {
       try {
