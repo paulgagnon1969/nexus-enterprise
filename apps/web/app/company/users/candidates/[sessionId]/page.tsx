@@ -234,6 +234,24 @@ export default function CandidateDetailPage() {
 
   return (
     <div className="app-card">
+      <div style={{ marginBottom: 8 }}>
+        <a
+          href="/company/users?tab=candidates"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+            color: "#2563eb",
+            textDecoration: "none",
+          }}
+        >
+          <span aria-hidden="true" style={{ fontSize: 14 }}>
+            ←
+          </span>
+          <span>Back to prospective candidates</span>
+        </a>
+      </div>
       <h1 style={{ marginTop: 0, fontSize: 20 }}>Candidate</h1>
       <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>Prospective worker from Nexis profile</p>
 

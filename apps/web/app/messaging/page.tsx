@@ -104,6 +104,27 @@ export default function MessagingPage() {
       return;
     }
 
+    // Optional draft recipients coming from other pages (e.g. candidates list)
+    try {
+      const draft = window.localStorage.getItem("messagingDraftFromCandidates");
+      if (draft) {
+        const parsed = JSON.parse(draft);
+        if (Array.isArray(parsed.externalEmails)) {
+          setExternalEmails(prev => {
+            const set = new Set<string>(prev);
+            for (const email of parsed.externalEmails) {
+              const v = typeof email === "string" ? email.trim() : "";
+              if (v) set.add(v);
+            }
+            return Array.from(set);
+          });
+        }
+        window.localStorage.removeItem("messagingDraftFromCandidates");
+      }
+    } catch {
+      // ignore malformed draft payloads
+    }
+
     let cancelled = false;
 
     async function loadThreads() {
