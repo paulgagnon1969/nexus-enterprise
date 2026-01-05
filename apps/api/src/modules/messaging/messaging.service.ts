@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { Injectable, ForbiddenException, NotFoundException, Logger } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { EmailService } from "../../common/email.service";
@@ -8,6 +8,9 @@ import { $Enums } from "@prisma/client";
 interface CreateThreadDto {
   subject?: string | null;
   participantUserIds?: string[];
+  toExternalEmails?: string[];
+  ccExternalEmails?: string[];
+  bccExternalEmails?: string[];
   externalEmails?: string[];
   groupIds?: string[];
   attachments?: {
@@ -23,6 +26,8 @@ interface CreateThreadDto {
 
 @Injectable()
 export class MessagingService {
+  private readonly logger = new Logger(MessagingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
@@ -141,9 +146,34 @@ export class MessagingService {
     const companyId = this.assertCompanyContext(actor);
 
     const baseUserIds = new Set<string>([actor.userId, ...(dto.participantUserIds || [])]);
-    const baseEmails = new Set<string>((dto.externalEmails || []).map(e => e.trim()).filter(Boolean));
 
-    // Expand any recipient groups into concrete userIds/emails
+    const toExternal = new Set<string>();
+    const ccExternal = new Set<string>();
+    const bccExternal = new Set<string>();
+
+    const addMany = (target: Set<string>, values?: string[]) => {
+      if (!values) return;
+      for (const raw of values) {
+        const email = (raw || "").trim();
+        if (!email) continue;
+        target.add(email);
+      }
+    };
+
+    addMany(toExternal, dto.toExternalEmails);
+    addMany(ccExternal, dto.ccExternalEmails);
+    addMany(bccExternal, dto.bccExternalEmails);
+
+    const hasExplicitBuckets =
+      toExternal.size > 0 || ccExternal.size > 0 || bccExternal.size > 0;
+
+    // Backward compatibility: if the caller only provided externalEmails,
+    // treat them as BCC by default.
+    if (!hasExplicitBuckets && dto.externalEmails && dto.externalEmails.length > 0) {
+      addMany(bccExternal, dto.externalEmails);
+    }
+
+    // Expand any recipient groups into concrete userIds/emails.
     if (dto.groupIds && dto.groupIds.length > 0) {
       const groups = await this.prisma.messageRecipientGroup.findMany({
         where: {
@@ -160,14 +190,22 @@ export class MessagingService {
             baseUserIds.add(m.userId);
           }
           if (m.email) {
-            baseEmails.add(m.email.trim());
+            const email = m.email.trim();
+            if (!email) continue;
+            // If the caller already assigned this email to a specific header
+            // bucket, do not override it. Otherwise, default group emails to BCC.
+            if (!toExternal.has(email) && !ccExternal.has(email) && !bccExternal.has(email)) {
+              bccExternal.add(email);
+            }
           }
         }
       }
     }
 
     const participantUserIds = Array.from(baseUserIds).filter(Boolean);
-    const externalEmails = Array.from(baseEmails);
+    const toExternalEmails = Array.from(toExternal);
+    const ccExternalEmails = Array.from(ccExternal);
+    const bccExternalEmails = Array.from(bccExternal);
 
     const result = await this.prisma.$transaction(async tx => {
       const thread = await tx.messageThread.create({
@@ -179,25 +217,35 @@ export class MessagingService {
         },
       });
 
-      const participantsData: any[] = [];
+      const participantsData: Parameters<typeof tx.messageParticipant.create>[0]["data"][] = [];
+
       for (const userId of participantUserIds) {
         participantsData.push({
           threadId: thread.id,
           userId,
           isExternal: false,
-        });
-      }
-      for (const email of externalEmails) {
-        participantsData.push({
-          threadId: thread.id,
-          email,
-          isExternal: true,
+          headerRole: $Enums.MessageHeaderRole.TO,
         });
       }
 
+      const pushExternal = (emails: string[], role: $Enums.MessageHeaderRole) => {
+        for (const email of emails) {
+          participantsData.push({
+            threadId: thread.id,
+            email,
+            isExternal: true,
+            headerRole: role,
+          });
+        }
+      };
+
+      pushExternal(toExternalEmails, $Enums.MessageHeaderRole.TO);
+      pushExternal(ccExternalEmails, $Enums.MessageHeaderRole.CC);
+      pushExternal(bccExternalEmails, $Enums.MessageHeaderRole.BCC);
+
       const participants = participantsData.length
         ? await tx.messageParticipant.createManyAndReturn({
-            data: participantsData,
+            data: participantsData as any,
           } as any)
         : [];
 
@@ -205,7 +253,7 @@ export class MessagingService {
         data: {
           threadId: thread.id,
           senderId: actor.userId,
-          senderEmail: null,
+          senderEmail: actor.email,
           body: dto.body,
         },
       });
@@ -229,6 +277,7 @@ export class MessagingService {
 
     const { thread, participants, message } = result;
 
+    // In-app notifications for internal users
     const internalRecipients = (participants || []).filter(
       p => !p.isExternal && p.userId && p.userId !== actor.userId,
     );
@@ -259,8 +308,58 @@ export class MessagingService {
       );
     }
 
-    // TODO: send email to external participants using EmailService
-    // (out of scope for v1; internal web messaging first).
+    // Outbound email to external recipients (single email with To/CC/BCC)
+    const externalRecipients = (participants || []).filter(p => p.isExternal && p.email);
+    if (externalRecipients.length > 0) {
+      const subject =
+        thread.subject && thread.subject.trim().length > 0
+          ? thread.subject
+          : "New message from Nexus";
+      const textBody = message.body;
+      const htmlBody = this.renderMessageHtml(actor.email, subject, message.body);
+
+      const toList = externalRecipients
+        .filter(p => p.headerRole === $Enums.MessageHeaderRole.TO)
+        .map(p => p.email!) as string[];
+      const ccList = externalRecipients
+        .filter(p => p.headerRole === $Enums.MessageHeaderRole.CC)
+        .map(p => p.email!) as string[];
+      const bccList = externalRecipients
+        .filter(p => p.headerRole === $Enums.MessageHeaderRole.BCC)
+        .map(p => p.email!) as string[];
+
+      // If everything is BCC/CC only, ensure there is at least one visible
+      // "to" address for providers that require it. Prefer the actor's email
+      // so they receive a copy.
+      if (toList.length === 0 && (ccList.length > 0 || bccList.length > 0)) {
+        if (actor.email) {
+          toList.push(actor.email);
+        } else if (bccList.length > 0) {
+          toList.push(bccList[0]);
+        } else if (ccList.length > 0) {
+          toList.push(ccList[0]);
+        }
+      }
+
+      if (toList.length === 0 && ccList.length === 0 && bccList.length === 0) {
+        return result;
+      }
+
+      try {
+        await this.email.sendMail({
+          to: toList,
+          cc: ccList.length > 0 ? ccList : undefined,
+          bcc: bccList.length > 0 ? bccList : undefined,
+          subject,
+          html: htmlBody,
+          text: textBody,
+        });
+      } catch (err: any) {
+        this.logger.error(
+          `Failed to send message email to external recipients: ${err?.message ?? err}`,
+        );
+      }
+    }
 
     return result;
   }
@@ -364,7 +463,7 @@ export class MessagingService {
       data: {
         threadId,
         senderId: actor.userId,
-        senderEmail: null,
+        senderEmail: actor.email,
         body,
       },
     });
@@ -417,7 +516,81 @@ export class MessagingService {
       );
     }
 
+    // Email all external participants on new messages as well (single email with To/CC/BCC).
+    const externalRecipients = thread.participants.filter(p => p.isExternal && p.email);
+    if (externalRecipients.length > 0) {
+      const subject =
+        thread.subject && thread.subject.trim().length > 0
+          ? thread.subject
+          : "New message from Nexus";
+      const textBody = body;
+      const htmlBody = this.renderMessageHtml(actor.email, subject, body);
+
+      const toList = externalRecipients
+        .filter(p => p.headerRole === $Enums.MessageHeaderRole.TO)
+        .map(p => p.email!) as string[];
+      const ccList = externalRecipients
+        .filter(p => p.headerRole === $Enums.MessageHeaderRole.CC)
+        .map(p => p.email!) as string[];
+      const bccList = externalRecipients
+        .filter(p => p.headerRole === $Enums.MessageHeaderRole.BCC)
+        .map(p => p.email!) as string[];
+
+      if (toList.length === 0 && (ccList.length > 0 || bccList.length > 0)) {
+        if (actor.email) {
+          toList.push(actor.email);
+        } else if (bccList.length > 0) {
+          toList.push(bccList[0]);
+        } else if (ccList.length > 0) {
+          toList.push(ccList[0]);
+        }
+      }
+
+      if (toList.length === 0 && ccList.length === 0 && bccList.length === 0) {
+        return message;
+      }
+
+      try {
+        await this.email.sendMail({
+          to: toList,
+          cc: ccList.length > 0 ? ccList : undefined,
+          bcc: bccList.length > 0 ? bccList : undefined,
+          subject,
+          html: htmlBody,
+          text: textBody,
+        });
+      } catch (err: any) {
+        this.logger.error(
+          `Failed to send reply email to external recipients: ${err?.message ?? err}`,
+        );
+      }
+    }
+
     return message;
+  }
+
+  private renderMessageHtml(fromEmail: string, subject: string, body: string): string {
+    const safeBody = this.escapeHtml(body).replace(/\r?\n/g, "<br/>");
+    const safeSubject = this.escapeHtml(subject || "");
+    const safeFrom = this.escapeHtml(fromEmail || "");
+
+    return `
+      <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.5; color: #111827;">
+        <h2 style="margin: 0 0 12px; font-size: 16px;">${safeSubject || "New message from Nexus"}</h2>
+        ${safeFrom ? `<p style="margin: 0 0 12px; color: #4b5563;">From: <strong>${safeFrom}</strong></p>` : ""}
+        <div style="margin: 0 0 16px; white-space: normal;">${safeBody}</div>
+        <p style="margin: 0; font-size: 12px; color: #6b7280;">This message was sent via Nexus Contractor Connect.</p>
+      </div>
+    `.trim();
+  }
+
+  private escapeHtml(input: string): string {
+    return input
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
   async addBoardMessage(

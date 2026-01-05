@@ -31,3 +31,5 @@ start-dev-clear-all.sh
 scripts/data-promotion/*.json
 scripts/data-promotion/*.csv
 promotion/
+*.app
+*.mov

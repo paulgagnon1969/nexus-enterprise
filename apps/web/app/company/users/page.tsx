@@ -1618,6 +1618,9 @@ function ProspectiveCandidatesPanel({
   const [submittedTo, setSubmittedTo] = useState<string>("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [sortMode, setSortMode] = useState<"NAME" | "SUBMITTED_ASC" | "SUBMITTED_DESC">(
+    "NAME",
+  );
 
   useEffect(() => {
     const token = window.localStorage.getItem("accessToken");
@@ -1682,14 +1685,18 @@ function ProspectiveCandidatesPanel({
 
   const filtered = rows
     .filter(r => {
-      if (searchEmail.trim() && !r.email.toLowerCase().includes(searchEmail.trim().toLowerCase())) {
+      if (
+        searchEmail.trim() &&
+        !r.email.toLowerCase().includes(searchEmail.trim().toLowerCase())
+      ) {
         return false;
       }
       const st = (r.profile?.state || "").trim();
       const city = (r.profile?.city || "").trim();
 
       if (stateFilter.trim() && st.toLowerCase() !== stateFilter.trim().toLowerCase()) return false;
-      if (cityFilter.trim() && !city.toLowerCase().includes(cityFilter.trim().toLowerCase())) return false;
+      if (cityFilter.trim() && !city.toLowerCase().includes(cityFilter.trim().toLowerCase()))
+        return false;
       if (regionFilter && stateToRegion(st) !== regionFilter) return false;
 
       // Submitted date range filter
@@ -1708,7 +1715,29 @@ function ProspectiveCandidatesPanel({
 
       return true;
     })
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    .sort((a, b) => {
+      if (sortMode === "SUBMITTED_ASC" || sortMode === "SUBMITTED_DESC") {
+        const aTime = new Date(a.createdAt).getTime();
+        const bTime = new Date(b.createdAt).getTime();
+        const diff = aTime - bTime;
+        return sortMode === "SUBMITTED_ASC" ? diff : -diff;
+      }
+
+      // Default: sort alphabetically by last name, then first name, then email.
+      const aLast = (a.profile?.lastName || "").trim().toLowerCase();
+      const bLast = (b.profile?.lastName || "").trim().toLowerCase();
+      if (aLast && bLast && aLast !== bLast) {
+        return aLast.localeCompare(bLast);
+      }
+
+      const aFirst = (a.profile?.firstName || "").trim().toLowerCase();
+      const bFirst = (b.profile?.firstName || "").trim().toLowerCase();
+      if (aFirst && bFirst && aFirst !== bFirst) {
+        return aFirst.localeCompare(bFirst);
+      }
+
+      return a.email.toLowerCase().localeCompare(b.email.toLowerCase());
+    });
 
   const selectedCount = selectedIds.filter(id => filtered.some(r => r.id === id)).length;
   const allFilteredSelected = filtered.length > 0 && selectedCount === filtered.length;
@@ -1950,7 +1979,37 @@ function ProspectiveCandidatesPanel({
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>City</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>State</th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>Status</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Submitted</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSortMode(prev =>
+                        prev === "SUBMITTED_ASC" ? "SUBMITTED_DESC" : "SUBMITTED_ASC",
+                      )
+                    }
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: 0,
+                      margin: 0,
+                      border: "none",
+                      background: "transparent",
+                      fontSize: "inherit",
+                      cursor: "pointer",
+                      color: "#111827",
+                    }}
+                  >
+                    <span>Submitted</span>
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>
+                      {sortMode === "SUBMITTED_ASC"
+                        ? "↑"
+                        : sortMode === "SUBMITTED_DESC"
+                        ? "↓"
+                        : "↕"}
+                    </span>
+                  </button>
+                </th>
                 <th style={{ textAlign: "right", padding: "6px 8px" }}>
                   <span style={{ visibility: "hidden" }}>Actions</span>
                 </th>

@@ -6,6 +6,12 @@ datasource db {
   provider = "postgresql"
 }
 
+enum MessageHeaderRole {
+  TO
+  CC
+  BCC
+}
+
 model Company {
   id                        String      @id @default(cuid())
   name                      String
@@ -266,14 +272,15 @@ model MessageThread {
 /// Participant in a message thread. Either internal (userId) or purely
 /// external (email only).
 model MessageParticipant {
-  id          String    @id @default(cuid())
+  id          String            @id @default(cuid())
   threadId    String
   userId      String?
   email       String?
   displayName String?
-  isExternal  Boolean   @default(false)
+  isExternal  Boolean           @default(false)
+  headerRole  MessageHeaderRole @default(TO)
   lastReadAt  DateTime?
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime          @default(now())
 
   thread   MessageThread @relation(fields: [threadId], references: [id])
   user     User?         @relation(fields: [userId], references: [id])
