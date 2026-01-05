@@ -1614,6 +1614,7 @@ function ProspectiveCandidatesPanel({
   const [stateFilter, setStateFilter] = useState<string>("");
   const [cityFilter, setCityFilter] = useState<string>("");
   const [searchEmail, setSearchEmail] = useState<string>("");
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   useEffect(() => {
     const token = window.localStorage.getItem("accessToken");
@@ -1764,76 +1765,183 @@ function ProspectiveCandidatesPanel({
             overflow: "hidden",
           }}
         >
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ backgroundColor: "#f9fafb" }}>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Candidate</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Region</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>City</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>State</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Status</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Submitted</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(r => {
-                  const nameText =
-                    (r.profile?.firstName || r.profile?.lastName)
-                      ? `${r.profile?.firstName ?? ""} ${r.profile?.lastName ?? ""}`.trim()
-                      : "(no name yet)";
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ backgroundColor: "#f9fafb" }}>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>Candidate</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>Region</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>City</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>State</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>Status</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>Submitted</th>
+                <th style={{ textAlign: "right", padding: "6px 8px" }}>
+                  <span style={{ visibility: "hidden" }}>Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(r => {
+                const nameText =
+                  (r.profile?.firstName || r.profile?.lastName)
+                    ? `${r.profile?.firstName ?? ""} ${r.profile?.lastName ?? ""}`.trim()
+                    : "(no name yet)";
 
-                  return (
-                    <tr key={r.id}>
-                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                        <div style={{ fontWeight: 600 }}>
-                          <a
-                            href={`/company/users/candidates/${r.id}`}
-                            style={{ color: "#111827", textDecoration: "none" }}
+                return (
+                  <tr key={r.id}>
+                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                      <div style={{ fontWeight: 600 }}>
+                        <a
+                          href={`/company/users/candidates/${r.id}`}
+                          style={{ color: "#111827", textDecoration: "none" }}
+                        >
+                          {nameText}
+                        </a>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>
+                        <a
+                          href={`mailto:${r.email}`}
+                          style={{ color: "#2563eb", textDecoration: "none" }}
+                        >
+                          {r.email}
+                        </a>
+                      </div>
+                      {r.profile?.phone && (
+                        <div style={{ fontSize: 12, color: "#111827" }}>{r.profile.phone}</div>
+                      )}
+                    </td>
+                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
+                      {stateToRegion(r.profile?.state)}
+                    </td>
+                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
+                      {r.profile?.city || "—"}
+                    </td>
+                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
+                      {r.profile?.state || "—"}
+                    </td>
+                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
+                      {r.status}
+                    </td>
+                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12, color: "#6b7280" }}>
+                      {new Date(r.createdAt).toLocaleString()}
+                    </td>
+                    <td
+                      style={{
+                        padding: "6px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        fontSize: 12,
+                        textAlign: "right",
+                        width: 1,
+                        whiteSpace: "nowrap",
+                        position: "relative",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        aria-label="More actions for candidate"
+                        style={{
+                          padding: "0 8px 2px 8px",
+                          borderRadius: 9999,
+                          border: "1px solid #2563eb",
+                          backgroundColor: "#ffffff",
+                          color: "#2563eb",
+                          fontSize: 16,
+                          lineHeight: "16px",
+                          cursor: "pointer",
+                        }}
+                        onClick={() =>
+                          setOpenMenuId(current => (current === r.id ? null : r.id))
+                        }
+                      >
+                        ...
+                      </button>
+                      {openMenuId === r.id && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            right: 0,
+                            top: "100%",
+                            marginTop: 4,
+                            borderRadius: 6,
+                            border: "1px solid #e5e7eb",
+                            backgroundColor: "#ffffff",
+                            boxShadow:
+                              "0 4px 6px -1px rgba(15,23,42,0.1), 0 2px 4px -2px rgba(15,23,42,0.1)",
+                            minWidth: 140,
+                            zIndex: 10,
+                            overflow: "hidden",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpenMenuId(null);
+                              if (typeof window !== "undefined") {
+                                window.location.href = "/messaging";
+                              }
+                            }}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                              width: "100%",
+                              padding: "6px 10px",
+                              border: "none",
+                              background: "#ffffff",
+                              cursor: "pointer",
+                              fontSize: 12,
+                              textAlign: "left",
+                            }}
                           >
-                            {nameText}
-                          </a>
+                            <span
+                              aria-hidden="true"
+                              style={{ display: "inline-flex", alignItems: "center" }}
+                            >
+                              <svg
+                                width={14}
+                                height={14}
+                                viewBox="0 0 24 24"
+                                xmlns="http://www.w3.org/2000/svg"
+                              >
+                                <rect
+                                  x="3"
+                                  y="5"
+                                  width="18"
+                                  height="14"
+                                  rx="2"
+                                  ry="2"
+                                  fill="#ffffff"
+                                  stroke="#2563eb"
+                                  strokeWidth={1.5}
+                                />
+                                <polyline
+                                  points="4,7 12,13 20,7"
+                                  fill="none"
+                                  stroke="#2563eb"
+                                  strokeWidth={1.5}
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            </span>
+                            <span>Message</span>
+                          </button>
                         </div>
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>
-                          <a
-                            href={`mailto:${r.email}`}
-                            style={{ color: "#2563eb", textDecoration: "none" }}
-                          >
-                            {r.email}
-                          </a>
-                        </div>
-                        {r.profile?.phone && (
-                          <div style={{ fontSize: 12, color: "#111827" }}>{r.profile.phone}</div>
-                        )}
-                      </td>
-                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
-                        {stateToRegion(r.profile?.state)}
-                      </td>
-                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
-                        {r.profile?.city || "—"}
-                      </td>
-                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
-                        {r.profile?.state || "—"}
-                      </td>
-                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
-                        {r.status}
-                      </td>
-                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12, color: "#6b7280" }}>
-                        {new Date(r.createdAt).toLocaleString()}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={6} style={{ padding: 10, fontSize: 12, color: "#6b7280" }}>
-                      No candidates match your filters.
+                      )}
                     </td>
                   </tr>
-                )}
-              </tbody>
-          </table>
-        </div>
-      )}
+                );
+              })}
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={7} style={{ padding: 10, fontSize: 12, color: "#6b7280" }}>
+                    No candidates match your filters.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+        </table>
+      </div>
+    )}
 
       <div style={{ marginTop: 10, fontSize: 11, color: "#6b7280" }}>
         Next step: well add skill/trade filters and a Solicit workflow (message/invite) once the pool UI stabilizes.
