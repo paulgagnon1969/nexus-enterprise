@@ -52,6 +52,7 @@ interface MessageDto {
   createdAt?: string;
   senderId?: string | null;
   senderEmail?: string | null;
+  subject?: string | null;
   attachments?: MessageAttachmentDto[];
 }
 
