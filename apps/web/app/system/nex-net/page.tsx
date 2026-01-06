@@ -221,7 +221,7 @@ export default function NexNetSystemPage() {
     <PageCard>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <header>
-          <h2 style={{ marginTop: 0, marginBottom: 4, fontSize: 18 }}>Nex-Net 4 Nexus Contractor Network</h2>
+          <h2 style={{ marginTop: 0, marginBottom: 4, fontSize: 18 }}>Nex-Net — Nexus Contractor Network</h2>
           <p style={{ marginTop: 0, fontSize: 13, color: "#6b7280" }}>
             System-wide talent network for Nexus Contractor Connect: prospects, referrals, onboarding, incentives,
             and learning. This workspace is visible only to Nexus System roles.
