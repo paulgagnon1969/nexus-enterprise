@@ -431,21 +431,6 @@ export default function ProjectDetailPage({
   // Reveal PID only after user clicks the project name in the header
   const [showPid, setShowPid] = useState(false);
 
-  // When the PETL tab is opened and we have groups, auto-expand the first room once
-  useEffect(() => {
-    if (activeTab !== "PETL") return;
-    if (!groups.length) return;
-
-    setExpandedRooms(prev => {
-      // Respect any user-driven expansion; only set a default when none chosen yet
-      if (prev.size > 0) return prev;
-      const firstWithRoom = groups.find(g => g.particleId);
-      if (!firstWithRoom?.particleId) return prev;
-      const next = new Set(prev);
-      next.add(firstWithRoom.particleId);
-      return next;
-    });
-  }, [activeTab, groups]);
 
   // Project header edit state
   const [editProjectMode, setEditProjectMode] = useState(false);

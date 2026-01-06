@@ -71,6 +71,7 @@ model Company {
   recipientGroups    MessageRecipientGroup[]
   projectFileFolders ProjectFileFolder[]
   projectFiles       ProjectFile[]
+  companyPriceLists  CompanyPriceList[]
 }
 
 model OrganizationTemplate {
@@ -1486,17 +1487,18 @@ model ImportJob {
 
 /// Global price list metadata (e.g. canonical Xactimate price list revisions).
 model PriceList {
-  id            String          @id @default(cuid())
-  kind          PriceListKind   @default(GOLDEN)
+  id            String            @id @default(cuid())
+  kind          PriceListKind     @default(GOLDEN)
   code          String?
   label         String
   revision      Int
   effectiveDate DateTime?
-  currency      String?         @default("USD")
-  isActive      Boolean         @default(false)
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  currency      String?           @default("USD")
+  isActive      Boolean           @default(false)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
   items         PriceListItem[]
+  companyLists  CompanyPriceList[]
 
   @@index([kind, isActive, revision], map: "PriceList_kind_active_revision_idx")
 }
@@ -1528,6 +1530,7 @@ model PriceListItem {
   division           Division?            @relation(fields: [divisionCode], references: [code])
   priceList          PriceList            @relation(fields: [priceListId], references: [id])
   assets             Asset[]
+  companyItems       CompanyPriceListItem[]
 
   @@unique([priceListId, canonicalKeyHash], map: "PriceListItem_priceList_canonical_hash_key")
   @@index([priceListId, cat, sel], map: "PriceListItem_priceList_cat_sel_idx")
@@ -1572,6 +1575,58 @@ model CatDivision {
   division     Division @relation(fields: [divisionCode], references: [code])
 
   @@index([divisionCode], map: "CatDivision_division_code_idx")
+}
+
+/// Per-company cost book seeded from the system-wide Golden Price List.
+model CompanyPriceList {
+  id              String                 @id @default(cuid())
+  companyId       String
+  basePriceListId String?
+  label           String
+  revision        Int                    @default(1)
+  effectiveDate   DateTime?
+  currency        String?                @default("USD")
+  isActive        Boolean                @default(true)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  company         Company                @relation(fields: [companyId], references: [id])
+  basePriceList   PriceList?             @relation(fields: [basePriceListId], references: [id])
+  items           CompanyPriceListItem[]
+
+  @@index([companyId, isActive, revision])
+}
+
+/// Individual tenant-level price list items that start from Golden but can
+/// diverge per organization over time.
+model CompanyPriceListItem {
+  id                 String            @id @default(cuid())
+  companyPriceListId String
+  priceListItemId    String?
+  canonicalKeyHash   String?
+  lineNo             Int?
+  groupCode          String?
+  groupDescription   String?
+  description        String?
+  cat                String?
+  sel                String?
+  unit               String?
+  unitPrice          Float?
+  coverage           String?
+  activity           String?
+  owner              String?
+  sourceVendor       String?
+  sourceDate         DateTime?
+  rawJson            Json?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  lastKnownUnitPrice Float?
+
+  companyPriceList   CompanyPriceList  @relation(fields: [companyPriceListId], references: [id])
+  priceListItem      PriceListItem?    @relation(fields: [priceListItemId], references: [id])
+
+  @@index([companyPriceListId, canonicalKeyHash])
+  @@index([companyPriceListId, cat, sel])
 }
 
 enum GlobalRole {
@@ -1632,6 +1687,7 @@ enum ImportJobType {
   PRICE_LIST
   PRICE_LIST_COMPONENTS
   BIA_LCP
+  COMPANY_PRICE_LIST
 }
 
 enum ImportJobStatus {

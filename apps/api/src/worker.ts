@@ -15,7 +15,7 @@ import {
   importBiaWorkers,
 } from "@repo/database";
 import { ImportJobStatus, ImportJobType } from "@prisma/client";
-import { importPriceListFromFile } from "./modules/pricing/pricing.service";
+import { importPriceListFromFile, importCompanyPriceListFromFile } from "./modules/pricing/pricing.service";
 import { Storage } from "@google-cloud/storage";
 import { parse } from "csv-parse/sync";
 
@@ -572,6 +572,48 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
         },
       });
     }
+
+    return;
+  }
+
+  if (job.type === ImportJobType.COMPANY_PRICE_LIST) {
+    if (!job.companyId) {
+      throw new Error("COMPANY_PRICE_LIST import job is missing companyId");
+    }
+
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        status: ImportJobStatus.RUNNING,
+        startedAt: new Date(),
+        progress: 10,
+        message: "Importing tenant cost book...",
+      },
+    });
+
+    const nonNullCsvPath = csvPath as string;
+
+    const startedAtTenant = Date.now();
+    const tenantResult = await importCompanyPriceListFromFile(job.companyId, nonNullCsvPath);
+    const tenantDurationMs = Date.now() - startedAtTenant;
+
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        status: ImportJobStatus.SUCCEEDED,
+        finishedAt: new Date(),
+        progress: 100,
+        message: "Tenant cost book import complete",
+        resultJson: tenantResult as any,
+      },
+    });
+
+    console.log("[worker] COMPANY_PRICE_LIST complete", {
+      importJobId,
+      companyId: job.companyId,
+      durationMs: tenantDurationMs,
+      resultSummary: tenantResult,
+    });
 
     return;
   }

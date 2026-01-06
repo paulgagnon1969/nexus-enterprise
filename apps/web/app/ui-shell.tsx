@@ -45,6 +45,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     path.startsWith("/onboarding/") ||
     path === "/reset-password" ||
     path.startsWith("/reset-password/");
+  const isReferralRoute = path === "/referrals" || path.startsWith("/referrals/");
 
   // On first load in this browser tab, clear any stale tokens and send the
   // user to the login screen, so deep links don't silently use expired auth.
@@ -380,9 +381,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     path === "/settings/skills";
 
   // Hide the main app navigation on auth routes like /login so the global menu
-  // doesn&apos;t distract first-time candidates during sign-in. For APPLICANT
-  // users, we now show a limited Nexus Marketplace nav (Learning + FAQs).
-  const hideNavForApplicant = isAuthRoute;
+  // doesn&apos;t distract first-time candidates during sign-in. On /referrals,
+  // show only the focused Nexus Marketplace nav (Learning + FAQs) regardless
+  // of user role; on all other authenticated routes, show the full nav.
+  const hideNavOnThisPage = isAuthRoute;
+  const useMarketplaceNavOnly = isReferralRoute;
 
   if (isPublicRoute) {
     return (
@@ -535,27 +538,32 @@ export function AppShell({ children }: { children: ReactNode }) {
               alt="Nexus Deconstruct Hires"
               className="app-logo-img"
             />
-            {/* Per-organization header driven by current company context */}
+            {/* Per-organization header driven by current company context (hidden on auth/referral routes) */}
+            {!isAuthRoute && !isReferralRoute && (
               <div className="app-logo-text">
                 <div className="app-logo-subtitle">
                   {currentCompanyName || h.selectOrganization}
                 </div>
               </div>
+            )}
           </div>
 
-          {/* Company switcher (hide for applicant pool accounts; also hide on /system for SUPER_ADMIN) */}
-          {userType !== "APPLICANT" && !(isSystemRoute && globalRole === "SUPER_ADMIN") && (
-            <div style={{ marginLeft: 16, marginRight: 8 }}>
-              <CompanySwitcher />
-            </div>
-          )}
+          {/* Company switcher (hide for applicant pool accounts; hide on auth and /system routes for SUPER_ADMIN) */}
+          {!isAuthRoute &&
+            !isReferralRoute &&
+            userType !== "APPLICANT" &&
+            !(isSystemRoute && globalRole === "SUPER_ADMIN") && (
+              <div style={{ marginLeft: 16, marginRight: 8 }}>
+                <CompanySwitcher />
+              </div>
+            )}
 
           {/* Primary app navigation.
-              - For APPLICANT users, show a focused Nexus Marketplace nav (Learning + FAQs).
-              - For others, show the full tenant workspace navigation. */}
-          {!hideNavForApplicant && (
-            userType === "APPLICANT" ? renderApplicantNav() : renderStandardNav()
-          )}
+              - On /login and /accept-invite, hide the nav entirely.
+              - On /referrals and for APPLICANT users, show a focused Nexus
+                Marketplace nav (Learning + FAQs).
+              - On all other authenticated routes, show the full workspace nav. */}
+          {!hideNavOnThisPage && (useMarketplaceNavOnly ? renderApplicantNav() : renderStandardNav())}
         </div>
         {/* Inline Superuser menu strip moved into SystemLayout; header stays clean here */}
 

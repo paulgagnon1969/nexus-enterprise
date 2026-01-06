@@ -14,6 +14,7 @@ import {
   getCurrentGoldenPriceList,
   getCurrentGoldenPriceListTable,
   getGoldenPriceListUploads,
+  ensureCompanyPriceListForCompany,
 } from "./pricing.service";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
@@ -52,10 +53,12 @@ export class PricingController {
       // eslint-disable-next-line no-console
       console.log("[pricing] uploadPriceList: user=%s level=%d", user.email, level);
 
-      // Require OWNER (90) / ADMIN (80) or SUPER_ADMIN (100) for now.
-      if (level < 80) {
+      // Golden Price List is system-wide: only SUPER_ADMINs can upload from
+      // the Nexus System context. Tenant admins must use the company
+      // cost book (COMPANY_PRICE_LIST) endpoint instead.
+      if (user.globalRole !== GlobalRole.SUPER_ADMIN) {
         throw new BadRequestException(
-          "You do not have permission to upload the Golden price list.",
+          "Only Nexus System administrators can upload the Golden price list.",
         );
       }
 
@@ -198,6 +201,130 @@ export class PricingController {
   async goldenUploads() {
     const uploads = await getGoldenPriceListUploads(10);
     return uploads;
+  }
+
+  // Seed or fetch a tenant CompanyPriceList from the current Golden Price List.
+  // This is used when an organization first needs a Cost Book.
+  @UseGuards(JwtAuthGuard)
+  @Post("company-price-list/seed-from-golden")
+  async seedCompanyPriceList(@Req() req: FastifyRequest) {
+    const anyReq: any = req as any;
+    const user = anyReq.user as AuthenticatedUser | undefined;
+
+    if (!user?.companyId) {
+      throw new BadRequestException("Missing company context for cost book seeding");
+    }
+
+    const level = getEffectiveRoleLevel({
+      globalRole: user.globalRole ?? null,
+      role: user.role ?? null,
+      profileCode: user.profileCode ?? null,
+    });
+
+    // Require OWNER (90) / ADMIN (80) at the tenant, or SUPER_ADMIN.
+    if (level < 80 && user.globalRole !== GlobalRole.SUPER_ADMIN) {
+      throw new BadRequestException(
+        "You do not have permission to create or reseed the company cost book.",
+      );
+    }
+
+    const costBook = await ensureCompanyPriceListForCompany(user.companyId);
+
+    return {
+      companyPriceListId: costBook.id,
+      basePriceListId: costBook.basePriceListId,
+      label: costBook.label,
+      revision: costBook.revision,
+      effectiveDate: costBook.effectiveDate,
+      currency: costBook.currency,
+      isActive: costBook.isActive,
+      createdAt: costBook.createdAt,
+    };
+  }
+
+  // Tenant-level CSV import endpoint that updates a company's Cost Book
+  // (CompanyPriceList) without touching the system-wide Golden.
+  @UseGuards(JwtAuthGuard)
+  @Post("company-price-list/import")
+  async uploadCompanyPriceList(@Req() req: FastifyRequest) {
+    try {
+      const anyReq: any = req as any;
+      const user = anyReq.user as AuthenticatedUser | undefined;
+
+      if (!user?.companyId) {
+        throw new BadRequestException("Missing company context for cost book import");
+      }
+
+      const level = getEffectiveRoleLevel({
+        globalRole: user.globalRole ?? null,
+        role: user.role ?? null,
+        profileCode: user.profileCode ?? null,
+      });
+
+      // Require OWNER (90) / ADMIN (80) at the tenant, or SUPER_ADMIN.
+      if (level < 80 && user.globalRole !== GlobalRole.SUPER_ADMIN) {
+        throw new BadRequestException(
+          "You do not have permission to upload a tenant cost book.",
+        );
+      }
+
+      const { file: filePart } = await readSingleFileFromMultipart(req, {
+        fieldName: "file",
+      });
+
+      if (!filePart.mimetype.includes("csv")) {
+        throw new BadRequestException("Only CSV uploads are supported for cost books");
+      }
+
+      const uploadsRoot = path.resolve(process.cwd(), "uploads/pricing");
+      if (!fs.existsSync(uploadsRoot)) {
+        fs.mkdirSync(uploadsRoot, { recursive: true });
+      }
+
+      const fileBuffer = await filePart.toBuffer();
+      const ext = path.extname(filePart.filename || "") || ".csv";
+      const fileName = `company-pricelist-${user.companyId}-${Date.now()}${ext}`;
+      const destPath = path.join(uploadsRoot, fileName);
+
+      fs.writeFileSync(destPath, fileBuffer);
+
+      const companyId = user.companyId;
+      const createdByUserId = user.userId;
+
+      if (!companyId || !createdByUserId) {
+        throw new BadRequestException("Missing company context for cost book import");
+      }
+
+      const job = await this.prisma.importJob.create({
+        data: {
+          companyId,
+          projectId: null,
+          createdByUserId,
+          type: "COMPANY_PRICE_LIST",
+          status: "QUEUED",
+          progress: 0,
+          message: "Queued tenant cost book import",
+          csvPath: destPath,
+        },
+      });
+
+      const queue = getImportQueue();
+      await queue.add(
+        "process",
+        { importJobId: job.id },
+        {
+          attempts: 1,
+          removeOnComplete: 1000,
+          removeOnFail: 1000,
+        },
+      );
+
+      return { jobId: job.id };
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[pricing] uploadCompanyPriceList: error", err);
+      throw err;
+    }
   }
 
   // Import Golden price list component breakdowns from a CSV file. This will

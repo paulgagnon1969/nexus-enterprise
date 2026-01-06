@@ -27,6 +27,7 @@ import { ReferralsModule } from "./modules/referrals/referrals.module";
 import { ProjectGroupModule } from "./modules/project-group/project-group.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { MessagingModule } from "./modules/messaging/messaging.module";
+import { SystemDocsModule } from "./modules/system-docs/system-docs.module";
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { MessagingModule } from "./modules/messaging/messaging.module";
     ProjectGroupModule,
     NotificationsModule,
     MessagingModule,
+    SystemDocsModule,
   ],
   controllers: [DevController]
 })

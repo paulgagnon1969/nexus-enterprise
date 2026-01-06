@@ -29,6 +29,25 @@ function toDate(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function normalizeKeyPart(value: string | null | undefined): string {
+  return (value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
+function buildCanonicalKeyHash(cat: string | null, sel: string | null, activity: string | null, description: string | null): string {
+  const crypto = require("node:crypto");
+  const canonicalKeyString = [
+    normalizeKeyPart(cat),
+    normalizeKeyPart(sel),
+    normalizeKeyPart(activity),
+    normalizeKeyPart(description),
+  ].join("||");
+
+  return crypto.createHash("sha256").update(canonicalKeyString, "utf8").digest("hex");
+}
+
 export async function importPriceListFromFile(csvPath: string) {
   if (!fs.existsSync(csvPath)) {
     throw new Error(`CSV not found at ${csvPath}`);
@@ -132,24 +151,7 @@ export async function importPriceListFromFile(csvPath: string) {
         ? divisionByCat.get(cat.trim().toUpperCase()) ?? null
         : null;
 
-      const norm = (v: string | null) =>
-        (v ?? "")
-          .trim()
-          .replace(/\s+/g, " ")
-          .toUpperCase();
-
-      const canonicalKeyString = [
-        norm(cat),
-        norm(sel),
-        norm(activity),
-        norm(description),
-      ].join("||");
-
-      const crypto = require("node:crypto");
-      const canonicalKeyHash: string = crypto
-        .createHash("sha256")
-        .update(canonicalKeyString, "utf8")
-        .digest("hex");
+      const canonicalKeyHash = buildCanonicalKeyHash(cat, sel, activity, description);
 
       const previousUnitPrice = prevPriceByCanonicalHash.get(canonicalKeyHash) ?? null;
 
@@ -185,6 +187,222 @@ export async function importPriceListFromFile(csvPath: string) {
   }, { timeout: 600000 });
 
   return { priceListId, revision, itemCount };
+}
+
+// Ensure a CompanyPriceList exists for the given company, seeding from the
+// current active GOLDEN PriceList if necessary.
+export async function ensureCompanyPriceListForCompany(companyId: string) {
+  const existing = await prisma.companyPriceList.findFirst({
+    where: { companyId, isActive: true },
+    orderBy: { revision: "desc" },
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  const golden = await prisma.priceList.findFirst({
+    where: { kind: "GOLDEN", isActive: true },
+    orderBy: { revision: "desc" },
+  });
+
+  if (!golden) {
+    throw new Error("No active Golden Price List is configured in Nexus System.");
+  }
+
+  const seeded = await prisma.$transaction(async (tx) => {
+    const base = await tx.priceList.findUnique({
+      where: { id: golden.id },
+      include: {
+        items: true,
+      },
+    });
+
+    if (!base) {
+      throw new Error("Active Golden Price List not found during seeding.");
+    }
+
+    const companyPriceList = await tx.companyPriceList.create({
+      data: {
+        companyId,
+        basePriceListId: base.id,
+        label: base.label,
+        revision: 1,
+        effectiveDate: base.effectiveDate,
+        currency: base.currency ?? "USD",
+        isActive: true,
+      },
+    });
+
+    if (base.items.length) {
+      const itemsData = base.items.map((it) => ({
+        companyPriceListId: companyPriceList.id,
+        priceListItemId: it.id,
+        canonicalKeyHash: it.canonicalKeyHash,
+        lineNo: it.lineNo,
+        groupCode: it.groupCode,
+        groupDescription: it.groupDescription,
+        description: it.description,
+        cat: it.cat,
+        sel: it.sel,
+        unit: it.unit,
+        unitPrice: it.unitPrice,
+        coverage: it.coverage,
+        activity: it.activity,
+        owner: it.owner,
+        sourceVendor: it.sourceVendor,
+        sourceDate: it.sourceDate,
+        // rawJson is optional on CompanyPriceListItem; skip copying to avoid
+        // createMany InputJsonValue typing friction.
+        lastKnownUnitPrice: it.lastKnownUnitPrice,
+      }));
+
+      const chunkSize = 500;
+      for (let i = 0; i < itemsData.length; i += chunkSize) {
+        // eslint-disable-next-line no-await-in-loop
+        await tx.companyPriceListItem.createMany({ data: itemsData.slice(i, i + chunkSize) });
+      }
+    }
+
+    return companyPriceList;
+  });
+
+  return seeded;
+}
+
+// Import a tenant-level cost book CSV and apply changes to the company's
+// CompanyPriceList without mutating the global Golden price list. This will
+// upsert CompanyPriceListItem rows based on the canonicalKeyHash.
+export async function importCompanyPriceListFromFile(companyId: string, csvPath: string) {
+  if (!fs.existsSync(csvPath)) {
+    throw new Error(`CSV not found at ${csvPath}`);
+  }
+
+  const rawCsv = fs.readFileSync(csvPath, "utf8");
+
+  const records: any[] = parse(rawCsv, {
+    columns: true,
+    skip_empty_lines: true,
+  });
+
+  if (!records.length) {
+    throw new Error("Company price list CSV has no data rows");
+  }
+
+  const companyPriceList = await ensureCompanyPriceListForCompany(companyId);
+
+  // Preload existing tenant items keyed by canonicalKeyHash for fast lookups.
+  const existingItems = await prisma.companyPriceListItem.findMany({
+    where: { companyPriceListId: companyPriceList.id },
+    select: {
+      id: true,
+      canonicalKeyHash: true,
+      unitPrice: true,
+    },
+  });
+
+  const byHash = new Map<string, { id: string; unitPrice: number | null }>();
+  for (const it of existingItems) {
+    if (!it.canonicalKeyHash) continue;
+    if (!byHash.has(it.canonicalKeyHash)) {
+      byHash.set(it.canonicalKeyHash, { id: it.id, unitPrice: it.unitPrice });
+    }
+  }
+
+  const updates: { id: string; oldPrice: number | null; newPrice: number | null }[] = [];
+  const inserts: any[] = [];
+
+  for (const record of records) {
+    const cat = cleanText(record["Cat"]);
+    const sel = cleanText(record["Sel"]);
+    const activity = cleanText(record["Activity"]);
+    const description = cleanText(record["Desc"]);
+
+    const hash = buildCanonicalKeyHash(cat, sel, activity, description);
+    const newPrice = toNumber(record["Unit Cost"]);
+
+    const existing = hash ? byHash.get(hash) ?? null : null;
+
+    if (existing) {
+      updates.push({ id: existing.id, oldPrice: existing.unitPrice ?? null, newPrice });
+      continue;
+    }
+
+    // If this is a brand-new line for the tenant, create a new CompanyPriceListItem.
+    // Optionally try to link back to a Golden PriceListItem via hash.
+    const goldenMatch = hash
+      ? await prisma.priceListItem.findFirst({
+          where: { canonicalKeyHash: hash },
+          select: { id: true },
+        })
+      : null;
+
+    const rawLineNoValue =
+      (record["#"] as string | undefined) ??
+      (record["\u001b#"] as string | undefined) ??
+      ("﻿#" in record ? (record["﻿#"] as string | undefined) : undefined) ??
+      (record[Object.keys(record)[0] ?? ""] as string | undefined);
+
+    const parsedLineNo = rawLineNoValue
+      ? Number(String(rawLineNoValue).replace(/,/g, "")) || 0
+      : 0;
+
+    inserts.push({
+      companyPriceListId: companyPriceList.id,
+      priceListItemId: goldenMatch?.id ?? null,
+      canonicalKeyHash: hash,
+      lineNo: parsedLineNo,
+      groupCode: cleanText(record["Group Code"]),
+      groupDescription: cleanText(record["Group Description"]),
+      description,
+      cat,
+      sel,
+      unit: cleanText(record["Unit"]),
+      unitPrice: newPrice,
+      lastKnownUnitPrice: null,
+      coverage: cleanText(record["Coverage"]),
+      activity,
+      owner: cleanText(record["Owner"]),
+      sourceVendor: cleanText(record["Original Vendor"]),
+      sourceDate: toDate(record["Date"] as string | undefined),
+      // rawJson is optional for tenant items; omit for simpler typing.
+    });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const chunkSize = 200;
+
+    // Apply updates in chunks to avoid long transactions.
+    for (let i = 0; i < updates.length; i += chunkSize) {
+      const chunk = updates.slice(i, i + chunkSize);
+      // eslint-disable-next-line no-await-in-loop
+      await Promise.all(
+        chunk.map((u) =>
+          tx.companyPriceListItem.update({
+            where: { id: u.id },
+            data: {
+              lastKnownUnitPrice: u.oldPrice,
+              unitPrice: u.newPrice,
+            },
+          }),
+        ),
+      );
+    }
+
+    // Insert new rows in chunks.
+    for (let i = 0; i < inserts.length; i += chunkSize) {
+      const chunk = inserts.slice(i, i + chunkSize);
+      // eslint-disable-next-line no-await-in-loop
+      await tx.companyPriceListItem.createMany({ data: chunk });
+    }
+  });
+
+  return {
+    companyPriceListId: companyPriceList.id,
+    updatedCount: updates.length,
+    createdCount: inserts.length,
+    totalProcessed: records.length,
+  };
 }
 
 export async function getCurrentGoldenPriceList() {
