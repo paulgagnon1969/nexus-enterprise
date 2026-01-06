@@ -33,3 +33,6 @@ scripts/data-promotion/*.csv
 promotion/
 *.app
 *.mov
+# Office/RTF exports
+*.rtf
+

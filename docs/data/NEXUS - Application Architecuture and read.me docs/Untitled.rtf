@@ -1,19 +1,27 @@
 {\rtf1\ansi\ansicpg1252\cocoartf2867
-\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;\f1\fnil\fcharset0 HelveticaNeue;}
+{\colortbl;\red255\green255\blue255;\red251\green0\blue7;}
+{\*\expandedcolortbl;;\cspthree\c91747\c20037\c13852;}
 \margl1440\margr1440\vieww11520\viewh8400\viewkind0
 \pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
 
-\f0\fs24 \cf0 cd /Users/pg/nexus-enterprise\
+\f0\fs24 \cf0 export DATABASE_URL='postgresql://USER:PASSWORD@HOST:PORT/DB_NAME?schema=public'\
 \
-# Fill in your real DATABASE_URL here\
-DATABASE_URL=\{\{DATABASE_URL\}\} \\\
-BIA_COMPANY_ID=cmjqzic0v0003vtkv7s2jmylo \\\
-npx ts-node packages/database/src/scripts/validate-lcp-ww51.ts\
+\pard\pardeftab560\slleading20\pardirnatural\partightenfactor0
+
+\f1\fs26 \cf2 cd /Users/pg/nexus-enterprise\
+export DATABASE_URL="postgresql://postgres:Nexusprodpass.22@127.0.0.1:5432/nexus_db"\
+\
+# example from the script comment (fill in your real password/host)\
+export DATABASE_URL="postgresql://postgres:Nexusprodpass.22@34.27.95.130:5432/nexus_db"\
+export DATABASE_URL="$ProdDATABASE_URL"\
+npm run db:migrate:prod\
+\
+git clone git@github.com:paulgagnon1969/nexus-enterprise.git\
+cd nexus-enterprise\
+export DATABASE_URL="postgresql://postgres:YOUR_PROD_PASSWORD@34.27.95.130:5432/nexus_db"\
+cd packages/database\
+npx prisma migrate deploy\
 \
 \
-cd /path/to/nexus-enterprise\
-export DATABASE_URL='postgres://<USER>:<PASSWORD>@<HOST_OR_PROXY>/<DB_NAME>'  # use your real prod DSN here\
-cd scripts/data-promotion\
-npx tsx import-to-env.ts --input-dir ../../promotion/2026-01-02-fortified}
+psql "postgresql://postgres:mypwd@34.27.95.130:5432/postgres" -c 'SELECT 1;'}

@@ -5,10 +5,11 @@ import { MessagingController } from "./messaging.controller";
 import { EmailService } from "../../common/email.service";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { RecipientGroupsController } from "./recipient-groups.controller";
+import { InboundEmailController } from "./inbound-email.controller";
 
 @Module({
   imports: [PrismaModule, NotificationsModule],
   providers: [MessagingService, EmailService],
-  controllers: [MessagingController, RecipientGroupsController],
+  controllers: [MessagingController, RecipientGroupsController, InboundEmailController],
 })
 export class MessagingModule {}

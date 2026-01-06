@@ -175,6 +175,14 @@ function CompanyProfileCard() {
     localTaxJurisdiction: null,
     localTaxAccountId: null,
   });
+
+  // Optional per-company branding pulled from /companies/me/landing-config.
+  // We currently treat the login.logoUrl as the primary company logo and the
+  // worker.secondaryLogoUrl as the small app icon / mark.
+  const [companyLogoUrl, setCompanyLogoUrl] = useState<string | null>(null);
+  const [companyIconUrl, setCompanyIconUrl] = useState<string | null>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [iconUploading, setIconUploading] = useState(false);
   const [offices, setOffices] = useState<
     {
       id: string;
@@ -281,8 +289,28 @@ function CompanyProfileCard() {
       }
     };
 
+    const loadBranding = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/companies/me/landing-config`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data: {
+          login?: { logoUrl?: string | null; secondaryLogoUrl?: string | null } | null;
+          worker?: { logoUrl?: string | null; secondaryLogoUrl?: string | null } | null;
+        } = await res.json();
+        const loginLogo = data.login?.logoUrl ?? null;
+        const iconFromWorkerSecondary = data.worker?.secondaryLogoUrl ?? null;
+        setCompanyLogoUrl(loginLogo);
+        setCompanyIconUrl(iconFromWorkerSecondary);
+      } catch {
+        // Branding is optional; safe to ignore failures here.
+      }
+    };
+
     loadCompany();
     loadOffices();
+    loadBranding();
   }, []);
 
   const [editMode, setEditMode] = useState(false);
@@ -607,7 +635,7 @@ function CompanyProfileCard() {
               <button
                 type="button"
                 onClick={saveEdit}
-                disabled={savingProfile}
+                disabled={savingProfile || logoUploading || iconUploading}
                 style={{
                   padding: "4px 10px",
                   borderRadius: 999,
@@ -809,9 +837,42 @@ function CompanyProfileCard() {
             type="file"
             accept="image/*"
             disabled={!editMode}
-            onChange={e => {
+            onChange={async e => {
               const file = e.target.files?.[0] ?? null;
               setLogoFileName(file ? file.name : null);
+              if (!file) return;
+              if (typeof window === "undefined") return;
+              const token = window.localStorage.getItem("accessToken");
+              if (!token) {
+                setProfileMessage("Missing access token. Please login again.");
+                return;
+              }
+              try {
+                setLogoUploading(true);
+                setProfileMessage(null);
+                const form = new FormData();
+                form.append("file", file);
+                const res = await fetch(`${API_BASE}/companies/me/logo`, {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: form,
+                });
+                if (!res.ok) {
+                  const text = await res.text().catch(() => "");
+                  throw new Error(text || `Failed to upload logo (${res.status})`);
+                }
+                const json: { url?: string } = await res.json();
+                if (json.url) {
+                  setCompanyLogoUrl(json.url);
+                }
+                setProfileMessage("Logo uploaded.");
+              } catch (err: any) {
+                setProfileMessage(err?.message ?? "Failed to upload logo.");
+              } finally {
+                setLogoUploading(false);
+              }
             }}
           />
           {logoFileName && (
@@ -819,8 +880,13 @@ function CompanyProfileCard() {
               Selected: {logoFileName}
             </p>
           )}
+          {companyLogoUrl && (
+            <p style={{ margin: "2px 0 0", fontSize: 11, color: "#6b7280", wordBreak: "break-all" }}>
+              Current logo URL: {companyLogoUrl}
+            </p>
+          )}
           <p style={{ margin: "4px 0 0", fontSize: 11, color: "#6b7280" }}>
-            Placeholder – logo upload wiring to file storage pending.
+            {logoUploading ? "Uploading logo…" : "PNG/SVG recommended. Uploaded per organization to /uploads/company-logos."}
           </p>
         </div>
 
@@ -832,9 +898,42 @@ function CompanyProfileCard() {
             type="file"
             accept="image/*"
             disabled={!editMode}
-            onChange={e => {
+            onChange={async e => {
               const file = e.target.files?.[0] ?? null;
               setIconFileName(file ? file.name : null);
+              if (!file) return;
+              if (typeof window === "undefined") return;
+              const token = window.localStorage.getItem("accessToken");
+              if (!token) {
+                setProfileMessage("Missing access token. Please login again.");
+                return;
+              }
+              try {
+                setIconUploading(true);
+                setProfileMessage(null);
+                const form = new FormData();
+                form.append("file", file);
+                const res = await fetch(`${API_BASE}/companies/me/logo`, {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: form,
+                });
+                if (!res.ok) {
+                  const text = await res.text().catch(() => "");
+                  throw new Error(text || `Failed to upload icon (${res.status})`);
+                }
+                const json: { url?: string } = await res.json();
+                if (json.url) {
+                  setCompanyIconUrl(json.url);
+                }
+                setProfileMessage("App icon uploaded.");
+              } catch (err: any) {
+                setProfileMessage(err?.message ?? "Failed to upload app icon.");
+              } finally {
+                setIconUploading(false);
+              }
             }}
           />
           {iconFileName && (
@@ -842,8 +941,13 @@ function CompanyProfileCard() {
               Selected: {iconFileName}
             </p>
           )}
+          {companyIconUrl && (
+            <p style={{ margin: "2px 0 0", fontSize: 11, color: "#6b7280", wordBreak: "break-all" }}>
+              Current app icon URL: {companyIconUrl}
+            </p>
+          )}
           <p style={{ margin: "4px 0 0", fontSize: 11, color: "#6b7280" }}>
-            Placeholder – icon upload wiring to file storage pending.
+            {iconUploading ? "Uploading app icon…" : "Used for compact marks in future headers and tiles."}
           </p>
         </div>
       </div>

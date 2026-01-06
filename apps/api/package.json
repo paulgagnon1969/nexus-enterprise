@@ -8,6 +8,8 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "worker": "node dist/worker.js",
+    "email-poller:dev": "ts-node src/email-inbound-poller.ts",
+    "email-poller": "node dist/email-inbound-poller.js",
     "check-types": "tsc -p tsconfig.json --noEmit",
     "lint": "echo 'lint disabled'"
   },
@@ -29,7 +31,9 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "fastify": "^5.0.0",
+    "imapflow": "^1.2.4",
     "ioredis": "^5.4.0",
+    "mailparser": "^3.9.1",
     "nodemailer": "^6.9.15",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
@@ -38,6 +42,7 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/mailparser": "^3.4.6",
     "@types/node": "^22.0.0",
     "@types/nodemailer": "^6.4.17",
     "nodemon": "^3.1.11",

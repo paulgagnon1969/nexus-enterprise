@@ -22,18 +22,21 @@ interface RecipientGroupDto {
   name: string;
 }
 
+interface ThreadParticipantDto {
+  id: string;
+  userId?: string | null;
+  email?: string | null;
+  displayName?: string | null;
+  isExternal?: boolean;
+  headerRole?: "TO" | "CC" | "BCC";
+}
+
 interface ThreadDto {
   id: string;
   subject?: string | null;
   createdAt?: string;
   updatedAt?: string;
-  participants?: {
-    id: string;
-    userId?: string | null;
-    email?: string | null;
-    displayName?: string | null;
-    isExternal?: boolean;
-  }[];
+  participants?: ThreadParticipantDto[];
 }
 
 interface MessageAttachmentDto {
@@ -69,6 +72,22 @@ export default function MessagingPage() {
   const [loadingThreads, setLoadingThreads] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // UI state: email-style folders + composer visibility
+  const [selectedFolder, setSelectedFolder] = useState<
+    "inbox" | "drafts" | "sent" | "trash" | "company"
+  >("inbox");
+  const [showComposer, setShowComposer] = useState(false);
+
+  function summarizeParticipants(thread: ThreadDto): string {
+    if (!thread.participants || thread.participants.length === 0) return "—";
+    const labels = thread.participants
+      .map(p => (p.displayName || p.email || p.userId || p.id || "").trim())
+      .filter(Boolean);
+    if (labels.length === 0) return "—";
+    if (labels.length === 1) return labels[0];
+    return `${labels[0]} + ${labels.length - 1} more`;
+  }
 
   const [newSubject, setNewSubject] = useState("");
   const [newBody, setNewBody] = useState("");
@@ -108,6 +127,9 @@ export default function MessagingPage() {
   const [showProjectFilePicker, setShowProjectFilePicker] = useState<
     "new" | "reply" | null
   >(null);
+  const [expandedAlertMessageIds, setExpandedAlertMessageIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [showGroupDropdown, setShowGroupDropdown] = useState(false);
   const [showTeamDropdown, setShowTeamDropdown] = useState(false);
   const [selectedThreadProjectId, setSelectedThreadProjectId] = useState<string | null>(
@@ -531,15 +553,80 @@ export default function MessagingPage() {
 
   return (
     <PageCard>
-      <div style={{ display: "flex", gap: 12, minHeight: 400 }}>
-        <div style={{ flex: "0 0 260px", borderRight: "1px solid #e5e7eb", paddingRight: 12 }}>
-          <h2 style={{ marginTop: 0, fontSize: 16 }}>Messaging</h2>
-          {error && (
-            <p style={{ fontSize: 12, color: "#b91c1c" }}>Error: {error}</p>
-          )}
+      <div
+        style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 400 }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <h2 style={{ marginTop: 0, fontSize: 16 }}>Messages</h2>
+          <button
+            type="button"
+            onClick={() => setShowComposer(v => !v)}
+            style={{
+              padding: "6px 12px",
+              borderRadius: 999,
+              border: "none",
+              backgroundColor: "#2563eb",
+              color: "#f9fafb",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            {showComposer ? "Close composer" : "Compose Message"}
+          </button>
+        </div>
+        {error && (
+          <p style={{ fontSize: 12, color: "#b91c1c" }}>Error: {error}</p>
+        )}
+        <div style={{ display: "flex", gap: 12, flex: 1 }}>
+          <div
+            style={{
+              flex: "0 0 260px",
+              borderRight: "1px solid #e5e7eb",
+              paddingRight: 12,
+            }}
+          >
+            <nav style={{ marginTop: 4, marginBottom: 12 }}>
+              {[
+                { id: "inbox", label: "Inbox" },
+                { id: "drafts", label: "Drafts" },
+                { id: "sent", label: "Sent" },
+                { id: "trash", label: "Trash" },
+                { id: "company", label: "Company Messages" },
+              ].map(folder => {
+                const active = selectedFolder === (folder.id as any);
+                return (
+                  <button
+                    key={folder.id}
+                    type="button"
+                    onClick={() => setSelectedFolder(folder.id as any)}
+                    style={{
+                      display: "flex",
+                      width: "100%",
+                      padding: "6px 8px",
+                      marginBottom: 2,
+                      borderRadius: 6,
+                      border: "none",
+                      textAlign: "left",
+                      backgroundColor: active ? "#e5f2ff" : "transparent",
+                      color: active ? "#111827" : "#374151",
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {folder.label}
+                  </button>
+                );
+              })}
+            </nav>
 
-          {/* Group Distribution List (favorites) */}
-          {groups && groups.length > 0 && (
+            {/* Group Distribution List (favorites) */}
+            {groups && groups.length > 0 && (
             <div style={{ marginTop: 8, marginBottom: 8, fontSize: 11 }}>
               <div
                 style={{
@@ -1343,6 +1430,7 @@ export default function MessagingPage() {
               </button>
             </form>
           </div>
+        </div>
 
           <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Recent threads</div>
           {loadingThreads && !threads && (
@@ -1370,14 +1458,34 @@ export default function MessagingPage() {
                         cursor: "pointer",
                       }}
                     >
-                      <div style={{ fontWeight: 600 }}>
-                        {t.subject || "(no subject)"}
-                      </div>
-                      {updated && (
-                        <div style={{ fontSize: 11, color: "#9ca3af" }}>
-                          {updated.toLocaleString()}
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          justifyContent: "space-between",
+                          gap: 8,
+                        }}
+                      >
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 11, color: "#4b5563" }}>
+                            {summarizeParticipants(t)}
+                          </div>
+                          <div style={{ fontWeight: 600 }}>
+                            {t.subject || "(no subject)"}
+                          </div>
                         </div>
-                      )}
+                        {updated && (
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: "#9ca3af",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {updated.toLocaleString()}
+                          </div>
+                        )}
+                      </div>
                     </button>
                   </li>
                 );
@@ -1430,10 +1538,66 @@ export default function MessagingPage() {
             )}
 
             <header style={{ marginBottom: 8 }}>
-                <h3 style={{ marginTop: 0, marginBottom: 2, fontSize: 15 }}>
-                  {selectedThread.subject || "(no subject)"}
-                </h3>
-              </header>
+              <h3 style={{ marginTop: 0, marginBottom: 2, fontSize: 15 }}>
+                {selectedThread.subject || "(no subject)"}
+              </h3>
+              {selectedThread.participants && selectedThread.participants.length > 0 && (
+                <div style={{ fontSize: 11, color: "#4b5563" }}>
+                  {(() => {
+                    const parts = selectedThread.participants as ThreadParticipantDto[];
+                    const internal = parts.filter(p => !p.isExternal && (p.userId || p.displayName || p.email));
+                    const toExternal = parts.filter(
+                      p => p.isExternal && (p.headerRole === "TO" || !p.headerRole),
+                    );
+                    const ccExternal = parts.filter(
+                      p => p.isExternal && p.headerRole === "CC",
+                    );
+                    const bccExternal = parts.filter(
+                      p => p.isExternal && p.headerRole === "BCC",
+                    );
+
+                    const labelFor = (p: ThreadParticipantDto) => {
+                      if (p.displayName && p.displayName.trim()) return p.displayName.trim();
+                      if (p.email && p.email.trim()) return p.email.trim();
+                      return p.userId || p.id;
+                    };
+
+                    const segments: string[] = [];
+
+                    if (internal.length > 0) {
+                      segments.push(
+                        `Team: ${internal
+                          .map(labelFor)
+                          .join(", ")}`,
+                      );
+                    }
+                    if (toExternal.length > 0) {
+                      segments.push(
+                        `To: ${toExternal
+                          .map(labelFor)
+                          .join(", ")}`,
+                      );
+                    }
+                    if (ccExternal.length > 0) {
+                      segments.push(
+                        `CC: ${ccExternal
+                          .map(labelFor)
+                          .join(", ")}`,
+                      );
+                    }
+                    if (bccExternal.length > 0) {
+                      segments.push(
+                        `BCC: ${bccExternal
+                          .map(labelFor)
+                          .join(", ")}`,
+                      );
+                    }
+
+                    return segments.join("  ·  ");
+                  })()}
+                </div>
+              )}
+            </header>
 
               <div
                 style={{
@@ -1449,11 +1613,116 @@ export default function MessagingPage() {
                 {selectedThread.messages && selectedThread.messages.length > 0 ? (
                   selectedThread.messages.map(m => {
                     const ts = m.createdAt ? new Date(m.createdAt) : null;
+                    const isExternalEmail = !m.senderId && !!m.senderEmail;
+                    const isGoogleSecurityAlert =
+                      isExternalEmail &&
+                      (!!m.senderEmail?.toLowerCase().includes("no-reply@accounts.google.com") ||
+                        /security alert/i.test(m.subject || "") ||
+                        /2-step verification/i.test(m.subject || ""));
+
+                    const isExpandedAlert =
+                      isGoogleSecurityAlert && expandedAlertMessageIds.has(m.id);
+
+                    // Collapse Google security alerts into a compact row, with an
+                    // optional "Show details" toggle.
+                    if (isGoogleSecurityAlert && !isExpandedAlert) {
+                      return (
+                        <div
+                          key={m.id}
+                          style={{
+                            marginBottom: 4,
+                            padding: "4px 6px",
+                            borderRadius: 6,
+                            backgroundColor: "#f3f4f6",
+                            fontSize: 11,
+                            color: "#6b7280",
+                          }}
+                        >
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4,
+                            }}
+                          >
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                width: 14,
+                                height: 14,
+                                borderRadius: 999,
+                                backgroundColor: "#e5e7eb",
+                                fontSize: 9,
+                                fontWeight: 600,
+                              }}
+                            >
+                              !
+                            </span>
+                            <span>Google security alert (hidden)</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setExpandedAlertMessageIds(prev => {
+                                  const next = new Set(prev);
+                                  next.add(m.id);
+                                  return next;
+                                });
+                              }}
+                              style={{
+                                marginLeft: 8,
+                                padding: "1px 6px",
+                                borderRadius: 999,
+                                border: "1px solid #d1d5db",
+                                backgroundColor: "#ffffff",
+                                fontSize: 10,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Show details
+                            </button>
+                          </span>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div key={m.id} style={{ marginBottom: 8 }}>
-                        <div style={{ fontSize: 11, color: "#9ca3af" }}>
-                          {ts ? ts.toLocaleString() : ""}
+                        <div style={{ fontSize: 11, color: "#9ca3af", display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>{ts ? ts.toLocaleString() : ""}</span>
+                          {isExternalEmail && (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                padding: "1px 6px",
+                                borderRadius: 999,
+                                backgroundColor: "#fef3c7",
+                                color: "#92400e",
+                                border: "1px solid #fbbf24",
+                                fontSize: 10,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  display: "inline-block",
+                                  width: 10,
+                                  height: 10,
+                                  borderRadius: 999,
+                                  backgroundColor: "#facc15",
+                                  marginRight: 4,
+                                }}
+                              />
+                              External email
+                            </span>
+                          )}
                         </div>
+                        {isExternalEmail && (
+                          <div style={{ fontSize: 11, color: "#b45309" }}>
+                            From external: {m.senderEmail}
+                          </div>
+                        )}
                         <div>{m.body}</div>
                         {m.attachments && m.attachments.length > 0 && (
                           <div style={{ marginTop: 4, fontSize: 11 }}>
