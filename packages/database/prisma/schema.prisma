@@ -2083,6 +2083,10 @@ model CertificationType {
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
+  /// Optional HTML template used when rendering certificates of this type.
+  /// Managed by Nexus System Admins via the certifications UI.
+  certificateTemplateHtml String?
+
   // Note: companyId is a soft foreign key to Company.id; no Prisma @relation
   // is declared here to avoid additional back-relations while iterating.
 
