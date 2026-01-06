@@ -70,6 +70,7 @@ export class MessagingService {
             displayName: true,
             isExternal: true,
             lastReadAt: true,
+            headerRole: true,
           },
         },
       },
@@ -311,10 +312,11 @@ export class MessagingService {
     // Outbound email to external recipients (single email with To/CC/BCC)
     const externalRecipients = (participants || []).filter(p => p.isExternal && p.email);
     if (externalRecipients.length > 0) {
-      const subject =
+      const baseSubject =
         thread.subject && thread.subject.trim().length > 0
           ? thread.subject
           : "New message from Nexus";
+      const subject = this.addThreadTokenToSubject(baseSubject, thread.id);
       const textBody = message.body;
       const htmlBody = this.renderMessageHtml(actor.email, subject, message.body);
 
@@ -345,8 +347,14 @@ export class MessagingService {
         return result;
       }
 
+      this.logger.log(
+        `createThread: attempting outbound email for thread ${thread.id} to=${JSON.stringify(
+          toList,
+        )} cc=${JSON.stringify(ccList)} bcc=${JSON.stringify(bccList)}`,
+      );
+
       try {
-        await this.email.sendMail({
+        const sendResult = await this.email.sendMail({
           to: toList,
           cc: ccList.length > 0 ? ccList : undefined,
           bcc: bccList.length > 0 ? bccList : undefined,
@@ -354,6 +362,9 @@ export class MessagingService {
           html: htmlBody,
           text: textBody,
         });
+        this.logger.log(
+          `createThread: email send result for thread ${thread.id}: ${JSON.stringify(sendResult)}`,
+        );
       } catch (err: any) {
         this.logger.error(
           `Failed to send message email to external recipients: ${err?.message ?? err}`,
@@ -519,10 +530,11 @@ export class MessagingService {
     // Email all external participants on new messages as well (single email with To/CC/BCC).
     const externalRecipients = thread.participants.filter(p => p.isExternal && p.email);
     if (externalRecipients.length > 0) {
-      const subject =
+      const baseSubject =
         thread.subject && thread.subject.trim().length > 0
           ? thread.subject
           : "New message from Nexus";
+      const subject = this.addThreadTokenToSubject(baseSubject, thread.id);
       const textBody = body;
       const htmlBody = this.renderMessageHtml(actor.email, subject, body);
 
@@ -550,21 +562,137 @@ export class MessagingService {
         return message;
       }
 
+      this.logger.log(
+        `addMessage: attempting outbound email for thread ${thread.id} to=${JSON.stringify(
+          toList,
+        )} cc=${JSON.stringify(ccList)} bcc=${JSON.stringify(bccList)}`,
+      );
+
       try {
-        await this.email.sendMail({
+        const sendResult = await this.email.sendMail({
           to: toList,
           cc: ccList.length > 0 ? ccList : undefined,
-          bcc: bccList.length > 0 ? bccList : undefined,
+          bcc: ccList.length > 0 ? bccList : undefined,
           subject,
           html: htmlBody,
           text: textBody,
         });
+        this.logger.log(
+          `addMessage: email send result for thread ${thread.id}: ${JSON.stringify(sendResult)}`,
+        );
       } catch (err: any) {
         this.logger.error(
           `Failed to send reply email to external recipients: ${err?.message ?? err}`,
         );
       }
     }
+
+    return message;
+  }
+
+  /**
+   * Append a stable thread token to the subject so inbound email handlers can
+   * reliably map replies back to a MessageThread.
+   */
+  private addThreadTokenToSubject(subject: string, threadId: string): string {
+    const token = `[NCC-THREAD:${threadId}]`;
+    if (!subject) return token;
+    if (subject.includes(token)) return subject;
+    return `${subject} ${token}`;
+  }
+
+  /**
+   * Called by the inbound email webhook/worker to attach an external email
+   * reply to an existing thread without a logged-in actor.
+   */
+  async addInboundEmailToThread(payload: {
+    threadId: string;
+    fromEmail: string;
+    subject?: string | null;
+    body: string;
+  }) {
+    const email = payload.fromEmail.trim().toLowerCase();
+    if (!email) {
+      this.logger.warn("addInboundEmailToThread called without fromEmail");
+      return null;
+    }
+
+    const thread = await this.prisma.messageThread.findFirst({
+      where: { id: payload.threadId },
+      include: { participants: true },
+    });
+
+    if (!thread) {
+      this.logger.warn(
+        `addInboundEmailToThread: thread not found for id=${payload.threadId} from=${email}`,
+      );
+      return null;
+    }
+
+    // Ensure there is an external participant representing this email address.
+    let existing = thread.participants.find(
+      p => p.isExternal && p.email && p.email.toLowerCase() === email,
+    );
+
+    if (!existing) {
+      existing = await this.prisma.messageParticipant.create({
+        data: {
+          threadId: thread.id,
+          email,
+          isExternal: true,
+          headerRole: $Enums.MessageHeaderRole.TO,
+        },
+      });
+    }
+
+    const message = await this.prisma.message.create({
+      data: {
+        threadId: thread.id,
+        senderId: null,
+        senderEmail: email,
+        body: payload.body,
+      },
+    });
+
+    await this.prisma.messageThread.update({
+      where: { id: thread.id },
+      data: { updatedAt: new Date() },
+    });
+
+    // Notify internal participants that a new external reply arrived.
+    const internalRecipients = thread.participants.filter(p => !p.isExternal && p.userId);
+
+    if (internalRecipients.length > 0) {
+      const title =
+        thread.subject && thread.subject.trim().length > 0
+          ? `New reply on: ${thread.subject}`
+          : "New reply on direct message";
+
+      const bodyPreview =
+        payload.body.length > 160
+          ? `${payload.body.slice(0, 157)}...`
+          : payload.body;
+
+      await Promise.all(
+        internalRecipients.map(recipient =>
+          this.notifications.createNotification({
+            userId: recipient.userId!,
+            companyId: thread.companyId,
+            kind: $Enums.NotificationKind.DIRECT_MESSAGE,
+            title,
+            body: bodyPreview,
+            metadata: {
+              threadId: thread.id,
+              messageId: message.id,
+            },
+          }),
+        ),
+      );
+    }
+
+    this.logger.log(
+      `addInboundEmailToThread: stored inbound email for thread=${thread.id} from=${email}`,
+    );
 
     return message;
   }
