@@ -147,6 +147,8 @@ export default function SystemOrganizationPage({
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
+        // Send an explicit empty JSON object so the backend JSON parser is satisfied.
+        body: JSON.stringify({}),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
