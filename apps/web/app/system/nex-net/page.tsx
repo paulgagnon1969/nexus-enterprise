@@ -722,6 +722,43 @@ export default function NexNetSystemPage() {
                 This view will surface learning modules, certifications, and recommended training for Nex-Net
                 candidates, helping Nexus System manage readiness across the pool.
               </p>
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: 10,
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                  background: "#f9fafb",
+                  display: "inline-flex",
+                  flexDirection: "column",
+                  gap: 6,
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>Certification templates (System)</div>
+                <div style={{ color: "#6b7280" }}>
+                  Use the System Certifications admin page to edit the HTML certificate templates used when issuing
+                  Nex-Net certifications.
+                </div>
+                <a
+                  href="/system/certifications"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    alignSelf: "flex-start",
+                    marginTop: 4,
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    border: "1px solid #0f172a",
+                    backgroundColor: "#0f172a",
+                    color: "#f9fafb",
+                    fontSize: 11,
+                    textDecoration: "none",
+                  }}
+                >
+                  Open System Certifications
+                </a>
+              </div>
             </div>
           )}
 
