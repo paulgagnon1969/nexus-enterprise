@@ -1956,7 +1956,7 @@ model NexNetCandidate {
   updatedAt          DateTime                 @updatedAt
 
   user               User?                    @relation(fields: [userId], references: [id])
-  company            Company?                 @relation(fields: [companyId], references: [id])
+  // companyId is a soft foreign key to Company.id; relation omitted for now.
   referralsAsReferee Referral[]               @relation("RefereeCandidate")
 }
 
@@ -2063,8 +2063,8 @@ model TrainingModule {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  company            Company? @relation(fields: [companyId], references: [id])
-  assignments        CandidateTrainingAssignment[]
+  // Note: companyId is a soft foreign key to Company.id; we intentionally
+  // omit a Prisma @relation here to keep the schema simple while iterating.
 
   @@unique([companyId, code], name: "TrainingModule_company_code_key")
 }
@@ -2083,8 +2083,8 @@ model CertificationType {
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
-  company                Company?               @relation(fields: [companyId], references: [id])
-  candidateCertifications CandidateCertification[]
+  // Note: companyId is a soft foreign key to Company.id; no Prisma @relation
+  // is declared here to avoid additional back-relations while iterating.
 
   @@unique([companyId, code], name: "CertificationType_company_code_key")
 }
@@ -2108,10 +2108,7 @@ model CandidateTrainingAssignment {
   createdAt         DateTime                @default(now())
   updatedAt         DateTime                @updatedAt
 
-  candidate         NexNetCandidate         @relation(fields: [candidateId], references: [id])
-  trainingModule    TrainingModule          @relation(fields: [trainingModuleId], references: [id])
-  assignedBy        User?                   @relation(fields: [assignedByUserId], references: [id])
-  attemptsHistory   CandidateTrainingAttempt[]
+  // Scalar foreign keys only; relations are enforced at the application layer.
 
   @@index([candidateId], map: "CandidateTrainingAssignment_candidate_idx")
   @@index([trainingModuleId], map: "CandidateTrainingAssignment_training_idx")
@@ -2128,7 +2125,7 @@ model CandidateTrainingAttempt {
   metadata      Json?
   createdAt     DateTime                       @default(now())
 
-  assignment    CandidateTrainingAssignment    @relation(fields: [assignmentId], references: [id])
+  // assignmentId is a soft foreign key to CandidateTrainingAssignment.id
 
   @@index([assignmentId], map: "CandidateTrainingAttempt_assignment_idx")
 }
@@ -2150,10 +2147,7 @@ model CandidateCertification {
   createdAt             DateTime                    @default(now())
   updatedAt             DateTime                    @updatedAt
 
-  candidate             NexNetCandidate             @relation(fields: [candidateId], references: [id])
-  certificationType     CertificationType           @relation(fields: [certificationTypeId], references: [id])
-  verifiedBy            User?                       @relation(fields: [verifiedByUserId], references: [id])
-  documents             CandidateCertificationDocument[]
+  // candidateId and certificationTypeId are soft foreign keys.
 
   @@index([candidateId], map: "CandidateCertification_candidate_idx")
   @@index([certificationTypeId], map: "CandidateCertification_type_idx")
@@ -2171,8 +2165,7 @@ model CandidateCertificationDocument {
   uploadedAt              DateTime               @default(now())
   description             String?
 
-  certification           CandidateCertification @relation(fields: [candidateCertificationId], references: [id])
-  uploadedBy              User?                  @relation(fields: [uploadedByUserId], references: [id])
+  // candidateCertificationId is a soft foreign key to CandidateCertification.id
 
   @@index([candidateCertificationId], map: "CandidateCertDocument_cert_idx")
 }
@@ -2190,8 +2183,6 @@ model CandidateMarketProfile {
   rateMin              Float?
   rateMax              Float?
   updatedAt            DateTime         @default(now()) @updatedAt
-
-  candidate            NexNetCandidate  @relation(fields: [candidateId], references: [id])
 }
 
 /// Controls which companies/tenants can see a given candidate in the pool.
@@ -2203,9 +2194,8 @@ model CandidatePoolVisibility {
   createdAt          DateTime            @default(now())
   createdByUserId    String
 
-  candidate          NexNetCandidate     @relation(fields: [candidateId], references: [id])
-  createdBy          User                @relation(fields: [createdByUserId], references: [id])
-  visibleToCompany   Company?            @relation(fields: [visibleToCompanyId], references: [id])
+  // Scalar foreign keys only; relations to NexNetCandidate, User, Company
+  // are enforced at the application layer.
 
   @@index([candidateId], map: "CandidatePoolVisibility_candidate_idx")
   @@index([visibleToCompanyId], map: "CandidatePoolVisibility_visible_company_idx")
@@ -2222,9 +2212,8 @@ model CandidateInterest {
   updatedAt          DateTime                @updatedAt
   handledByUserId    String?
 
-  candidate          NexNetCandidate         @relation(fields: [candidateId], references: [id])
-  requestingCompany  Company                 @relation(fields: [requestingCompanyId], references: [id])
-  handledBy          User?                   @relation(fields: [handledByUserId], references: [id])
+  // Scalar foreign keys only; relations to NexNetCandidate, Company, User
+  // are enforced at the application layer.
 
   @@index([candidateId], map: "CandidateInterest_candidate_idx")
   @@index([requestingCompanyId], map: "CandidateInterest_requesting_company_idx")
