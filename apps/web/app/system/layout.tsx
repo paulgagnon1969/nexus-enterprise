@@ -2,7 +2,7 @@
 
 import { ReactNode, Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -25,6 +25,7 @@ interface OrgProjectSummary {
 function SystemLayoutInner({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean | null>(null);
   const [companies, setCompanies] = useState<CompanyDto[]>([]);
@@ -489,10 +490,47 @@ function SystemLayoutInner({ children }: { children: ReactNode }) {
               fontSize: 12,
             }}
           >
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <div style={{ fontWeight: 600 }}>Superuser menu</div>
-              <div style={{ fontSize: 11, color: "#e5e7eb" }}>
-                System-level tools for managing all organizations
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              {visibleCompanies.length > 0 && (
+                <label
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    marginRight: 8,
+                    fontSize: 12,
+                  }}
+                >
+                  <span style={{ color: "#e5e7eb" }}>Organization:</span>
+                  <select
+                    value={selectedCompanyId ?? ""}
+                    onChange={e => {
+                      const nextId = e.target.value;
+                      if (!nextId) return;
+                      router.push(`/system/${nextId}`);
+                    }}
+                    style={{
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #e5e7eb",
+                      fontSize: 12,
+                      backgroundColor: "#0f172a",
+                      color: "#f9fafb",
+                    }}
+                  >
+                    {visibleCompanies.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <div style={{ fontWeight: 600 }}>Superuser menu</div>
+                <div style={{ fontSize: 11, color: "#e5e7eb" }}>
+                  System-level tools for managing all organizations
+                </div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
