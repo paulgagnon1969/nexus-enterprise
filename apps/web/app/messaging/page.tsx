@@ -115,6 +115,12 @@ export default function MessagingPage() {
   const [replyBody, setReplyBody] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
 
+  // Thread list controls
+  const [threadSearch, setThreadSearch] = useState("");
+  const [threadSortKey, setThreadSortKey] = useState<
+    "updatedDesc" | "updatedAsc" | "subjectAsc" | "subjectDesc"
+  >("updatedDesc");
+
   const [newLinkUrl, setNewLinkUrl] = useState("");
   const [newLinkLabel, setNewLinkLabel] = useState("");
   const [newMessageLinks, setNewMessageLinks] = useState<{ url: string; label?: string }[]>([]);
@@ -124,6 +130,7 @@ export default function MessagingPage() {
   const [replyLinks, setReplyLinks] = useState<{ url: string; label?: string }[]>([]);
 
   const [showNewMessageAttachments, setShowNewMessageAttachments] = useState(false);
+  const [newMessageFiles, setNewMessageFiles] = useState<File[]>([]);
   const [showReplyAttachments, setShowReplyAttachments] = useState(false);
   const [showProjectFilePicker, setShowProjectFilePicker] = useState<
     "new" | "reply" | null
@@ -423,6 +430,20 @@ export default function MessagingPage() {
     setNewLinkLabel("");
   }
 
+  function handleNewMessageFilesChange(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    const next: File[] = [];
+    for (let i = 0; i < files.length; i += 1) {
+      const f = files.item(i);
+      if (f) next.push(f);
+    }
+    setNewMessageFiles(prev => [...prev, ...next]);
+  }
+
+  function removeNewMessageFile(name: string) {
+    setNewMessageFiles(prev => prev.filter(f => f.name !== name));
+  }
+
   function removeNewMessageLink(url: string) {
     setNewMessageLinks(prev => prev.filter(l => l.url !== url));
   }
@@ -451,6 +472,16 @@ export default function MessagingPage() {
       const allExternal = Array.from(
         new Set([...toExternalEmails, ...ccExternalEmails, ...bccExternalEmails]),
       );
+
+      // For now, attach uploaded files as EXTERNAL_LINK stubs if the backend
+      // supports converting these into real files. We keep the actual File
+      // objects in state so we can later wire this into a real upload flow.
+      const fileAttachments = newMessageFiles.map(f => ({
+        kind: "EXTERNAL_LINK",
+        url: `file-name://${encodeURIComponent(f.name)}`,
+        filename: f.name,
+      }));
+
       const res = await fetch(`${API_BASE}/messages/threads`, {
         method: "POST",
         headers: {
@@ -470,12 +501,15 @@ export default function MessagingPage() {
           externalEmails: allExternal,
           groupIds: selectedGroupIds,
           attachments:
-            newMessageLinks.length > 0
-              ? newMessageLinks.map(l => ({
-                  kind: "EXTERNAL_LINK",
-                  url: l.url,
-                  filename: l.label || null,
-                }))
+            newMessageLinks.length > 0 || newMessageFiles.length > 0
+              ? [
+                  ...newMessageLinks.map(l => ({
+                    kind: "EXTERNAL_LINK",
+                    url: l.url,
+                    filename: l.label || null,
+                  })),
+                  ...fileAttachments,
+                ]
               : undefined,
         }),
       });
@@ -490,6 +524,8 @@ export default function MessagingPage() {
       setCcExternalEmails([]);
       setBccExternalEmails([]);
       setNewMessageLinks([]);
+      setNewMessageFiles([]);
+      setShowComposer(false);
 
       const threadsRes = await fetch(`${API_BASE}/messages/threads`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -552,6 +588,80 @@ export default function MessagingPage() {
     }
   }
 
+  function threadMatchesSearch(t: ThreadDto, term: string): boolean {
+    const q = term.trim().toLowerCase();
+    if (!q) return true;
+
+    let haystack = "";
+    haystack += ` ${t.subject ?? ""}`;
+
+    if (t.participants && t.participants.length > 0) {
+      for (const p of t.participants) {
+        haystack += " ";
+        if (p.displayName) haystack += p.displayName;
+        if (p.email) haystack += ` ${p.email}`;
+        if (p.userId) haystack += ` ${p.userId}`;
+      }
+    }
+
+    // Best-effort: if the API ever includes messages on the thread payload,
+    // include their subject/body/attachments in the search surface.
+    const anyThread: any = t as any;
+    if (Array.isArray(anyThread.messages)) {
+      for (const m of anyThread.messages as any[]) {
+        if (m.subject) haystack += ` ${m.subject}`;
+        if (m.body) haystack += ` ${m.body}`;
+        if (Array.isArray(m.attachments)) {
+          for (const att of m.attachments) {
+            if (att.filename) haystack += ` ${att.filename}`;
+            if (att.url) haystack += ` ${att.url}`;
+          }
+        }
+      }
+    }
+
+    return haystack.toLowerCase().includes(q);
+  }
+
+  function sortThreads(list: ThreadDto[]): ThreadDto[] {
+    return [...list].sort((a, b) => {
+      if (threadSortKey === "subjectAsc" || threadSortKey === "subjectDesc") {
+        const aSub = (a.subject || "").toLowerCase();
+        const bSub = (b.subject || "").toLowerCase();
+        if (aSub === bSub) return 0;
+        const cmp = aSub < bSub ? -1 : 1;
+        return threadSortKey === "subjectAsc" ? cmp : -cmp;
+      }
+
+      const aDate = a.updatedAt || a.createdAt || "";
+      const bDate = b.updatedAt || b.createdAt || "";
+      if (!aDate && !bDate) return 0;
+      if (!aDate) return 1;
+      if (!bDate) return -1;
+      const diff =
+        new Date(bDate).getTime() - new Date(aDate).getTime();
+      return threadSortKey === "updatedDesc" ? diff : -diff;
+    });
+  }
+
+  const filteredThreads = threads
+    ? threads.filter(t => threadMatchesSearch(t, threadSearch))
+    : null;
+
+  const sortedThreads = filteredThreads ? sortThreads(filteredThreads) : null;
+
+  const sortedMessages =
+    selectedThread?.messages && selectedThread.messages.length > 0
+      ? [...selectedThread.messages].sort((a, b) => {
+          const aDate = a.createdAt || "";
+          const bDate = b.createdAt || "";
+          if (!aDate && !bDate) return 0;
+          if (!aDate) return 1;
+          if (!bDate) return -1;
+          return new Date(bDate).getTime() - new Date(aDate).getTime();
+        })
+      : [];
+
   return (
     <PageCard>
       <div
@@ -590,6 +700,8 @@ export default function MessagingPage() {
               flex: "0 0 260px",
               borderRight: "1px solid #e5e7eb",
               paddingRight: 12,
+              display: "flex",
+              flexDirection: "column",
             }}
           >
             <nav style={{ marginTop: 4, marginBottom: 12 }}>
@@ -626,883 +738,215 @@ export default function MessagingPage() {
               })}
             </nav>
 
-            {/* Group Distribution List (favorites) */}
-            {groups && groups.length > 0 && (
-            <div style={{ marginTop: 8, marginBottom: 8, fontSize: 11 }}>
-              <div
-                style={{
-                  marginBottom: 4,
-                  color: "#4b5563",
-                  fontWeight: 600,
-                }}
-              >
-                Group Distribution List
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowGroupDropdown(v => !v)}
-                  style={{
-                    alignSelf: "flex-start",
-                    padding: "4px 8px",
-                    borderRadius: 999,
-                    border: "1px solid #d1d5db",
-                    backgroundColor: "#ffffff",
-                    cursor: "pointer",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 4,
-                    fontSize: 11,
-                  }}
-                >
-                  <span>
-                    {selectedGroupIds.length > 0
-                      ? `${selectedGroupIds.length} group${selectedGroupIds.length > 1 ? "s" : ""} selected`
-                      : "Select groups"}
-                  </span>
-                  <span style={{ fontSize: 9 }}>{showGroupDropdown ? "▲" : "▼"}</span>
-                </button>
-                {showGroupDropdown && (
-                  <div
-                    style={{
-                      marginTop: 4,
-                      borderRadius: 8,
-                      border: "1px solid #e5e7eb",
-                      backgroundColor: "#ffffff",
-                      padding: 6,
-                      maxHeight: 180,
-                      overflowY: "auto",
-                      boxShadow:
-                        "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)",
-                    }}
-                  >
-                    {groups.map(g => {
-                      const active = selectedGroupIds.includes(g.id);
-                      return (
-                        <label
-                          key={g.id}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                            padding: "2px 4px",
-                            cursor: "pointer",
-                            fontSize: 11,
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={active}
-                            onChange={() => toggleSelectedGroup(g.id)}
-                            style={{ cursor: "pointer" }}
-                          />
-                          <span>{g.name}</span>
-                        </label>
-                      );
-                    })}
-                    {groups.length === 0 && (
-                      <div style={{ fontSize: 11, color: "#9ca3af" }}>
-                        No groups yet. Use "Save as favorite" below to create one.
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          </div>
 
-          <div style={{ marginTop: 8, marginBottom: 12 }}>
-            {draftRecipients && draftRecipients.length > 0 && (
-              <div
-                style={{
-                  marginBottom: 8,
-                  padding: 8,
-                  borderRadius: 8,
-                  border: "1px solid #e5e7eb",
-                  backgroundColor: "#f9fafb",
-                  fontSize: 11,
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ fontWeight: 600 }}>Map candidate emails to To / CC / BCC</div>
-                    <div style={{ color: "#6b7280" }}>
-                      Adjust how this cohort appears in the message headers before sending.
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 4 }}>
-                    <button
-                      type="button"
-                          onClick={() =>
-                        setDraftRecipients(prev => {
-                          if (!prev) return prev;
-                          const next: DraftRecipient[] = prev.map(r => ({
-                            ...r,
-                            field: "to" as DraftRecipient["field"],
-                          }));
-                          syncExternalHeadersFromDraft(next);
-                          return next;
-                        })
-                      }
-                      style={{
-                        padding: "2px 6px",
-                        borderRadius: 999,
-                        border: "1px solid #d1d5db",
-                        backgroundColor: "#e0f2fe",
-                        cursor: "pointer",
-                      }}
-                    >
-                      All To
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDraftRecipients(prev => {
-                          if (!prev) return prev;
-                          const next: DraftRecipient[] = prev.map(r => ({
-                            ...r,
-                            field: "cc" as DraftRecipient["field"],
-                          }));
-                          syncExternalHeadersFromDraft(next);
-                          return next;
-                        })
-                      }
-                      style={{
-                        padding: "2px 6px",
-                        borderRadius: 999,
-                        border: "1px solid #d1d5db",
-                        backgroundColor: "#fef9c3",
-                        cursor: "pointer",
-                      }}
-                    >
-                      All CC
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDraftRecipients(prev => {
-                          if (!prev) return prev;
-                          const next: DraftRecipient[] = prev.map(r => ({
-                            ...r,
-                            field: "bcc" as DraftRecipient["field"],
-                          }));
-                          syncExternalHeadersFromDraft(next);
-                          return next;
-                        })
-                      }
-                      style={{
-                        padding: "2px 6px",
-                        borderRadius: 999,
-                        border: "1px solid #d1d5db",
-                        backgroundColor: "#dcfce7",
-                        cursor: "pointer",
-                      }}
-                    >
-                      All BCC
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 6, maxHeight: 140, overflowY: "auto" }}>
-                  {draftRecipients.map(rec => (
-                    <div
-                      key={rec.email}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "2px 0",
-                        borderTop: "1px solid #e5e7eb",
-                      }}
-                    >
-                      <div style={{ fontSize: 11 }}>
-                        <span style={{ fontWeight: 500 }}>{rec.email}</span>
-                      </div>
-                      <div style={{ display: "flex", gap: 4 }}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDraftRecipients(prev => {
-                              if (!prev) return prev;
-                              const next: DraftRecipient[] = prev.map(r =>
-                                r.email === rec.email
-                                  ? { ...r, field: "to" as DraftRecipient["field"] }
-                                  : r,
-                              );
-                              syncExternalHeadersFromDraft(next);
-                              return next;
-                            })
-                          }
-                          style={{
-                            padding: "2px 6px",
-                            borderRadius: 999,
-                            border: "1px solid #d1d5db",
-                            backgroundColor: rec.field === "to" ? "#dbeafe" : "#ffffff",
-                            cursor: "pointer",
-                          }}
-                        >
-                          To
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDraftRecipients(prev => {
-                              if (!prev) return prev;
-                              const next: DraftRecipient[] = prev.map(r =>
-                                r.email === rec.email
-                                  ? { ...r, field: "cc" as DraftRecipient["field"] }
-                                  : r,
-                              );
-                              syncExternalHeadersFromDraft(next);
-                              return next;
-                            })
-                          }
-                          style={{
-                            padding: "2px 6px",
-                            borderRadius: 999,
-                            border: "1px solid #d1d5db",
-                            backgroundColor: rec.field === "cc" ? "#fef3c7" : "#ffffff",
-                            cursor: "pointer",
-                          }}
-                        >
-                          CC
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDraftRecipients(prev => {
-                              if (!prev) return prev;
-                              const next: DraftRecipient[] = prev.map(r =>
-                                r.email === rec.email
-                                  ? { ...r, field: "bcc" as DraftRecipient["field"] }
-                                  : r,
-                              );
-                              syncExternalHeadersFromDraft(next);
-                              return next;
-                            })
-                          }
-                          style={{
-                            padding: "2px 6px",
-                            borderRadius: 999,
-                            border: "1px solid #d1d5db",
-                            backgroundColor: rec.field === "bcc" ? "#dcfce7" : "#ffffff",
-                            cursor: "pointer",
-                          }}
-                        >
-                          BCC
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <form onSubmit={handleCreateThread} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {/* TO: internal team + groups + external */}
-              <div style={{ fontSize: 11, color: "#4b5563" }}>To:</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11 }}>
-                {members && members.length > 0 && (
-                  <div>
-                    <div style={{ marginBottom: 2 }}>Team selection</div>
-                    <button
-                      type="button"
-                      onClick={() => setShowTeamDropdown(v => !v)}
-                      style={{
-                        alignSelf: "flex-start",
-                        padding: "4px 8px",
-                        borderRadius: 999,
-                        border: "1px solid #d1d5db",
-                        backgroundColor: "#ffffff",
-                        cursor: "pointer",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                        fontSize: 11,
-                        marginBottom: 4,
-                      }}
-                    >
-                      <span>
-                        {selectedUserIds.length > 0
-                          ? `${selectedUserIds.length} team member${
-                              selectedUserIds.length > 1 ? "s" : ""
-                            } selected`
-                          : "Select team members"}
-                      </span>
-                      <span style={{ fontSize: 9 }}>{showTeamDropdown ? "▲" : "▼"}</span>
-                    </button>
-                    {showTeamDropdown && (
-                      <div
-                        style={{
-                          borderRadius: 8,
-                          border: "1px solid #e5e7eb",
-                          backgroundColor: "#ffffff",
-                          padding: 6,
-                          maxHeight: 200,
-                          overflowY: "auto",
-                          boxShadow:
-                            "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)",
-                        }}
-                      >
-                        {members.map(m => {
-                          const label =
-                            (m.user.firstName || m.user.lastName)
-                              ? `${m.user.firstName || ""} ${m.user.lastName || ""}`.trim()
-                              : m.user.email;
-                          const active = selectedUserIds.includes(m.userId);
-                          return (
-                            <label
-                              key={m.userId}
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 6,
-                                padding: "2px 4px",
-                                cursor: "pointer",
-                                fontSize: 11,
-                              }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={active}
-                                onChange={() => toggleSelectedUser(m.userId)}
-                                style={{ cursor: "pointer" }}
-                              />
-                              <span>{label}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-
-                <div>
-                  <div style={{ marginTop: 4, marginBottom: 2 }}>External emails (To)</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {toExternalEmails.map(email => (
-                      <span
-                        key={email}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
-                          padding: "2px 6px",
-                          borderRadius: 999,
-                          border: "1px solid #d1d5db",
-                          backgroundColor: "#f3f4f6",
-                        }}
-                      >
-                        <span>{email}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeExternalEmailChip(email)}
-                          style={{ border: "none", background: "transparent", cursor: "pointer" }}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                    <input
-                      type="email"
-                      value={toExternalEmailInput}
-                      onChange={e => setToExternalEmailInput(e.target.value)}
-                      onBlur={addExternalEmailChip}
-                      onKeyDown={e => {
-                        if (e.key === "Enter" || e.key === ",") {
-                          e.preventDefault();
-                          addExternalEmailChip();
-                        }
-                      }}
-                      placeholder="Add email and press Enter"
-                      style={{
-                        minWidth: 120,
-                        border: "1px solid #d1d5db",
-                        borderRadius: 6,
-                        padding: "4px 6px",
-                        fontSize: 11,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* CC: external only for now */}
-              <div style={{ fontSize: 11, color: "#4b5563", marginTop: 6 }}>CC:</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11 }}>
-                <div>
-                  <div style={{ marginBottom: 2 }}>External emails (CC)</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {ccExternalEmails.map(email => (
-                      <span
-                        key={email}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
-                          padding: "2px 6px",
-                          borderRadius: 999,
-                          border: "1px solid #d1d5db",
-                          backgroundColor: "#f3f4f6",
-                        }}
-                      >
-                        <span>{email}</span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setCcExternalEmails(prev => prev.filter(eaddr => eaddr !== email))
-                          }
-                          style={{ border: "none", background: "transparent", cursor: "pointer" }}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                    <input
-                      type="email"
-                      value={ccExternalEmailInput}
-                      onChange={e => setCcExternalEmailInput(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === "Enter" || e.key === ",") {
-                          e.preventDefault();
-                          const v = ccExternalEmailInput.trim();
-                          if (v) {
-                            setCcExternalEmails(prev => (prev.includes(v) ? prev : [...prev, v]));
-                            setCcExternalEmailInput("");
-                          }
-                        }
-                      }}
-                      placeholder="Add CC email and press Enter"
-                      style={{
-                        minWidth: 120,
-                        border: "1px solid #d1d5db",
-                        borderRadius: 6,
-                        padding: "4px 6px",
-                        fontSize: 11,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* BCC: external only; candidate cohorts land here by default */}
-              <div style={{ fontSize: 11, color: "#4b5563", marginTop: 6 }}>BCC:</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11 }}>
-                <div>
-                  <div style={{ marginBottom: 2 }}>External emails (BCC)</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {bccExternalEmails.map(email => (
-                      <span
-                        key={email}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
-                          padding: "2px 6px",
-                          borderRadius: 999,
-                          border: "1px solid #d1d5db",
-                          backgroundColor: "#f3f4f6",
-                        }}
-                      >
-                        <span>{email}</span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setBccExternalEmails(prev => prev.filter(eaddr => eaddr !== email))
-                          }
-                          style={{ border: "none", background: "transparent", cursor: "pointer" }}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                    <input
-                      type="email"
-                      value={bccExternalEmailInput}
-                      onChange={e => setBccExternalEmailInput(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === "Enter" || e.key === ",") {
-                          e.preventDefault();
-                          const v = bccExternalEmailInput.trim();
-                          if (v) {
-                            setBccExternalEmails(prev => (prev.includes(v) ? prev : [...prev, v]));
-                            setBccExternalEmailInput("");
-                          }
-                        }
-                      }}
-                      placeholder="Add BCC email and press Enter"
-                      style={{
-                        minWidth: 120,
-                        border: "1px solid #d1d5db",
-                        borderRadius: 6,
-                        padding: "4px 6px",
-                        fontSize: 11,
-                      }}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewMessageAttachments(v => !v)}
-                    style={{
-                      marginTop: 6,
-                      padding: "4px 8px",
-                      borderRadius: 999,
-                      border: "1px solid #d1d5db",
-                      backgroundColor: "#ffffff",
-                      fontSize: 11,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {showNewMessageAttachments ? "Hide attachments" : "Add attachments"}
-                  </button>
-
-                  {showNewMessageAttachments && (
-                    <div
-                      style={{
-                        marginTop: 6,
-                        padding: 8,
-                        borderRadius: 8,
-                        border: "1px solid #e5e7eb",
-                        backgroundColor: "#f9fafb",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 6,
-                      }}
-                    >
-                      <div style={{ fontSize: 11, fontWeight: 600 }}>Attachments</div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11 }}>
-                        <button
-                          type="button"
-                          disabled
-                          style={{
-                            textAlign: "left",
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            border: "1px solid #e5e7eb",
-                            backgroundColor: "#f9fafb",
-                            color: "#9ca3af",
-                            cursor: "default",
-                          }}
-                          title="Select from Project files (coming soon)"
-                        >
-                          1. Select file from Project files (coming soon)
-                        </button>
-                        <button
-                          type="button"
-                          disabled
-                          style={{
-                            textAlign: "left",
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            border: "1px solid #e5e7eb",
-                            backgroundColor: "#f9fafb",
-                            color: "#9ca3af",
-                            cursor: "default",
-                          }}
-                          title="Upload from your device (coming soon)"
-                        >
-                          2. Upload from your device (coming soon)
-                        </button>
-                        <button
-                          type="button"
-                          disabled
-                          style={{
-                            textAlign: "left",
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            border: "1px solid #e5e7eb",
-                            backgroundColor: "#f9fafb",
-                            color: "#9ca3af",
-                            cursor: "default",
-                          }}
-                          title="Create a new file in Project files (stub – future session)"
-                        >
-                          3. Create a new file in Project files (stub)
-                        </button>
-                      </div>
-
-                      <div style={{ marginTop: 4 }}>
-                        <div style={{ marginBottom: 4, fontSize: 11 }}>Select from Project files</div>
-                        <button
-                          type="button"
-                          disabled={!selectedThreadProjectId}
-                          onClick={() => setShowProjectFilePicker("new")}
-                          style={{
-                            textAlign: "left",
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            border: "1px solid #d1d5db",
-                            backgroundColor: selectedThreadProjectId
-                              ? "#ffffff"
-                              : "#f3f4f6",
-                            color: selectedThreadProjectId ? "#111827" : "#9ca3af",
-                            fontSize: 11,
-                            cursor: selectedThreadProjectId ? "pointer" : "default",
-                            marginBottom: 6,
-                          }}
-                          title={
-                            selectedThreadProjectId
-                              ? "Attach an existing file from this project"
-                              : "Open a thread linked to a project to select files"
-                          }
-                        >
-                          Choose file from project Files
-                        </button>
-
-                        <div style={{ marginTop: 4, marginBottom: 2, fontSize: 11 }}>
-                          Or attach an external link
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          {newMessageLinks.length > 0 && (
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                              {newMessageLinks.map(l => (
-                                <span
-                                  key={l.url}
-                                  style={{
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: 4,
-                                    padding: "2px 6px",
-                                    borderRadius: 999,
-                                    border: "1px solid #d1d5db",
-                                    backgroundColor: "#eef2ff",
-                                  }}
-                                >
-                                  <span>{l.label || l.url}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => removeNewMessageLink(l.url)}
-                                    style={{ border: "none", background: "transparent", cursor: "pointer" }}
-                                  >
-                                    ×
-                                  </button>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          <div style={{ display: "flex", gap: 4 }}>
-                            <input
-                              type="url"
-                              value={newLinkUrl}
-                              onChange={e => setNewLinkUrl(e.target.value)}
-                              placeholder="https://example.com/file.pdf"
-                              style={{
-                                flex: 2,
-                                border: "1px solid #d1d5db",
-                                borderRadius: 6,
-                                padding: "4px 6px",
-                                fontSize: 11,
-                              }}
-                            />
-                            <input
-                              type="text"
-                              value={newLinkLabel}
-                              onChange={e => setNewLinkLabel(e.target.value)}
-                              placeholder="Optional label"
-                              style={{
-                                flex: 1,
-                                border: "1px solid #d1d5db",
-                                borderRadius: 6,
-                                padding: "4px 6px",
-                                fontSize: 11,
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={addNewMessageLink}
-                              disabled={!newLinkUrl.trim()}
-                              style={{
-                                padding: "4px 8px",
-                                borderRadius: 999,
-                                border: "none",
-                                backgroundColor: newLinkUrl.trim() ? "#6366f1" : "#e5e7eb",
-                                color: "#f9fafb",
-                                fontSize: 11,
-                                cursor: newLinkUrl.trim() ? "pointer" : "default",
-                              }}
-                            >
-                              Add link
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <div style={{ marginTop: 6, marginBottom: 2 }}>Save Group Distribution</div>
-                  <div style={{ display: "flex", gap: 4 }}>
-                    <input
-                      type="text"
-                      value={newGroupName}
-                      onChange={e => setNewGroupName(e.target.value)}
-                      placeholder="Group name"
-                      style={{
-                        flex: 1,
-                        border: "1px solid #d1d5db",
-                        borderRadius: 6,
-                        padding: "4px 6px",
-                        fontSize: 11,
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={ev => void handleSaveFavoriteGroup(ev as any)}
-                      disabled={
-                        !newGroupName.trim() ||
-                        (selectedUserIds.length === 0 &&
-                          toExternalEmails.length === 0 &&
-                          ccExternalEmails.length === 0 &&
-                          bccExternalEmails.length === 0)
-                      }
-                      style={{
-                        padding: "4px 8px",
-                        borderRadius: 999,
-                        border: "none",
-                        backgroundColor:
-                          !newGroupName.trim() ||
-                          (selectedUserIds.length === 0 &&
-                            toExternalEmails.length === 0 &&
-                            ccExternalEmails.length === 0 &&
-                            bccExternalEmails.length === 0)
-                            ? "#e5e7eb"
-                            : "#0ea5e9",
-                        cursor:
-                          !newGroupName.trim() ||
-                          (selectedUserIds.length === 0 &&
-                            toExternalEmails.length === 0 &&
-                            ccExternalEmails.length === 0 &&
-                            bccExternalEmails.length === 0)
-                            ? "default"
-                            : "pointer",
-                      }}
-                    >
-                      Save
-                    </button>
-                  </div>
-                </div>
-              </div>
-
+        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+          <div style={{ marginBottom: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                marginBottom: 4,
+              }}
+            >
               <input
                 type="text"
-                value={newSubject}
-                onChange={e => setNewSubject(e.target.value)}
-                placeholder="Subject (optional)"
+                value={threadSearch}
+                onChange={e => setThreadSearch(e.target.value)}
+                placeholder="Search subject, recipients, or message text"
                 style={{
-                  padding: "6px 8px",
-                  fontSize: 12,
-                  borderRadius: 6,
+                  flex: 1,
                   border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                  padding: "4px 6px",
+                  fontSize: 12,
                 }}
               />
-              <textarea
-                value={newBody}
-                onChange={e => setNewBody(e.target.value)}
-                placeholder="Start a new conversation"
-                rows={3}
+              <select
+                value={threadSortKey}
+                onChange={e =>
+                  setThreadSortKey(e.target.value as typeof threadSortKey)
+                }
                 style={{
-                  padding: "6px 8px",
-                  fontSize: 12,
-                  borderRadius: 6,
                   border: "1px solid #d1d5db",
-                  resize: "vertical",
-                }}
-              />
-              <button
-                type="submit"
-                disabled={creating || !newBody.trim()}
-                style={{
-                  alignSelf: "flex-end",
-                  padding: "4px 10px",
-                  borderRadius: 999,
-                  border: "none",
-                  background: creating ? "#9ca3af" : "#16a34a",
-                  color: "#f9fafb",
+                  borderRadius: 6,
+                  padding: "4px 6px",
                   fontSize: 12,
-                  cursor: creating ? "default" : "pointer",
+                  backgroundColor: "#ffffff",
                 }}
               >
-                {creating ? "Sending..." : "Send"}
-              </button>
-            </form>
-          </div>
-        </div>
+                <option value="updatedDesc">Last updated (newest first)</option>
+                <option value="updatedAsc">Last updated (oldest first)</option>
+                <option value="subjectAsc">Subject A–Z</option>
+                <option value="subjectDesc">Subject Z–A</option>
+              </select>
+            </div>
 
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Recent threads</div>
-          {loadingThreads && !threads && (
-            <p style={{ fontSize: 12, color: "#6b7280" }}>Loading…</p>
-          )}
-          {threads && threads.length === 0 && (
-            <p style={{ fontSize: 12, color: "#6b7280" }}>No conversations yet.</p>
-          )}
-          {threads && threads.length > 0 && (
-            <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 12 }}>
-              {threads.map(t => {
-                const updated = t.updatedAt ? new Date(t.updatedAt) : null;
-                return (
-                  <li key={t.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(t.id)}
-                      style={{
-                        width: "100%",
-                        textAlign: "left",
-                        padding: "6px 8px",
-                        borderRadius: 6,
-                        border: "none",
-                        backgroundColor: selectedId === t.id ? "#e5f2ff" : "transparent",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <div
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+              Threads
+            </div>
+            {loadingThreads && !threads && (
+              <p style={{ fontSize: 12, color: "#6b7280" }}>Loading…</p>
+            )}
+            {threads && threads.length === 0 && (
+              <p style={{ fontSize: 12, color: "#6b7280" }}>No conversations yet.</p>
+            )}
+            {sortedThreads && sortedThreads.length > 0 && (
+              <ul
+                style={{
+                  listStyle: "none",
+                  padding: 0,
+                  margin: 0,
+                  fontSize: 12,
+                  maxHeight: 220,
+                  overflowY: "auto",
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                }}
+              >
+                {sortedThreads.map(t => {
+                  const updated = t.updatedAt ? new Date(t.updatedAt) : null;
+                  const anyThread: any = t as any;
+                  const previewBodyRaw: string | undefined =
+                    (Array.isArray(anyThread.messages) && anyThread.messages.length > 0
+                      ? anyThread.messages[0]?.body
+                      : undefined) || anyThread.latestBody || anyThread.previewBody;
+                  const previewBody = (previewBodyRaw || "")
+                    .replace(/\s+/g, " ")
+                    .trim();
+                  const previewBodyShort = previewBody.length > 120
+                    ? `${previewBody.slice(0, 117)}...`
+                    : previewBody;
+
+                  const hasAttachments = (() => {
+                    if (Array.isArray(anyThread.messages)) {
+                      for (const m of anyThread.messages as any[]) {
+                        if (Array.isArray(m.attachments) && m.attachments.length > 0) {
+                          return true;
+                        }
+                      }
+                    }
+                    if (typeof anyThread.hasAttachments === "boolean") {
+                      return anyThread.hasAttachments;
+                    }
+                    return false;
+                  })();
+
+                  return (
+                    <li key={t.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(t.id)}
                         style={{
-                          display: "flex",
-                          alignItems: "flex-start",
-                          justifyContent: "space-between",
-                          gap: 8,
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "6px 8px",
+                          borderRadius: 0,
+                          border: "none",
+                          borderBottom: "1px solid #e5e7eb",
+                          backgroundColor:
+                            selectedId === t.id ? "#eff6ff" : "#ffffff",
+                          cursor: "pointer",
                         }}
                       >
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 11, color: "#4b5563" }}>
-                            {summarizeParticipants(t)}
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            justifyContent: "space-between",
+                            gap: 8,
+                          }}
+                        >
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 11, color: "#4b5563" }}>
+                              {summarizeParticipants(t)}
+                            </div>
+                            <div
+                              style={{
+                                fontWeight: 600,
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              Subject: {t.subject || "(no subject)"}
+                            </div>
+                            {previewBodyShort && (
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: "#4b5563",
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                }}
+                              >
+                                Message: {previewBodyShort}
+                              </div>
+                            )}
                           </div>
-                          <div style={{ fontWeight: 600 }}>
-                            {t.subject || "(no subject)"}
-                          </div>
-                        </div>
-                        {updated && (
                           <div
                             style={{
-                              fontSize: 11,
-                              color: "#9ca3af",
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "flex-end",
+                              gap: 2,
                               whiteSpace: "nowrap",
                             }}
                           >
-                            {updated.toLocaleString()}
+                            {updated && (
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: "#9ca3af",
+                                }}
+                              >
+                                {updated.toLocaleString()}
+                              </div>
+                            )}
+                            {hasAttachments && (
+                              <div
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  fontSize: 11,
+                                  color: "#6b7280",
+                                  gap: 4,
+                                }}
+                              >
+                                <span
+                                  aria-hidden="true"
+                                  style={{
+                                    display: "inline-block",
+                                    width: 10,
+                                    height: 10,
+                                    borderRadius: 2,
+                                    border: "1px solid #9ca3af",
+                                    borderTop: "2px solid #9ca3af",
+                                    transform: "rotate(-45deg)",
+                                  }}
+                                />
+                                <span>Attachments</span>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
 
-        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           {selectedId && loadingThread && !selectedThread && (
             <p style={{ fontSize: 12, color: "#6b7280" }}>Loading conversation…</p>
           )}
 
           {!selectedId && (
             <p style={{ fontSize: 12, color: "#6b7280" }}>
-              Select a conversation on the left or start a new one.
+              Select a conversation above or start a new one.
             </p>
           )}
 
@@ -1611,8 +1055,8 @@ export default function MessagingPage() {
                   fontSize: 12,
                 }}
               >
-                {selectedThread.messages && selectedThread.messages.length > 0 ? (
-                  selectedThread.messages.map(m => {
+                {sortedMessages.length > 0 ? (
+                  sortedMessages.map(m => {
                     const ts = m.createdAt ? new Date(m.createdAt) : null;
                     const isExternalEmail = !m.senderId && !!m.senderEmail;
                     const isGoogleSecurityAlert =
@@ -1973,7 +1417,1096 @@ export default function MessagingPage() {
             </>
           )}
         </div>
+        </div>
       </div>
+
+      {showComposer && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 40,
+            backgroundColor: "rgba(15,23,42,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            style={{
+              position: "relative",
+              width: "100%",
+              maxWidth: 900,
+              maxHeight: "90vh",
+              backgroundColor: "#ffffff",
+              borderRadius: 12,
+              boxShadow:
+                "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)",
+              padding: 16,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                position: "relative",
+                marginBottom: 8,
+              }}
+            >
+              <div
+                style={{
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: 14, fontWeight: 600 }}>New message</div>
+                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                  Choose recipients, optionally save as a group, then compose and send.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowComposer(false)}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  right: 0,
+                  border: "none",
+                  borderRadius: 999,
+                  width: 26,
+                  height: 26,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: "#f3f4f6",
+                  cursor: "pointer",
+                  fontSize: 14,
+                }}
+                aria-label="Close compose"
+              >
+                ×
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                alignItems: "flex-start",
+                overflow: "hidden",
+                height: "100%",
+              }}
+            >
+              <div
+                style={{
+                  flex: 0.5,
+                  minWidth: 260,
+                  maxWidth: 360,
+                  borderRight: "1px solid #e5e7eb",
+                  paddingRight: 12,
+                  overflowY: "auto",
+                }}
+              >
+                {/* Draft cohort mapping */}
+                {draftRecipients && draftRecipients.length > 0 && (
+                  <div
+                    style={{
+                      marginBottom: 10,
+                      padding: 8,
+                      borderRadius: 8,
+                      border: "1px solid #e5e7eb",
+                      backgroundColor: "#f9fafb",
+                      fontSize: 11,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 600 }}>
+                          Map candidate emails to To / CC / BCC
+                        </div>
+                        <div style={{ color: "#6b7280" }}>
+                          Adjust how this cohort appears in the message headers before
+                          sending.
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftRecipients(prev => {
+                              if (!prev) return prev;
+                              const next: DraftRecipient[] = prev.map(r => ({
+                                ...r,
+                                field: "to" as DraftRecipient["field"],
+                              }));
+                              syncExternalHeadersFromDraft(next);
+                              return next;
+                            })
+                          }
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: 999,
+                            border: "1px solid #d1d5db",
+                            backgroundColor: "#e0f2fe",
+                            cursor: "pointer",
+                          }}
+                        >
+                          All To
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftRecipients(prev => {
+                              if (!prev) return prev;
+                              const next: DraftRecipient[] = prev.map(r => ({
+                                ...r,
+                                field: "cc" as DraftRecipient["field"],
+                              }));
+                              syncExternalHeadersFromDraft(next);
+                              return next;
+                            })
+                          }
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: 999,
+                            border: "1px solid #d1d5db",
+                            backgroundColor: "#fef9c3",
+                            cursor: "pointer",
+                          }}
+                        >
+                          All CC
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraftRecipients(prev => {
+                              if (!prev) return prev;
+                              const next: DraftRecipient[] = prev.map(r => ({
+                                ...r,
+                                field: "bcc" as DraftRecipient["field"],
+                              }));
+                              syncExternalHeadersFromDraft(next);
+                              return next;
+                            })
+                          }
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: 999,
+                            border: "1px solid #d1d5db",
+                            backgroundColor: "#dcfce7",
+                            cursor: "pointer",
+                          }}
+                        >
+                          All BCC
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 6, maxHeight: 140, overflowY: "auto" }}>
+                      {draftRecipients.map(rec => (
+                        <div
+                          key={rec.email}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "2px 0",
+                            borderTop: "1px solid #e5e7eb",
+                          }}
+                        >
+                          <div style={{ fontSize: 11 }}>
+                            <span style={{ fontWeight: 500 }}>{rec.email}</span>
+                          </div>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDraftRecipients(prev => {
+                                  if (!prev) return prev;
+                                  const next: DraftRecipient[] = prev.map(r =>
+                                    r.email === rec.email
+                                      ? { ...r, field: "to" as DraftRecipient["field"] }
+                                      : r,
+                                  );
+                                  syncExternalHeadersFromDraft(next);
+                                  return next;
+                                })
+                              }
+                              style={{
+                                padding: "2px 6px",
+                                borderRadius: 999,
+                                border: "1px solid #d1d5db",
+                                backgroundColor:
+                                  rec.field === "to" ? "#dbeafe" : "#ffffff",
+                                cursor: "pointer",
+                              }}
+                            >
+                              To
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDraftRecipients(prev => {
+                                  if (!prev) return prev;
+                                  const next: DraftRecipient[] = prev.map(r =>
+                                    r.email === rec.email
+                                      ? { ...r, field: "cc" as DraftRecipient["field"] }
+                                      : r,
+                                  );
+                                  syncExternalHeadersFromDraft(next);
+                                  return next;
+                                })
+                              }
+                              style={{
+                                padding: "2px 6px",
+                                borderRadius: 999,
+                                border: "1px solid #d1d5db",
+                                backgroundColor:
+                                  rec.field === "cc" ? "#fef3c7" : "#ffffff",
+                                cursor: "pointer",
+                              }}
+                            >
+                              CC
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDraftRecipients(prev => {
+                                  if (!prev) return prev;
+                                  const next: DraftRecipient[] = prev.map(r =>
+                                    r.email === rec.email
+                                      ? { ...r, field: "bcc" as DraftRecipient["field"] }
+                                      : r,
+                                  );
+                                  syncExternalHeadersFromDraft(next);
+                                  return next;
+                                })
+                              }
+                              style={{
+                                padding: "2px 6px",
+                                borderRadius: 999,
+                                border: "1px solid #d1d5db",
+                                backgroundColor:
+                                  rec.field === "bcc" ? "#dcfce7" : "#ffffff",
+                                cursor: "pointer",
+                              }}
+                            >
+                              BCC
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                  minWidth: 0,
+                  overflowY: "auto",
+                }}
+              >
+                <form
+                  onSubmit={handleCreateThread}
+                  style={{ display: "flex", flexDirection: "column", gap: 6 }}
+                >
+                  {/* Group Distribution List (favorites) */}
+                  {groups && groups.length > 0 && (
+                    <div style={{ marginBottom: 4, fontSize: 11 }}>
+                      <div
+                        style={{
+                          marginBottom: 2,
+                          color: "#4b5563",
+                          fontWeight: 600,
+                        }}
+                      >
+                        Group Distribution List
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowGroupDropdown(v => !v)}
+                        style={{
+                          alignSelf: "flex-start",
+                          padding: "4px 8px",
+                          borderRadius: 999,
+                          border: "1px solid #d1d5db",
+                          backgroundColor: "#ffffff",
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          fontSize: 11,
+                        }}
+                      >
+                        <span>
+                          {selectedGroupIds.length > 0
+                            ? `${selectedGroupIds.length} group${
+                                selectedGroupIds.length > 1 ? "s" : ""
+                              } selected`
+                            : "Select groups"}
+                        </span>
+                        <span style={{ fontSize: 9 }}>{showGroupDropdown ? "▲" : "▼"}</span>
+                      </button>
+                      {showGroupDropdown && (
+                        <div
+                          style={{
+                            marginTop: 4,
+                            borderRadius: 8,
+                            border: "1px solid #e5e7eb",
+                            backgroundColor: "#ffffff",
+                            padding: 6,
+                            maxHeight: 180,
+                            overflowY: "auto",
+                            boxShadow:
+                              "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)",
+                          }}
+                        >
+                          {groups.map(g => {
+                            const active = selectedGroupIds.includes(g.id);
+                            return (
+                              <label
+                                key={g.id}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  padding: "2px 4px",
+                                  cursor: "pointer",
+                                  fontSize: 11,
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={active}
+                                  onChange={() => toggleSelectedGroup(g.id)}
+                                  style={{ cursor: "pointer" }}
+                                />
+                                <span>{g.name}</span>
+                              </label>
+                            );
+                          })}
+                          {groups.length === 0 && (
+                            <div style={{ fontSize: 11, color: "#9ca3af" }}>
+                              No groups yet. Use "Save as favorite" below to create one.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* TO: internal team + groups + external */}
+                  <div style={{ fontSize: 11, color: "#4b5563" }}>To:</div>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                      fontSize: 11,
+                    }}
+                  >
+                    {members && members.length > 0 && (
+                      <div>
+                        <div style={{ marginBottom: 2 }}>Team selection</div>
+                        <button
+                          type="button"
+                          onClick={() => setShowTeamDropdown(v => !v)}
+                          style={{
+                            alignSelf: "flex-start",
+                            padding: "4px 8px",
+                            borderRadius: 999,
+                            border: "1px solid #d1d5db",
+                            backgroundColor: "#ffffff",
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            fontSize: 11,
+                            marginBottom: 4,
+                          }}
+                        >
+                          <span>
+                            {selectedUserIds.length > 0
+                              ? `${selectedUserIds.length} team member${
+                                  selectedUserIds.length > 1 ? "s" : ""
+                                } selected`
+                              : "Select team members"}
+                          </span>
+                          <span style={{ fontSize: 9 }}>
+                            {showTeamDropdown ? "▲" : "▼"}
+                          </span>
+                        </button>
+                        {showTeamDropdown && (
+                          <div
+                            style={{
+                              borderRadius: 8,
+                              border: "1px solid #e5e7eb",
+                              backgroundColor: "#ffffff",
+                              padding: 6,
+                              maxHeight: 200,
+                              overflowY: "auto",
+                              boxShadow:
+                                "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)",
+                            }}
+                          >
+                            {members.map(m => {
+                              const label =
+                                (m.user.firstName || m.user.lastName)
+                                  ? `${m.user.firstName || ""} ${
+                                      m.user.lastName || ""
+                                    }`.trim()
+                                  : m.user.email;
+                              const active = selectedUserIds.includes(m.userId);
+                              return (
+                                <label
+                                  key={m.userId}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                    padding: "2px 4px",
+                                    cursor: "pointer",
+                                    fontSize: 11,
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={active}
+                                    onChange={() => toggleSelectedUser(m.userId)}
+                                    style={{ cursor: "pointer" }}
+                                  />
+                                  <span>{label}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div>
+                      <div style={{ marginTop: 4, marginBottom: 2 }}>
+                        External emails (To)
+                      </div>
+                      <div
+                        style={{ display: "flex", flexWrap: "wrap", gap: 4 }}
+                      >
+                        {toExternalEmails.map(email => (
+                          <span
+                            key={email}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4,
+                              padding: "2px 6px",
+                              borderRadius: 999,
+                              border: "1px solid #d1d5db",
+                              backgroundColor: "#f3f4f6",
+                            }}
+                          >
+                            <span>{email}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeExternalEmailChip(email)}
+                              style={{
+                                border: "none",
+                                background: "transparent",
+                                cursor: "pointer",
+                              }}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                        <input
+                          type="email"
+                          value={toExternalEmailInput}
+                          onChange={e =>
+                            setToExternalEmailInput(e.target.value)
+                          }
+                          onBlur={addExternalEmailChip}
+                          onKeyDown={e => {
+                            if (e.key === "Enter" || e.key === ",") {
+                              e.preventDefault();
+                              addExternalEmailChip();
+                            }
+                          }}
+                          placeholder="Add email and press Enter"
+                          style={{
+                            minWidth: 120,
+                            border: "1px solid #d1d5db",
+                            borderRadius: 6,
+                            padding: "4px 6px",
+                            fontSize: 11,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* CC: external only for now */}
+                  <div
+                    style={{ fontSize: 11, color: "#4b5563", marginTop: 6 }}
+                  >
+                    CC:
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                      fontSize: 11,
+                    }}
+                  >
+                    <div>
+                      <div style={{ marginBottom: 2 }}>
+                        External emails (CC)
+                      </div>
+                      <div
+                        style={{ display: "flex", flexWrap: "wrap", gap: 4 }}
+                      >
+                        {ccExternalEmails.map(email => (
+                          <span
+                            key={email}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4,
+                              padding: "2px 6px",
+                              borderRadius: 999,
+                              border: "1px solid #d1d5db",
+                              backgroundColor: "#f3f4f6",
+                            }}
+                          >
+                            <span>{email}</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCcExternalEmails(prev =>
+                                  prev.filter(eaddr => eaddr !== email),
+                                )
+                              }
+                              style={{
+                                border: "none",
+                                background: "transparent",
+                                cursor: "pointer",
+                              }}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                        <input
+                          type="email"
+                          value={ccExternalEmailInput}
+                          onChange={e =>
+                            setCcExternalEmailInput(e.target.value)
+                          }
+                          onKeyDown={e => {
+                            if (e.key === "Enter" || e.key === ",") {
+                              e.preventDefault();
+                              const v = ccExternalEmailInput.trim();
+                              if (v) {
+                                setCcExternalEmails(prev =>
+                                  prev.includes(v) ? prev : [...prev, v],
+                                );
+                                setCcExternalEmailInput("");
+                              }
+                            }
+                          }}
+                          placeholder="Add CC email and press Enter"
+                          style={{
+                            minWidth: 120,
+                            border: "1px solid #d1d5db",
+                            borderRadius: 6,
+                            padding: "4px 6px",
+                            fontSize: 11,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BCC: external only; candidate cohorts land here by default */}
+                  <div
+                    style={{ fontSize: 11, color: "#4b5563", marginTop: 6 }}
+                  >
+                    BCC:
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                      fontSize: 11,
+                    }}
+                  >
+                    <div>
+                      <div style={{ marginBottom: 2 }}>
+                        External emails (BCC)
+                      </div>
+                      <div
+                        style={{ display: "flex", flexWrap: "wrap", gap: 4 }}
+                      >
+                        {bccExternalEmails.map(email => (
+                          <span
+                            key={email}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4,
+                              padding: "2px 6px",
+                              borderRadius: 999,
+                              border: "1px solid #d1d5db",
+                              backgroundColor: "#f3f4f6",
+                            }}
+                          >
+                            <span>{email}</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setBccExternalEmails(prev =>
+                                  prev.filter(eaddr => eaddr !== email),
+                                )
+                              }
+                              style={{
+                                border: "none",
+                                background: "transparent",
+                                cursor: "pointer",
+                              }}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                        <input
+                          type="email"
+                          value={bccExternalEmailInput}
+                          onChange={e =>
+                            setBccExternalEmailInput(e.target.value)
+                          }
+                          onKeyDown={e => {
+                            if (e.key === "Enter" || e.key === ",") {
+                              e.preventDefault();
+                              const v = bccExternalEmailInput.trim();
+                              if (v) {
+                                setBccExternalEmails(prev =>
+                                  prev.includes(v) ? prev : [...prev, v],
+                                );
+                                setBccExternalEmailInput("");
+                              }
+                            }
+                          }}
+                          placeholder="Add BCC email and press Enter"
+                          style={{
+                            minWidth: 120,
+                            border: "1px solid #d1d5db",
+                            borderRadius: 6,
+                            padding: "4px 6px",
+                            fontSize: 11,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setShowNewMessageAttachments(v => !v)}
+                        style={{
+                          marginTop: 6,
+                          padding: "4px 8px",
+                          borderRadius: 999,
+                          border: "1px solid #d1d5db",
+                          backgroundColor: "#ffffff",
+                          fontSize: 11,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {showNewMessageAttachments
+                          ? "Hide attachments"
+                          : "Add attachments"}
+                      </button>
+
+                      {showNewMessageAttachments && (
+                        <div
+                          style={{
+                            marginTop: 6,
+                            padding: 8,
+                            borderRadius: 8,
+                            border: "1px solid #e5e7eb",
+                            backgroundColor: "#f9fafb",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 6,
+                          }}
+                        >
+                          <div
+                            style={{ fontSize: 11, fontWeight: 600 }}
+                          >
+                            Attachments
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 4,
+                              fontSize: 11,
+                            }}
+                          >
+                            <div style={{ fontSize: 11, color: "#6b7280" }}>
+                              1. Upload from your device
+                            </div>
+                            <input
+                              type="file"
+                              multiple
+                              onChange={e =>
+                                handleNewMessageFilesChange(e.target.files)
+                              }
+                              style={{
+                                fontSize: 11,
+                              }}
+                            />
+                            {newMessageFiles.length > 0 && (
+                              <div
+                                style={{
+                                  marginTop: 4,
+                                  display: "flex",
+                                  flexWrap: "wrap",
+                                  gap: 4,
+                                }}
+                              >
+                                {newMessageFiles.map(f => (
+                                  <span
+                                    key={f.name}
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 4,
+                                      padding: "2px 6px",
+                                      borderRadius: 999,
+                                      border: "1px solid #d1d5db",
+                                      backgroundColor: "#f3f4f6",
+                                    }}
+                                  >
+                                    <span>{f.name}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeNewMessageFile(f.name)}
+                                      style={{
+                                        border: "none",
+                                        background: "transparent",
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div style={{ marginTop: 4 }}>
+                            <div
+                              style={{
+                                marginBottom: 4,
+                                fontSize: 11,
+                              }}
+                            >
+                              2. Select from Project files
+                            </div>
+                            <button
+                              type="button"
+                              disabled={!selectedThreadProjectId}
+                              onClick={() => setShowProjectFilePicker("new")}
+                              style={{
+                                textAlign: "left",
+                                padding: "4px 8px",
+                                borderRadius: 6,
+                                border: "1px solid #d1d5db",
+                                backgroundColor: selectedThreadProjectId
+                                  ? "#ffffff"
+                                  : "#f3f4f6",
+                                color: selectedThreadProjectId
+                                  ? "#111827"
+                                  : "#9ca3af",
+                                fontSize: 11,
+                                cursor: selectedThreadProjectId
+                                  ? "pointer"
+                                  : "default",
+                                marginBottom: 6,
+                              }}
+                              title={
+                                selectedThreadProjectId
+                                  ? "Attach an existing file from this project"
+                                  : "Open a thread linked to a project to select files"
+                              }
+                            >
+                              Choose file from project Files
+                            </button>
+
+                            <div
+                              style={{
+                                marginTop: 4,
+                                marginBottom: 2,
+                                fontSize: 11,
+                              }}
+                            >
+                              Or attach an external link
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 4,
+                              }}
+                            >
+                              {newMessageLinks.length > 0 && (
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    flexWrap: "wrap",
+                                    gap: 4,
+                                  }}
+                                >
+                                  {newMessageLinks.map(l => (
+                                    <span
+                                      key={l.url}
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: 4,
+                                        padding: "2px 6px",
+                                        borderRadius: 999,
+                                        border: "1px solid #d1d5db",
+                                        backgroundColor: "#eef2ff",
+                                      }}
+                                    >
+                                      <span>{l.label || l.url}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          removeNewMessageLink(l.url)
+                                        }
+                                        style={{
+                                          border: "none",
+                                          background: "transparent",
+                                          cursor: "pointer",
+                                        }}
+                                      >
+                                        ×
+                                      </button>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              <div
+                                style={{ display: "flex", gap: 4 }}
+                              >
+                                <input
+                                  type="url"
+                                  value={newLinkUrl}
+                                  onChange={e =>
+                                    setNewLinkUrl(e.target.value)
+                                  }
+                                  placeholder="https://example.com/file.pdf"
+                                  style={{
+                                    flex: 2,
+                                    border: "1px solid #d1d5db",
+                                    borderRadius: 6,
+                                    padding: "4px 6px",
+                                    fontSize: 11,
+                                  }}
+                                />
+                                <input
+                                  type="text"
+                                  value={newLinkLabel}
+                                  onChange={e =>
+                                    setNewLinkLabel(e.target.value)
+                                  }
+                                  placeholder="Optional label"
+                                  style={{
+                                    flex: 1,
+                                    border: "1px solid #d1d5db",
+                                    borderRadius: 6,
+                                    padding: "4px 6px",
+                                    fontSize: 11,
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={addNewMessageLink}
+                                  disabled={!newLinkUrl.trim()}
+                                  style={{
+                                    padding: "4px 8px",
+                                    borderRadius: 999,
+                                    border: "none",
+                                    backgroundColor: newLinkUrl.trim()
+                                      ? "#6366f1"
+                                      : "#e5e7eb",
+                                    color: "#f9fafb",
+                                    fontSize: 11,
+                                    cursor: newLinkUrl.trim()
+                                      ? "pointer"
+                                      : "default",
+                                  }}
+                                >
+                                  Add link
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <div
+                        style={{
+                          marginTop: 6,
+                          marginBottom: 2,
+                        }}
+                      >
+                        Save Group Distribution
+                      </div>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <input
+                          type="text"
+                          value={newGroupName}
+                          onChange={e => setNewGroupName(e.target.value)}
+                          placeholder="Group name"
+                          style={{
+                            flex: 1,
+                            border: "1px solid #d1d5db",
+                            borderRadius: 6,
+                            padding: "4px 6px",
+                            fontSize: 11,
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={ev =>
+                            void handleSaveFavoriteGroup(ev as any)
+                          }
+                          disabled={
+                            !newGroupName.trim() ||
+                            (selectedUserIds.length === 0 &&
+                              toExternalEmails.length === 0 &&
+                              ccExternalEmails.length === 0 &&
+                              bccExternalEmails.length === 0)
+                          }
+                          style={{
+                            padding: "4px 8px",
+                            borderRadius: 999,
+                            border: "none",
+                            backgroundColor:
+                              !newGroupName.trim() ||
+                              (selectedUserIds.length === 0 &&
+                                toExternalEmails.length === 0 &&
+                                ccExternalEmails.length === 0 &&
+                                bccExternalEmails.length === 0)
+                                ? "#e5e7eb"
+                                : "#0ea5e9",
+                            cursor:
+                              !newGroupName.trim() ||
+                              (selectedUserIds.length === 0 &&
+                                toExternalEmails.length === 0 &&
+                                ccExternalEmails.length === 0 &&
+                                bccExternalEmails.length === 0)
+                                ? "default"
+                                : "pointer",
+                          }}
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <input
+                    type="text"
+                    value={newSubject}
+                    onChange={e => setNewSubject(e.target.value)}
+                    placeholder="Subject (optional)"
+                    style={{
+                      padding: "6px 8px",
+                      fontSize: 12,
+                      borderRadius: 6,
+                      border: "1px solid #d1d5db",
+                    }}
+                  />
+                  <textarea
+                    value={newBody}
+                    onChange={e => setNewBody(e.target.value)}
+                    placeholder="Start a new conversation"
+                    rows={4}
+                    style={{
+                      padding: "6px 8px",
+                      fontSize: 12,
+                      borderRadius: 6,
+                      border: "1px solid #d1d5db",
+                      resize: "vertical",
+                    }}
+                  />
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "flex-end",
+                      gap: 8,
+                      marginTop: 4,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setShowComposer(false)}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 999,
+                        border: "1px solid #d1d5db",
+                        background: "#ffffff",
+                        color: "#374151",
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={creating || !newBody.trim()}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 999,
+                        border: "none",
+                        background: creating ? "#9ca3af" : "#16a34a",
+                        color: "#f9fafb",
+                        fontSize: 12,
+                        cursor: creating ? "default" : "pointer",
+                      }}
+                    >
+                      {creating ? "Sending..." : "Send"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </PageCard>
   );
 }

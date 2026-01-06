@@ -1939,18 +1939,25 @@ model DevMigrationTest {
 }
 
 model NexNetCandidate {
-  id                 String       @id @default(cuid())
-  userId             String?      @unique
+  id                 String                   @id @default(cuid())
+  userId             String?                  @unique
+  companyId          String?                  // owning company/tenant for this candidate profile
   firstName          String?
   lastName           String?
   email              String?
   phone              String?
-  source             NexNetSource @default(REFERRAL)
-  status             NexNetStatus @default(NOT_STARTED)
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
-  user               User?        @relation(fields: [userId], references: [id])
-  referralsAsReferee Referral[]   @relation("RefereeCandidate")
+  source             NexNetSource             @default(REFERRAL)
+  status             NexNetStatus             @default(NOT_STARTED)
+  visibilityScope    CandidateVisibilityScope @default(TENANT_ONLY)
+  isHiddenFromDefaultViews Boolean            @default(false)
+  isDeletedSoft      Boolean                  @default(false)
+  deletedAt          DateTime?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  user               User?                    @relation(fields: [userId], references: [id])
+  company            Company?                 @relation(fields: [companyId], references: [id])
+  referralsAsReferee Referral[]               @relation("RefereeCandidate")
 }
 
 model Referral {
@@ -2000,4 +2007,225 @@ enum ReferralStatus {
   APPLIED
   HIRED
   EXPIRED
+}
+
+/// Visibility scope for candidates in the Nex-Net / Prospective Candidates pool.
+enum CandidateVisibilityScope {
+  TENANT_ONLY
+  GLOBAL_POOL
+  PRIVATE_TEST
+}
+
+/// Status of a candidate training assignment.
+enum CandidateTrainingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  EXPIRED
+  CANCELLED
+}
+
+/// Outcome of an individual training attempt.
+enum CandidateTrainingAttemptStatus {
+  PASSED
+  FAILED
+  ABANDONED
+}
+
+/// Status of a candidate certification / license.
+enum CandidateCertificationStatus {
+  PENDING_VERIFICATION
+  VALID
+  EXPIRED
+  REVOKED
+}
+
+/// Status of cross-tenant interest in a candidate.
+enum CandidateInterestStatus {
+  REQUESTED
+  APPROVED
+  DECLINED
+  HIRED
+}
+
+/// Catalog of training modules that can be assigned to Nex-Net candidates.
+model TrainingModule {
+  id                 String   @id @default(cuid())
+  companyId          String?  // owning company/tenant, null = global module
+  code               String
+  title              String
+  description        String?
+  type               String   // e.g. "ONLINE_COURSE", "DOCUMENT", "IN_PERSON"
+  durationMinutes    Int?
+  isActive           Boolean  @default(true)
+  isRequiredDefault  Boolean  @default(false)
+  externalLmsId      String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  company            Company? @relation(fields: [companyId], references: [id])
+  assignments        CandidateTrainingAssignment[]
+
+  @@unique([companyId, code], name: "TrainingModule_company_code_key")
+}
+
+/// Catalog of certification / license types that candidates can hold.
+model CertificationType {
+  id                     String   @id @default(cuid())
+  companyId              String?  // owning company/tenant, null = global (e.g. state RN license)
+  code                   String
+  name                   String
+  description            String?
+  issuingAuthority       String?
+  defaultValidityMonths  Int?
+  isActive               Boolean  @default(true)
+  isRequiredDefault      Boolean  @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  company                Company?               @relation(fields: [companyId], references: [id])
+  candidateCertifications CandidateCertification[]
+
+  @@unique([companyId, code], name: "CertificationType_company_code_key")
+}
+
+/// Assignment of a training module to a specific Nex-Net candidate.
+model CandidateTrainingAssignment {
+  id                String                  @id @default(cuid())
+  candidateId       String
+  trainingModuleId  String
+  assignedByUserId  String?
+  assignedAt        DateTime                @default(now())
+
+  status            CandidateTrainingStatus @default(NOT_STARTED)
+  startedAt         DateTime?
+  completedAt       DateTime?
+  expiresAt         DateTime?
+  score             Float?
+  attempts          Int                     @default(0)
+  isRequired        Boolean                 @default(true)
+  notes             String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  candidate         NexNetCandidate         @relation(fields: [candidateId], references: [id])
+  trainingModule    TrainingModule          @relation(fields: [trainingModuleId], references: [id])
+  assignedBy        User?                   @relation(fields: [assignedByUserId], references: [id])
+  attemptsHistory   CandidateTrainingAttempt[]
+
+  @@index([candidateId], map: "CandidateTrainingAssignment_candidate_idx")
+  @@index([trainingModuleId], map: "CandidateTrainingAssignment_training_idx")
+}
+
+/// Individual attempt record for a candidate's training assignment.
+model CandidateTrainingAttempt {
+  id            String                         @id @default(cuid())
+  assignmentId  String
+  startedAt     DateTime                       @default(now())
+  finishedAt    DateTime?
+  status        CandidateTrainingAttemptStatus
+  score         Float?
+  metadata      Json?
+  createdAt     DateTime                       @default(now())
+
+  assignment    CandidateTrainingAssignment    @relation(fields: [assignmentId], references: [id])
+
+  @@index([assignmentId], map: "CandidateTrainingAttempt_assignment_idx")
+}
+
+/// Instance of a certification / license held by a Nex-Net candidate.
+model CandidateCertification {
+  id                    String                      @id @default(cuid())
+  candidateId           String
+  certificationTypeId   String
+  licenseNumber         String?
+  issuedBy              String?
+  issuedAt              DateTime?
+  effectiveAt           DateTime?
+  expiresAt             DateTime?
+  status                CandidateCertificationStatus @default(PENDING_VERIFICATION)
+  verifiedByUserId      String?
+  verifiedAt            DateTime?
+  verificationNotes     String?
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+
+  candidate             NexNetCandidate             @relation(fields: [candidateId], references: [id])
+  certificationType     CertificationType           @relation(fields: [certificationTypeId], references: [id])
+  verifiedBy            User?                       @relation(fields: [verifiedByUserId], references: [id])
+  documents             CandidateCertificationDocument[]
+
+  @@index([candidateId], map: "CandidateCertification_candidate_idx")
+  @@index([certificationTypeId], map: "CandidateCertification_type_idx")
+}
+
+/// Supporting documents for a candidate certification (e.g. PDF license).
+model CandidateCertificationDocument {
+  id                      String                 @id @default(cuid())
+  candidateCertificationId String
+  storageUrl              String
+  fileName                String
+  mimeType                String
+  sizeBytes               Int?
+  uploadedByUserId        String?
+  uploadedAt              DateTime               @default(now())
+  description             String?
+
+  certification           CandidateCertification @relation(fields: [candidateCertificationId], references: [id])
+  uploadedBy              User?                  @relation(fields: [uploadedByUserId], references: [id])
+
+  @@index([candidateCertificationId], map: "CandidateCertDocument_cert_idx")
+}
+
+/// Anonymized, marketplace-facing profile for a Nex-Net candidate.
+model CandidateMarketProfile {
+  candidateId          String           @id
+  publicId             String           @unique
+  headline             String?
+  skillsSummary        String?
+  credentialsSummary   String?
+  locationRegion       String?
+  ratingNumeric        Float?
+  ratingLabel          String?
+  rateMin              Float?
+  rateMax              Float?
+  updatedAt            DateTime         @default(now()) @updatedAt
+
+  candidate            NexNetCandidate  @relation(fields: [candidateId], references: [id])
+}
+
+/// Controls which companies/tenants can see a given candidate in the pool.
+model CandidatePoolVisibility {
+  id                 String              @id @default(cuid())
+  candidateId        String
+  visibleToCompanyId String?             // null = visible to all subscribers in marketplace
+  isAllowed          Boolean             @default(true)
+  createdAt          DateTime            @default(now())
+  createdByUserId    String
+
+  candidate          NexNetCandidate     @relation(fields: [candidateId], references: [id])
+  createdBy          User                @relation(fields: [createdByUserId], references: [id])
+  visibleToCompany   Company?            @relation(fields: [visibleToCompanyId], references: [id])
+
+  @@index([candidateId], map: "CandidatePoolVisibility_candidate_idx")
+  @@index([visibleToCompanyId], map: "CandidatePoolVisibility_visible_company_idx")
+}
+
+/// Interest expressed by another company/tenant in a candidate.
+model CandidateInterest {
+  id                 String                  @id @default(cuid())
+  candidateId        String
+  requestingCompanyId String
+  status             CandidateInterestStatus @default(REQUESTED)
+  notes              String?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  handledByUserId    String?
+
+  candidate          NexNetCandidate         @relation(fields: [candidateId], references: [id])
+  requestingCompany  Company                 @relation(fields: [requestingCompanyId], references: [id])
+  handledBy          User?                   @relation(fields: [handledByUserId], references: [id])
+
+  @@index([candidateId], map: "CandidateInterest_candidate_idx")
+  @@index([requestingCompanyId], map: "CandidateInterest_requesting_company_idx")
 }
