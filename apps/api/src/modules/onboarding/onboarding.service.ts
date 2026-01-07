@@ -30,6 +30,159 @@ export class OnboardingService {
     return trimmed === "" ? null : trimmed;
   }
 
+  // --- Candidate status definitions (Prospective Candidates pipeline) ---
+
+  async listStatusDefinitions(companyId: string, actor: AuthenticatedUser) {
+    if (
+      actor.companyId !== companyId ||
+      (actor.role !== "OWNER" && actor.role !== "ADMIN" && actor.profileCode !== "HIRING_MANAGER")
+    ) {
+      throw new ForbiddenException("Not allowed to view candidate statuses for this company");
+    }
+
+    return this.prisma.candidateStatusDefinition.findMany({
+      where: {
+        OR: [
+          { companyId: null },
+          { companyId },
+        ],
+        isActive: true,
+      },
+      orderBy: [
+        { companyId: "asc" }, // global first, then tenant-specific
+        { sortOrder: "asc" },
+        { label: "asc" },
+      ],
+    });
+  }
+
+  async upsertStatusDefinition(
+    actor: AuthenticatedUser,
+    input: { companyId?: string | null; code: string; label: string; color?: string | null; sortOrder?: number | null }
+  ) {
+    const companyId = input.companyId ?? actor.companyId;
+    if (
+      !companyId ||
+      actor.companyId !== companyId ||
+      (actor.role !== "OWNER" && actor.role !== "ADMIN")
+    ) {
+      throw new ForbiddenException("Only company admins can manage candidate statuses");
+    }
+
+    const code = (input.code || "").trim().toUpperCase();
+    const label = (input.label || "").trim();
+    if (!code) {
+      throw new BadRequestException("Status code is required");
+    }
+    if (!label) {
+      throw new BadRequestException("Status label is required");
+    }
+
+    const existing = await this.prisma.candidateStatusDefinition.findUnique({
+      where: {
+        CandidateStatusDefinition_company_code_key: {
+          companyId,
+          code,
+        },
+      },
+    });
+
+    const data = {
+      companyId,
+      code,
+      label,
+      color: input.color ?? null,
+      sortOrder: input.sortOrder ?? existing?.sortOrder ?? 0,
+      isActive: true,
+    };
+
+    if (!existing) {
+      return this.prisma.candidateStatusDefinition.create({ data });
+    }
+
+    return this.prisma.candidateStatusDefinition.update({
+      where: { id: existing.id },
+      data,
+    });
+  }
+
+  async deactivateStatusDefinition(actor: AuthenticatedUser, id: string) {
+    const def = await this.prisma.candidateStatusDefinition.findUnique({
+      where: { id },
+    });
+    if (!def) {
+      throw new NotFoundException("Candidate status not found");
+    }
+
+    if (
+      def.companyId &&
+      (actor.companyId !== def.companyId || (actor.role !== "OWNER" && actor.role !== "ADMIN"))
+    ) {
+      throw new ForbiddenException("Only company admins can manage candidate statuses");
+    }
+
+    return this.prisma.candidateStatusDefinition.update({
+      where: { id },
+      data: { isActive: false },
+    });
+  }
+
+  async setSessionDetailStatus(
+    id: string,
+    actor: AuthenticatedUser,
+    input: { detailStatusCode: string | null }
+  ) {
+    const session = await this.prisma.onboardingSession.findFirst({
+      where: { id, companyId: actor.companyId },
+    });
+
+    if (!session) {
+      throw new NotFoundException("Onboarding session not found");
+    }
+
+    if (
+      actor.role !== "OWNER" &&
+      actor.role !== "ADMIN" &&
+      actor.profileCode !== "HIRING_MANAGER"
+    ) {
+      throw new ForbiddenException("Not allowed to update candidate status for this company");
+    }
+
+    const code = (input.detailStatusCode || "").trim();
+
+    if (code) {
+      // Ensure the code exists for this company (or globally) and is active.
+      const exists = await this.prisma.candidateStatusDefinition.findFirst({
+        where: {
+          isActive: true,
+          code: code.toUpperCase(),
+          OR: [
+            { companyId: null },
+            { companyId: actor.companyId },
+          ],
+        },
+      });
+      if (!exists) {
+        throw new BadRequestException("Unknown candidate status code");
+      }
+
+      return this.prisma.onboardingSession.update({
+        where: { id: session.id },
+        data: {
+          detailStatusCode: exists.code,
+        },
+      });
+    }
+
+    // Clearing detail status
+    return this.prisma.onboardingSession.update({
+      where: { id: session.id },
+      data: {
+        detailStatusCode: null,
+      },
+    });
+  }
+
   async startSession(
     companyId: string,
     email: string,
@@ -756,7 +909,12 @@ export class OnboardingService {
     });
   }
 
-  async listSessionsForCompany(companyId: string, actor: AuthenticatedUser, statuses?: string[]) {
+  async listSessionsForCompany(
+    companyId: string,
+    actor: AuthenticatedUser,
+    statuses?: string[],
+    detailStatusCodes?: string[],
+  ) {
     if (
       actor.companyId !== companyId ||
       (actor.role !== "OWNER" && actor.role !== "ADMIN" && actor.profileCode !== "HIRING_MANAGER")
@@ -795,6 +953,10 @@ export class OnboardingService {
       where: {
         companyId: effectiveCompanyId,
         status: statuses && statuses.length ? { in: statuses as any } : undefined,
+        detailStatusCode:
+          detailStatusCodes && detailStatusCodes.length
+            ? { in: detailStatusCodes.map(c => c.toUpperCase()) }
+            : undefined,
       },
       include: {
         profile: true,
