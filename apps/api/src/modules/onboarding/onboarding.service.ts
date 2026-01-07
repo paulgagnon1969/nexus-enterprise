@@ -807,6 +807,61 @@ export class OnboardingService {
   // active company context (typically the Nexus System recruiting pool for
   // public applicants). Includes profile + basic checklist, but omits
   // sensitive bank info.
+  async markSessionAsTest(id: string, actor: AuthenticatedUser) {
+    const session = await this.prisma.onboardingSession.findFirst({
+      where: { id, companyId: actor.companyId },
+    });
+
+    if (!session) {
+      throw new NotFoundException("Onboarding session not found");
+    }
+
+    if (
+      actor.role !== "OWNER" &&
+      actor.role !== "ADMIN" &&
+      actor.profileCode !== "HIRING_MANAGER"
+    ) {
+      throw new ForbiddenException("Not allowed to mark onboarding sessions as TEST for this company");
+    }
+
+    const updated = await this.prisma.onboardingSession.update({
+      where: { id: session.id },
+      data: {
+        status: "TEST" as any,
+      },
+    });
+
+    // Best-effort: mirror TEST status into any linked Nex-Net candidate(s) and
+    // mark them as PRIVATE_TEST / hidden from default views.
+    try {
+      const normalizedEmail = this.normalizeEmail(session.email);
+
+      const candidates = await this.prisma.nexNetCandidate.findMany({
+        where: {
+          OR: [
+            { email: normalizedEmail },
+            session.userId ? { userId: session.userId } : undefined,
+          ].filter(Boolean) as any,
+        },
+      });
+
+      for (const c of candidates) {
+        await this.prisma.nexNetCandidate.update({
+          where: { id: c.id },
+          data: {
+            status: NexNetStatus.TEST,
+            visibilityScope: "PRIVATE_TEST" as any,
+            isHiddenFromDefaultViews: true,
+          },
+        });
+      }
+    } catch {
+      // Non-fatal: do not block TEST marking if Nex-Net linkage fails.
+    }
+
+    return updated;
+  }
+
   async getLatestSessionForUser(actor: AuthenticatedUser) {
     const normalizedEmail = this.normalizeEmail(actor.email);
 

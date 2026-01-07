@@ -1779,6 +1779,7 @@ enum OnboardingStatus {
   UNDER_REVIEW
   APPROVED
   REJECTED
+  TEST
 }
 
 enum OnboardingDocumentType {
@@ -1998,6 +1999,7 @@ enum NexNetStatus {
   APPROVED
   HIRED
   REJECTED
+  TEST
 }
 
 enum ReferralStatus {
