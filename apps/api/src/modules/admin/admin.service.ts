@@ -36,11 +36,9 @@ export class AdminService {
   async listCompanies(actor: AuthenticatedUser) {
     await this.audit(actor, "ADMIN_LIST_COMPANIES");
 
+    // Return all organizations (including deactivated). The System UI is
+    // responsible for filtering active vs. deactivated via deletedAt.
     return this.prisma.company.findMany({
-      // NOTE: Prisma client may not yet know about Company.deletedAt until
-      // `prisma generate` has been run. For now we rely on the database/schema
-      // to treat deleted organizations specially; the admin UI will also hide
-      // deactivated orgs once the client is regenerated.
       select: {
         id: true,
         name: true,
@@ -48,6 +46,7 @@ export class AdminService {
         templateId: true,
         templateVersionId: true,
         createdAt: true,
+        deletedAt: true,
         memberships: {
           select: {
             role: true,
@@ -62,10 +61,27 @@ export class AdminService {
 
     const updated = await this.prisma.company.update({
       where: { id: companyId },
-      // When the Prisma client has been regenerated against the updated schema,
-      // this will set Company.deletedAt.
       data: {
         deletedAt: new Date(),
+      },
+      select: {
+        id: true,
+        name: true,
+        deletedAt: true,
+        kind: true,
+      },
+    });
+
+    return updated;
+  }
+
+  async reactivateCompany(actor: AuthenticatedUser, companyId: string) {
+    await this.audit(actor, "ADMIN_REACTIVATE_COMPANY", { companyId });
+
+    const updated = await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        deletedAt: null,
       },
       select: {
         id: true,

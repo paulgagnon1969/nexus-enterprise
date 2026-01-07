@@ -82,6 +82,13 @@ export class AdminController {
     return this.admin.deactivateCompany(actor, companyId);
   }
 
+  // Reactivate a previously deactivated organization by clearing deletedAt.
+  @Post("companies/:id/reactivate")
+  reactivateCompany(@Param("id") companyId: string, @Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.reactivateCompany(actor, companyId);
+  }
+
   // Provision a TRIAL organization from a template (admin-only helper for now).
   @Post("trials/provision")
   provisionTrialCompany(

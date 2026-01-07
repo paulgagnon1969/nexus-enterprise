@@ -10,6 +10,7 @@ interface CompanyDto {
   id: string;
   name: string;
   createdAt?: string;
+  deletedAt?: string | null;
 }
 
 interface MeDto {
@@ -32,6 +33,7 @@ function SystemLayoutInner({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [orgFilterMode, setOrgFilterMode] = useState<"active" | "all">("active");
 
   const [showNewOrg, setShowNewOrg] = useState(false);
   const [creatingOrg, setCreatingOrg] = useState(false);
@@ -137,11 +139,17 @@ function SystemLayoutInner({ children }: { children: ReactNode }) {
 
   const visibleCompanies = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const filtered = q
-      ? companies.filter(c => c.name.toLowerCase().includes(q))
+
+    const base = orgFilterMode === "active"
+      ? companies.filter(c => !c.deletedAt)
       : companies;
+
+    const filtered = q
+      ? base.filter(c => c.name.toLowerCase().includes(q))
+      : base;
+
     return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
-  }, [companies, search]);
+  }, [companies, search, orgFilterMode]);
 
   // Load projects for the selected organization (middle sidebar)
   useEffect(() => {
@@ -286,19 +294,37 @@ function SystemLayoutInner({ children }: { children: ReactNode }) {
         </div>
 
         <div style={{ marginBottom: 6 }}>
-          <input
-            type="text"
-            placeholder="Search organizations..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "4px 6px",
-              borderRadius: 4,
-              border: "1px solid #d1d5db",
-              fontSize: 12,
-            }}
-          />
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              type="text"
+              placeholder="Search organizations..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{
+                flex: 1,
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            />
+            <select
+              value={orgFilterMode}
+              onChange={e => setOrgFilterMode(e.target.value as "active" | "all")}
+              title="Filter organizations by status"
+              style={{
+                flexShrink: 0,
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 11,
+                background: "#ffffff",
+              }}
+            >
+              <option value="active">Active only</option>
+              <option value="all">Include deactivated</option>
+            </select>
+          </div>
         </div>
 
         <Link

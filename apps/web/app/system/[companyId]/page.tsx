@@ -10,6 +10,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
 interface CompanyDto {
   id: string;
   name: string;
+  deletedAt?: string | null;
 }
 
 interface ProjectDto {
@@ -47,6 +48,8 @@ export default function SystemOrganizationPage({
 
   const [deactivating, setDeactivating] = useState(false);
   const [deactivateMessage, setDeactivateMessage] = useState<string | null>(null);
+  const [reactivating, setReactivating] = useState(false);
+  const [reactivateMessage, setReactivateMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -74,7 +77,7 @@ export default function SystemOrganizationPage({
             if (Array.isArray(companiesJson)) {
               const match = companiesJson.find((c: any) => c.id === companyId);
               if (match?.name) {
-                setCompany({ id: companyId, name: match.name });
+                setCompany({ id: companyId, name: match.name, deletedAt: match.deletedAt ?? null });
               }
             }
           }
@@ -101,12 +104,12 @@ export default function SystemOrganizationPage({
         if (!company && Array.isArray(projectsJson) && projectsJson.length > 0) {
           const first = projectsJson[0] as any;
           if (first.company?.name || first.companyName) {
-            setCompany({ id: companyId, name: first.company?.name ?? first.companyName });
+            setCompany({ id: companyId, name: first.company?.name ?? first.companyName, deletedAt: null });
           }
         }
 
         // Final fallback if we truly can't resolve a name.
-        setCompany(prev => prev ?? { id: companyId, name: companyId });
+        setCompany(prev => prev ?? { id: companyId, name: companyId, deletedAt: null });
       } catch (e: any) {
         setError(e?.message ?? "Failed to load organization");
       } finally {
@@ -141,6 +144,7 @@ export default function SystemOrganizationPage({
     try {
       setDeactivating(true);
       setDeactivateMessage(null);
+      setReactivateMessage(null);
       const res = await fetch(`${API_BASE}/admin/companies/${companyId}/deactivate`, {
         method: "POST",
         headers: {
@@ -166,6 +170,53 @@ export default function SystemOrganizationPage({
       setError(e?.message ?? "Failed to deactivate organization");
     } finally {
       setDeactivating(false);
+    }
+  };
+
+  const handleReactivateOrg = async () => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setError("Missing access token. Please login again.");
+      return;
+    }
+    const confirmed = window.confirm(
+      "This will reactivate this organization and allow it to appear in tenant lists again. Continue?",
+    );
+    if (!confirmed) return;
+
+    try {
+      setReactivating(true);
+      setReactivateMessage(null);
+      setDeactivateMessage(null);
+      const res = await fetch(`${API_BASE}/admin/companies/${companyId}/reactivate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to reactivate organization (${res.status}) ${text}`);
+      }
+      const json = await res.json().catch(() => null);
+      setCompany(prev =>
+        prev
+          ? {
+              ...prev,
+              deletedAt: null,
+            }
+          : json
+          ? { id: json.id, name: json.name, deletedAt: json.deletedAt ?? null }
+          : { id: companyId, name: companyId, deletedAt: null },
+      );
+      setReactivateMessage("Organization reactivated and can be used again.");
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to reactivate organization");
+    } finally {
+      setReactivating(false);
     }
   };
 
@@ -272,6 +323,22 @@ export default function SystemOrganizationPage({
       >
         <h2 style={{ marginTop: 0, marginBottom: 0, fontSize: 18 }}>
           Organization: {company?.name ?? companyId}
+          {company?.deletedAt && (
+            <span
+              style={{
+                marginLeft: 8,
+                fontSize: 11,
+                fontWeight: 500,
+                padding: "2px 6px",
+                borderRadius: 999,
+                background: "#fef2f2",
+                color: "#b91c1c",
+                border: "1px solid #fecaca",
+              }}
+            >
+              Deactivated
+            </span>
+          )}
         </h2>
         <button
           type="button"
@@ -289,23 +356,40 @@ export default function SystemOrganizationPage({
         >
           {showCompanyId ? "Hide TID" : "Show TID"}
         </button>
-        <button
-          type="button"
-          onClick={handleDeactivateOrg}
-          disabled={deactivating}
-          style={{
-            marginLeft: "auto",
-            padding: "4px 10px",
-            borderRadius: 999,
-            border: "1px solid #fecaca",
-            background: "#fef2f2",
-            color: "#b91c1c",
-            fontSize: 11,
-            cursor: deactivating ? "default" : "pointer",
-          }}
-        >
-          {deactivating ? "Deactivating…" : "Deactivate org"}
-        </button>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            onClick={handleDeactivateOrg}
+            disabled={deactivating || !!company?.deletedAt}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 999,
+              border: "1px solid #fecaca",
+              background: company?.deletedAt ? "#f9fafb" : "#fef2f2",
+              color: "#b91c1c",
+              fontSize: 11,
+              cursor: deactivating || company?.deletedAt ? "default" : "pointer",
+            }}
+          >
+            {deactivating ? "Deactivating…" : "Deactivate org"}
+          </button>
+          <button
+            type="button"
+            onClick={handleReactivateOrg}
+            disabled={reactivating || !company?.deletedAt}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 999,
+              border: "1px solid #bbf7d0",
+              background: !company?.deletedAt ? "#f9fafb" : "#ecfdf5",
+              color: "#15803d",
+              fontSize: 11,
+              cursor: reactivating || !company?.deletedAt ? "default" : "pointer",
+            }}
+          >
+            {reactivating ? "Reactivating…" : "Reactivate org"}
+          </button>
+        </div>
       </div>
       {deactivateMessage && (
         <p
@@ -317,6 +401,18 @@ export default function SystemOrganizationPage({
           }}
         >
           {deactivateMessage}
+        </p>
+      )}
+      {reactivateMessage && (
+        <p
+          style={{
+            marginTop: 2,
+            marginBottom: 6,
+            fontSize: 11,
+            color: "#16a34a",
+          }}
+        >
+          {reactivateMessage}
         </p>
       )}
       {showCompanyId && (
