@@ -6,8 +6,9 @@ WORKDIR /app
 # Install build tooling deps
 RUN apk add --no-cache bash python3 make g++
 
-# Copy root package manifests and lockfile first for better caching
-COPY package.json package-lock.json turbo.json tsconfig.json ./
+# Copy root package manifest for better caching (other root files are not in this build context)
+COPY package.json ./
+
 
 # Copy workspace package manifests that affect dependency graph
 COPY apps/api/package.json apps/api/package.json
