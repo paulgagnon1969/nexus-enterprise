@@ -250,14 +250,16 @@ model Notification {
 /// optional external email participants. Each thread belongs to a company
 /// and has one or more participants and messages.
 model MessageThread {
-  id          String           @id @default(cuid())
-  companyId   String
-  projectId   String?
-  subject     String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @default(now()) @updatedAt
-  createdById String
-  type        MessageThreadType @default(DIRECT)
+  id            String            @id @default(cuid())
+  companyId     String
+  projectId     String?
+  subject       String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @default(now()) @updatedAt
+  createdById   String
+  type          MessageThreadType @default(DIRECT)
+  /// Optional subject user for per-person journals / communication history.
+  subjectUserId String?
 
   company      Company              @relation(fields: [companyId], references: [id])
   project      Project?             @relation(fields: [projectId], references: [id])
@@ -268,6 +270,7 @@ model MessageThread {
   @@index([companyId, updatedAt], map: "MessageThread_company_updated_idx")
   @@index([companyId, type, updatedAt], map: "MessageThread_company_type_updated_idx")
   @@index([projectId, type, updatedAt], map: "MessageThread_project_type_updated_idx")
+  @@index([companyId, subjectUserId, type], map: "MessageThread_company_subject_user_type_idx")
 }
 
 /// Participant in a message thread. Either internal (userId) or purely
@@ -1681,6 +1684,7 @@ enum MessageThreadType {
   DIRECT
   BOARD
   CUSTOMER
+  JOURNAL
 }
 
 enum CompanyKind {

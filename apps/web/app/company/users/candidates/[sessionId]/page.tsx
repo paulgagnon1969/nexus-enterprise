@@ -24,6 +24,7 @@ interface CandidateSessionForReview {
   createdAt: string;
   companyId: string;
   token: string;
+  userId?: string | null;
   profile?: CandidateProfile | null;
   bankInfo?: {
     accountHolderName?: string | null;
@@ -74,6 +75,13 @@ export default function CandidateDetailPage() {
   const [skillsError, setSkillsError] = useState<string | null>(null);
  
   const [canViewHr, setCanViewHr] = useState(false);
+  const [journalLoading, setJournalLoading] = useState(false);
+  const [journalError, setJournalError] = useState<string | null>(null);
+  const [journalEntries, setJournalEntries] = useState<
+    { id: string; body: string; createdAt: string; senderEmail?: string | null }[]
+  >([]);
+  const [journalDraft, setJournalDraft] = useState("");
+  const [savingJournal, setSavingJournal] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
   const categoryGroups = useMemo(
@@ -146,6 +154,7 @@ export default function CandidateDetailPage() {
           createdAt: json.createdAt,
           companyId: json.companyId,
           token: json.token,
+          userId: json.userId ?? null,
           profile: json.profile ?? null,
           bankInfo: json.bankInfo ?? null,
           checklist: json.checklist ?? null,
@@ -230,6 +239,46 @@ export default function CandidateDetailPage() {
 
     void loadMe();
   }, [session?.companyId]);
+
+  // Load journal entries for this candidate's underlying user when HR can view
+  useEffect(() => {
+    if (!canViewHr) return;
+    const userId = session?.userId;
+    if (!userId) return;
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    async function loadJournal() {
+      try {
+        setJournalLoading(true);
+        setJournalError(null);
+        const res = await fetch(`${API_BASE}/messages/journal/user/${userId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Failed to load journal (${res.status}) ${text}`);
+        }
+        const json = await res.json();
+        const msgs = Array.isArray(json?.messages) ? json.messages : [];
+        setJournalEntries(
+          msgs.map((m: any) => ({
+            id: m.id,
+            body: m.body ?? "",
+            createdAt: m.createdAt,
+            senderEmail: m.senderEmail ?? null,
+          })),
+        );
+      } catch (e: any) {
+        setJournalError(e?.message ?? "Failed to load journal entries.");
+      } finally {
+        setJournalLoading(false);
+      }
+    }
+
+    void loadJournal();
+  }, [canViewHr, session?.userId]);
 
   const renderStars = (value: number | null, size: number) => {
     const filledCount = value == null ? 0 : Math.round(value);
@@ -688,6 +737,158 @@ export default function CandidateDetailPage() {
               </p>
             </div>
           )}
+
+          {/* Journal section */}
+          <div
+            id="journal"
+            style={{
+              marginTop: 10,
+              paddingTop: 10,
+              borderTop: "1px dashed #e5e7eb",
+            }}
+          >
+            <h3 style={{ fontSize: 14, marginBottom: 4 }}>Journal</h3>
+            <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
+              Internal notes and message history related to this candidate. Candidates can see
+              high-level message history on their own journal board, but BCC details are hidden
+              from their view.
+            </p>
+
+            {journalLoading ? (
+              <p style={{ fontSize: 12, color: "#6b7280" }}>Loading journal…</p>
+            ) : journalError ? (
+              <p style={{ fontSize: 12, color: "#b91c1c" }}>{journalError}</p>
+            ) : journalEntries.length === 0 ? (
+              <p style={{ fontSize: 12, color: "#6b7280" }}>No journal entries yet.</p>
+            ) : (
+              <div
+                style={{
+                  maxHeight: 220,
+                  overflowY: "auto",
+                  borderRadius: 6,
+                  border: "1px solid #e5e7eb",
+                  background: "#ffffff",
+                  padding: 8,
+                }}
+              >
+                <ul style={{ listStyle: "none", margin: 0, padding: 0, fontSize: 12 }}>
+                  {journalEntries.map(entry => (
+                    <li
+                      key={entry.id}
+                      style={{
+                        padding: "6px 4px",
+                        borderBottom: "1px solid #f3f4f6",
+                      }}
+                    >
+                      <div style={{ color: "#6b7280", fontSize: 11 }}>
+                        {new Date(entry.createdAt).toLocaleString()}
+                        {entry.senderEmail && (
+                          <>
+                            {" "}· <span>{entry.senderEmail}</span>
+                          </>
+                        )}
+                      </div>
+                      <div style={{ whiteSpace: "pre-wrap", color: "#111827" }}>
+                        {entry.body}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Simple inline add-entry box for HR */}
+            {session.userId && (
+              <form
+                onSubmit={async e => {
+                  e.preventDefault();
+                  if (!journalDraft.trim()) return;
+                  const token = window.localStorage.getItem("accessToken");
+                  if (!token) {
+                    alert("Missing access token. Please log in again.");
+                    return;
+                  }
+                  try {
+                    setSavingJournal(true);
+                    const res = await fetch(
+                      `${API_BASE}/messages/journal/user/${session.userId}/entries`,
+                      {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ body: journalDraft.trim() }),
+                      },
+                    );
+                    if (!res.ok) {
+                      const text = await res.text().catch(() => "");
+                      throw new Error(`Failed to add journal entry (${res.status}) ${text}`);
+                    }
+                    const json = await res.json();
+                    const created = json?.message ?? json;
+                    setJournalEntries(prev => [
+                      {
+                        id: created.id,
+                        body: created.body ?? journalDraft.trim(),
+                        createdAt: created.createdAt ?? new Date().toISOString(),
+                        senderEmail: created.senderEmail ?? null,
+                      },
+                      ...prev,
+                    ]);
+                    setJournalDraft("");
+                  } catch (err: any) {
+                    alert(err?.message ?? "Failed to add journal entry.");
+                  } finally {
+                    setSavingJournal(false);
+                  }
+                }}
+                style={{
+                  marginTop: 10,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                }}
+              >
+                <label style={{ fontSize: 12, color: "#4b5563" }}>
+                  Add HR-only journal note
+                  <textarea
+                    value={journalDraft}
+                    onChange={e => setJournalDraft(e.target.value)}
+                    rows={3}
+                    style={{
+                      marginTop: 4,
+                      width: "100%",
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                      fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                    }}
+                  />
+                </label>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    type="submit"
+                    disabled={savingJournal || !journalDraft.trim()}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #0f172a",
+                      backgroundColor:
+                        savingJournal || !journalDraft.trim() ? "#e5e7eb" : "#0f172a",
+                      color: savingJournal || !journalDraft.trim() ? "#4b5563" : "#f9fafb",
+                      fontSize: 12,
+                      cursor:
+                        savingJournal || !journalDraft.trim() ? "default" : "pointer",
+                    }}
+                  >
+                    {savingJournal ? "Saving…" : "Add journal entry"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
         </section>
       )}
     </div>

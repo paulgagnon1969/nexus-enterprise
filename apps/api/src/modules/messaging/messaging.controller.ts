@@ -45,6 +45,7 @@ export class MessagingController {
       bccExternalEmails?: string[];
       externalEmails?: string[];
       groupIds?: string[];
+      journalSubjectUserIds?: string[];
       attachments?: {
         kind: $Enums.AttachmentKind;
         url: string;
@@ -57,7 +58,7 @@ export class MessagingController {
     },
   ) {
     const actor = req.user as AuthenticatedUser;
-    return this.messaging.createThread(actor, body);
+    return this.messaging.createThread(actor, body as any);
   }
 
   @Post("threads/:id/messages")
@@ -121,5 +122,37 @@ export class MessagingController {
   ) {
     const actor = req.user as AuthenticatedUser;
     return this.messaging.addBoardMessage(actor, id, body.body, body.attachments);
+  }
+
+  @Get("journal/user/:userId")
+  async getUserJournal(@Req() req: any, @Param("userId") userId: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.messaging.getUserJournal(actor, userId);
+  }
+
+  @Post("journal/user/:userId/entries")
+  async addUserJournalEntry(
+    @Req() req: any,
+    @Param("userId") userId: string,
+    @Body()
+    body: {
+      body: string;
+      attachments?: {
+        kind: $Enums.AttachmentKind;
+        url: string;
+        filename?: string | null;
+        mimeType?: string | null;
+        sizeBytes?: number | null;
+        assetId?: string | null;
+      }[];
+    },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.messaging.appendUserJournalEntry(
+      actor,
+      userId,
+      body.body,
+      body.attachments,
+    );
   }
 }
