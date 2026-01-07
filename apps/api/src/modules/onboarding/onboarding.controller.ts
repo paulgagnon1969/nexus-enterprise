@@ -175,11 +175,15 @@ export class OnboardingController {
   async listForCompany(
     @Param("companyId") companyId: string,
     @Query("status") status: string | undefined,
+    @Query("detailStatusCode") detailStatusCode: string | undefined,
     @Req() req: any
   ) {
     const actor = req.user as AuthenticatedUser;
     const statuses = status ? status.split(",") : undefined;
-    return this.onboarding.listSessionsForCompany(companyId, actor, statuses);
+    const detailCodes = detailStatusCode
+      ? detailStatusCode.split(",").map(s => s.trim()).filter(Boolean)
+      : undefined;
+    return this.onboarding.listSessionsForCompany(companyId, actor, statuses, detailCodes);
   }
 
   // Authenticated candidate self-view: return the latest onboarding session for the
@@ -244,5 +248,43 @@ export class OnboardingController {
   async markTest(@Param("id") id: string, @Req() req: any) {
     const actor = req.user as AuthenticatedUser;
     return this.onboarding.markSessionAsTest(id, actor);
+  }
+
+  // --- Candidate status definitions (admin/HR only) ---
+
+  @UseGuards(JwtAuthGuard)
+  @Get("company/:companyId/status-definitions")
+  async listStatusDefinitions(@Param("companyId") companyId: string, @Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.onboarding.listStatusDefinitions(companyId, actor);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post("company/:companyId/status-definitions")
+  async upsertStatusDefinition(
+    @Param("companyId") companyId: string,
+    @Req() req: any,
+    @Body() body: { code: string; label: string; color?: string | null; sortOrder?: number | null },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.onboarding.upsertStatusDefinition(actor, { ...body, companyId });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post("status-definitions/:id/deactivate")
+  async deactivateStatusDefinition(@Param("id") id: string, @Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.onboarding.deactivateStatusDefinition(actor, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post("sessions/:id/detail-status")
+  async setSessionDetailStatus(
+    @Param("id") id: string,
+    @Req() req: any,
+    @Body() body: { detailStatusCode: string | null },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.onboarding.setSessionDetailStatus(id, actor, body);
   }
 }

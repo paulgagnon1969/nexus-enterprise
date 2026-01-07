@@ -1280,6 +1280,10 @@ model OnboardingSession {
   email                   String
   token                   String                  @unique
   status                  OnboardingStatus        @default(NOT_STARTED)
+  /// Optional, admin-defined candidate status code for finer-grained pipeline
+  /// semantics (e.g. WAITING_FOR_DOCS). Stored as a free-form string and
+  /// optionally linked to CandidateStatusDefinition.
+  detailStatusCode        String?
   checklistJson           String?
   assignedHiringManagerId String?
   createdAt               DateTime                @default(now())
@@ -1293,6 +1297,22 @@ model OnboardingSession {
 
   @@index([companyId, createdAt], map: "OnboardingSession_company_created_idx")
   @@index([userId], map: "OnboardingSession_user_idx")
+  @@index([companyId, detailStatusCode], map: "OnboardingSession_company_detail_status_idx")
+}
+
+/// Admin-defined candidate status codes for Prospective Candidates / Nex-Net
+/// pipeline management. These are optional and sit alongside the core
+/// OnboardingStatus enum.
+model CandidateStatusDefinition {
+  id        String   @id @default(cuid())
+  companyId String?  // null = global status, otherwise tenant-specific
+  code      String
+  label     String
+  color     String?  // optional hex or token for UI chips
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+
+  @@unique([companyId, code], name: "CandidateStatusDefinition_company_code_key")
 }
 
 model OnboardingProfile {

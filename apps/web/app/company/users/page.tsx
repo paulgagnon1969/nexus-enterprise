@@ -1564,6 +1564,13 @@ type CandidateStatus =
   | "TEST"
   | string;
 
+interface CandidateDetailStatusDef {
+  id: string;
+  code: string;
+  label: string;
+  color?: string | null;
+}
+
 interface CandidateProfile {
   firstName?: string | null;
   lastName?: string | null;
@@ -1580,6 +1587,7 @@ interface CandidateRow {
   status: CandidateStatus;
   createdAt: string;
   profile?: CandidateProfile | null;
+  detailStatusCode?: string | null;
 }
 
 function stateToRegion(state: string | null | undefined): string {
@@ -1610,7 +1618,11 @@ function ProspectiveCandidatesPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [statusFilter, setStatusFilter] = useState<string>("SUBMITTED,UNDER_REVIEW");
+  // Pipeline status filter (OnboardingStatus)
+  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  // Optional admin-defined candidate detail status codes
+  const [detailStatusOptions, setDetailStatusOptions] = useState<CandidateDetailStatusDef[]>([]);
+  const [detailStatusFilter, setDetailStatusFilter] = useState<string>("");
   const [includeTest, setIncludeTest] = useState<boolean>(false);
   const [regionFilter, setRegionFilter] = useState<string>("");
   const [stateFilter, setStateFilter] = useState<string>("");
@@ -1623,6 +1635,38 @@ function ProspectiveCandidatesPanel({
   const [sortMode, setSortMode] = useState<"NAME" | "SUBMITTED_ASC" | "SUBMITTED_DESC">(
     "NAME",
   );
+
+  // Load candidate status definitions (global + company) once when tab is candidates
+  useEffect(() => {
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    async function loadStatusDefs() {
+      try {
+        const res = await fetch(
+          `${API_BASE}/onboarding/company/${companyId}/status-definitions`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!Array.isArray(json)) return;
+        setDetailStatusOptions(
+          json.map((d: any) => ({
+            id: d.id,
+            code: d.code,
+            label: d.label,
+            color: d.color ?? null,
+          })),
+        );
+      } catch {
+        // non-fatal
+      }
+    }
+
+    void loadStatusDefs();
+  }, [companyId]);
 
   useEffect(() => {
     const token = window.localStorage.getItem("accessToken");
@@ -1637,17 +1681,30 @@ function ProspectiveCandidatesPanel({
         setLoading(true);
         setError(null);
 
-        let statusesParam = statusFilter.trim();
+        let statusesParam = "";
+        if (statusFilter !== "ALL") {
+          statusesParam = statusFilter;
+        }
         if (includeTest) {
-          const parts = statusesParam ? statusesParam.split(",").map(s => s.trim()).filter(Boolean) : [];
+          const parts = statusesParam
+            ? statusesParam.split(",").map(s => s.trim()).filter(Boolean)
+            : [];
           if (!parts.includes("TEST")) {
             parts.push("TEST");
           }
           statusesParam = parts.join(",");
         }
 
+        const params = new URLSearchParams();
+        if (statusesParam) {
+          params.set("status", statusesParam);
+        }
+        if (detailStatusFilter.trim()) {
+          params.set("detailStatusCode", detailStatusFilter.trim());
+        }
+
         const url = `${API_BASE}/onboarding/company/${companyId}/sessions` +
-          (statusesParam ? `?status=${encodeURIComponent(statusesParam)}` : "");
+          (params.toString() ? `?${params.toString()}` : "");
 
         const res = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
@@ -1668,7 +1725,7 @@ function ProspectiveCandidatesPanel({
     }
 
     void load();
-  }, [companyId, statusFilter, includeTest]);
+  }, [companyId, statusFilter, includeTest, detailStatusFilter]);
 
   const stateOptions = useMemo(() => {
     const set = new Set<string>();
@@ -1826,13 +1883,20 @@ function ProspectiveCandidatesPanel({
         }}
       >
         <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          Status (comma-separated)
-          <input
+          Status
+          <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
-            placeholder="SUBMITTED,UNDER_REVIEW"
-            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", minWidth: 220 }}
-          />
+            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", minWidth: 200 }}
+          >
+            <option value="ALL">All (non-TEST)</option>
+            <option value="NOT_STARTED">Not started</option>
+            <option value="IN_PROGRESS">In progress</option>
+            <option value="SUBMITTED">Submitted</option>
+            <option value="UNDER_REVIEW">Under review</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
           <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4, fontSize: 11 }}>
             <input
               type="checkbox"
@@ -1841,6 +1905,22 @@ function ProspectiveCandidatesPanel({
             />
             <span>Include TEST candidates</span>
           </label>
+        </label>
+
+        <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          Candidate state
+          <select
+            value={detailStatusFilter}
+            onChange={e => setDetailStatusFilter(e.target.value)}
+            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", minWidth: 200 }}
+          >
+            <option value="">All states</option>
+            {detailStatusOptions.map(s => (
+              <option key={s.id} value={s.code}>
+                {s.label}
+              </option>
+            ))}
+          </select>
         </label>
 
         <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -2087,7 +2167,24 @@ function ProspectiveCandidatesPanel({
                       {r.profile?.state || "—"}
                     </td>
                     <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
-                      {r.status}
+                      <div>{r.status}</div>
+                      {r.detailStatusCode && (
+                        <div
+                          style={{
+                            marginTop: 2,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            padding: "1px 6px",
+                            borderRadius: 999,
+                            border: "1px solid #e5e7eb",
+                            fontSize: 11,
+                            color: "#374151",
+                            backgroundColor: "#f3f4f6",
+                          }}
+                        >
+                          {r.detailStatusCode}
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12, color: "#6b7280" }}>
                       {new Date(r.createdAt).toLocaleString()}
@@ -2193,6 +2290,90 @@ function ProspectiveCandidatesPanel({
                             </span>
                             <span>Message</span>
                           </button>
+
+                          {/* Change candidate state (detailStatusCode) */}
+                          {detailStatusOptions.length > 0 && (
+                            <div
+                              style={{
+                                borderTop: "1px solid #e5e7eb",
+                                marginTop: 2,
+                              }}
+                            >
+                              {detailStatusOptions.map(def => (
+                                <button
+                                  key={def.id}
+                                  type="button"
+                                  onClick={async () => {
+                                    setOpenMenuId(null);
+                                    if (typeof window === "undefined") return;
+                                    const token = window.localStorage.getItem("accessToken");
+                                    if (!token) {
+                                      alert("Missing access token. Please log in again.");
+                                      return;
+                                    }
+                                    try {
+                                      const res = await fetch(
+                                        `${API_BASE}/onboarding/sessions/${r.id}/detail-status`,
+                                        {
+                                          method: "POST",
+                                          headers: {
+                                            "Content-Type": "application/json",
+                                            Authorization: `Bearer ${token}`,
+                                          },
+                                          body: JSON.stringify({ detailStatusCode: def.code }),
+                                        },
+                                      );
+                                      if (!res.ok) {
+                                        const text = await res.text().catch(() => "");
+                                        throw new Error(
+                                          `Failed to update candidate state (${res.status}) ${text}`,
+                                        );
+                                      }
+                                      setRows(prev =>
+                                        prev.map(row =>
+                                          row.id === r.id
+                                            ? { ...row, detailStatusCode: def.code }
+                                            : row,
+                                        ),
+                                      );
+                                    } catch (e: any) {
+                                      alert(e?.message ?? "Failed to update candidate state");
+                                    }
+                                  }}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                    width: "100%",
+                                    padding: "6px 10px",
+                                    border: "none",
+                                    background: "#ffffff",
+                                    cursor: "pointer",
+                                    fontSize: 12,
+                                    textAlign: "left",
+                                  }}
+                                >
+                                  <span
+                                    aria-hidden="true"
+                                    style={{ display: "inline-flex", alignItems: "center" }}
+                                  >
+                                    <svg
+                                      width={14}
+                                      height={14}
+                                      viewBox="0 0 24 24"
+                                      xmlns="http://www.w3.org/2000/svg"
+                                    >
+                                      <path
+                                        d="M5 5h14v3H5zM5 10h10v3H5zM5 15h6v3H5z"
+                                        fill="#4b5563"
+                                      />
+                                    </svg>
+                                  </span>
+                                  <span>{def.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
                           <button
                             type="button"
                             onClick={async () => {
@@ -2206,18 +2387,20 @@ function ProspectiveCandidatesPanel({
                               const ok = window.confirm(
                                 "Mark this candidate/session as TEST? They will be hidden from normal Prospective Candidates views unless TEST is included.",
                               );
-                              if (!ok) return;
-                              try {
-                                const res = await fetch(
-                                  `${API_BASE}/onboarding/sessions/${r.id}/mark-test`,
-                                  {
-                                    method: "POST",
-                                    headers: {
-                                      "Content-Type": "application/json",
-                                      Authorization: `Bearer ${token}`,
-                                    },
-                                  },
-                                );
+      if (!ok) return;
+      try {
+        const res = await fetch(
+          `${API_BASE}/onboarding/sessions/${r.id}/mark-test`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            // Explicit empty body so Nest's JSON body parser is satisfied.
+            body: JSON.stringify({}),
+          },
+        );
                                 if (!res.ok) {
                                   const text = await res.text().catch(() => "");
                                   throw new Error(
