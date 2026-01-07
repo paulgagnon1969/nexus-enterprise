@@ -41,6 +41,158 @@ export class MessagingService {
     return actor.companyId;
   }
 
+  private async getOrCreateUserJournalThread(
+    actor: AuthenticatedUser,
+    subjectUserId: string,
+  ) {
+    const companyId = this.assertCompanyContext(actor);
+
+    const existing = await this.prisma.messageThread.findFirst({
+      where: {
+        companyId,
+        type: $Enums.MessageThreadType.JOURNAL,
+        subjectUserId,
+      },
+    });
+    if (existing) return existing;
+
+    return this.prisma.messageThread.create({
+      data: {
+        companyId,
+        createdById: actor.userId,
+        type: $Enums.MessageThreadType.JOURNAL,
+        subjectUserId,
+        subject: null,
+      },
+    });
+  }
+
+  async appendUserJournalEntry(
+    actor: AuthenticatedUser,
+    subjectUserId: string,
+    body: string,
+    attachments?: {
+      kind: $Enums.AttachmentKind;
+      url: string;
+      filename?: string | null;
+      mimeType?: string | null;
+      sizeBytes?: number | null;
+      assetId?: string | null;
+    }[],
+  ) {
+    const companyId = this.assertCompanyContext(actor);
+
+    // Basic guard: either writing about self, or in same company
+    if (actor.userId !== subjectUserId) {
+      const membership = await this.prisma.companyMembership.findFirst({
+        where: { companyId, userId: subjectUserId },
+      });
+      if (!membership) {
+        throw new ForbiddenException("Cannot write journal for this user");
+      }
+    }
+
+    const thread = await this.getOrCreateUserJournalThread(actor, subjectUserId);
+
+    const message = await this.prisma.message.create({
+      data: {
+        threadId: thread.id,
+        senderId: actor.userId,
+        senderEmail: actor.email,
+        body,
+      },
+    });
+
+    if (attachments && attachments.length > 0) {
+      await this.prisma.messageAttachment.createMany({
+        data: attachments.map(a => ({
+          messageId: message.id,
+          kind: a.kind,
+          url: a.url,
+          filename: a.filename || null,
+          mimeType: a.mimeType || null,
+          sizeBytes: typeof a.sizeBytes === "number" ? a.sizeBytes : null,
+          assetId: a.assetId || null,
+        })),
+      });
+    }
+
+    await this.prisma.messageThread.update({
+      where: { id: thread.id },
+      data: { updatedAt: new Date() },
+    });
+
+    return { threadId: thread.id, message };
+  }
+
+  async getUserJournal(actor: AuthenticatedUser, subjectUserId: string) {
+    const companyId = this.assertCompanyContext(actor);
+
+    const thread = await this.prisma.messageThread.findFirst({
+      where: {
+        companyId,
+        type: $Enums.MessageThreadType.JOURNAL,
+        subjectUserId,
+      },
+      include: {
+        participants: true,
+        messages: {
+          orderBy: { createdAt: "asc" },
+          include: {
+            attachments: true,
+          },
+        },
+      },
+    });
+
+    const isSubjectViewer = actor.userId === subjectUserId;
+
+    // Only subject or company HR/admin/super-admin can view
+    let canView = isSubjectViewer;
+    if (!canView) {
+      const isSuperAdmin = actor.globalRole === "SUPER_ADMIN";
+      if (isSuperAdmin) {
+        canView = true;
+      } else {
+        const membership = await this.prisma.companyMembership.findFirst({
+          where: { companyId, userId: actor.userId },
+          include: { profile: true },
+        });
+        const profileCode = membership?.profile?.code ?? null;
+        if (
+          membership &&
+          (membership.role === "OWNER" ||
+            membership.role === "ADMIN" ||
+            profileCode === "HIRING_MANAGER")
+        ) {
+          canView = true;
+        }
+      }
+    }
+
+    if (!canView) {
+      throw new ForbiddenException("Not allowed to view this journal");
+    }
+
+    if (!thread) {
+      return { thread: null, messages: [] };
+    }
+
+    // For now, JOURNAL threads do not expose per-message header roles, and
+    // we are not sending outbound email from journals. Broadcast-related
+    // journal entries are stored as plain messages without external
+    // recipients, so we can safely return messages as-is.
+    const safeMessages = thread.messages;
+
+    return {
+      id: thread.id,
+      subjectUserId: thread.subjectUserId,
+      createdAt: thread.createdAt,
+      updatedAt: thread.updatedAt,
+      messages: safeMessages,
+    };
+  }
+
   async listThreadsForUser(actor: AuthenticatedUser) {
     const companyId = this.assertCompanyContext(actor);
 
@@ -143,7 +295,7 @@ export class MessagingService {
     return thread;
   }
 
-  async createThread(actor: AuthenticatedUser, dto: CreateThreadDto) {
+  async createThread(actor: AuthenticatedUser, dto: CreateThreadDto & { journalSubjectUserIds?: string[] }) {
     const companyId = this.assertCompanyContext(actor);
 
     const baseUserIds = new Set<string>([actor.userId, ...(dto.participantUserIds || [])]);
@@ -277,6 +429,30 @@ export class MessagingService {
     });
 
     const { thread, participants, message } = result;
+
+    // If the caller provided explicit journal subject userIds (e.g. from a
+    // Prospective Candidates cohort), append a simple broadcast entry into
+    // each user's JOURNAL thread so their board reflects this send.
+    if (Array.isArray(dto.journalSubjectUserIds) && dto.journalSubjectUserIds.length > 0) {
+      const uniqueIds = Array.from(
+        new Set(dto.journalSubjectUserIds.filter(id => typeof id === "string" && id.trim())),
+      );
+      const summary = `[Prospective Candidates] Broadcast sent: ${
+        thread.subject || "(no subject)"
+      }`;
+      for (const subjectUserId of uniqueIds) {
+        try {
+          await this.appendUserJournalEntry(actor, subjectUserId, summary);
+        } catch (err) {
+          // Non-fatal: journaling should not block messaging delivery.
+          this.logger.warn(
+            `appendUserJournalEntry failed for subjectUserId=${subjectUserId}: ${
+              (err as any)?.message ?? err
+            }`,
+          );
+        }
+      }
+    }
 
     // In-app notifications for internal users
     const internalRecipients = (participants || []).filter(

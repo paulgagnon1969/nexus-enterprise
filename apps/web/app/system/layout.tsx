@@ -34,6 +34,7 @@ function SystemLayoutInner({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [orgFilterMode, setOrgFilterMode] = useState<"active" | "all">("active");
+  const [showOrgFilterMenu, setShowOrgFilterMenu] = useState(false);
 
   const [showNewOrg, setShowNewOrg] = useState(false);
   const [creatingOrg, setCreatingOrg] = useState(false);
@@ -294,7 +295,7 @@ function SystemLayoutInner({ children }: { children: ReactNode }) {
         </div>
 
         <div style={{ marginBottom: 6 }}>
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <input
               type="text"
               placeholder="Search organizations..."
@@ -308,22 +309,117 @@ function SystemLayoutInner({ children }: { children: ReactNode }) {
                 fontSize: 12,
               }}
             />
-            <select
-              value={orgFilterMode}
-              onChange={e => setOrgFilterMode(e.target.value as "active" | "all")}
-              title="Filter organizations by status"
-              style={{
-                flexShrink: 0,
-                padding: "4px 6px",
-                borderRadius: 4,
-                border: "1px solid #d1d5db",
-                fontSize: 11,
-                background: "#ffffff",
-              }}
-            >
-              <option value="active">Active only</option>
-              <option value="all">Include deactivated</option>
-            </select>
+            <div style={{ position: "relative" }}>
+              <button
+                type="button"
+                onClick={() => setShowOrgFilterMenu(v => !v)}
+                title={orgFilterMode === "active" ? "Showing active organizations" : "Including deactivated organizations"}
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 6,
+                  border: "1px solid #d1d5db",
+                  background: "#ffffff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 0,
+                  cursor: "pointer",
+                }}
+              >
+                {/* simple funnel/filter icon */}
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M4 5H20L14 11V18L10 20V11L4 5Z"
+                    stroke="#4B5563"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+              {showOrgFilterMenu && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "110%",
+                    right: 0,
+                    zIndex: 30,
+                    minWidth: 180,
+                    padding: 8,
+                    borderRadius: 6,
+                    boxShadow: "0 4px 12px rgba(15,23,42,0.18)",
+                    background: "#ffffff",
+                    border: "1px solid #e5e7eb",
+                    fontSize: 12,
+                  }}
+                >
+                  <div style={{ marginBottom: 6, fontWeight: 600, color: "#0f172a" }}>
+                    Filter organizations
+                  </div>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: 12,
+                      padding: "4px 0",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="org-filter-mode"
+                      value="active"
+                      checked={orgFilterMode === "active"}
+                      onChange={() => setOrgFilterMode("active")}
+                    />
+                    <span>Active only</span>
+                  </label>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: 12,
+                      padding: "4px 0",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="org-filter-mode"
+                      value="all"
+                      checked={orgFilterMode === "all"}
+                      onChange={() => setOrgFilterMode("all")}
+                    />
+                    <span>Include deactivated</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowOrgFilterMenu(false)}
+                    style={{
+                      marginTop: 6,
+                      width: "100%",
+                      padding: "4px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #e5e7eb",
+                      background: "#f9fafb",
+                      fontSize: 11,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

@@ -109,6 +109,7 @@ export default function MessagingPage() {
 
   // Draft recipients coming from other pages (e.g., Prospective candidates list)
   const [draftRecipients, setDraftRecipients] = useState<DraftRecipient[] | null>(null);
+  const [journalSubjectUserIds, setJournalSubjectUserIds] = useState<string[] | null>(null);
 
   const [newGroupName, setNewGroupName] = useState("");
 
@@ -166,6 +167,17 @@ export default function MessagingPage() {
               .map(v => (typeof v === "string" ? v.trim() : ""))
               .filter(Boolean)
           : [];
+
+        const journalIdsRaw: unknown = parsed.journalSubjectUserIds;
+        const journalIds = Array.isArray(journalIdsRaw)
+          ? Array.from(
+              new Set(
+                journalIdsRaw
+                  .map(v => (typeof v === "string" ? v.trim() : ""))
+                  .filter(Boolean),
+              ),
+            )
+          : [];
         const submittedFrom: string | null =
           typeof parsed.submittedFrom === "string" && parsed.submittedFrom.trim()
             ? parsed.submittedFrom.trim()
@@ -177,6 +189,10 @@ export default function MessagingPage() {
         if (!emails.length) {
           window.localStorage.removeItem("messagingDraftFromCandidates");
           return;
+        }
+
+        if (journalIds.length) {
+          setJournalSubjectUserIds(journalIds);
         }
 
         const initialRecipients: DraftRecipient[] = emails.map(email => ({
@@ -500,6 +516,10 @@ export default function MessagingPage() {
           // Keep legacy externalEmails for backwards compatibility if needed.
           externalEmails: allExternal,
           groupIds: selectedGroupIds,
+          // Pass through any subject userIds that should receive journal entries
+          journalSubjectUserIds: journalSubjectUserIds && journalSubjectUserIds.length
+            ? journalSubjectUserIds
+            : undefined,
           attachments:
             newMessageLinks.length > 0 || newMessageFiles.length > 0
               ? [

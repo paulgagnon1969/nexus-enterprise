@@ -1588,6 +1588,7 @@ interface CandidateRow {
   createdAt: string;
   profile?: CandidateProfile | null;
   detailStatusCode?: string | null;
+  userId?: string | null; // underlying User.id when available (for journaling)
 }
 
 function stateToRegion(state: string | null | undefined): string {
@@ -1623,7 +1624,6 @@ function ProspectiveCandidatesPanel({
   // Optional admin-defined candidate detail status codes
   const [detailStatusOptions, setDetailStatusOptions] = useState<CandidateDetailStatusDef[]>([]);
   const [detailStatusFilter, setDetailStatusFilter] = useState<string>("");
-  const [includeTest, setIncludeTest] = useState<boolean>(false);
   const [regionFilter, setRegionFilter] = useState<string>("");
   const [stateFilter, setStateFilter] = useState<string>("");
   const [cityFilter, setCityFilter] = useState<string>("");
@@ -1632,6 +1632,7 @@ function ProspectiveCandidatesPanel({
   const [submittedTo, setSubmittedTo] = useState<string>("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
   const [sortMode, setSortMode] = useState<"NAME" | "SUBMITTED_ASC" | "SUBMITTED_DESC">(
     "NAME",
   );
@@ -1682,17 +1683,9 @@ function ProspectiveCandidatesPanel({
         setError(null);
 
         let statusesParam = "";
-        if (statusFilter !== "ALL") {
+        // For ALL / ALL_WITH_TEST we fetch all statuses and filter TEST locally.
+        if (statusFilter !== "ALL" && statusFilter !== "ALL_WITH_TEST") {
           statusesParam = statusFilter;
-        }
-        if (includeTest) {
-          const parts = statusesParam
-            ? statusesParam.split(",").map(s => s.trim()).filter(Boolean)
-            : [];
-          if (!parts.includes("TEST")) {
-            parts.push("TEST");
-          }
-          statusesParam = parts.join(",");
         }
 
         const params = new URLSearchParams();
@@ -1725,7 +1718,7 @@ function ProspectiveCandidatesPanel({
     }
 
     void load();
-  }, [companyId, statusFilter, includeTest, detailStatusFilter]);
+  }, [companyId, statusFilter, detailStatusFilter]);
 
   const stateOptions = useMemo(() => {
     const set = new Set<string>();
@@ -1760,8 +1753,10 @@ function ProspectiveCandidatesPanel({
         return false;
       }
 
-      // Unless explicitly included, hide TEST sessions from Prospective list.
-      if (!includeTest && r.status === "TEST") return false;
+      // Hide TEST sessions only when Status filter is "ALL"; other modes either
+      // include TEST explicitly or narrow to a specific status.
+      const hideTest = statusFilter === "ALL";
+      if (hideTest && r.status === "TEST") return false;
       const st = (r.profile?.state || "").trim();
       const city = (r.profile?.city || "").trim();
 
@@ -1830,6 +1825,89 @@ function ProspectiveCandidatesPanel({
     setSelectedIds([]);
   }
 
+  async function handleBulkMarkTest() {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token. Please log in again.");
+      return;
+    }
+    const selected = filtered.filter(r => selectedIds.includes(r.id));
+    if (!selected.length) {
+      alert("Select at least one candidate.");
+      return;
+    }
+    if (!window.confirm(`Mark ${selected.length} candidate${selected.length > 1 ? "s" : ""} as TEST?`)) {
+      return;
+    }
+    try {
+      await Promise.all(
+        selected.map(async r => {
+          const res = await fetch(`${API_BASE}/onboarding/sessions/${r.id}/mark-test`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({}),
+          });
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            console.error(`Failed to mark session ${r.id} as TEST:`, res.status, text);
+          }
+        }),
+      );
+      setRows(prev =>
+        prev.map(row =>
+          selectedIds.includes(row.id)
+            ? { ...row, status: "TEST" as CandidateStatus }
+            : row,
+        ),
+      );
+    } catch (e: any) {
+      alert(e?.message ?? "Failed to mark candidates as TEST");
+    }
+  }
+
+  async function handleBulkJournalEntry() {
+    if (typeof window === "undefined") return;
+    const note = window.prompt(
+      "Journal entry to add for all selected candidates (will be stored on each candidate's journal)?",
+    );
+    if (!note || !note.trim()) return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token. Please log in again.");
+      return;
+    }
+    const selected = filtered.filter(r => selectedIds.includes(r.id) && r.userId);
+    if (!selected.length) {
+      alert("No selected candidates have an associated user profile yet.");
+      return;
+    }
+    try {
+      await Promise.all(
+        selected.map(async r => {
+          const res = await fetch(`${API_BASE}/messages/journal/user/${r.userId}/entries`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ body: note.trim() }),
+          });
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            console.error(`Failed to add journal entry for user ${r.userId}:`, res.status, text);
+          }
+        }),
+      );
+      alert("Journal entry added for selected candidates.");
+    } catch (e: any) {
+      alert(e?.message ?? "Failed to add journal entries");
+    }
+  }
+
   function handleBulkMessageToSelected() {
     if (typeof window === "undefined") return;
     const selectedRows = filtered.filter(r => selectedIds.includes(r.id));
@@ -1844,10 +1922,21 @@ function ProspectiveCandidatesPanel({
     );
     if (!emails.length) return;
 
+    // Best-effort: attach underlying userIds so the messaging API can log
+    // journal entries against specific users when broadcasting.
+    const journalSubjectUserIds = Array.from(
+      new Set(
+        selectedRows
+          .map(r => r.userId)
+          .filter((v): v is string => !!v && typeof v === "string"),
+      ),
+    );
+
     const draftPayload = {
       externalEmails: emails,
       submittedFrom: submittedFrom.trim() || null,
       submittedTo: submittedTo.trim() || null,
+      journalSubjectUserIds,
     };
 
     try {
@@ -1890,6 +1979,8 @@ function ProspectiveCandidatesPanel({
             style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", minWidth: 200 }}
           >
             <option value="ALL">All (non-TEST)</option>
+            <option value="ALL_WITH_TEST">All (including TEST)</option>
+            <option value="TEST">TEST only</option>
             <option value="NOT_STARTED">Not started</option>
             <option value="IN_PROGRESS">In progress</option>
             <option value="SUBMITTED">Submitted</option>
@@ -1897,14 +1988,6 @@ function ProspectiveCandidatesPanel({
             <option value="APPROVED">Approved</option>
             <option value="REJECTED">Rejected</option>
           </select>
-          <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4, fontSize: 11 }}>
-            <input
-              type="checkbox"
-              checked={includeTest}
-              onChange={e => setIncludeTest(e.target.checked)}
-            />
-            <span>Include TEST candidates</span>
-          </label>
         </label>
 
         <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -2115,14 +2198,138 @@ function ProspectiveCandidatesPanel({
                 <th style={{ textAlign: "right", padding: "6px 8px" }}>
                   <span style={{ visibility: "hidden" }}>Actions</span>
                 </th>
-                <th style={{ textAlign: "center", padding: "6px 8px" }}>
-                  <input
-                    type="checkbox"
-                    aria-label="Select all candidates in current filter"
-                    checked={allFilteredSelected && filtered.length > 0}
-                    disabled={filtered.length === 0}
-                    onChange={handleToggleSelectAllFiltered}
-                  />
+                <th
+                  style={{
+                    textAlign: "center",
+                    padding: "6px 8px",
+                    position: "relative",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      aria-label="Bulk actions for selected candidates"
+                      onClick={() => setBulkMenuOpen(open => !open)}
+                      style={{
+                        padding: "0 8px 2px 8px",
+                        borderRadius: 9999,
+                        border: "1px solid #2563eb",
+                        backgroundColor: "#ffffff",
+                        color: "#2563eb",
+                        fontSize: 16,
+                        lineHeight: "16px",
+                        cursor: filtered.length === 0 ? "default" : "pointer",
+                      }}
+                      disabled={filtered.length === 0}
+                    >
+                      ...
+                    </button>
+                    <input
+                      type="checkbox"
+                      aria-label="Select all candidates in current filter"
+                      checked={allFilteredSelected && filtered.length > 0}
+                      disabled={filtered.length === 0}
+                      onChange={handleToggleSelectAllFiltered}
+                    />
+                  </div>
+                  {bulkMenuOpen && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        right: 0,
+                        top: "100%",
+                        marginTop: 4,
+                        borderRadius: 6,
+                        border: "1px solid #e5e7eb",
+                        backgroundColor: "#ffffff",
+                        boxShadow:
+                          "0 4px 6px -1px rgba(15,23,42,0.1), 0 2px 4px -2px rgba(15,23,42,0.1)",
+                        minWidth: 200,
+                        zIndex: 15,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBulkMenuOpen(false);
+                          handleBulkMessageToSelected();
+                        }}
+                        disabled={selectedCount === 0}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          width: "100%",
+                          padding: "6px 10px",
+                          border: "none",
+                          background: selectedCount === 0 ? "#f9fafb" : "#ffffff",
+                          color: selectedCount === 0 ? "#9ca3af" : "#111827",
+                          cursor: selectedCount === 0 ? "default" : "pointer",
+                          fontSize: 12,
+                          textAlign: "left",
+                        }}
+                      >
+                        <span>Message (send email)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setBulkMenuOpen(false);
+                          await handleBulkMarkTest();
+                        }}
+                        disabled={selectedCount === 0}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          width: "100%",
+                          padding: "6px 10px",
+                          borderTop: "1px solid #e5e7eb",
+                          borderBottom: "1px solid #e5e7eb",
+                          borderLeft: "none",
+                          borderRight: "none",
+                          background: selectedCount === 0 ? "#f9fafb" : "#ffffff",
+                          color: selectedCount === 0 ? "#9ca3af" : "#111827",
+                          cursor: selectedCount === 0 ? "default" : "pointer",
+                          fontSize: 12,
+                          textAlign: "left",
+                        }}
+                      >
+                        <span>Mark as TEST</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setBulkMenuOpen(false);
+                          await handleBulkJournalEntry();
+                        }}
+                        disabled={selectedCount === 0}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          width: "100%",
+                          padding: "6px 10px",
+                          border: "none",
+                          background: selectedCount === 0 ? "#f9fafb" : "#ffffff",
+                          color: selectedCount === 0 ? "#9ca3af" : "#111827",
+                          cursor: selectedCount === 0 ? "default" : "pointer",
+                          fontSize: 12,
+                          textAlign: "left",
+                        }}
+                      >
+                        <span>Journal entry</span>
+                      </button>
+                    </div>
+                  )}
                 </th>
               </tr>
             </thead>
@@ -2374,6 +2581,89 @@ function ProspectiveCandidatesPanel({
                               ))}
                             </div>
                           )}
+
+                          {/* Journal entry shortcut */}
+                          <div
+                            style={{
+                              borderTop: "1px solid #e5e7eb",
+                              marginTop: 2,
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenMenuId(null);
+                                // Deep-link to candidate detail HR journal section
+                                if (typeof window !== "undefined") {
+                                  window.location.href = `/company/users/candidates/${r.id}#journal`;
+                                }
+                              }}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                width: "100%",
+                                padding: "6px 10px",
+                                border: "none",
+                                background: "#ffffff",
+                                cursor: "pointer",
+                                fontSize: 12,
+                                textAlign: "left",
+                              }}
+                            >
+                              <span
+                                aria-hidden="true"
+                                style={{ display: "inline-flex", alignItems: "center" }}
+                              >
+                                <svg
+                                  width={14}
+                                  height={14}
+                                  viewBox="0 0 24 24"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                >
+                                  <rect
+                                    x="4"
+                                    y="3"
+                                    width="16"
+                                    height="18"
+                                    rx="2"
+                                    ry="2"
+                                    fill="#ffffff"
+                                    stroke="#4b5563"
+                                    strokeWidth={1.5}
+                                  />
+                                  <line
+                                    x1="7"
+                                    y1="8"
+                                    x2="17"
+                                    y2="8"
+                                    stroke="#4b5563"
+                                    strokeWidth={1.4}
+                                    strokeLinecap="round"
+                                  />
+                                  <line
+                                    x1="7"
+                                    y1="12"
+                                    x2="17"
+                                    y2="12"
+                                    stroke="#4b5563"
+                                    strokeWidth={1.4}
+                                    strokeLinecap="round"
+                                  />
+                                  <line
+                                    x1="7"
+                                    y1="16"
+                                    x2="13"
+                                    y2="16"
+                                    stroke="#4b5563"
+                                    strokeWidth={1.4}
+                                    strokeLinecap="round"
+                                  />
+                                </svg>
+                              </span>
+                              <span>Journal entry</span>
+                            </button>
+                          </div>
                           <button
                             type="button"
                             onClick={async () => {
