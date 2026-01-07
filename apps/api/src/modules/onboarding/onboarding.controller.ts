@@ -235,4 +235,14 @@ export class OnboardingController {
     const actor = req.user as AuthenticatedUser;
     return this.onboarding.rejectSession(id, actor);
   }
+
+  // Mark an onboarding session (and any linked Nex-Net candidates) as TEST so
+  // they can be excluded from normal recruiting flows but still visible when
+  // explicitly filtered.
+  @UseGuards(JwtAuthGuard)
+  @Post("sessions/:id/mark-test")
+  async markTest(@Param("id") id: string, @Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.onboarding.markSessionAsTest(id, actor);
+  }
 }

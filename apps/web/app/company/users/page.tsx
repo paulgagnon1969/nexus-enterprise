@@ -1561,6 +1561,7 @@ type CandidateStatus =
   | "UNDER_REVIEW"
   | "APPROVED"
   | "REJECTED"
+  | "TEST"
   | string;
 
 interface CandidateProfile {
@@ -1610,6 +1611,7 @@ function ProspectiveCandidatesPanel({
   const [error, setError] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<string>("SUBMITTED,UNDER_REVIEW");
+  const [includeTest, setIncludeTest] = useState<boolean>(false);
   const [regionFilter, setRegionFilter] = useState<string>("");
   const [stateFilter, setStateFilter] = useState<string>("");
   const [cityFilter, setCityFilter] = useState<string>("");
@@ -1635,8 +1637,17 @@ function ProspectiveCandidatesPanel({
         setLoading(true);
         setError(null);
 
+        let statusesParam = statusFilter.trim();
+        if (includeTest) {
+          const parts = statusesParam ? statusesParam.split(",").map(s => s.trim()).filter(Boolean) : [];
+          if (!parts.includes("TEST")) {
+            parts.push("TEST");
+          }
+          statusesParam = parts.join(",");
+        }
+
         const url = `${API_BASE}/onboarding/company/${companyId}/sessions` +
-          (statusFilter.trim() ? `?status=${encodeURIComponent(statusFilter.trim())}` : "");
+          (statusesParam ? `?status=${encodeURIComponent(statusesParam)}` : "");
 
         const res = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
@@ -1657,7 +1668,7 @@ function ProspectiveCandidatesPanel({
     }
 
     void load();
-  }, [companyId, statusFilter]);
+  }, [companyId, statusFilter, includeTest]);
 
   const stateOptions = useMemo(() => {
     const set = new Set<string>();
@@ -1691,6 +1702,9 @@ function ProspectiveCandidatesPanel({
       ) {
         return false;
       }
+
+      // Unless explicitly included, hide TEST sessions from Prospective list.
+      if (!includeTest && r.status === "TEST") return false;
       const st = (r.profile?.state || "").trim();
       const city = (r.profile?.city || "").trim();
 
@@ -1819,6 +1833,14 @@ function ProspectiveCandidatesPanel({
             placeholder="SUBMITTED,UNDER_REVIEW"
             style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", minWidth: 220 }}
           />
+          <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4, fontSize: 11 }}>
+            <input
+              type="checkbox"
+              checked={includeTest}
+              onChange={e => setIncludeTest(e.target.checked)}
+            />
+            <span>Include TEST candidates</span>
+          </label>
         </label>
 
         <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -2112,7 +2134,7 @@ function ProspectiveCandidatesPanel({
                             backgroundColor: "#ffffff",
                             boxShadow:
                               "0 4px 6px -1px rgba(15,23,42,0.1), 0 2px 4px -2px rgba(15,23,42,0.1)",
-                            minWidth: 140,
+                            minWidth: 180,
                             zIndex: 10,
                             overflow: "hidden",
                           }}
@@ -2170,6 +2192,81 @@ function ProspectiveCandidatesPanel({
                               </svg>
                             </span>
                             <span>Message</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setOpenMenuId(null);
+                              if (typeof window === "undefined") return;
+                              const token = window.localStorage.getItem("accessToken");
+                              if (!token) {
+                                alert("Missing access token. Please log in again.");
+                                return;
+                              }
+                              const ok = window.confirm(
+                                "Mark this candidate/session as TEST? They will be hidden from normal Prospective Candidates views unless TEST is included.",
+                              );
+                              if (!ok) return;
+                              try {
+                                const res = await fetch(
+                                  `${API_BASE}/onboarding/sessions/${r.id}/mark-test`,
+                                  {
+                                    method: "POST",
+                                    headers: {
+                                      "Content-Type": "application/json",
+                                      Authorization: `Bearer ${token}`,
+                                    },
+                                  },
+                                );
+                                if (!res.ok) {
+                                  const text = await res.text().catch(() => "");
+                                  throw new Error(
+                                    `Failed to mark candidate as TEST (${res.status}) ${text}`,
+                                  );
+                                }
+                                setRows(prev =>
+                                  prev.map(row =>
+                                    row.id === r.id ? { ...row, status: "TEST" as CandidateStatus } : row,
+                                  ),
+                                );
+                              } catch (e: any) {
+                                alert(e?.message ?? "Failed to mark candidate as TEST");
+                              }
+                            }}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                              width: "100%",
+                              padding: "6px 10px",
+                              border: "none",
+                              background: "#ffffff",
+                              cursor: "pointer",
+                              fontSize: 12,
+                              textAlign: "left",
+                            }}
+                          >
+                            <span
+                              aria-hidden="true"
+                              style={{ display: "inline-flex", alignItems: "center" }}
+                            >
+                              <svg
+                                width={14}
+                                height={14}
+                                viewBox="0 0 24 24"
+                                xmlns="http://www.w3.org/2000/svg"
+                              >
+                                <path
+                                  d="M4 4h16L14 12v6l-4 2v-8L4 4z"
+                                  fill="#f97316"
+                                  stroke="#c2410c"
+                                  strokeWidth={1.5}
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            </span>
+                            <span>Mark as TEST</span>
                           </button>
                         </div>
                       )}
