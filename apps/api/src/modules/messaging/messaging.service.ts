@@ -178,10 +178,6 @@ export class MessagingService {
       return { thread: null, messages: [] };
     }
 
-    // For now, JOURNAL threads do not expose per-message header roles, and
-    // we are not sending outbound email from journals. Broadcast-related
-    // journal entries are stored as plain messages without external
-    // recipients, so we can safely return messages as-is.
     const safeMessages = thread.messages;
 
     return {

@@ -2,6 +2,7 @@
 
 import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { formatPhone } from "../../lib/phone";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -78,6 +79,19 @@ function CompanyUsersPageInner() {
   const [members, setMembers] = useState<CompanyMemberRow[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState<string | null>(null);
+  // Company users (members) filtering + selection.
+  // Default user-type filter is INTERNAL so company users are prefiltered to internal staff.
+  const [memberTypeFilter, setMemberTypeFilter] = useState<"INTERNAL" | "CLIENT" | "ALL">(
+    "INTERNAL",
+  );
+  const [memberRoleFilter, setMemberRoleFilter] = useState<CompanyRole | "ALL">("ALL");
+  const [memberSearchEmail, setMemberSearchEmail] = useState("");
+  const [memberSelectedIds, setMemberSelectedIds] = useState<string[]>([]);
+  const [memberBulkMenuOpen, setMemberBulkMenuOpen] = useState(false);
+  const [memberOpenMenuUserId, setMemberOpenMenuUserId] = useState<string | null>(null);
+  const [memberSortKey, setMemberSortKey] = useState<
+    "NAME_ASC" | "NAME_DESC" | "EMAIL_ASC" | "EMAIL_DESC" | "ROLE_ASC" | "ROLE_DESC" | "JOINED_ASC" | "JOINED_DESC"
+  >("NAME_ASC");
 
   const [invites, setInvites] = useState<CompanyInviteRow[]>([]);
   const [invitesLoading, setInvitesLoading] = useState(false);
@@ -269,6 +283,158 @@ function CompanyUsersPageInner() {
   const canGrantOwner = actorCompanyRole === "OWNER";
   const canViewCandidates = actorCompanyRole === "OWNER" || actorCompanyRole === "ADMIN";
 
+  const filteredMembers = useMemo(() => {
+    const base = members.filter(m => {
+      // User type filter: INTERNAL → everyone except CLIENT; CLIENT → only client records.
+      if (memberTypeFilter === "INTERNAL" && m.user.userType === "CLIENT") {
+        return false;
+      }
+      if (memberTypeFilter === "CLIENT" && m.user.userType !== "CLIENT") {
+        return false;
+      }
+
+      if (memberRoleFilter !== "ALL" && m.role !== memberRoleFilter) {
+        return false;
+      }
+
+      if (
+        memberSearchEmail.trim() &&
+        !m.user.email.toLowerCase().includes(memberSearchEmail.trim().toLowerCase())
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+    // Apply sorting
+    return base.sort((a, b) => {
+      if (memberSortKey === "NAME_ASC" || memberSortKey === "NAME_DESC") {
+        const aName = `${a.user.firstName || ""} ${a.user.lastName || ""}`.trim().toLowerCase() ||
+          a.user.email.toLowerCase();
+        const bName = `${b.user.firstName || ""} ${b.user.lastName || ""}`.trim().toLowerCase() ||
+          b.user.email.toLowerCase();
+        if (aName === bName) return 0;
+        const cmp = aName < bName ? -1 : 1;
+        return memberSortKey === "NAME_ASC" ? cmp : -cmp;
+      }
+
+      if (memberSortKey === "EMAIL_ASC" || memberSortKey === "EMAIL_DESC") {
+        const aEmail = a.user.email.toLowerCase();
+        const bEmail = b.user.email.toLowerCase();
+        if (aEmail === bEmail) return 0;
+        const cmp = aEmail < bEmail ? -1 : 1;
+        return memberSortKey === "EMAIL_ASC" ? cmp : -cmp;
+      }
+
+      if (memberSortKey === "ROLE_ASC" || memberSortKey === "ROLE_DESC") {
+        if (a.role === b.role) return 0;
+        const cmp = a.role < b.role ? -1 : 1;
+        return memberSortKey === "ROLE_ASC" ? cmp : -cmp;
+      }
+
+      if (memberSortKey === "JOINED_ASC" || memberSortKey === "JOINED_DESC") {
+        const aTime = new Date(a.createdAt).getTime();
+        const bTime = new Date(b.createdAt).getTime();
+        const diff = aTime - bTime;
+        return memberSortKey === "JOINED_ASC" ? diff : -diff;
+      }
+
+      return 0;
+    });
+  }, [members, memberTypeFilter, memberRoleFilter, memberSearchEmail, memberSortKey]);
+
+  const memberSelectedCount = memberSelectedIds.filter(id =>
+    filteredMembers.some(m => m.userId === id),
+  ).length;
+  const memberAllFilteredSelected =
+    filteredMembers.length > 0 && memberSelectedCount === filteredMembers.length;
+
+  function handleMemberToggleSelectAllFiltered() {
+    if (memberAllFilteredSelected) {
+      setMemberSelectedIds(prev => prev.filter(id => !filteredMembers.some(m => m.userId === id)));
+    } else {
+      const filteredIds = filteredMembers.map(m => m.userId);
+      setMemberSelectedIds(prev => {
+        const set = new Set(prev);
+        filteredIds.forEach(id => set.add(id));
+        return Array.from(set);
+      });
+    }
+  }
+
+  function handleMemberClearSelection() {
+    setMemberSelectedIds([]);
+  }
+
+  async function handleBulkChangeMemberRole(targetRole: CompanyRole) {
+    if (!companyId) return;
+    if (!canManageMembers) return;
+    if (targetRole === "OWNER" && !canGrantOwner) return;
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token. Please log in again.");
+      return;
+    }
+
+    const selected = filteredMembers.filter(m => memberSelectedIds.includes(m.userId));
+    if (!selected.length) {
+      alert("Select at least one company user.");
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Change company role to ${targetRole} for ${selected.length} user${
+          selected.length > 1 ? "s" : ""
+        }?`,
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await Promise.all(
+        selected.map(async m => {
+          if (m.role === targetRole) return;
+          const res = await fetch(
+            `${API_BASE}/companies/${companyId}/members/${m.userId}/role`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ role: targetRole }),
+            },
+          );
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            console.error(
+              `Failed to update role for ${m.user.email} (${m.userId}):`,
+              res.status,
+              text,
+            );
+          }
+        }),
+      );
+
+      setMembers(prev =>
+        prev.map(m =>
+          memberSelectedIds.includes(m.userId)
+            ? {
+                ...m,
+                role: targetRole,
+              }
+            : m,
+        ),
+      );
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to update roles in bulk.");
+    }
+  }
+
   const handleChangeRole = async (
     userId: string,
     currentRole: CompanyRole,
@@ -311,6 +477,94 @@ function CompanyUsersPageInner() {
       );
     } catch (err: any) {
       alert(err?.message ?? "Failed to update role.");
+    }
+  };
+
+  const handleChangeUserType = async (
+    userId: string,
+    currentUserType: UserType,
+    nextUserType: UserType,
+  ) => {
+    if (nextUserType === currentUserType) return;
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token; please log in again.");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/users/${userId}/user-type`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ userType: nextUserType }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        alert(`Failed to update user type (${res.status}) ${text}`);
+        return;
+      }
+      setMembers(prev =>
+        prev.map(m =>
+          m.userId === userId
+            ? {
+                ...m,
+                user: { ...m.user, userType: nextUserType },
+              }
+            : m,
+        ),
+      );
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to update user type.");
+    }
+  };
+
+  const handleChangeGlobalRole = async (
+    userId: string,
+    currentGlobalRole: GlobalRole,
+    nextGlobalRole: GlobalRole,
+  ) => {
+    if (nextGlobalRole === currentGlobalRole) return;
+    if (actorGlobalRole !== "SUPER_ADMIN") {
+      alert("Only SUPER_ADMIN can change global roles.");
+      return;
+    }
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token; please log in again.");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/users/${userId}/global-role`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ globalRole: nextGlobalRole }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        alert(`Failed to update global role (${res.status}) ${text}`);
+        return;
+      }
+      setMembers(prev =>
+        prev.map(m =>
+          m.userId === userId
+            ? {
+                ...m,
+                user: { ...m.user, globalRole: nextGlobalRole },
+              }
+            : m,
+        ),
+      );
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to update global role.");
     }
   };
 
@@ -812,46 +1066,486 @@ function CompanyUsersPageInner() {
       ) : (
         <>
           {/* Members section */}
-          <section style={{ marginTop: 16 }}>
-            <h2 style={{ fontSize: 16, marginBottom: 4 }}>Members</h2>
-        {membersLoading && (
-          <p style={{ fontSize: 12, color: "#6b7280" }}>Loading members…</p>
-        )}
-        {membersError && (
-          <p style={{ fontSize: 12, color: "#b91c1c" }}>{membersError}</p>
-        )}
-        {!membersLoading && !membersError && (
-          <div
-            style={{
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              overflow: "hidden",
+          <section
+            style={{ marginTop: 16 }}
+            onClick={() => {
+              // Close any open per-member actions menu when clicking outside.
+              if (memberOpenMenuUserId) {
+                setMemberOpenMenuUserId(null);
+              }
             }}
           >
-            <table
+            <h2 style={{ fontSize: 16, marginBottom: 4 }}>Members</h2>
+            <p style={{ fontSize: 12, color: "#4b5563", marginTop: 0 }}>
+              Company users are prefiltered to <strong>Internal</strong> (non-client) users. Use the
+              filters below to change what you see or to bulk-update roles.
+            </p>
+            <div
               style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: 13,
+                marginTop: 8,
+                padding: 10,
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                background: "#f9fafb",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 10,
+                alignItems: "center",
+                fontSize: 12,
               }}
             >
+              <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                User type
+                <select
+                  value={memberTypeFilter}
+                  onChange={e => setMemberTypeFilter(e.target.value as any)}
+                  style={{
+                    padding: "4px 6px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    minWidth: 160,
+                  }}
+                >
+                  <option value="INTERNAL">Internal only</option>
+                  <option value="CLIENT">Client only</option>
+                  <option value="ALL">All users</option>
+                </select>
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                Company role
+                <select
+                  value={memberRoleFilter}
+                  onChange={e => setMemberRoleFilter(e.target.value as any)}
+                  style={{
+                    padding: "4px 6px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    minWidth: 160,
+                  }}
+                >
+                  <option value="ALL">All roles</option>
+                  <option value="OWNER">OWNER</option>
+                  <option value="ADMIN">ADMIN</option>
+                  <option value="MEMBER">MEMBER</option>
+                  <option value="CLIENT">CLIENT</option>
+                </select>
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                Search email
+                <input
+                  value={memberSearchEmail}
+                  onChange={e => setMemberSearchEmail(e.target.value)}
+                  placeholder="name@example.com"
+                  style={{
+                    padding: "4px 6px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    minWidth: 220,
+                  }}
+                />
+              </label>
+
+              <div
+                style={{
+                  marginLeft: "auto",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                  alignItems: "flex-end",
+                }}
+              >
+                <div style={{ color: "#6b7280" }}>
+                  Showing <strong>{filteredMembers.length}</strong> · Selected{' '}
+                  <strong>{memberSelectedCount}</strong>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    flexWrap: "wrap",
+                    justifyContent: "flex-end",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={handleMemberToggleSelectAllFiltered}
+                    disabled={filteredMembers.length === 0}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 999,
+                      border: "1px solid #d1d5db",
+                      backgroundColor:
+                        filteredMembers.length === 0 ? "#f9fafb" : "#ffffff",
+                      color: "#111827",
+                      fontSize: 11,
+                      cursor: filteredMembers.length === 0 ? "default" : "pointer",
+                    }}
+                  >
+                    {memberAllFilteredSelected
+                      ? "Deselect all (filtered)"
+                      : "Select all (filtered)"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleMemberClearSelection}
+                    disabled={memberSelectedCount === 0}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 999,
+                      border: "1px solid #e5e7eb",
+                      backgroundColor:
+                        memberSelectedCount === 0 ? "#f9fafb" : "#ffffff",
+                      color: memberSelectedCount === 0 ? "#9ca3af" : "#111827",
+                      fontSize: 11,
+                      cursor: memberSelectedCount === 0 ? "default" : "pointer",
+                    }}
+                  >
+                    Clear selection
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {membersLoading && (
+              <p style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>Loading members…</p>
+            )}
+            {membersError && (
+              <p style={{ fontSize: 12, color: "#b91c1c", marginTop: 6 }}>{membersError}</p>
+            )}
+            {!membersLoading && !membersError && (
+              <div
+                style={{
+                  marginTop: 10,
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                  overflow: "hidden",
+                }}
+              >
+                <table
+                  style={{
+                    width: "100%",
+                    borderCollapse: "collapse",
+                    fontSize: 13,
+                  }}
+                >
               <thead>
                 <tr style={{ backgroundColor: "#f9fafb" }}>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Name</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Email</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setMemberSortKey(prev =>
+                          prev === "NAME_ASC" ? "NAME_DESC" : "NAME_ASC",
+                        )
+                      }
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: 0,
+                        margin: 0,
+                        border: "none",
+                        background: "transparent",
+                        fontSize: "inherit",
+                        cursor: "pointer",
+                        color: "#111827",
+                      }}
+                    >
+                      <span>Name</span>
+                      <span style={{ fontSize: 11, color: "#6b7280" }}>
+                        {memberSortKey === "NAME_ASC"
+                          ? "↑"
+                          : memberSortKey === "NAME_DESC"
+                          ? "↓"
+                          : "↕"}
+                      </span>
+                    </button>
+                  </th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setMemberSortKey(prev =>
+                          prev === "EMAIL_ASC" ? "EMAIL_DESC" : "EMAIL_ASC",
+                        )
+                      }
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: 0,
+                        margin: 0,
+                        border: "none",
+                        background: "transparent",
+                        fontSize: "inherit",
+                        cursor: "pointer",
+                        color: "#111827",
+                      }}
+                    >
+                      <span>Email</span>
+                      <span style={{ fontSize: 11, color: "#6b7280" }}>
+                        {memberSortKey === "EMAIL_ASC"
+                          ? "↑"
+                          : memberSortKey === "EMAIL_DESC"
+                          ? "↓"
+                          : "↕"}
+                      </span>
+                    </button>
+                  </th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>Phone</th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>User type</th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>Global role</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Company role</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Joined</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setMemberSortKey(prev =>
+                          prev === "ROLE_ASC" ? "ROLE_DESC" : "ROLE_ASC",
+                        )
+                      }
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: 0,
+                        margin: 0,
+                        border: "none",
+                        background: "transparent",
+                        fontSize: "inherit",
+                        cursor: "pointer",
+                        color: "#111827",
+                      }}
+                    >
+                      <span>Company role</span>
+                      <span style={{ fontSize: 11, color: "#6b7280" }}>
+                        {memberSortKey === "ROLE_ASC"
+                          ? "↑"
+                          : memberSortKey === "ROLE_DESC"
+                          ? "↓"
+                          : "↕"}
+                      </span>
+                    </button>
+                  </th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setMemberSortKey(prev =>
+                          prev === "JOINED_ASC" ? "JOINED_DESC" : "JOINED_ASC",
+                        )
+                      }
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: 0,
+                        margin: 0,
+                        border: "none",
+                        background: "transparent",
+                        fontSize: "inherit",
+                        cursor: "pointer",
+                        color: "#111827",
+                      }}
+                    >
+                      <span>Joined</span>
+                      <span style={{ fontSize: 11, color: "#6b7280" }}>
+                        {memberSortKey === "JOINED_ASC"
+                          ? "↑"
+                          : memberSortKey === "JOINED_DESC"
+                          ? "↓"
+                          : "↕"}
+                      </span>
+                    </button>
+                  </th>
+                  <th style={{ textAlign: "right", padding: "6px 8px" }}>
+                    <span style={{ visibility: "hidden" }}>Actions</span>
+                  </th>
+                  <th
+                    style={{
+                      textAlign: "center",
+                      padding: "6px 8px",
+                      position: "relative",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        aria-label="Bulk actions for selected company users"
+                        onClick={() => setMemberBulkMenuOpen(open => !open)}
+                        style={{
+                          padding: "0 8px 2px 8px",
+                          borderRadius: 9999,
+                          border: "1px solid #2563eb",
+                          backgroundColor: "#ffffff",
+                          color: "#2563eb",
+                          fontSize: 16,
+                          lineHeight: "16px",
+                          cursor:
+                            filteredMembers.length === 0 ? "default" : "pointer",
+                        }}
+                        disabled={filteredMembers.length === 0}
+                      >
+                        ...
+                      </button>
+                      <input
+                        type="checkbox"
+                        aria-label="Select all company users in current filter"
+                        checked={
+                          memberAllFilteredSelected && filteredMembers.length > 0
+                        }
+                        disabled={filteredMembers.length === 0}
+                        onChange={handleMemberToggleSelectAllFiltered}
+                      />
+                    </div>
+                    {memberBulkMenuOpen && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          right: 0,
+                          top: "100%",
+                          marginTop: 4,
+                          borderRadius: 6,
+                          border: "1px solid #e5e7eb",
+                          backgroundColor: "#ffffff",
+                          boxShadow:
+                            "0 4px 6px -1px rgba(15,23,42,0.1), 0 2px 4px -2px rgba(15,23,42,0.1)",
+                          minWidth: 220,
+                          zIndex: 15,
+                          overflow: "hidden",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setMemberBulkMenuOpen(false);
+                            await handleBulkChangeMemberRole("ADMIN");
+                          }}
+                          disabled={memberSelectedCount === 0}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            width: "100%",
+                            padding: "6px 10px",
+                            border: "none",
+                            background:
+                              memberSelectedCount === 0 ? "#f9fafb" : "#ffffff",
+                            color:
+                              memberSelectedCount === 0 ? "#9ca3af" : "#111827",
+                            cursor:
+                              memberSelectedCount === 0 ? "default" : "pointer",
+                            fontSize: 12,
+                            textAlign: "left",
+                          }}
+                        >
+                          <span>Set role to ADMIN</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setMemberBulkMenuOpen(false);
+                            await handleBulkChangeMemberRole("MEMBER");
+                          }}
+                          disabled={memberSelectedCount === 0}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            width: "100%",
+                            padding: "6px 10px",
+                            borderTop: "1px solid #e5e7eb",
+                            borderBottom: "1px solid #e5e7eb",
+                            borderLeft: "none",
+                            borderRight: "none",
+                            background:
+                              memberSelectedCount === 0 ? "#f9fafb" : "#ffffff",
+                            color:
+                              memberSelectedCount === 0 ? "#9ca3af" : "#111827",
+                            cursor:
+                              memberSelectedCount === 0 ? "default" : "pointer",
+                            fontSize: 12,
+                            textAlign: "left",
+                          }}
+                        >
+                          <span>Set role to MEMBER</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setMemberBulkMenuOpen(false);
+                            await handleBulkChangeMemberRole("CLIENT");
+                          }}
+                          disabled={memberSelectedCount === 0}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            width: "100%",
+                            padding: "6px 10px",
+                            border: "none",
+                            background:
+                              memberSelectedCount === 0 ? "#f9fafb" : "#ffffff",
+                            color:
+                              memberSelectedCount === 0 ? "#9ca3af" : "#111827",
+                            cursor:
+                              memberSelectedCount === 0 ? "default" : "pointer",
+                            fontSize: 12,
+                            textAlign: "left",
+                          }}
+                        >
+                          <span>Set role to CLIENT</span>
+                        </button>
+                        {canGrantOwner && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setMemberBulkMenuOpen(false);
+                              await handleBulkChangeMemberRole("OWNER");
+                            }}
+                            disabled={memberSelectedCount === 0}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                              width: "100%",
+                              padding: "6px 10px",
+                              borderTop: "1px solid #e5e7eb",
+                              borderLeft: "none",
+                              borderRight: "none",
+                              background:
+                                memberSelectedCount === 0 ? "#f9fafb" : "#ffffff",
+                              color:
+                                memberSelectedCount === 0 ? "#9ca3af" : "#111827",
+                              cursor:
+                                memberSelectedCount === 0 ? "default" : "pointer",
+                              fontSize: 12,
+                              textAlign: "left",
+                            }}
+                          >
+                            <span>Set role to OWNER</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {members.map(m => {
+                {filteredMembers.map(m => {
                   const nameParts = [m.user.firstName, m.user.lastName].filter(Boolean);
                   const displayName = nameParts.length
                     ? nameParts.join(" ")
                     : m.user.email;
+                  const isSelected = memberSelectedIds.includes(m.userId);
 
                   return (
                     <tr key={m.userId}>
@@ -894,15 +1588,48 @@ function CompanyUsersPageInner() {
                           color: "#111827",
                         }}
                       >
-                        {m.user.phone ? (
-                          <a
-                            href={`tel:${m.user.phone.replace(/[^\\d+]/g, "")}`}
-                            style={{ color: "#2563eb", textDecoration: "none" }}
+                        {(() => {
+                          const formatted = formatPhone(m.user.phone, undefined);
+                          if (!formatted) return "—";
+                          return (
+                            <a
+                              href={formatted.href}
+                              style={{ color: "#2563eb", textDecoration: "none" }}
+                            >
+                              {formatted.display}
+                            </a>
+                          );
+                        })()}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 8px",
+                          borderTop: "1px solid #e5e7eb",
+                        }}
+                      >
+                        {canManageMembers ? (
+                          <select
+                            value={m.user.userType}
+                            onChange={e =>
+                              handleChangeUserType(
+                                m.user.id,
+                                m.user.userType,
+                                e.target.value as UserType,
+                              )
+                            }
+                            style={{
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
                           >
-                            {m.user.phone}
-                          </a>
+                            <option value="INTERNAL">INTERNAL</option>
+                            <option value="CLIENT">CLIENT</option>
+                            <option value="APPLICANT">APPLICANT</option>
+                          </select>
                         ) : (
-                          "—"
+                          m.user.userType ?? "INTERNAL"
                         )}
                       </td>
                       <td
@@ -911,15 +1638,30 @@ function CompanyUsersPageInner() {
                           borderTop: "1px solid #e5e7eb",
                         }}
                       >
-                        {m.user.userType ?? "WORKER"}
-                      </td>
-                      <td
-                        style={{
-                          padding: "4px 8px",
-                          borderTop: "1px solid #e5e7eb",
-                        }}
-                      >
-                        {m.user.globalRole ?? "NONE"}
+                        {actorGlobalRole === "SUPER_ADMIN" ? (
+                          <select
+                            value={m.user.globalRole ?? "NONE"}
+                            onChange={e =>
+                              handleChangeGlobalRole(
+                                m.user.id,
+                                m.user.globalRole ?? "NONE",
+                                e.target.value as GlobalRole,
+                              )
+                            }
+                            style={{
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          >
+                            <option value="NONE">NONE</option>
+                            <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+                            <option value="SUPPORT">SUPPORT</option>
+                          </select>
+                        ) : (
+                          m.user.globalRole ?? "NONE"
+                        )}
                       </td>
                       <td
                         style={{
@@ -983,20 +1725,165 @@ function CompanyUsersPageInner() {
                       >
                         {new Date(m.createdAt).toLocaleDateString()}
                       </td>
+                      <td
+                        style={{
+                          padding: "4px 8px",
+                          borderTop: "1px solid #e5e7eb",
+                          textAlign: "right",
+                          position: "relative",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          aria-label="Actions for this company user"
+                          onClick={e => {
+                            e.stopPropagation();
+                            setMemberOpenMenuUserId(prev =>
+                              prev === m.userId ? null : m.userId,
+                            );
+                          }}
+                          style={{
+                            padding: "0 8px 2px 8px",
+                            borderRadius: 9999,
+                            border: "1px solid #d1d5db",
+                            backgroundColor: "#ffffff",
+                            color: "#111827",
+                            fontSize: 14,
+                            lineHeight: "14px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          ...
+                        </button>
+                        {memberOpenMenuUserId === m.userId && (
+                          <div
+                            onClick={e => e.stopPropagation()}
+                            style={{
+                              position: "absolute",
+                              right: 0,
+                              top: "100%",
+                              marginTop: 4,
+                              borderRadius: 6,
+                              border: "1px solid #e5e7eb",
+                              backgroundColor: "#ffffff",
+                              boxShadow:
+                                "0 4px 6px -1px rgba(15,23,42,0.1), 0 2px 4px -2px rgba(15,23,42,0.1)",
+                              minWidth: 200,
+                              zIndex: 20,
+                              overflow: "hidden",
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMemberOpenMenuUserId(null);
+                                window.location.href = `/company/users/${m.user.id}`;
+                              }}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                width: "100%",
+                                padding: "6px 10px",
+                                border: "none",
+                                background: "#ffffff",
+                                color: "#111827",
+                                cursor: "pointer",
+                                fontSize: 12,
+                                textAlign: "left",
+                              }}
+                            >
+                              <span>View profile</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMemberOpenMenuUserId(null);
+                                const to = encodeURIComponent(m.user.email);
+                                window.location.href = `/messaging?to=${to}`;
+                              }}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                width: "100%",
+                                padding: "6px 10px",
+                                borderTop: "1px solid #e5e7eb",
+                                borderBottom: "1px solid #e5e7eb",
+                                borderLeft: "none",
+                                borderRight: "none",
+                                background: "#ffffff",
+                                color: "#111827",
+                                cursor: "pointer",
+                                fontSize: 12,
+                                textAlign: "left",
+                              }}
+                            >
+                              <span>Message</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMemberOpenMenuUserId(null);
+                                window.location.href = `/company/users/${m.user.id}#journal`;
+                              }}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                width: "100%",
+                                padding: "6px 10px",
+                                border: "none",
+                                background: "#ffffff",
+                                color: "#111827",
+                                cursor: "pointer",
+                                fontSize: 12,
+                                textAlign: "left",
+                              }}
+                            >
+                              <span>Journal</span>
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 8px",
+                          borderTop: "1px solid #e5e7eb",
+                          textAlign: "center",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label="Select this company user"
+                          checked={isSelected}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setMemberSelectedIds(prev =>
+                                prev.includes(m.userId) ? prev : [...prev, m.userId],
+                              );
+                            } else {
+                              setMemberSelectedIds(prev =>
+                                prev.filter(id => id !== m.userId),
+                              );
+                            }
+                          }}
+                        />
+                      </td>
                     </tr>
                   );
                 })}
-                {members.length === 0 && (
+                {filteredMembers.length === 0 && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={8}
                       style={{
                         padding: "8px",
                         fontSize: 12,
                         color: "#6b7280",
                       }}
                     >
-                      No members found for this company.
+                      No members match the current filters.
                     </td>
                   </tr>
                 )}
@@ -1633,9 +2520,20 @@ function ProspectiveCandidatesPanel({
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
-  const [sortMode, setSortMode] = useState<"NAME" | "SUBMITTED_ASC" | "SUBMITTED_DESC">(
-    "NAME",
-  );
+  const [sortMode, setSortMode] = useState<
+    | "NAME_ASC"
+    | "NAME_DESC"
+    | "REGION_ASC"
+    | "REGION_DESC"
+    | "CITY_ASC"
+    | "CITY_DESC"
+    | "STATE_ASC"
+    | "STATE_DESC"
+    | "STATUS_ASC"
+    | "STATUS_DESC"
+    | "SUBMITTED_ASC"
+    | "SUBMITTED_DESC"
+  >("SUBMITTED_DESC");
 
   // Load candidate status definitions (global + company) once when tab is candidates
   useEffect(() => {
@@ -1789,20 +2687,59 @@ function ProspectiveCandidatesPanel({
         return sortMode === "SUBMITTED_ASC" ? diff : -diff;
       }
 
-      // Default: sort alphabetically by last name, then first name, then email.
+      if (sortMode === "REGION_ASC" || sortMode === "REGION_DESC") {
+        const aRegion = stateToRegion(a.profile?.state).toLowerCase();
+        const bRegion = stateToRegion(b.profile?.state).toLowerCase();
+        if (aRegion === bRegion) return 0;
+        const cmp = aRegion < bRegion ? -1 : 1;
+        return sortMode === "REGION_ASC" ? cmp : -cmp;
+      }
+
+      if (sortMode === "CITY_ASC" || sortMode === "CITY_DESC") {
+        const aCity = (a.profile?.city || "").trim().toLowerCase();
+        const bCity = (b.profile?.city || "").trim().toLowerCase();
+        if (aCity === bCity) return 0;
+        const cmp = aCity < bCity ? -1 : 1;
+        return sortMode === "CITY_ASC" ? cmp : -cmp;
+      }
+
+      if (sortMode === "STATE_ASC" || sortMode === "STATE_DESC") {
+        const aState = (a.profile?.state || "").trim().toLowerCase();
+        const bState = (b.profile?.state || "").trim().toLowerCase();
+        if (aState === bState) return 0;
+        const cmp = aState < bState ? -1 : 1;
+        return sortMode === "STATE_ASC" ? cmp : -cmp;
+      }
+
+      if (sortMode === "STATUS_ASC" || sortMode === "STATUS_DESC") {
+        const aStatus = (a.status || "").toLowerCase();
+        const bStatus = (b.status || "").toLowerCase();
+        if (aStatus === bStatus) return 0;
+        const cmp = aStatus < bStatus ? -1 : 1;
+        return sortMode === "STATUS_ASC" ? cmp : -cmp;
+      }
+
+      // Default: sort by candidate name (last, first, then email).
       const aLast = (a.profile?.lastName || "").trim().toLowerCase();
       const bLast = (b.profile?.lastName || "").trim().toLowerCase();
-      if (aLast && bLast && aLast !== bLast) {
-        return aLast.localeCompare(bLast);
-      }
-
       const aFirst = (a.profile?.firstName || "").trim().toLowerCase();
       const bFirst = (b.profile?.firstName || "").trim().toLowerCase();
-      if (aFirst && bFirst && aFirst !== bFirst) {
-        return aFirst.localeCompare(bFirst);
-      }
 
-      return a.email.toLowerCase().localeCompare(b.email.toLowerCase());
+      let cmpName = 0;
+      if (aLast || bLast) {
+        if (aLast !== bLast) {
+          cmpName = aLast < bLast ? -1 : aLast > bLast ? 1 : 0;
+        }
+      }
+      if (cmpName === 0 && (aFirst || bFirst)) {
+        if (aFirst !== bFirst) {
+          cmpName = aFirst < bFirst ? -1 : aFirst > bFirst ? 1 : 0;
+        }
+      }
+      if (cmpName === 0) {
+        cmpName = a.email.toLowerCase().localeCompare(b.email.toLowerCase());
+      }
+      return sortMode === "NAME_ASC" ? cmpName : -cmpName;
     });
 
   const selectedCount = selectedIds.filter(id => filtered.some(r => r.id === id)).length;
@@ -2159,11 +3096,161 @@ function ProspectiveCandidatesPanel({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ backgroundColor: "#f9fafb" }}>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Candidate</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Region</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>City</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>State</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Status</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSortMode(prev =>
+                        prev === "NAME_ASC" ? "NAME_DESC" : "NAME_ASC",
+                      )
+                    }
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: 0,
+                      margin: 0,
+                      border: "none",
+                      background: "transparent",
+                      fontSize: "inherit",
+                      cursor: "pointer",
+                      color: "#111827",
+                    }}
+                  >
+                    <span>Candidate</span>
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>
+                      {sortMode === "NAME_ASC"
+                        ? "↑"
+                        : sortMode === "NAME_DESC"
+                        ? "↓"
+                        : "↕"}
+                    </span>
+                  </button>
+                </th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSortMode(prev =>
+                        prev === "REGION_ASC" ? "REGION_DESC" : "REGION_ASC",
+                      )
+                    }
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: 0,
+                      margin: 0,
+                      border: "none",
+                      background: "transparent",
+                      fontSize: "inherit",
+                      cursor: "pointer",
+                      color: "#111827",
+                    }}
+                  >
+                    <span>Region</span>
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>
+                      {sortMode === "REGION_ASC"
+                        ? "↑"
+                        : sortMode === "REGION_DESC"
+                        ? "↓"
+                        : "↕"}
+                    </span>
+                  </button>
+                </th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSortMode(prev =>
+                        prev === "CITY_ASC" ? "CITY_DESC" : "CITY_ASC",
+                      )
+                    }
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: 0,
+                      margin: 0,
+                      border: "none",
+                      background: "transparent",
+                      fontSize: "inherit",
+                      cursor: "pointer",
+                      color: "#111827",
+                    }}
+                  >
+                    <span>City</span>
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>
+                      {sortMode === "CITY_ASC"
+                        ? "↑"
+                        : sortMode === "CITY_DESC"
+                        ? "↓"
+                        : "↕"}
+                    </span>
+                  </button>
+                </th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSortMode(prev =>
+                        prev === "STATE_ASC" ? "STATE_DESC" : "STATE_ASC",
+                      )
+                    }
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: 0,
+                      margin: 0,
+                      border: "none",
+                      background: "transparent",
+                      fontSize: "inherit",
+                      cursor: "pointer",
+                      color: "#111827",
+                    }}
+                  >
+                    <span>State</span>
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>
+                      {sortMode === "STATE_ASC"
+                        ? "↑"
+                        : sortMode === "STATE_DESC"
+                        ? "↓"
+                        : "↕"}
+                    </span>
+                  </button>
+                </th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSortMode(prev =>
+                        prev === "STATUS_ASC" ? "STATUS_DESC" : "STATUS_ASC",
+                      )
+                    }
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: 0,
+                      margin: 0,
+                      border: "none",
+                      background: "transparent",
+                      fontSize: "inherit",
+                      cursor: "pointer",
+                      color: "#111827",
+                    }}
+                  >
+                    <span>Status</span>
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>
+                      {sortMode === "STATUS_ASC"
+                        ? "↑"
+                        : sortMode === "STATUS_DESC"
+                        ? "↓"
+                        : "↕"}
+                    </span>
+                  </button>
+                </th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>
                   <button
                     type="button"

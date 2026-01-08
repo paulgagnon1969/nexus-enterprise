@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { formatPhone } from "../../../../lib/phone";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -380,16 +381,15 @@ export default function CandidateDetailPage() {
         </p>
         <p style={{ fontSize: 13 }}>
           <strong>Phone:</strong>{" "}
-          {session.profile?.phone ? (
-            <a
-              href={`tel:${session.profile.phone.replace(/[^\\d+]/g, "")}`}
-              style={{ color: "#2563eb", textDecoration: "none" }}
-            >
-              {session.profile.phone}
-            </a>
-          ) : (
-            <span>—</span>
-          )}
+          {(() => {
+            const formatted = formatPhone(session.profile?.phone ?? null, "US");
+            if (!formatted) return <span>—</span>;
+            return (
+              <a href={formatted.href} style={{ color: "#2563eb", textDecoration: "none" }}>
+                {formatted.display}
+              </a>
+            );
+          })()}
         </p>
       </section>
 
@@ -818,7 +818,11 @@ export default function CandidateDetailPage() {
                           "Content-Type": "application/json",
                           Authorization: `Bearer ${token}`,
                         },
-                        body: JSON.stringify({ body: journalDraft.trim() }),
+                        body: JSON.stringify({
+                          body: journalDraft.trim(),
+                          // Default: internal-only; toggle UI could set this true
+                          shareWithSubject: false,
+                        }),
                       },
                     );
                     if (!res.ok) {
