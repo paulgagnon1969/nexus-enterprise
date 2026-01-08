@@ -1,6 +1,18 @@
-import { PrismaClient } from "@prisma/client";
+// NOTE: We intentionally avoid importing PrismaClient as a typed symbol here
+// because frontend-only builds (e.g. Vercel web) may run TypeScript before
+// `prisma generate` has executed, leaving @prisma/client in its stub state
+// without a PrismaClient type. To keep builds green in those environments
+// while still working at runtime on the API side, we treat the client as `any`.
+//
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { PrismaClient } = require("@prisma/client") as any;
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
+
+// Soft type alias so the rest of this file can annotate variables without
+// requiring generated Prisma types.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type PrismaClientType = any;
 
 // Central PrismaClient instance for the shared database package.
 //
@@ -9,9 +21,9 @@ import { PrismaPg } from "@prisma/adapter-pg";
 // driver adapter so all consumers of @repo/database share the same
 // configuration.
 
-let client: PrismaClient | null = null;
+let client: PrismaClientType | null = null;
 
-function createClient(): PrismaClient {
+function createClient(): PrismaClientType {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error(
@@ -30,7 +42,7 @@ function createClient(): PrismaClient {
   });
 }
 
-function getClient(): PrismaClient {
+function getClient(): PrismaClientType {
   if (!client) {
     client = createClient();
   }
@@ -40,7 +52,7 @@ function getClient(): PrismaClient {
 // Export a lazy proxy so existing call sites can keep using
 // `prisma.model.findMany()` without change while we initialize the
 // underlying PrismaClient on first use.
-const prisma = new Proxy({} as PrismaClient, {
+const prisma = new Proxy({} as PrismaClientType, {
   get(_target, prop, receiver) {
     const real = getClient();
     return Reflect.get(real, prop, receiver);
