@@ -27,19 +27,19 @@ interface CandidateSessionForReview {
   token: string;
   userId?: string | null;
   profile?: CandidateProfile | null;
-  bankInfo?: {
-    accountHolderName?: string | null;
-    routingNumberMasked?: string | null;
-    accountNumberMasked?: string | null;
-    bankName?: string | null;
-  } | null;
-  // Optional checklist from onboarding (profile/documents/skills completion flags).
+  detailStatusCode?: string | null;
   checklist?: {
     profileComplete?: boolean;
     photoUploaded?: boolean;
     govIdUploaded?: boolean;
     skillsComplete?: boolean;
     [key: string]: any;
+  } | null;
+  bankInfo?: {
+    accountHolderName?: string | null;
+    routingNumberMasked?: string | null;
+    accountNumberMasked?: string | null;
+    bankName?: string | null;
   } | null;
 }
 
@@ -76,6 +76,9 @@ export default function CandidateDetailPage() {
   const [skillsError, setSkillsError] = useState<string | null>(null);
  
   const [canViewHr, setCanViewHr] = useState(false);
+  const [detailStatusOptions, setDetailStatusOptions] = useState<
+    { id: string; code: string; label: string; color?: string | null }[]
+  >([]);
   const [journalLoading, setJournalLoading] = useState(false);
   const [journalError, setJournalError] = useState<string | null>(null);
   const [journalEntries, setJournalEntries] = useState<
@@ -159,6 +162,7 @@ export default function CandidateDetailPage() {
           profile: json.profile ?? null,
           bankInfo: json.bankInfo ?? null,
           checklist: json.checklist ?? null,
+          detailStatusCode: json.detailStatusCode ?? null,
         });
       } catch (e: any) {
         setError(e?.message ?? "Failed to load candidate.");
@@ -214,6 +218,30 @@ export default function CandidateDetailPage() {
     const token = window.localStorage.getItem("accessToken");
     if (!token) return;
 
+    async function loadDetailStatusDefs() {
+      try {
+        const res = await fetch(
+          `${API_BASE}/onboarding/company/${companyId}/status-definitions`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!Array.isArray(json)) return;
+        setDetailStatusOptions(
+          json.map((d: any) => ({
+            id: d.id,
+            code: d.code,
+            label: d.label,
+            color: d.color ?? null,
+          })),
+        );
+      } catch {
+        // non-fatal
+      }
+    }
+
     async function loadMe() {
       try {
         const res = await fetch(`${API_BASE}/users/me`, {
@@ -238,7 +266,7 @@ export default function CandidateDetailPage() {
       }
     }
 
-    void loadMe();
+    void Promise.all([loadDetailStatusDefs(), loadMe()]);
   }, [session?.companyId]);
 
   // Load journal entries for this candidate's underlying user when HR can view
@@ -414,6 +442,57 @@ export default function CandidateDetailPage() {
           <strong>Onboarding status:</strong>{" "}
           <span>{session.status}</span>
         </p>
+        {canViewHr && detailStatusOptions.length > 0 && (
+          <p style={{ fontSize: 13, marginTop: 4 }}>
+            <strong>Candidate status:</strong>{" "}
+            <select
+              value={session.detailStatusCode ?? ""}
+              onChange={async e => {
+                const nextCode = e.target.value || null;
+                const token = window.localStorage.getItem("accessToken");
+                if (!token) {
+                  alert("Missing access token. Please log in again.");
+                  return;
+                }
+                try {
+                  const res = await fetch(
+                    `${API_BASE}/onboarding/sessions/${session.id}/detail-status`,
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                      },
+                      body: JSON.stringify({ detailStatusCode: nextCode }),
+                    },
+                  );
+                  if (!res.ok) {
+                    const text = await res.text().catch(() => "");
+                    throw new Error(
+                      `Failed to update candidate status (${res.status}) ${text}`,
+                    );
+                  }
+                  setSession(prev => (prev ? { ...prev, detailStatusCode: nextCode } : prev));
+                } catch (err: any) {
+                  alert(err?.message ?? "Failed to update candidate status.");
+                }
+              }}
+              style={{
+                padding: "2px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            >
+              <option value="">(none)</option>
+              {detailStatusOptions.map(opt => (
+                <option key={opt.id} value={opt.code}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </p>
+        )}
         <p style={{ fontSize: 13, color: "#6b7280" }}>
           <strong>Submitted / created:</strong>{" "}
           <span>{new Date(session.createdAt).toLocaleString()}</span>

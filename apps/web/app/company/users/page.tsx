@@ -2468,14 +2468,37 @@ interface CandidateProfile {
   postalCode?: string | null;
 }
 
+interface CandidateChecklist {
+  profileComplete?: boolean;
+  photoUploaded?: boolean;
+  govIdUploaded?: boolean;
+  skillsComplete?: boolean;
+  [key: string]: any;
+}
+
 interface CandidateRow {
   id: string;
   email: string;
   status: CandidateStatus;
   createdAt: string;
   profile?: CandidateProfile | null;
+  checklist?: CandidateChecklist | null;
   detailStatusCode?: string | null;
   userId?: string | null; // underlying User.id when available (for journaling)
+}
+
+function computeProfilePercentFromChecklist(checklist: CandidateChecklist | null | undefined): number | null {
+  if (!checklist) return null;
+  const keys: (keyof CandidateChecklist)[] = [
+    "profileComplete",
+    "photoUploaded",
+    "govIdUploaded",
+    "skillsComplete",
+  ];
+  const completed = keys.filter(k => !!checklist[k]).length;
+  if (completed === 0) return 0;
+  const percent = Math.round((completed / keys.length) * 100);
+  return Number.isFinite(percent) ? percent : null;
 }
 
 function stateToRegion(state: string | null | undefined): string {
@@ -2531,6 +2554,8 @@ function ProspectiveCandidatesPanel({
     | "STATE_DESC"
     | "STATUS_ASC"
     | "STATUS_DESC"
+    | "PROFILE_ASC"
+    | "PROFILE_DESC"
     | "SUBMITTED_ASC"
     | "SUBMITTED_DESC"
   >("SUBMITTED_DESC");
@@ -2685,6 +2710,14 @@ function ProspectiveCandidatesPanel({
         const bTime = new Date(b.createdAt).getTime();
         const diff = aTime - bTime;
         return sortMode === "SUBMITTED_ASC" ? diff : -diff;
+      }
+
+      if (sortMode === "PROFILE_ASC" || sortMode === "PROFILE_DESC") {
+        const aPct = computeProfilePercentFromChecklist(a.checklist) ?? -1;
+        const bPct = computeProfilePercentFromChecklist(b.checklist) ?? -1;
+        if (aPct === bPct) return 0;
+        const diff = aPct - bPct;
+        return sortMode === "PROFILE_ASC" ? diff : -diff;
       }
 
       if (sortMode === "REGION_ASC" || sortMode === "REGION_DESC") {
@@ -2928,7 +2961,7 @@ function ProspectiveCandidatesPanel({
         </label>
 
         <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          Candidate state
+          Candidate status
           <select
             value={detailStatusFilter}
             onChange={e => setDetailStatusFilter(e.target.value)}
@@ -3256,6 +3289,37 @@ function ProspectiveCandidatesPanel({
                     type="button"
                     onClick={() =>
                       setSortMode(prev =>
+                        prev === "PROFILE_ASC" ? "PROFILE_DESC" : "PROFILE_ASC",
+                      )
+                    }
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: 0,
+                      margin: 0,
+                      border: "none",
+                      background: "transparent",
+                      fontSize: "inherit",
+                      cursor: "pointer",
+                      color: "#111827",
+                    }}
+                  >
+                    <span>Profile %</span>
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>
+                      {sortMode === "PROFILE_ASC"
+                        ? "↑"
+                        : sortMode === "PROFILE_DESC"
+                        ? "↓"
+                        : "↕"}
+                    </span>
+                  </button>
+                </th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSortMode(prev =>
                         prev === "SUBMITTED_ASC" ? "SUBMITTED_DESC" : "SUBMITTED_ASC",
                       )
                     }
@@ -3282,9 +3346,6 @@ function ProspectiveCandidatesPanel({
                     </span>
                   </button>
                 </th>
-                <th style={{ textAlign: "right", padding: "6px 8px" }}>
-                  <span style={{ visibility: "hidden" }}>Actions</span>
-                </th>
                 <th
                   style={{
                     textAlign: "center",
@@ -3293,39 +3354,24 @@ function ProspectiveCandidatesPanel({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  <div
+                  <button
+                    type="button"
+                    aria-label="Bulk actions for selected candidates"
+                    onClick={() => setBulkMenuOpen(open => !open)}
                     style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 4,
+                      padding: "0 8px 2px 8px",
+                      borderRadius: 9999,
+                      border: "1px solid #2563eb",
+                      backgroundColor: "#ffffff",
+                      color: "#2563eb",
+                      fontSize: 16,
+                      lineHeight: "16px",
+                      cursor: filtered.length === 0 ? "default" : "pointer",
                     }}
+                    disabled={filtered.length === 0}
                   >
-                    <button
-                      type="button"
-                      aria-label="Bulk actions for selected candidates"
-                      onClick={() => setBulkMenuOpen(open => !open)}
-                      style={{
-                        padding: "0 8px 2px 8px",
-                        borderRadius: 9999,
-                        border: "1px solid #2563eb",
-                        backgroundColor: "#ffffff",
-                        color: "#2563eb",
-                        fontSize: 16,
-                        lineHeight: "16px",
-                        cursor: filtered.length === 0 ? "default" : "pointer",
-                      }}
-                      disabled={filtered.length === 0}
-                    >
-                      ...
-                    </button>
-                    <input
-                      type="checkbox"
-                      aria-label="Select all candidates in current filter"
-                      checked={allFilteredSelected && filtered.length > 0}
-                      disabled={filtered.length === 0}
-                      onChange={handleToggleSelectAllFiltered}
-                    />
-                  </div>
+                    ...
+                  </button>
                   {bulkMenuOpen && (
                     <div
                       style={{
@@ -3418,6 +3464,20 @@ function ProspectiveCandidatesPanel({
                     </div>
                   )}
                 </th>
+                <th
+                  style={{
+                    textAlign: "center",
+                    padding: "6px 8px",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    aria-label="Select all candidates in current filter"
+                    checked={allFilteredSelected && filtered.length > 0}
+                    disabled={filtered.length === 0}
+                    onChange={handleToggleSelectAllFiltered}
+                  />
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -3476,9 +3536,51 @@ function ProspectiveCandidatesPanel({
                             backgroundColor: "#f3f4f6",
                           }}
                         >
-                          {r.detailStatusCode}
+                          {/* Show human label when available */}
+                          {detailStatusOptions.find(d => d.code === r.detailStatusCode)?.label ??
+                            r.detailStatusCode}
                         </div>
                       )}
+                    </td>
+                    <td
+                      style={{
+                        padding: "6px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        fontSize: 12,
+                      }}
+                    >
+                      {(() => {
+                        const pct = computeProfilePercentFromChecklist(r.checklist ?? null);
+                        if (pct == null) return <span style={{ color: "#6b7280" }}>—</span>;
+                        return (
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                            }}
+                          >
+                            <div
+                              style={{
+                                flex: "0 0 80px",
+                                height: 6,
+                                borderRadius: 999,
+                                background: "#e5e7eb",
+                                overflow: "hidden",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: `${Math.min(100, Math.max(0, pct))}%`,
+                                  height: "100%",
+                                  backgroundColor: pct >= 80 ? "#16a34a" : "#f97316",
+                                }}
+                              />
+                            </div>
+                            <span style={{ fontSize: 11, color: "#374151" }}>{pct}%</span>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12, color: "#6b7280" }}>
                       {new Date(r.createdAt).toLocaleString()}
@@ -3856,7 +3958,7 @@ function ProspectiveCandidatesPanel({
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ padding: 10, fontSize: 12, color: "#6b7280" }}>
+                  <td colSpan={9} style={{ padding: 10, fontSize: 12, color: "#6b7280" }}>
                     No candidates match your filters.
                   </td>
                 </tr>
