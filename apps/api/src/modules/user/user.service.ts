@@ -31,6 +31,28 @@ type PortfolioHrPayload = {
   hipaaNotes?: string | null;
 };
 
+function calculateProfileCompletionPercent(user: {
+  email: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+} & {
+  // Optional richer context we may use later (portfolio, onboarding, skills, etc.)
+  // For now we keep the function minimal and safe.
+}): number {
+  // Base: 10% once we have at least name + email.
+  let score = 0;
+  const hasName = !!(user.firstName && user.firstName.trim()) && !!(user.lastName && user.lastName.trim());
+  const hasEmail = !!(user.email && user.email.trim());
+
+  if (hasName && hasEmail) {
+    score = 10;
+  }
+
+  // Future: increment score based on additional fields (phone, address, skills, etc.).
+  // For now, keep it simple and always cap at 100.
+  return Math.max(10, Math.min(score, 100));
+}
+
 @Injectable()
 export class UserService {
   constructor(private readonly prisma: PrismaService) {}
@@ -45,6 +67,7 @@ export class UserService {
         lastName: true,
         globalRole: true,
         userType: true,
+        profileCompletionPercent: true,
         memberships: {
           select: {
             companyId: true,
@@ -72,11 +95,36 @@ export class UserService {
     const firstName = dto.firstName != null ? dto.firstName.trim() : undefined;
     const lastName = dto.lastName != null ? dto.lastName.trim() : undefined;
 
+    // Load current user so we can recalculate profile completion.
+    const existing = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        email: true,
+        firstName: true,
+        lastName: true,
+        profileReminderStartAt: true,
+      },
+    });
+
+    const nextFirst = firstName === "" ? null : firstName ?? existing?.firstName ?? null;
+    const nextLast = lastName === "" ? null : lastName ?? existing?.lastName ?? null;
+
+    const nextPercent = calculateProfileCompletionPercent({
+      email: existing?.email ?? null,
+      firstName: nextFirst,
+      lastName: nextLast,
+    });
+
+    const now = new Date();
+
     return this.prisma.user.update({
       where: { id: userId },
       data: {
-        firstName: firstName === "" ? null : firstName,
-        lastName: lastName === "" ? null : lastName,
+        firstName: nextFirst,
+        lastName: nextLast,
+        profileCompletionPercent: nextPercent,
+        profileCompletionUpdatedAt: now,
+        profileReminderStartAt: existing?.profileReminderStartAt ?? now,
       },
       select: {
         id: true,
@@ -85,6 +133,7 @@ export class UserService {
         lastName: true,
         globalRole: true,
         userType: true,
+        profileCompletionPercent: true,
       },
     });
   }
