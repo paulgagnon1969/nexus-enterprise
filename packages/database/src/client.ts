@@ -57,6 +57,6 @@ const prisma = new Proxy({} as PrismaClientType, {
     const real = getClient();
     return Reflect.get(real, prop, receiver);
   },
-}) as PrismaClient;
+}) as PrismaClientType;
 
 export default prisma;
