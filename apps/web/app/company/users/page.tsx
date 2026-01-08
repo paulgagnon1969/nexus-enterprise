@@ -2504,9 +2504,11 @@ function computeProfilePercentFromChecklist(checklist: CandidateChecklist | null
     "skillsComplete",
   ];
   const completed = keys.filter(k => !!checklist[k]).length;
-  if (completed === 0) return 0;
-  const percent = Math.round((completed / keys.length) * 100);
-  return Number.isFinite(percent) ? percent : null;
+  // Start at a baseline of 10% once we have a checklist for this candidate,
+  // then increase based on how many key steps are complete.
+  const raw = Math.round((completed / keys.length) * 100);
+  if (!Number.isFinite(raw)) return null;
+  return Math.max(10, raw);
 }
 
 function stateToRegion(state: string | null | undefined): string {
@@ -2567,6 +2569,9 @@ function ProspectiveCandidatesPanel({
     | "SUBMITTED_ASC"
     | "SUBMITTED_DESC"
   >("SUBMITTED_DESC");
+  const [showBulkJournalPanel, setShowBulkJournalPanel] = useState(false);
+  const [bulkJournalText, setBulkJournalText] = useState("");
+  const [bulkJournalSaving, setBulkJournalSaving] = useState(false);
 
   // Load candidate status definitions (global + company) once when tab is candidates
   useEffect(() => {
@@ -2847,12 +2852,10 @@ function ProspectiveCandidatesPanel({
     }
   }
 
-  async function handleBulkJournalEntry() {
+  async function handleBulkJournalEntry(note: string) {
     if (typeof window === "undefined") return;
-    const note = window.prompt(
-      "Journal entry to add for all selected candidates (will be stored on each candidate's journal)?",
-    );
-    if (!note || !note.trim()) return;
+    const trimmed = note.trim();
+    if (!trimmed) return;
     const token = window.localStorage.getItem("accessToken");
     if (!token) {
       alert("Missing access token. Please log in again.");
@@ -2864,6 +2867,7 @@ function ProspectiveCandidatesPanel({
       return;
     }
     try {
+      setBulkJournalSaving(true);
       await Promise.all(
         selected.map(async r => {
           const res = await fetch(`${API_BASE}/messages/journal/user/${r.userId}/entries`, {
@@ -2872,7 +2876,7 @@ function ProspectiveCandidatesPanel({
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({ body: note.trim() }),
+            body: JSON.stringify({ body: trimmed }),
           });
           if (!res.ok) {
             const text = await res.text().catch(() => "");
@@ -2881,8 +2885,12 @@ function ProspectiveCandidatesPanel({
         }),
       );
       alert("Journal entry added for selected candidates.");
+      setBulkJournalText("");
+      setShowBulkJournalPanel(false);
     } catch (e: any) {
       alert(e?.message ?? "Failed to add journal entries");
+    } finally {
+      setBulkJournalSaving(false);
     }
   }
 
@@ -3120,6 +3128,101 @@ function ProspectiveCandidatesPanel({
           </div>
         </div>
       </div>
+
+      {showBulkJournalPanel && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: 10,
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            backgroundColor: "#ffffff",
+            fontSize: 12,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <div>
+              <strong>Journal / note for selected candidates</strong>
+              <div style={{ color: "#6b7280" }}>
+                This text will be saved to each selected candidate's journal.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (bulkJournalSaving) return;
+                setShowBulkJournalPanel(false);
+              }}
+              style={{
+                border: "none",
+                borderRadius: 999,
+                width: 22,
+                height: 22,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#f3f4f6",
+                cursor: "pointer",
+                fontSize: 13,
+              }}
+              aria-label="Close journal panel"
+            >
+              ×
+            </button>
+          </div>
+          <textarea
+            value={bulkJournalText}
+            onChange={e => setBulkJournalText(e.target.value)}
+            rows={3}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              borderRadius: 6,
+              border: "1px solid #d1d5db",
+              fontSize: 12,
+              resize: "vertical",
+            }}
+            placeholder="Type a journal note that will be added to each selected candidate's profile"
+          />
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+            <button
+              type="button"
+              onClick={() => {
+                if (bulkJournalSaving) return;
+                setShowBulkJournalPanel(false);
+              }}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: "1px solid #d1d5db",
+                backgroundColor: "#ffffff",
+                fontSize: 11,
+                cursor: bulkJournalSaving ? "default" : "pointer",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={bulkJournalSaving || !bulkJournalText.trim()}
+              onClick={() => void handleBulkJournalEntry(bulkJournalText)}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: "1px solid #0f172a",
+                backgroundColor:
+                  bulkJournalSaving || !bulkJournalText.trim() ? "#e5e7eb" : "#0f172a",
+                color: bulkJournalSaving || !bulkJournalText.trim() ? "#4b5563" : "#f9fafb",
+                fontSize: 11,
+                cursor:
+                  bulkJournalSaving || !bulkJournalText.trim() ? "default" : "pointer",
+              }}
+            >
+              {bulkJournalSaving ? "Saving…" : "Save journal note"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <p style={{ fontSize: 12, color: "#6b7280", marginTop: 10 }}>Loading candidates…</p>
@@ -3448,9 +3551,9 @@ function ProspectiveCandidatesPanel({
                       </button>
                       <button
                         type="button"
-                        onClick={async () => {
+                        onClick={() => {
                           setBulkMenuOpen(false);
-                          await handleBulkJournalEntry();
+                          setShowBulkJournalPanel(true);
                         }}
                         disabled={selectedCount === 0}
                         style={{
@@ -3560,32 +3663,52 @@ function ProspectiveCandidatesPanel({
                       {(() => {
                         const pct = computeProfilePercentFromChecklist(r.checklist ?? null);
                         if (pct == null) return <span style={{ color: "#6b7280" }}>—</span>;
+                        const clamped = Math.min(100, Math.max(0, pct));
                         return (
                           <div
                             style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 6,
+                              flex: "0 0 100px",
+                              maxWidth: 140,
                             }}
                           >
                             <div
                               style={{
-                                flex: "0 0 80px",
-                                height: 6,
+                                position: "relative",
+                                width: "100%",
+                                height: 14,
                                 borderRadius: 999,
-                                background: "#e5e7eb",
+                                backgroundColor: "#e5e7eb",
                                 overflow: "hidden",
+                                boxShadow: "inset 0 0 0 1px rgba(15,23,42,0.04)",
                               }}
                             >
                               <div
                                 style={{
-                                  width: `${Math.min(100, Math.max(0, pct))}%`,
-                                  height: "100%",
-                                  backgroundColor: pct >= 80 ? "#16a34a" : "#f97316",
+                                  position: "absolute",
+                                  inset: 0,
+                                  width: `${clamped}%`,
+                                  backgroundColor: "#1d4ed8",
+                                  transition: "width 120ms ease-out",
                                 }}
                               />
+                              <div
+                                style={{
+                                  position: "relative",
+                                  zIndex: 1,
+                                  width: "100%",
+                                  height: "100%",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  color: "#f9fafb",
+                                  textShadow: "0 1px 1px rgba(15,23,42,0.45)",
+                                }}
+                              >
+                                {clamped}%
+                              </div>
                             </div>
-                            <span style={{ fontSize: 11, color: "#374151" }}>{pct}%</span>
                           </div>
                         );
                       })()}
