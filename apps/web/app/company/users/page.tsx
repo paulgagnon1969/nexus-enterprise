@@ -10,7 +10,7 @@ type CompanyRole = "OWNER" | "ADMIN" | "MEMBER" | "CLIENT";
 
 type GlobalRole = "SUPER_ADMIN" | "NONE" | string;
 
-type UserType = "WORKER" | "CLIENT" | string;
+type UserType = "INTERNAL" | "CLIENT" | "APPLICANT" | string;
 
 interface MeMembership {
   companyId: string;
@@ -81,9 +81,9 @@ function CompanyUsersPageInner() {
   const [membersError, setMembersError] = useState<string | null>(null);
   // Company users (members) filtering + selection.
   // Default user-type filter is INTERNAL so company users are prefiltered to internal staff.
-  const [memberTypeFilter, setMemberTypeFilter] = useState<"INTERNAL" | "CLIENT" | "ALL">(
-    "INTERNAL",
-  );
+  const [memberTypeFilter, setMemberTypeFilter] = useState<
+    "INTERNAL" | "CLIENT" | "APPLICANT" | "ALL"
+  >("INTERNAL");
   const [memberRoleFilter, setMemberRoleFilter] = useState<CompanyRole | "ALL">("ALL");
   const [memberSearchEmail, setMemberSearchEmail] = useState("");
   const [memberSelectedIds, setMemberSelectedIds] = useState<string[]>([]);
@@ -285,11 +285,18 @@ function CompanyUsersPageInner() {
 
   const filteredMembers = useMemo(() => {
     const base = members.filter(m => {
-      // User type filter: INTERNAL → everyone except CLIENT; CLIENT → only client records.
-      if (memberTypeFilter === "INTERNAL" && m.user.userType === "CLIENT") {
+      // User type filter:
+      // - INTERNAL   → only INTERNAL users
+      // - CLIENT     → only CLIENT users
+      // - APPLICANT  → only APPLICANT users
+      // - ALL        → no userType filter
+      if (memberTypeFilter === "INTERNAL" && m.user.userType !== "INTERNAL") {
         return false;
       }
       if (memberTypeFilter === "CLIENT" && m.user.userType !== "CLIENT") {
+        return false;
+      }
+      if (memberTypeFilter === "APPLICANT" && m.user.userType !== "APPLICANT") {
         return false;
       }
 
@@ -1105,9 +1112,10 @@ function CompanyUsersPageInner() {
                     border: "1px solid #d1d5db",
                     minWidth: 160,
                   }}
-                >
+> 
                   <option value="INTERNAL">Internal only</option>
                   <option value="CLIENT">Client only</option>
+                  <option value="APPLICANT">Applicant only</option>
                   <option value="ALL">All users</option>
                 </select>
               </label>
