@@ -193,6 +193,19 @@ model User {
   reputationOverallOverride Int?
   firstName                 String?
   lastName                  String?
+
+  /// Percent of this user's profile that is complete (0–100). Starts at 10%
+  /// once we have at least name + email, then increases as additional fields
+  /// (contact info, onboarding profile, skills, etc.) are filled in.
+  profileCompletionPercent   Int       @default(10)
+  profileCompletionUpdatedAt DateTime? @updatedAt
+
+  /// Anchor timestamp for sending early profile-completion nudges. For the
+  /// first 7 days after this is set, we may send one reminder per day while
+  /// profileCompletionPercent < 100.
+  profileReminderStartAt   DateTime?
+  profileReminderLastSentAt DateTime?
+
   acceptedInvites           CompanyInvite[]
   memberships               CompanyMembership[]
   createdDailyLogs          DailyLog[]

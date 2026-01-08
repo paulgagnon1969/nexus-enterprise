@@ -8,6 +8,22 @@ import { encryptPortfolioHrJson } from "../../common/crypto/portfolio-hr.crypto"
 import { NotificationsService } from "../notifications/notifications.service";
 import { EmailService } from "../../common/email.service";
 
+function calculateProfileCompletionPercent(user: {
+  email: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+}): number {
+  const hasName = !!(user.firstName && user.firstName.trim()) && !!(user.lastName && user.lastName.trim());
+  const hasEmail = !!(user.email && user.email.trim());
+
+  let score = 0;
+  if (hasName && hasEmail) {
+    score = 10;
+  }
+
+  return Math.max(10, Math.min(score, 100));
+}
+
 @Injectable()
 export class OnboardingService {
   constructor(
@@ -259,6 +275,10 @@ export class OnboardingService {
           email: normalizedEmail,
           passwordHash,
           userType: UserType.APPLICANT,
+          // Seed profile completion + reminder anchor for new public signups.
+          profileCompletionPercent: 10,
+          profileCompletionUpdatedAt: new Date(),
+          profileReminderStartAt: new Date(),
         }
       });
 
@@ -569,19 +589,60 @@ export class OnboardingService {
       update: profile,
       create: {
         sessionId: session.id,
-        ...profile
-      }
+        ...profile,
+      },
     });
 
     const checklist = (session.checklistJson && JSON.parse(session.checklistJson)) || {};
     checklist.profileComplete = true;
 
+    // Best-effort: if this session is linked to a user, bump their profile
+    // completion percent and reminder anchor.
+    if (session.userId) {
+      try {
+        const user = await this.prisma.user.findUnique({
+          where: { id: session.userId },
+          select: {
+            email: true,
+            firstName: true,
+            lastName: true,
+            profileCompletionPercent: true,
+            profileReminderStartAt: true,
+          },
+        });
+
+        if (user) {
+          const nextFirst = user.firstName ?? profile.firstName ?? null;
+          const nextLast = user.lastName ?? profile.lastName ?? null;
+          const nextPercent = calculateProfileCompletionPercent({
+            email: user.email,
+            firstName: nextFirst,
+            lastName: nextLast,
+          });
+          const now = new Date();
+
+          await this.prisma.user.update({
+            where: { id: session.userId },
+            data: {
+              firstName: nextFirst,
+              lastName: nextLast,
+              profileCompletionPercent: nextPercent,
+              profileCompletionUpdatedAt: now,
+              profileReminderStartAt: user.profileReminderStartAt ?? now,
+            },
+          });
+        }
+      } catch {
+        // non-fatal: never block candidate profile updates on this.
+      }
+    }
+
     return this.prisma.onboardingSession.update({
       where: { id: session.id },
       data: {
         status: "IN_PROGRESS" as any,
-        checklistJson: JSON.stringify(checklist)
-      }
+        checklistJson: JSON.stringify(checklist),
+      },
     });
   }
 
