@@ -2,6 +2,7 @@
 
 import { FormEvent, Fragment, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { formatPhone } from "../../../lib/phone";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -610,12 +611,21 @@ export default function CompanyUserProfilePage() {
                 {profile.worker.phone && (
                   <div>
                     <strong>Worker phone:</strong>{" "}
-                    <a
-                      href={`tel:${profile.worker.phone.replace(/[^\\d+]/g, "")}`}
-                      style={{ color: "#2563eb", textDecoration: "none" }}
-                    >
-                      {profile.worker.phone}
-                    </a>
+                    {(() => {
+                      const formatted = formatPhone(
+                        profile.worker?.phone ?? null,
+                        profile.hr?.country ?? "US",
+                      );
+                      if (!formatted) return profile.worker?.phone;
+                      return (
+                        <a
+                          href={formatted.href}
+                          style={{ color: "#2563eb", textDecoration: "none" }}
+                        >
+                          {formatted.display}
+                        </a>
+                      );
+                    })()}
                   </div>
                 )}
                 {profile.worker.city && (
@@ -655,16 +665,21 @@ export default function CompanyUserProfilePage() {
                 </p>
                 <p style={{ margin: 0 }}>
                   <strong>HR phone:</strong>{" "}
-                  {profile.hr.phone ? (
-                    <a
-                      href={`tel:${profile.hr.phone.replace(/[^\\d+]/g, "")}`}
-                      style={{ color: "#2563eb", textDecoration: "none" }}
-                    >
-                      {profile.hr.phone}
-                    </a>
-                  ) : (
-                    "—"
-                  )}
+                  {(() => {
+                    const formatted = formatPhone(
+                      profile.hr?.phone ?? null,
+                      profile.hr?.country ?? "US",
+                    );
+                    if (!formatted) return "—";
+                    return (
+                      <a
+                        href={formatted.href}
+                        style={{ color: "#2563eb", textDecoration: "none" }}
+                      >
+                        {formatted.display}
+                      </a>
+                    );
+                  })()}
                 </p>
                 <p style={{ margin: 0, marginTop: 4 }}>
                   <strong>Address:</strong>{" "}

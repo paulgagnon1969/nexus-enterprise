@@ -137,6 +137,7 @@ export class MessagingController {
     @Body()
     body: {
       body: string;
+      shareWithSubject?: boolean;
       attachments?: {
         kind: $Enums.AttachmentKind;
         url: string;

@@ -302,6 +302,10 @@ model Message {
   senderEmail String?
   body        String
   createdAt   DateTime @default(now())
+  /// Optional visibility flag for JOURNAL messages. When true, the subject
+  /// user can see this entry on their own journal board; otherwise it is
+  /// internal-only for HR/admins.
+  sharedWithSubject Boolean @default(false)
 
   thread       MessageThread        @relation(fields: [threadId], references: [id])
   sender       User?                @relation(fields: [senderId], references: [id])

@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/commo
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { GlobalRole, Role } from "../auth/auth.guards";
+import { UserType } from "@prisma/client";
 import {
   decryptPortfolioHrJson,
   encryptPortfolioHrJson,
@@ -328,6 +329,90 @@ export class UserService {
     }
 
     return this.getMyPortfolio(actor);
+  }
+
+  async updateUserType(
+    actor: AuthenticatedUser,
+    targetUserId: string,
+    nextUserTypeRaw: string,
+  ) {
+    const companyId = actor.companyId;
+    if (!companyId) {
+      throw new ForbiddenException("Missing company context");
+    }
+
+    const actorMembership = await this.prisma.companyMembership.findUnique({
+      where: {
+        userId_companyId: {
+          userId: actor.userId,
+          companyId,
+        },
+      },
+      select: { role: true },
+    });
+
+    if (!actorMembership || (actorMembership.role !== Role.OWNER && actorMembership.role !== Role.ADMIN)) {
+      throw new ForbiddenException("Only company OWNER/ADMIN can update user type");
+    }
+
+    const targetMembership = await this.prisma.companyMembership.findUnique({
+      where: {
+        userId_companyId: {
+          userId: targetUserId,
+          companyId,
+        },
+      },
+      select: { userId: true },
+    });
+
+    if (!targetMembership) {
+      throw new ForbiddenException("Target user is not a member of this company");
+    }
+
+    const normalized = (nextUserTypeRaw || "").toUpperCase().trim();
+    const allowed: UserType[] = [UserType.INTERNAL, UserType.CLIENT, UserType.APPLICANT];
+    if (!allowed.includes(normalized as UserType)) {
+      throw new ForbiddenException(`Invalid userType: ${nextUserTypeRaw}`);
+    }
+
+    return this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { userType: normalized as UserType },
+      select: {
+        id: true,
+        email: true,
+        userType: true,
+        globalRole: true,
+      },
+    });
+  }
+
+  async updateGlobalRole(
+    actor: AuthenticatedUser,
+    targetUserId: string,
+    nextGlobalRoleRaw: string,
+  ) {
+    // Controller-level guard already restricts to SUPER_ADMIN, but we double-check.
+    if (actor.globalRole !== GlobalRole.SUPER_ADMIN) {
+      throw new ForbiddenException("Only SUPER_ADMIN can change global roles");
+    }
+
+    const normalized = (nextGlobalRoleRaw || "").toUpperCase().trim();
+    const allowed: GlobalRole[] = [GlobalRole.NONE, GlobalRole.SUPER_ADMIN, GlobalRole.SUPPORT];
+    if (!allowed.includes(normalized as GlobalRole)) {
+      throw new ForbiddenException(`Invalid globalRole: ${nextGlobalRoleRaw}`);
+    }
+
+    return this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { globalRole: normalized as GlobalRole },
+      select: {
+        id: true,
+        email: true,
+        userType: true,
+        globalRole: true,
+      },
+    });
   }
 
   async getProfile(targetUserId: string, actor: AuthenticatedUser) {
