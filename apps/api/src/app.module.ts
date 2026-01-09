@@ -29,6 +29,7 @@ import { NotificationsModule } from "./modules/notifications/notifications.modul
 import { MessagingModule } from "./modules/messaging/messaging.module";
 import { SystemDocsModule } from "./modules/system-docs/system-docs.module";
 import { TimecardModule } from "./modules/timecard/timecard.module";
+import { WorkerModule } from "./modules/worker/worker.module";
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { TimecardModule } from "./modules/timecard/timecard.module";
     MessagingModule,
     SystemDocsModule,
     TimecardModule,
+    WorkerModule,
   ],
   controllers: [DevController]
 })
