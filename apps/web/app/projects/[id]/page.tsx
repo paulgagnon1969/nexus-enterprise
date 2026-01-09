@@ -428,6 +428,9 @@ export default function ProjectDetailPage({
   const [structureOpen, setStructureOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("SUMMARY");
 
+  // Default Time Accounting link to "today" for this project
+  const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
   // Reveal PID only after user clicks the project name in the header
   const [showPid, setShowPid] = useState(false);
 
@@ -3044,7 +3047,30 @@ export default function ProjectDetailPage({
       {/* FINANCIAL tab content */}
       {activeTab === "FINANCIAL" && (
         <div style={{ marginTop: 8, marginBottom: 16 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Financial Overview</h2>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 8,
+            }}
+          >
+            <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Financial Overview</h2>
+            <a
+              href={`/projects/${id}/timecards/${todayIso}`}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 4,
+                border: "1px solid #0f172a",
+                backgroundColor: "#0f172a",
+                color: "#f9fafb",
+                fontSize: 12,
+                textDecoration: "none",
+              }}
+            >
+              Open Time Accounting
+            </a>
+          </div>
 
           {financialLoading && (
             <p style={{ fontSize: 12, color: "#6b7280" }}>Loading financial summary…</p>

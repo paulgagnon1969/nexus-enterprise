@@ -808,6 +808,14 @@ function SystemLayoutInner({ children }: { children: ReactNode }) {
             Financial
           </Link>
           <Link
+            href="/financial?section=TIME_ACCOUNTING"
+            target="_blank"
+            rel="noreferrer"
+            style={{ textDecoration: "none", color: "#111827" }}
+          >
+            Time Accounting
+          </Link>
+          <Link
             href="/reports"
             target="_blank"
             rel="noreferrer"

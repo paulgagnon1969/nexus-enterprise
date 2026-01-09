@@ -19,6 +19,7 @@ type FinancialSection =
   | "CHANGES"
   | "CURRENT_CONTRACT_TOTAL"
   | "PAYROLL"
+  | "TIME_ACCOUNTING"
   | "FINANCIAL_ALLOCATION"
   | "DIVISION_CODES_LOOKUP";
 
@@ -115,7 +116,14 @@ type ImportJobDto = {
 };
 
 export default function FinancialPage() {
-  const [activeSection, setActiveSection] = useState<FinancialSection>("PRICELIST_TREE");
+  const [activeSection, setActiveSection] = useState<FinancialSection>(() => {
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      const section = url.searchParams.get("section");
+      if (section === "TIME_ACCOUNTING") return "TIME_ACCOUNTING";
+    }
+    return "PRICELIST_TREE";
+  });
   const [uploading, setUploading] = useState(false);
   const [priceListUploadMessage, setPriceListUploadMessage] = useState<string | null>(null);
   const [priceListUploadError, setPriceListUploadError] = useState<string | null>(null);
