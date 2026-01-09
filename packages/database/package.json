@@ -19,7 +19,8 @@
     "import:bia-workers": "ts-node src/run-import-bia-workers.ts",
     "import:fortified:payroll-admin": "ts-node src/scripts/import-fortified-payroll-admin.ts",
     "import:fortified:ww02-time": "ts-node src/scripts/import-ww02-time.ts",
-    "report:fortified:ww02-time": "ts-node src/scripts/report-ww02-time.ts"
+    "report:fortified:ww02-time": "ts-node src/scripts/report-ww02-time.ts",
+    "import:timecards": "ts-node src/scripts/import-timecards-from-csv.ts"
   },
   "dependencies": {
     "@prisma/client": "^7.0.0",
