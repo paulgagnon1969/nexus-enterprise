@@ -28,6 +28,7 @@ import { ProjectGroupModule } from "./modules/project-group/project-group.module
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { MessagingModule } from "./modules/messaging/messaging.module";
 import { SystemDocsModule } from "./modules/system-docs/system-docs.module";
+import { TimecardModule } from "./modules/timecard/timecard.module";
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { SystemDocsModule } from "./modules/system-docs/system-docs.module";
     NotificationsModule,
     MessagingModule,
     SystemDocsModule,
+    TimecardModule,
   ],
   controllers: [DevController]
 })

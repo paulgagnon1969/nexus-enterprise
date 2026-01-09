@@ -72,6 +72,7 @@ model Company {
   projectFileFolders ProjectFileFolder[]
   projectFiles       ProjectFile[]
   companyPriceLists  CompanyPriceList[]
+  dailyTimecards     DailyTimecard[]
 }
 
 model OrganizationTemplate {
@@ -229,8 +230,11 @@ model User {
   messages            Message[]
 
   // Messaging recipient groups owned by this user
-  ownedRecipientGroups MessageRecipientGroup[]    @relation("UserOwnedRecipientGroups")
+  ownedRecipientGroups  MessageRecipientGroup[]    @relation("UserOwnedRecipientGroups")
   recipientGroupMembers MessageRecipientGroupMember[]
+
+  // Daily timecards created by this user
+  createdTimecards DailyTimecard[]
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -412,6 +416,7 @@ model Worker {
   totalHoursCct      Float?       @default(0)
   notes              String?
   weeks              WorkerWeek[]
+  timeEntries        DailyTimeEntry[]
 }
 
 /// Per-worker, per-week work summary derived from LCPUpload templates.
@@ -429,6 +434,50 @@ model WorkerWeek {
 
   @@unique([workerId, weekEndDate, projectCode])
   @@index([weekEndDate, projectCode], map: "WorkerWeek_week_scope_idx")
+}
+
+/// Daily timecard header for a single company/project/date.
+model DailyTimecard {
+  id             String   @id @default(cuid())
+  companyId      String
+  projectId      String
+  date           DateTime
+  createdByUserId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+  project Project @relation(fields: [projectId], references: [id])
+  createdBy User? @relation(fields: [createdByUserId], references: [id])
+  entries  DailyTimeEntry[]
+
+  @@unique([companyId, projectId, date], name: "DailyTimecard_company_project_date_key")
+  @@index([companyId, date], map: "DailyTimecard_company_date_idx")
+}
+
+/// Individual worker entry on a daily timecard.
+model DailyTimeEntry {
+  id          String   @id @default(cuid())
+  timecardId  String
+  workerId    String
+
+  locationCode String?
+
+  stHours     Float   @default(0)
+  otHours     Float   @default(0)
+  dtHours     Float   @default(0)
+
+  timeIn      DateTime?
+  timeOut     DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  timecard DailyTimecard @relation(fields: [timecardId], references: [id])
+  worker   Worker        @relation(fields: [workerId], references: [id])
+
+  @@index([timecardId, workerId], map: "DailyTimeEntry_timecard_worker_idx")
+  @@index([workerId], map: "DailyTimeEntry_worker_idx")
 }
 
 /// Normalized per-worker, per-project, per-week payroll summary used as the
@@ -658,6 +707,7 @@ model Project {
   messageThreads       MessageThread[]
   projectFileFolders   ProjectFileFolder[]
   projectFiles         ProjectFile[]
+  dailyTimecards       DailyTimecard[]
 
   @@index([companyId, groupId], map: "Project_company_group_idx")
 }
