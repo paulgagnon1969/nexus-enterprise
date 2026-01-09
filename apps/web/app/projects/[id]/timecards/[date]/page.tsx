@@ -472,10 +472,12 @@ export default function ProjectTimecardPage({
     setWeeklyRows((prev) => ensureTrailingBlankRow([...prev, createBlankWeeklyRow(dayCount)], dayCount));
   };
 
-  const handleUpdateWorker = (idx: number, workerId: string) => {
+  const handleUpdateWorker = (rowId: string, workerId: string) => {
     setWeeklyRows((prev) => {
       const dayCount = weekDays.length || 7;
       const next = [...prev];
+      const idx = next.findIndex((r) => r.tempId === rowId);
+      if (idx < 0) return prev;
       const row = { ...next[idx] };
       row.workerId = workerId;
       const w = workers.find((x) => x.id === workerId);
@@ -490,9 +492,11 @@ export default function ProjectTimecardPage({
     });
   };
 
-  const handleUpdateLocation = (idx: number, locationCode: string) => {
+  const handleUpdateLocation = (rowId: string, locationCode: string) => {
     setWeeklyRows((prev) => {
       const next = [...prev];
+      const idx = next.findIndex((r) => r.tempId === rowId);
+      if (idx < 0) return prev;
       const row = { ...next[idx], locationCode };
       next[idx] = row;
       return next;
@@ -500,29 +504,30 @@ export default function ProjectTimecardPage({
   };
 
   const handleUpdateHours = (
-    rowIndex: number,
+    rowId: string,
     dayIndex: number,
     field: "st" | "ot" | "dt",
     value: number,
   ) => {
     setWeeklyRows((prev) => {
       const next = [...prev];
-      const row = { ...next[rowIndex] };
+      const idx = next.findIndex((r) => r.tempId === rowId);
+      if (idx < 0) return prev;
+      const row = { ...next[idx] };
       const days = row.days.map((d, i) => (i === dayIndex ? { ...d } : d));
       const day = { ...days[dayIndex] };
       day[field] = Number.isNaN(value) ? 0 : value;
       days[dayIndex] = day;
       row.days = days;
-      next[rowIndex] = row;
+      next[idx] = row;
       return next;
     });
   };
 
-  const handleDeleteRow = (idx: number) => {
+  const handleDeleteRow = (rowId: string) => {
     setWeeklyRows((prev) => {
       const dayCount = weekDays.length || 7;
-      const next = [...prev];
-      next.splice(idx, 1);
+      const next = prev.filter((r) => r.tempId !== rowId);
       if (next.length === 0) {
         next.push(createBlankWeeklyRow(dayCount));
       }
@@ -949,7 +954,7 @@ export default function ProjectTimecardPage({
                     <select
                       className="border rounded px-1 py-0.5 text-sm w-full"
                       value={row.workerId}
-                      onChange={(ev) => handleUpdateWorker(rowIndex, ev.target.value)}
+                      onChange={(ev) => handleUpdateWorker(row.tempId, ev.target.value)}
                     >
                       <option value="">Select worker</option>
                       {workers.map((w) => (
@@ -964,7 +969,7 @@ export default function ProjectTimecardPage({
                       type="text"
                       className="border rounded px-1 py-0.5 text-sm w-full"
                       value={row.locationCode ?? ""}
-                      onChange={(ev) => handleUpdateLocation(rowIndex, ev.target.value)}
+                      onChange={(ev) => handleUpdateLocation(row.tempId, ev.target.value)}
                     />
                   </td>
                   <td className="border px-2 py-1 text-right text-sm">
@@ -989,7 +994,7 @@ export default function ProjectTimecardPage({
                           value={row.days[dayIndex]?.st ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
-                              rowIndex,
+                              row.tempId,
                               dayIndex,
                               "st",
                               parseFloat(ev.target.value) || 0,
@@ -1012,7 +1017,7 @@ export default function ProjectTimecardPage({
                           value={row.days[dayIndex]?.ot ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
-                              rowIndex,
+                              row.tempId,
                               dayIndex,
                               "ot",
                               parseFloat(ev.target.value) || 0,
@@ -1035,7 +1040,7 @@ export default function ProjectTimecardPage({
                           value={row.days[dayIndex]?.dt ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
-                              rowIndex,
+                              row.tempId,
                               dayIndex,
                               "dt",
                               parseFloat(ev.target.value) || 0,
@@ -1048,7 +1053,7 @@ export default function ProjectTimecardPage({
                   <td className="border px-2 py-1 text-center">
                     <button
                       type="button"
-                      onClick={() => handleDeleteRow(rowIndex)}
+                      onClick={() => handleDeleteRow(row.tempId)}
                       className="text-xs text-red-600 hover:underline"
                     >
                       Remove
