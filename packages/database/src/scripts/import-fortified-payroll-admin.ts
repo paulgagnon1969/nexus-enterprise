@@ -74,16 +74,8 @@ async function main() {
   console.log(`Loaded ${rows.length} rows from Payroll_Admin.csv`);
  
   const passwordHash = await argon2.hash(DEFAULT_PASSWORD);
- 
-  // Ensure Nexus Fortified Structures company exists in this database.
-  const fortifiedCompany = await prisma.company.upsert({
-    where: { id: FORTIFIED_COMPANY_ID },
-    update: {},
-    create: {
-      id: FORTIFIED_COMPANY_ID,
-      name: "Nexus Fortified Structures",
-    },
-  });
+  // In prod, we assume the Nexus Fortified Structures company already exists.
+  // We intentionally do NOT upsert Company here, to avoid permission issues on locked-down schemas.
  
   let workerCreated = 0;
   let workerUpdated = 0;
