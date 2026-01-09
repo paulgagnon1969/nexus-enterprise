@@ -850,9 +850,9 @@ export default function ProjectTimecardPage({
                           step="0.25"
                           inputMode="decimal"
                           size={5}
-                          className={`border rounded px-0.5 py-0.5 text-xs text-center ${
+className={`border border-gray-400 rounded px-0.5 py-0.5 text-xs text-center ${
                             (row.days[dayIndex]?.st ?? 0) === 0
-                              ? "bg-gray-100 text-gray-400"
+                              ? "bg-gray-300 text-gray-600"
                               : "bg-white text-gray-900"
                           }`}
                           style={{ width: "5ch" }}
@@ -873,9 +873,9 @@ export default function ProjectTimecardPage({
                           step="0.25"
                           inputMode="decimal"
                           size={5}
-                          className={`border rounded px-0.5 py-0.5 text-xs text-center ${
+className={`border border-gray-400 rounded px-0.5 py-0.5 text-xs text-center ${
                             (row.days[dayIndex]?.ot ?? 0) === 0
-                              ? "bg-gray-100 text-gray-400"
+                              ? "bg-gray-300 text-gray-600"
                               : "bg-white text-gray-900"
                           }`}
                           style={{ width: "5ch" }}
@@ -896,9 +896,9 @@ export default function ProjectTimecardPage({
                           step="0.25"
                           inputMode="decimal"
                           size={5}
-                          className={`border rounded px-0.5 py-0.5 text-xs text-center ${
+className={`border border-gray-400 rounded px-0.5 py-0.5 text-xs text-center ${
                             (row.days[dayIndex]?.dt ?? 0) === 0
-                              ? "bg-gray-100 text-gray-400"
+                              ? "bg-gray-300 text-gray-600"
                               : "bg-white text-gray-900"
                           }`}
                           style={{ width: "5ch" }}
