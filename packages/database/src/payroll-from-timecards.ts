@@ -50,6 +50,10 @@ export async function rebuildPayrollWeekForProject(
     return { updated: 0 };
   }
 
+  // Fallback projectCode used when a Worker does not have defaultProjectCode set.
+  // This avoids passing a null projectCode into the PayrollWeekRecord unique key.
+  const fallbackProjectCode = `PROJ:${projectId}`;
+
   type Key = string; // workerId
   interface Agg {
     workerId: string;
@@ -66,24 +70,24 @@ export async function rebuildPayrollWeekForProject(
   for (const tc of timecards) {
     for (const e of tc.entries) {
       if (!e.workerId) continue;
-      const worker = await prisma.worker.findUnique({
-        where: { id: e.workerId },
-        select: { firstName: true, lastName: true, defaultPayRate: true, defaultProjectCode: true },
-      });
-      const key: Key = e.workerId;
-      let agg = byWorker.get(key);
-      if (!agg) {
-        agg = {
-          workerId: e.workerId,
-          firstName: worker?.firstName ?? null,
-          lastName: worker?.lastName ?? null,
-          projectCode: worker?.defaultProjectCode ?? null,
-          totalSt: 0,
-          totalOt: 0,
-          totalDt: 0,
-        };
-        byWorker.set(key, agg);
-      }
+    const worker = await prisma.worker.findUnique({
+      where: { id: e.workerId },
+      select: { firstName: true, lastName: true, defaultPayRate: true, defaultProjectCode: true },
+    });
+    const key: Key = e.workerId;
+    let agg = byWorker.get(key);
+    if (!agg) {
+      agg = {
+        workerId: e.workerId,
+        firstName: worker?.firstName ?? null,
+        lastName: worker?.lastName ?? null,
+        projectCode: worker?.defaultProjectCode ?? fallbackProjectCode,
+        totalSt: 0,
+        totalOt: 0,
+        totalDt: 0,
+      };
+      byWorker.set(key, agg);
+    }
       agg.totalSt += e.stHours ?? 0;
       agg.totalOt += e.otHours ?? 0;
       agg.totalDt += e.dtHours ?? 0;
@@ -106,11 +110,13 @@ export async function rebuildPayrollWeekForProject(
     // don't track per-day breakdown here, only week totals.
     const daily = Array.from({ length: 7 }, () => ({ st: 0, ot: 0, dt: 0 }));
 
+    const projectCodeForUpsert = agg.projectCode ?? fallbackProjectCode;
+
     await prisma.payrollWeekRecord.upsert({
       where: {
         PayrollWeek_company_proj_week_emp_key: {
           companyId,
-          projectCode: agg.projectCode,
+          projectCode: projectCodeForUpsert,
           weekEndDate,
           employeeId: worker?.fullName ?? agg.workerId,
         },
@@ -131,7 +137,7 @@ export async function rebuildPayrollWeekForProject(
       create: {
         companyId,
         projectId,
-        projectCode: agg.projectCode,
+        projectCode: projectCodeForUpsert,
         workerId: agg.workerId,
         employeeId: worker?.fullName ?? agg.workerId,
         firstName: worker?.firstName ?? null,

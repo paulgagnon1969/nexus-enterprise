@@ -617,11 +617,16 @@ export default function ProjectTimecardPage({
                 <th className="border px-2 py-1 text-left">Worker</th>
                 <th className="border px-2 py-1 text-left">Location</th>
                 {weekDays.map((day) => (
-                  <React.Fragment key={day.iso}>
-                    <th className="border px-2 py-1 text-right">{day.label} ST</th>
-                    <th className="border px-2 py-1 text-right">{day.label} OT</th>
-                    <th className="border px-2 py-1 text-right">{day.label} DT</th>
-                  </React.Fragment>
+                  <th key={day.iso} className="border px-2 py-1 text-center align-bottom">
+                    <div className="flex flex-col items-center">
+                      <div className="text-xs font-medium">{day.label}</div>
+                      <div className="mt-1 flex items-center justify-center gap-2 text-[10px] text-gray-500">
+                        <span>ST</span>
+                        <span>OT</span>
+                        <span>DT</span>
+                      </div>
+                    </div>
+                  </th>
                 ))}
                 <th className="border px-2 py-1" />
               </tr>
@@ -652,12 +657,14 @@ export default function ProjectTimecardPage({
                     />
                   </td>
                   {weekDays.map((day, dayIndex) => (
-                    <React.Fragment key={`${row.tempId}-${day.iso}`}>
-                      <td className="border px-2 py-1 text-right">
+                    <td key={`${row.tempId}-${day.iso}`} className="border px-2 py-1">
+                      <div className="flex flex-col items-center gap-1">
                         <input
                           type="number"
                           step="0.25"
-                          className="border rounded px-1 py-0.5 text-sm w-20 text-right"
+                          inputMode="decimal"
+                          size={4}
+                          className="border rounded px-1 py-0.5 text-xs w-12 text-center"
                           value={row.days[dayIndex]?.st ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
@@ -668,12 +675,12 @@ export default function ProjectTimecardPage({
                             )
                           }
                         />
-                      </td>
-                      <td className="border px-2 py-1 text-right">
                         <input
                           type="number"
                           step="0.25"
-                          className="border rounded px-1 py-0.5 text-sm w-20 text-right"
+                          inputMode="decimal"
+                          size={4}
+                          className="border rounded px-1 py-0.5 text-xs w-12 text-center"
                           value={row.days[dayIndex]?.ot ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
@@ -684,12 +691,12 @@ export default function ProjectTimecardPage({
                             )
                           }
                         />
-                      </td>
-                      <td className="border px-2 py-1 text-right">
                         <input
                           type="number"
                           step="0.25"
-                          className="border rounded px-1 py-0.5 text-sm w-20 text-right"
+                          inputMode="decimal"
+                          size={4}
+                          className="border rounded px-1 py-0.5 text-xs w-12 text-center"
                           value={row.days[dayIndex]?.dt ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
@@ -700,8 +707,8 @@ export default function ProjectTimecardPage({
                             )
                           }
                         />
-                      </td>
-                    </React.Fragment>
+                      </div>
+                    </td>
                   ))}
                   <td className="border px-2 py-1 text-center">
                     <button
