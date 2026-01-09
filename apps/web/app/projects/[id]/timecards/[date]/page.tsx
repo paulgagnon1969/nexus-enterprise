@@ -43,6 +43,13 @@ interface WeeklyRow {
   days: { st: number; ot: number; dt: number }[]; // one entry per day in week
 }
 
+// Used to infer a default location filter for specific projects (e.g. CBS/CCT)
+const DEFAULT_LOCATION_BY_PROJECT_ID: Record<string, string> = {
+  // Fortified Structures CBS & CCT projects
+  cmk65uim5000601s685j7bbpj: "CBS",
+  cmjwjgmlf000f01s6c5atcwuu: "CCT",
+};
+
 function toIsoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
@@ -172,8 +179,8 @@ export default function ProjectTimecardPage({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [workers, setWorkers] = useState<WorkerOption[]>([]);
-  const [lastNameFilter, setLastNameFilter] = useState("");
-  const [locationFilter, setLocationFilter] = useState("");
+  const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
+  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
 
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -253,6 +260,26 @@ export default function ProjectTimecardPage({
       loadWeek();
     }
   }, [projectId, weekDays, reloadToken]);
+
+  // When rows load for a project, default the location filter to the
+  // project's primary location code (e.g. CBS/CCT) if present in the data.
+  useEffect(() => {
+    if (selectedLocations.length > 0) return;
+    if (!weeklyRows.length) return;
+
+    const projectDefault = DEFAULT_LOCATION_BY_PROJECT_ID[projectId];
+    if (!projectDefault) return;
+
+    const allLocs = new Set<string>();
+    weeklyRows.forEach((row) => {
+      const loc = (row.locationCode ?? "").trim();
+      if (loc) allLocs.add(loc);
+    });
+
+    if (allLocs.has(projectDefault)) {
+      setSelectedLocations([projectDefault]);
+    }
+  }, [projectId, weeklyRows, selectedLocations.length]);
 
   const handleChangeDate = (next: string) => {
     setDate(next);
@@ -460,6 +487,15 @@ export default function ProjectTimecardPage({
     });
   };
 
+  const locationOptions = useMemo(() => {
+    const set = new Set<string>();
+    weeklyRows.forEach((row) => {
+      const loc = (row.locationCode ?? "").trim();
+      if (loc) set.add(loc);
+    });
+    return Array.from(set.values()).sort((a, b) => a.localeCompare(b));
+  }, [weeklyRows]);
+
   function getWorkerNamesForRow(row: WeeklyRow) {
     const worker = workers.find((w) => w.id === row.workerId);
     const fullName = (worker?.fullName || row.workerName || "").trim();
@@ -482,6 +518,19 @@ export default function ProjectTimecardPage({
     return { fullName, firstName, lastName };
   }
 
+  const filterWorkerOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const opts: { id: string; name: string }[] = [];
+    weeklyRows.forEach((row) => {
+      if (!row.workerId || seen.has(row.workerId)) return;
+      seen.add(row.workerId);
+      const { fullName } = getWorkerNamesForRow(row);
+      opts.push({ id: row.workerId, name: fullName || row.workerId });
+    });
+    opts.sort((a, b) => a.name.localeCompare(b.name));
+    return opts;
+  }, [weeklyRows, workers]);
+
   const visibleRows = useMemo(() => {
     const nonBlank: WeeklyRow[] = [];
     const blanks: WeeklyRow[] = [];
@@ -494,17 +543,12 @@ export default function ProjectTimecardPage({
       }
     });
 
-    const lnFilter = lastNameFilter.trim().toLowerCase();
-    const locFilter = locationFilter.trim().toLowerCase();
-
     const filtered = nonBlank.filter((row) => {
-      const { lastName } = getWorkerNamesForRow(row);
-      const loc = (row.locationCode ?? "").toLowerCase();
-
-      if (lnFilter && !lastName.toLowerCase().includes(lnFilter)) {
+      if (selectedWorkerIds.length && !selectedWorkerIds.includes(row.workerId)) {
         return false;
       }
-      if (locFilter && !loc.includes(locFilter)) {
+      const loc = (row.locationCode ?? "").trim();
+      if (selectedLocations.length && !selectedLocations.includes(loc)) {
         return false;
       }
       return true;
@@ -528,7 +572,7 @@ export default function ProjectTimecardPage({
     });
 
     return [...filtered, ...blanks];
-  }, [weeklyRows, workers, lastNameFilter, locationFilter]);
+  }, [weeklyRows, workers, selectedWorkerIds, selectedLocations]);
 
   const totalHours = useMemo(
     () =>
@@ -625,37 +669,53 @@ export default function ProjectTimecardPage({
 
       <div className="flex flex-wrap items-center gap-3 text-xs text-gray-700 mt-2">
         <div className="flex items-center gap-1">
-          <label htmlFor="lastNameFilter" className="whitespace-nowrap">
-            Filter last name:
+          <label htmlFor="workerFilter" className="whitespace-nowrap">
+            Filter worker(s):
           </label>
-          <input
-            id="lastNameFilter"
-            type="text"
-            value={lastNameFilter}
-            onChange={(e) => setLastNameFilter(e.target.value)}
-            className="border rounded px-2 py-0.5 text-xs"
-            placeholder="e.g. Smith"
-          />
+          <select
+            id="workerFilter"
+            multiple
+            value={selectedWorkerIds}
+            onChange={(e) => {
+              const values = Array.from(e.target.selectedOptions).map((o) => o.value);
+              setSelectedWorkerIds(values);
+            }}
+            className="border rounded px-2 py-0.5 text-xs min-w-[160px] h-16"
+          >
+            {filterWorkerOptions.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.name}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="flex items-center gap-1">
           <label htmlFor="locationFilter" className="whitespace-nowrap">
-            Filter location:
+            Filter location(s):
           </label>
-          <input
+          <select
             id="locationFilter"
-            type="text"
-            value={locationFilter}
-            onChange={(e) => setLocationFilter(e.target.value)}
-            className="border rounded px-2 py-0.5 text-xs"
-            placeholder="e.g. CBS"
-          />
+            multiple
+            value={selectedLocations}
+            onChange={(e) => {
+              const values = Array.from(e.target.selectedOptions).map((o) => o.value);
+              setSelectedLocations(values);
+            }}
+            className="border rounded px-2 py-0.5 text-xs min-w-[120px] h-16"
+          >
+            {locationOptions.map((loc) => (
+              <option key={loc} value={loc}>
+                {loc}
+              </option>
+            ))}
+          </select>
         </div>
-        {(lastNameFilter || locationFilter) && (
+        {(selectedWorkerIds.length > 0 || selectedLocations.length > 0) && (
           <button
             type="button"
             onClick={() => {
-              setLastNameFilter("");
-              setLocationFilter("");
+              setSelectedWorkerIds([]);
+              setSelectedLocations([]);
             }}
             className="border rounded px-2 py-0.5 text-xs bg-gray-100 hover:bg-gray-200"
           >
