@@ -6,6 +6,13 @@ import { Role, ProjectRole, ProjectParticipantScope, ProjectVisibilityLevel } fr
 import prisma from "../client";
 import { rebuildPayrollWeekForProject } from "../payroll-from-timecards";
 
+// Fortified tenant + project mapping (same IDs as used in import-ww02-time.ts)
+const FORTIFIED_COMPANY_ID = "cmjr9okjz000401s6rdkbatvr";
+const PROJECT_ID_BY_CODE: Record<string, string> = {
+  CCT: "cmjwjgmlf000f01s6c5atcwuu",
+  CBS: "cmk65uim5000601s685j7bbpj",
+};
+
 interface TimecardCsvRow {
   company_id?: string;
   project_code?: string;
@@ -130,17 +137,25 @@ async function main() {
       continue;
     }
 
-    // Find project by companyId + projectCode
-    const project = await prisma.project.findFirst({
-      where: {
-        companyId,
-        code: projectCode,
-      },
-    });
+    // Resolve Project from companyId + projectCode.
+    // For Fortified, we use an explicit mapping from project_code to known Project IDs.
+    let projectId: string | null = null;
+    if (companyId === FORTIFIED_COMPANY_ID) {
+      projectId = PROJECT_ID_BY_CODE[projectCode] ?? null;
+    }
+
+    if (!projectId) {
+      console.warn(
+        `Line ${line}: no project mapping for companyId=${companyId} project_code=${projectCode}. Skipping.`,
+      );
+      continue;
+    }
+
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
 
     if (!project) {
       console.warn(
-        `Line ${line}: project not found for companyId=${companyId} project_code=${projectCode}. Skipping.`,
+        `Line ${line}: project not found for companyId=${companyId} project_code=${projectCode} projectId=${projectId}. Skipping.`,
       );
       continue;
     }

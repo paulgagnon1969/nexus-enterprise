@@ -370,7 +370,7 @@ export async function importBiaWorkers(): Promise<void> {
           sourceFile: ww.sourceFile ?? null,
         },
       })
-      .then((existing) => {
+      .then((existing: any) => {
         if (existing) {
           // upsert returns the row; we can't distinguish create vs update
           // from the return alone, so we conservatively bump "updated".

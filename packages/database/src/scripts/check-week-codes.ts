@@ -24,8 +24,8 @@ async function main() {
     take: 50,
   });
 
-  const withCode = rows.filter(r => r.weekCode != null);
-  const withoutCode = rows.filter(r => r.weekCode == null);
+  const withCode = rows.filter((r: any) => r.weekCode != null);
+  const withoutCode = rows.filter((r: any) => r.weekCode == null);
 
   console.log("Total sampled rows:", rows.length);
   console.log("  With weekCode:", withCode.length);
