@@ -28,6 +28,100 @@ interface WorkerOption {
   fullName: string;
 }
 
+interface WeekDayInfo {
+  iso: string; // YYYY-MM-DD
+  label: string; // e.g. Sun 01/04
+}
+
+interface WeeklyRow {
+  tempId: string;
+  workerId: string; // empty string means "blank" row ready for selection
+  workerName?: string;
+  locationCode: string;
+  days: { st: number; ot: number; dt: number }[]; // one entry per day in week
+}
+
+function toIsoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+// Treat work weeks as Sunday	00	Saturday based on the selected date
+function getWeekStartIso(dateIso: string): string {
+  const d = new Date(dateIso + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return dateIso;
+  const day = d.getDay(); // 0 = Sunday
+  d.setDate(d.getDate() - day);
+  return toIsoDate(d);
+}
+
+function buildWeekDays(weekStartIso: string): WeekDayInfo[] {
+  const start = new Date(weekStartIso + "T00:00:00");
+  if (Number.isNaN(start.getTime())) return [];
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const result: WeekDayInfo[] = [];
+  for (let i = 0; i < 7; i += 1) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const iso = toIsoDate(d);
+    const label = `${dayNames[d.getDay()]} ${d.toLocaleDateString(undefined, {
+      month: "2-digit",
+      day: "2-digit",
+    })}`;
+    result.push({ iso, label });
+  }
+  return result;
+}
+
+function createBlankWeeklyRow(dayCount: number): WeeklyRow {
+  return {
+    tempId: `blank-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    workerId: "",
+    workerName: undefined,
+    locationCode: "CBS",
+    days: Array.from({ length: dayCount }, () => ({ st: 0, ot: 0, dt: 0 })),
+  };
+}
+
+function ensureTrailingBlankRow(rows: WeeklyRow[], dayCount: number): WeeklyRow[] {
+  const hasBlank = rows.some((r) => !r.workerId);
+  if (hasBlank) return rows;
+  return [...rows, createBlankWeeklyRow(dayCount)];
+}
+
+function buildWeeklyRowsFromDaily(
+  weekDays: WeekDayInfo[],
+  dailyByDate: Map<string, TimecardDto>,
+): WeeklyRow[] {
+  const dayCount = weekDays.length;
+  const rowsByKey = new Map<string, WeeklyRow>();
+
+  weekDays.forEach((day, dayIndex) => {
+    const tc = dailyByDate.get(day.iso);
+    if (!tc) return;
+    tc.entries.forEach((e) => {
+      const key = `${e.workerId}::${e.locationCode ?? ""}`;
+      let row = rowsByKey.get(key);
+      if (!row) {
+        row = {
+          tempId: key,
+          workerId: e.workerId,
+          workerName: e.workerName ?? undefined,
+          locationCode: e.locationCode ?? "",
+          days: Array.from({ length: dayCount }, () => ({ st: 0, ot: 0, dt: 0 })),
+        };
+        rowsByKey.set(key, row);
+      }
+      row.days[dayIndex] = {
+        st: e.stHours ?? 0,
+        ot: e.otHours ?? 0,
+        dt: e.dtHours ?? 0,
+      };
+    });
+  });
+
+  return Array.from(rowsByKey.values());
+}
+
 async function apiFetch(path: string, init?: RequestInit) {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
@@ -52,11 +146,14 @@ export default function ProjectTimecardPage({
   const router = useRouter();
 
   const [date, setDate] = useState(initialDate);
-  const [timecard, setTimecard] = useState<TimecardDto | null>(null);
+  const [weeklyRows, setWeeklyRows] = useState<WeeklyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [workers, setWorkers] = useState<WorkerOption[]>([]);
+
+  const weekStartIso = useMemo(() => getWeekStartIso(date), [date]);
+  const weekDays = useMemo<WeekDayInfo[]>(() => buildWeekDays(weekStartIso), [weekStartIso]);
 
   // Load workers for the company (simple global list for now)
   useEffect(() => {
@@ -75,132 +172,220 @@ export default function ProjectTimecardPage({
     loadWorkers();
   }, []);
 
-  // Load timecard when projectId or date changes
+  // Load weekly timecard (all 7 days in the current work week)
   useEffect(() => {
-    async function load() {
+    async function loadWeek() {
       setLoading(true);
       setError(null);
       try {
-        const tc = await apiFetch(`/projects/${projectId}/timecards?date=${date}`);
-        setTimecard(tc);
+        const dailyByDate = new Map<string, TimecardDto>();
+
+        // Fetch each day in the selected work week
+        for (const day of weekDays) {
+          try {
+            const tc = await apiFetch(`/projects/${projectId}/timecards?date=${day.iso}`);
+            dailyByDate.set(day.iso, tc);
+          } catch (err: any) {
+            // If a particular day has no timecard yet or returns 404, skip it silently
+            console.warn("Failed to load daily timecard", day.iso, err?.message ?? err);
+          }
+        }
+
+        const dayCount = weekDays.length || 7;
+        let rows = buildWeeklyRowsFromDaily(weekDays, dailyByDate);
+        if (rows.length === 0) {
+          rows = [createBlankWeeklyRow(dayCount)];
+        }
+        rows = ensureTrailingBlankRow(rows, dayCount);
+        setWeeklyRows(rows);
       } catch (err: any) {
         console.error(err);
-        setError(err.message ?? "Failed to load timecard");
+        setError(err.message ?? "Failed to load weekly timecard");
       } finally {
         setLoading(false);
       }
     }
-    load();
-  }, [projectId, date]);
+
+    if (weekDays.length > 0) {
+      loadWeek();
+    }
+  }, [projectId, weekDays]);
 
   const handleChangeDate = (next: string) => {
     setDate(next);
     router.replace(`/projects/${projectId}/timecards/${next}`);
   };
 
-  const handleCopyFromPrevious = async () => {
+  const handleCopyFromPreviousWeek = async () => {
+    if (weekDays.length === 0) return;
     setSaving(true);
     setError(null);
     try {
-      const tc = await apiFetch(`/projects/${projectId}/timecards/copy-from-previous`, {
-        method: "POST",
-        body: JSON.stringify({ date }),
-      });
-      setTimecard(tc);
+      // Build previous week (7 days before current week start)
+      const firstDayIso = weekDays[0].iso;
+      const firstDate = new Date(firstDayIso + "T00:00:00");
+      firstDate.setDate(firstDate.getDate() - 7);
+      const prevWeekStartIso = toIsoDate(firstDate);
+      const prevWeekDays = buildWeekDays(prevWeekStartIso);
+
+      const dailyByDate = new Map<string, TimecardDto>();
+      for (const day of prevWeekDays) {
+        try {
+          const tc = await apiFetch(`/projects/${projectId}/timecards?date=${day.iso}`);
+          dailyByDate.set(day.iso, tc);
+        } catch (err: any) {
+          console.warn("Failed to load prior week daily timecard", day.iso, err?.message ?? err);
+        }
+      }
+
+      let rows = buildWeeklyRowsFromDaily(prevWeekDays, dailyByDate);
+      if (rows.length === 0) {
+        setError("No prior week timecards found to copy.");
+        return;
+      }
+      const dayCount = weekDays.length || 7;
+      rows = ensureTrailingBlankRow(rows, dayCount);
+      setWeeklyRows(rows);
     } catch (err: any) {
       console.error(err);
-      setError(err.message ?? "Failed to copy from previous day");
+      setError(err.message ?? "Failed to copy from last week");
     } finally {
       setSaving(false);
     }
   };
 
   const handleSave = async () => {
-    if (!timecard) return;
-
+    if (weekDays.length === 0) return;
     setSaving(true);
     setError(null);
     try {
-      const body = {
-        date,
-        entries: timecard.entries.map((e) => ({
-          workerId: e.workerId,
-          locationCode: e.locationCode ?? undefined,
-          stHours: e.stHours,
-          otHours: e.otHours ?? 0,
-          dtHours: e.dtHours ?? 0,
-        })),
-      };
+      // Persist each day in this work week as its own DailyTimecard
+      for (let dayIndex = 0; dayIndex < weekDays.length; dayIndex += 1) {
+        const dayIso = weekDays[dayIndex].iso;
+        const entries = weeklyRows
+          .filter((row) =>
+            row.workerId &&
+            (row.days[dayIndex].st || row.days[dayIndex].ot || row.days[dayIndex].dt),
+          )
+          .map((row) => ({
+            workerId: row.workerId,
+            locationCode: row.locationCode || undefined,
+            stHours: row.days[dayIndex].st,
+            otHours: row.days[dayIndex].ot,
+            dtHours: row.days[dayIndex].dt,
+          }));
 
-      const tc = await apiFetch(`/projects/${projectId}/timecards`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      setTimecard(tc);
+        const body = { date: dayIso, entries };
+        await apiFetch(`/projects/${projectId}/timecards`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      }
     } catch (err: any) {
       console.error(err);
-      setError(err.message ?? "Failed to save timecard");
+      setError(err.message ?? "Failed to save weekly timecard");
     } finally {
       setSaving(false);
     }
   };
 
   const handleAddRow = () => {
-    if (!timecard) return;
-    const next: TimecardEntryDto = {
-      workerId: workers[0]?.id ?? "",
-      workerName: workers[0]?.fullName ?? "",
-      locationCode: "CBS",
-      stHours: 8,
-      otHours: 0,
-      dtHours: 0,
-    };
-    setTimecard({ ...timecard, entries: [...timecard.entries, next] });
+    const dayCount = weekDays.length || 7;
+    setWeeklyRows((prev) => ensureTrailingBlankRow([...prev, createBlankWeeklyRow(dayCount)], dayCount));
   };
 
-  const handleUpdateRow = (idx: number, patch: Partial<TimecardEntryDto>) => {
-    if (!timecard) return;
-    const entries = [...timecard.entries];
-    const current = entries[idx];
-    let next = { ...current, ...patch };
+  const handleUpdateWorker = (idx: number, workerId: string) => {
+    setWeeklyRows((prev) => {
+      const dayCount = weekDays.length || 7;
+      const next = [...prev];
+      const row = { ...next[idx] };
+      row.workerId = workerId;
+      const w = workers.find((x) => x.id === workerId);
+      row.workerName = w?.fullName ?? row.workerName;
+      next[idx] = row;
 
-    if (patch.workerId) {
-      const w = workers.find((x) => x.id === patch.workerId);
-      next.workerName = w?.fullName ?? next.workerName;
-    }
+      const hasBlank = next.some((r) => !r.workerId);
+      if (!hasBlank) {
+        next.push(createBlankWeeklyRow(dayCount));
+      }
+      return next;
+    });
+  };
 
-    entries[idx] = next;
-    setTimecard({ ...timecard, entries });
+  const handleUpdateLocation = (idx: number, locationCode: string) => {
+    setWeeklyRows((prev) => {
+      const next = [...prev];
+      const row = { ...next[idx], locationCode };
+      next[idx] = row;
+      return next;
+    });
+  };
+
+  const handleUpdateHours = (
+    rowIndex: number,
+    dayIndex: number,
+    field: "st" | "ot" | "dt",
+    value: number,
+  ) => {
+    setWeeklyRows((prev) => {
+      const next = [...prev];
+      const row = { ...next[rowIndex] };
+      const days = row.days.map((d, i) => (i === dayIndex ? { ...d } : d));
+      const day = { ...days[dayIndex] };
+      day[field] = Number.isNaN(value) ? 0 : value;
+      days[dayIndex] = day;
+      row.days = days;
+      next[rowIndex] = row;
+      return next;
+    });
   };
 
   const handleDeleteRow = (idx: number) => {
-    if (!timecard) return;
-    const entries = [...timecard.entries];
-    entries.splice(idx, 1);
-    setTimecard({ ...timecard, entries });
+    setWeeklyRows((prev) => {
+      const dayCount = weekDays.length || 7;
+      const next = [...prev];
+      next.splice(idx, 1);
+      if (next.length === 0) {
+        next.push(createBlankWeeklyRow(dayCount));
+      }
+      return next;
+    });
   };
 
   const totalHours = useMemo(
     () =>
-      timecard?.entries.reduce((sum, e) => sum + (e.stHours || 0) + (e.otHours || 0) + (e.dtHours || 0), 0) ?? 0,
-    [timecard],
+      weeklyRows.reduce(
+        (sum, row) =>
+          sum + row.days.reduce((inner, d) => inner + d.st + d.ot + d.dt, 0),
+        0,
+      ),
+    [weeklyRows],
   );
 
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-semibold">Daily Timecard</h1>
+          <h1 className="text-lg font-semibold">Weekly Time Accounting</h1>
           <span className="text-sm text-gray-500">Project: {projectId}</span>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-600">Date:</label>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => handleChangeDate(e.target.value)}
-            className="border rounded px-2 py-1 text-sm"
-          />
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col text-xs text-gray-500">
+            {weekDays.length > 0 && (
+              <span>
+                Week: {weekDays[0].label} 												- {weekDays[weekDays.length - 1].label}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-600">Any date in week:</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => handleChangeDate(e.target.value)}
+              className="border rounded px-2 py-1 text-sm"
+            />
+          </div>
         </div>
       </div>
 
@@ -209,16 +394,16 @@ export default function ProjectTimecardPage({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={handleCopyFromPrevious}
+          onClick={handleCopyFromPreviousWeek}
           disabled={saving || loading}
           className="border rounded px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
         >
-          Copy from previous day
+          Copy from last week
         </button>
         <button
           type="button"
           onClick={handleAddRow}
-          disabled={saving || loading || workers.length === 0}
+          disabled={saving || loading}
           className="border rounded px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
         >
           Add worker
@@ -226,20 +411,18 @@ export default function ProjectTimecardPage({
         <button
           type="button"
           onClick={handleSave}
-          disabled={saving || loading || !timecard}
+          disabled={saving || loading}
           className="border rounded px-3 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
         >
           {saving ? "Saving..." : "Save"}
         </button>
         <span className="ml-auto text-sm text-gray-600">
-          Total hours: {totalHours.toFixed(2)}
+          Total hours (week): {totalHours.toFixed(2)}
         </span>
       </div>
 
       {loading ? (
-        <div className="text-sm text-gray-500">Loading timecard...</div>
-      ) : !timecard ? (
-        <div className="text-sm text-gray-500">No timecard data.</div>
+        <div className="text-sm text-gray-500">Loading weekly timecard...</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm border border-gray-200">
@@ -247,21 +430,26 @@ export default function ProjectTimecardPage({
               <tr>
                 <th className="border px-2 py-1 text-left">Worker</th>
                 <th className="border px-2 py-1 text-left">Location</th>
-                <th className="border px-2 py-1 text-right">ST Hours</th>
-                <th className="border px-2 py-1 text-right">OT Hours</th>
-                <th className="border px-2 py-1 text-right">DT Hours</th>
-                <th className="border px-2 py-1"></th>
+                {weekDays.map((day) => (
+                  <React.Fragment key={day.iso}>
+                    <th className="border px-2 py-1 text-right">{day.label} ST</th>
+                    <th className="border px-2 py-1 text-right">{day.label} OT</th>
+                    <th className="border px-2 py-1 text-right">{day.label} DT</th>
+                  </React.Fragment>
+                ))}
+                <th className="border px-2 py-1" />
               </tr>
             </thead>
             <tbody>
-              {timecard.entries.map((e, idx) => (
-                <tr key={idx}>
+              {weeklyRows.map((row, rowIndex) => (
+                <tr key={row.tempId ?? rowIndex}>
                   <td className="border px-2 py-1">
                     <select
                       className="border rounded px-1 py-0.5 text-sm w-full"
-                      value={e.workerId}
-                      onChange={(ev) => handleUpdateRow(idx, { workerId: ev.target.value })}
+                      value={row.workerId}
+                      onChange={(ev) => handleUpdateWorker(rowIndex, ev.target.value)}
                     >
+                      <option value="">Select worker</option>
                       {workers.map((w) => (
                         <option key={w.id} value={w.id}>
                           {w.fullName}
@@ -273,47 +461,66 @@ export default function ProjectTimecardPage({
                     <input
                       type="text"
                       className="border rounded px-1 py-0.5 text-sm w-full"
-                      value={e.locationCode ?? ""}
-                      onChange={(ev) => handleUpdateRow(idx, { locationCode: ev.target.value })}
+                      value={row.locationCode ?? ""}
+                      onChange={(ev) => handleUpdateLocation(rowIndex, ev.target.value)}
                     />
                   </td>
-                  <td className="border px-2 py-1 text-right">
-                    <input
-                      type="number"
-                      step="0.25"
-                      className="border rounded px-1 py-0.5 text-sm w-20 text-right"
-                      value={e.stHours}
-                      onChange={(ev) =>
-                        handleUpdateRow(idx, { stHours: parseFloat(ev.target.value) || 0 })
-                      }
-                    />
-                  </td>
-                  <td className="border px-2 py-1 text-right">
-                    <input
-                      type="number"
-                      step="0.25"
-                      className="border rounded px-1 py-0.5 text-sm w-20 text-right"
-                      value={e.otHours ?? 0}
-                      onChange={(ev) =>
-                        handleUpdateRow(idx, { otHours: parseFloat(ev.target.value) || 0 })
-                      }
-                    />
-                  </td>
-                  <td className="border px-2 py-1 text-right">
-                    <input
-                      type="number"
-                      step="0.25"
-                      className="border rounded px-1 py-0.5 text-sm w-20 text-right"
-                      value={e.dtHours ?? 0}
-                      onChange={(ev) =>
-                        handleUpdateRow(idx, { dtHours: parseFloat(ev.target.value) || 0 })
-                      }
-                    />
-                  </td>
+                  {weekDays.map((day, dayIndex) => (
+                    <React.Fragment key={`${row.tempId}-${day.iso}`}>
+                      <td className="border px-2 py-1 text-right">
+                        <input
+                          type="number"
+                          step="0.25"
+                          className="border rounded px-1 py-0.5 text-sm w-20 text-right"
+                          value={row.days[dayIndex]?.st ?? 0}
+                          onChange={(ev) =>
+                            handleUpdateHours(
+                              rowIndex,
+                              dayIndex,
+                              "st",
+                              parseFloat(ev.target.value) || 0,
+                            )
+                          }
+                        />
+                      </td>
+                      <td className="border px-2 py-1 text-right">
+                        <input
+                          type="number"
+                          step="0.25"
+                          className="border rounded px-1 py-0.5 text-sm w-20 text-right"
+                          value={row.days[dayIndex]?.ot ?? 0}
+                          onChange={(ev) =>
+                            handleUpdateHours(
+                              rowIndex,
+                              dayIndex,
+                              "ot",
+                              parseFloat(ev.target.value) || 0,
+                            )
+                          }
+                        />
+                      </td>
+                      <td className="border px-2 py-1 text-right">
+                        <input
+                          type="number"
+                          step="0.25"
+                          className="border rounded px-1 py-0.5 text-sm w-20 text-right"
+                          value={row.days[dayIndex]?.dt ?? 0}
+                          onChange={(ev) =>
+                            handleUpdateHours(
+                              rowIndex,
+                              dayIndex,
+                              "dt",
+                              parseFloat(ev.target.value) || 0,
+                            )
+                          }
+                        />
+                      </td>
+                    </React.Fragment>
+                  ))}
                   <td className="border px-2 py-1 text-center">
                     <button
                       type="button"
-                      onClick={() => handleDeleteRow(idx)}
+                      onClick={() => handleDeleteRow(rowIndex)}
                       className="text-xs text-red-600 hover:underline"
                     >
                       Remove
