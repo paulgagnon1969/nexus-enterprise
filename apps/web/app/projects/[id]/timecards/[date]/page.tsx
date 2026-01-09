@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -152,6 +152,15 @@ export default function ProjectTimecardPage({
   const [error, setError] = useState<string | null>(null);
   const [workers, setWorkers] = useState<WorkerOption[]>([]);
 
+  const [reloadToken, setReloadToken] = useState(0);
+
+  const [showPasteModal, setShowPasteModal] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [pasteSubmitting, setPasteSubmitting] = useState(false);
+  const [pasteWarnings, setPasteWarnings] = useState<string[] | null>(null);
+  const [pasteSummary, setPasteSummary] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const weekStartIso = useMemo(() => getWeekStartIso(date), [date]);
   const weekDays = useMemo<WeekDayInfo[]>(() => buildWeekDays(weekStartIso), [weekStartIso]);
 
@@ -209,7 +218,7 @@ export default function ProjectTimecardPage({
     if (weekDays.length > 0) {
       loadWeek();
     }
-  }, [projectId, weekDays]);
+  }, [projectId, weekDays, reloadToken]);
 
   const handleChangeDate = (next: string) => {
     setDate(next);
@@ -286,6 +295,71 @@ export default function ProjectTimecardPage({
       setError(err.message ?? "Failed to save weekly timecard");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleImportFromBackendRefresh = () => {
+    setReloadToken(prev => prev + 1);
+  };
+
+  const handleFileUploadClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange: React.ChangeEventHandler<HTMLInputElement> = event => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = e => {
+      const text = String(e.target?.result || "");
+      setPasteText(text);
+      setPasteWarnings(null);
+      setPasteSummary(null);
+      setShowPasteModal(true);
+    };
+    reader.readAsText(file);
+    // Reset value so selecting the same file again retriggers onChange
+    // eslint-disable-next-line no-param-reassign
+    event.target.value = "";
+  };
+
+  const handleOpenPasteModal = () => {
+    setPasteWarnings(null);
+    setPasteSummary(null);
+    setShowPasteModal(true);
+  };
+
+  const handleClosePasteModal = () => {
+    if (!pasteSubmitting) {
+      setShowPasteModal(false);
+    }
+  };
+
+  const handlePasteImport = async () => {
+    if (!pasteText.trim()) {
+      setPasteWarnings(["Paste area is empty. Please paste CSV including the header row."]);
+      return;
+    }
+    setPasteSubmitting(true);
+    setPasteWarnings(null);
+    setPasteSummary(null);
+    try {
+      const resp = await apiFetch(`/projects/${projectId}/timecards/import-weekly-from-csv`, {
+        method: "POST",
+        body: JSON.stringify({ csvText: pasteText }),
+      });
+      const processed = resp?.processedRows ?? 0;
+      const warnings: string[] = resp?.warnings ?? [];
+      setPasteSummary(`Imported ${processed} row(s).`);
+      setPasteWarnings(warnings.length ? warnings : null);
+      handleImportFromBackendRefresh();
+    } catch (e: any) {
+      setPasteWarnings([e?.message ?? "Failed to import weekly timecards."]);
+    } finally {
+      setPasteSubmitting(false);
     }
   };
 
@@ -394,6 +468,22 @@ export default function ProjectTimecardPage({
       <div className="flex items-center gap-2">
         <button
           type="button"
+          onClick={handleFileUploadClick}
+          disabled={saving || loading}
+          className="border rounded px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
+        >
+          Upload weekly CSV
+        </button>
+        <button
+          type="button"
+          onClick={handleOpenPasteModal}
+          disabled={saving || loading}
+          className="border rounded px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
+        >
+          Paste weekly CSV
+        </button>
+        <button
+          type="button"
           onClick={handleCopyFromPreviousWeek}
           disabled={saving || loading}
           className="border rounded px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
@@ -420,6 +510,74 @@ export default function ProjectTimecardPage({
           Total hours (week): {totalHours.toFixed(2)}
         </span>
       </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
+      {showPasteModal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-3xl rounded-md bg-white p-4 shadow-lg border border-gray-200">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-semibold">Paste Weekly Timecard CSV</h2>
+              <button
+                type="button"
+                onClick={handleClosePasteModal}
+                className="text-gray-500 hover:text-gray-800 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-gray-600 mb-2">
+              Paste the CSV text including the header row. Expected columns match
+              <code className="ml-1 px-1 py-0.5 rounded bg-gray-100 text-[10px]">
+                docs/timecards/import-timecards.sample.csv
+              </code>
+              .
+            </p>
+            <textarea
+              className="w-full border rounded p-2 text-xs font-mono h-56"
+              value={pasteText}
+              onChange={e => setPasteText(e.target.value)}
+              placeholder="company_id,project_code,week_end_date,worker_name,location_code,st_sun,ot_sun,dt_sun,..."
+            />
+            <div className="mt-2 flex items-center justify-between text-xs">
+              <div className="flex flex-col gap-1 max-w-md">
+                {pasteSummary && <div className="text-green-700">{pasteSummary}</div>}
+                {pasteWarnings && pasteWarnings.length > 0 && (
+                  <ul className="list-disc pl-4 text-red-700 max-h-32 overflow-auto">
+                    {pasteWarnings.map((w, idx) => (
+                      <li key={idx}>{w}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleClosePasteModal}
+                  disabled={pasteSubmitting}
+                  className="border rounded px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePasteImport}
+                  disabled={pasteSubmitting}
+                  className="border rounded px-3 py-1 text-xs bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {pasteSubmitting ? "Importing..." : "Import"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="text-sm text-gray-500">Loading weekly timecard...</div>
