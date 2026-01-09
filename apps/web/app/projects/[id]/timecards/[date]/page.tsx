@@ -987,7 +987,7 @@ export default function ProjectTimecardPage({
                           size={5}
 className={`border rounded px-0.5 py-0.5 text-xs text-center ${
                             (row.days[dayIndex]?.st ?? 0) === 0
-                              ? "bg-gray-300 text-gray-700"
+                              ? "bg-yellow-100 text-yellow-800"
                               : "bg-white text-gray-900"
                           }`}
                           style={{ width: "5ch" }}
@@ -1010,7 +1010,7 @@ className={`border rounded px-0.5 py-0.5 text-xs text-center ${
                           size={5}
 className={`border rounded px-0.5 py-0.5 text-xs text-center ${
                             (row.days[dayIndex]?.ot ?? 0) === 0
-                              ? "bg-gray-300 text-gray-700"
+                              ? "bg-yellow-100 text-yellow-800"
                               : "bg-white text-gray-900"
                           }`}
                           style={{ width: "5ch" }}
@@ -1033,7 +1033,7 @@ className={`border rounded px-0.5 py-0.5 text-xs text-center ${
                           size={5}
 className={`border rounded px-0.5 py-0.5 text-xs text-center ${
                             (row.days[dayIndex]?.dt ?? 0) === 0
-                              ? "bg-gray-300 text-gray-700"
+                              ? "bg-yellow-100 text-yellow-800"
                               : "bg-white text-gray-900"
                           }`}
                           style={{ width: "5ch" }}
