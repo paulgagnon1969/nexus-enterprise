@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { rebuildPayrollWeekForProject } from "@repo/database/src/payroll-from-timecards";
+import * as argon2 from "argon2";
+import { Role, ProjectRole, ProjectParticipantScope, ProjectVisibilityLevel } from "@prisma/client";
 
 export interface UpsertTimecardEntryDto {
   workerId: string;
@@ -203,6 +205,8 @@ export class TimecardService {
     // We only pay attention to rows whose project_code matches this project.
     // company_id can be overridden via companyIdOverride or defaults to the authenticated company.
     const effectiveCompanyId = (companyIdOverride || companyId).trim();
+    const DEFAULT_PASSWORD = process.env.TIMECARD_DEFAULT_PASSWORD || "Nexus2026.01";
+    const defaultPasswordHash = await argon2.hash(DEFAULT_PASSWORD);
 
     // Parse CSV
     // eslint-disable-next-line @typescript-eslint/no-var-requires,global-require
@@ -263,6 +267,9 @@ export class TimecardService {
       const rowCompanyId = (row.company_id || effectiveCompanyId).trim();
       const rowProjectCode = (row.project_code || "").trim();
       const workerName = (row.worker_name || "").trim();
+      const workerEmailRaw = (row.worker_email || "").trim();
+      const workerEmail = workerEmailRaw ? workerEmailRaw.toLowerCase() : null;
+      const workerPhone = (row.worker_phone || "").trim() || null;
       const locationCode = (row.location_code || "").trim() || null;
       const weekEndIso = row.week_end_date ? ensureIsoDate(String(row.week_end_date)) : null;
 
@@ -315,19 +322,83 @@ export class TimecardService {
         continue;
       }
 
-      const worker = await (this.prisma as any).worker.findFirst({
-        where: {
-          companyId: rowCompanyId,
-          fullName: workerName,
-        },
+      let worker = await (this.prisma as any).worker.findFirst({
+        where: workerEmail
+          ? { email: workerEmail }
+          : { fullName: workerName },
       });
 
+      if (!worker && workerEmail) {
+        worker = await (this.prisma as any).worker.findFirst({ where: { fullName: workerName } });
+      }
+
       if (!worker) {
-        warnings.push(
-          `Line ${line}: worker not found for companyId=${rowCompanyId} worker_name="${workerName}". Skipping.`,
-        );
-        // eslint-disable-next-line no-continue
-        continue;
+        const parts = workerName.split(/\s+/).filter(Boolean);
+        const firstName = parts[0] ?? workerName;
+        const lastName = parts.slice(1).join(" ") || "";
+        worker = await (this.prisma as any).worker.create({
+          data: {
+            firstName,
+            lastName,
+            fullName: workerName,
+            email: workerEmail,
+            phone: workerPhone,
+          },
+        });
+      }
+
+      // Ensure User + CompanyMembership + ProjectMembership when we have an email
+      if (workerEmail) {
+        const emailNorm = workerEmail.toLowerCase();
+        let user = await this.prisma.user.findFirst({
+          where: { email: { equals: emailNorm, mode: "insensitive" } },
+        });
+        if (!user) {
+          const parts = workerName.split(/\s+/).filter(Boolean);
+          const firstName = parts[0] ?? null;
+          const lastName = parts.slice(1).join(" ") || null;
+          user = await this.prisma.user.create({
+            data: {
+              email: emailNorm,
+              passwordHash: defaultPasswordHash,
+              firstName,
+              lastName,
+            },
+          });
+        }
+
+        await this.prisma.companyMembership.upsert({
+          where: {
+            userId_companyId: {
+              userId: user.id,
+              companyId: rowCompanyId,
+            },
+          },
+          update: {},
+          create: {
+            userId: user.id,
+            companyId: rowCompanyId,
+            role: Role.MEMBER,
+          },
+        });
+
+        await this.prisma.projectMembership.upsert({
+          where: {
+            userId_projectId: {
+              userId: user.id,
+              projectId: project.id,
+            },
+          },
+          update: {},
+          create: {
+            userId: user.id,
+            projectId: project.id,
+            companyId: rowCompanyId,
+            role: ProjectRole.VIEWER,
+            scope: ProjectParticipantScope.OWNER_MEMBER,
+            visibility: ProjectVisibilityLevel.FULL,
+          },
+        });
       }
 
       const weekStartIso = shiftDate(weekEndIso, -6);

@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parse } from "csv-parse/sync";
+import argon2 from "argon2";
+import { Role, ProjectRole, ProjectParticipantScope, ProjectVisibilityLevel } from "@prisma/client";
 import prisma from "../client";
 import { rebuildPayrollWeekForProject } from "../payroll-from-timecards";
 
@@ -9,6 +11,8 @@ interface TimecardCsvRow {
   project_code?: string;
   week_end_date?: string; // YYYY-MM-DD
   worker_name?: string;
+  worker_email?: string;
+  worker_phone?: string;
   location_code?: string;
   // Daily hours (Sunday-Saturday)
   st_sun?: string; ot_sun?: string; dt_sun?: string;
@@ -66,6 +70,8 @@ async function main() {
   console.log(`Parsed ${rows.length} rows from CSV`);
 
   const defaultCompanyId = process.env.TIMECARD_COMPANY_ID || "cmjr9okjz000401s6rdkbatvr"; // Fortified default
+  const DEFAULT_PASSWORD = process.env.TIMECARD_DEFAULT_PASSWORD || "Nexus2026.01";
+  const defaultPasswordHash = await argon2.hash(DEFAULT_PASSWORD);
 
   type WeekKey = string; // companyId|projectId|weekEndDate
   const touchedWeeks = new Set<WeekKey>();
@@ -76,6 +82,9 @@ async function main() {
     const companyId = (row.company_id || defaultCompanyId).trim();
     const projectCode = (row.project_code || "").trim();
     const workerName = (row.worker_name || "").trim();
+    const workerEmailRaw = (row.worker_email || "").trim();
+    const workerEmail = workerEmailRaw ? workerEmailRaw.toLowerCase() : null;
+    const workerPhone = (row.worker_phone || "").trim() || null;
     const locationCode = (row.location_code || "").trim() || null;
     const weekEndIso = row.week_end_date ? ensureIsoDate(row.week_end_date) : null;
 
@@ -136,19 +145,89 @@ async function main() {
       continue;
     }
 
-    // Find worker by fullName within this company
-    const worker = await prisma.worker.findFirst({
-      where: {
-        companyId,
-        fullName: workerName,
-      },
-    });
+    // Find or create Worker globally (Worker is not scoped by company).
+    let worker = null as Awaited<ReturnType<typeof prisma.worker.findFirst>> | null;
+
+    if (workerEmail) {
+      worker = await prisma.worker.findFirst({ where: { email: workerEmail } });
+    }
+    if (!worker) {
+      worker = await prisma.worker.findFirst({ where: { fullName: workerName } });
+    }
 
     if (!worker) {
-      console.warn(
-        `Line ${line}: worker not found for companyId=${companyId} worker_name="${workerName}". Skipping.`,
-      );
-      continue;
+      const parts = workerName.split(/\s+/).filter(Boolean);
+      const firstName = parts[0] ?? workerName;
+      const lastName = parts.slice(1).join(" ") || "";
+      worker = await prisma.worker.create({
+        data: {
+          firstName,
+          lastName,
+          fullName: workerName,
+          email: workerEmail,
+          phone: workerPhone,
+        },
+      });
+      console.log(`Line ${line}: created new Worker id=${worker.id} fullName="${workerName}"`);
+    }
+
+    // Ensure User + CompanyMembership + ProjectMembership when we have an email
+    let userId: string | null = null;
+    if (workerEmail) {
+      const emailNorm = workerEmail.toLowerCase();
+      let user = await prisma.user.findFirst({
+        where: { email: { equals: emailNorm, mode: "insensitive" } },
+      });
+      if (!user) {
+        const parts = workerName.split(/\s+/).filter(Boolean);
+        const firstName = parts[0] ?? null;
+        const lastName = parts.slice(1).join(" ") || null;
+        user = await prisma.user.create({
+          data: {
+            email: emailNorm,
+            passwordHash: defaultPasswordHash,
+            firstName,
+            lastName,
+          },
+        });
+        console.log(`Line ${line}: created new User id=${user.id} email=${emailNorm}`);
+      }
+      userId = user.id;
+
+      // CompanyMembership
+      await prisma.companyMembership.upsert({
+        where: {
+          userId_companyId: {
+            userId: user.id,
+            companyId,
+          },
+        },
+        update: {},
+        create: {
+          userId: user.id,
+          companyId,
+          role: Role.MEMBER,
+        },
+      });
+
+      // ProjectMembership
+      await prisma.projectMembership.upsert({
+        where: {
+          userId_projectId: {
+            userId: user.id,
+            projectId: project.id,
+          },
+        },
+        update: {},
+        create: {
+          userId: user.id,
+          projectId: project.id,
+          companyId,
+          role: ProjectRole.VIEWER,
+          scope: ProjectParticipantScope.OWNER_MEMBER,
+          visibility: ProjectVisibilityLevel.FULL,
+        },
+      });
     }
 
     // Compute week start (Sunday) from weekEnd (Saturday) assuming 7-day window
