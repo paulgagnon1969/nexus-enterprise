@@ -620,11 +620,7 @@ export default function ProjectTimecardPage({
                   <th key={day.iso} className="border px-2 py-1 text-center align-bottom">
                     <div className="flex flex-col items-center">
                       <div className="text-xs font-medium">{day.label}</div>
-                      <div className="mt-1 flex items-center justify-center gap-2 text-[10px] text-gray-500">
-                        <span>ST</span>
-                        <span>OT</span>
-                        <span>DT</span>
-                      </div>
+                      <div className="mt-0.5 text-[10px] text-gray-500 whitespace-nowrap">ST&nbsp;OT&nbsp;DT</div>
                     </div>
                   </th>
                 ))}
@@ -657,14 +653,14 @@ export default function ProjectTimecardPage({
                     />
                   </td>
                   {weekDays.map((day, dayIndex) => (
-                    <td key={`${row.tempId}-${day.iso}`} className="border px-2 py-1">
-                      <div className="flex items-center justify-center gap-1">
+                    <td key={`${row.tempId}-${day.iso}`} className="border px-1 py-1">
+                      <div className="flex items-center justify-center gap-0.5">
                         <input
                           type="number"
                           step="0.25"
                           inputMode="decimal"
                           size={5}
-                          className="border rounded px-1 py-0.5 text-xs w-14 text-center"
+                          className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
                           value={row.days[dayIndex]?.st ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
@@ -680,7 +676,7 @@ export default function ProjectTimecardPage({
                           step="0.25"
                           inputMode="decimal"
                           size={5}
-                          className="border rounded px-1 py-0.5 text-xs w-14 text-center"
+                          className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
                           value={row.days[dayIndex]?.ot ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
@@ -696,7 +692,7 @@ export default function ProjectTimecardPage({
                           step="0.25"
                           inputMode="decimal"
                           size={5}
-                          className="border rounded px-1 py-0.5 text-xs w-14 text-center"
+                          className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
                           value={row.days[dayIndex]?.dt ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
