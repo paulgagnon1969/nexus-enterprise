@@ -654,55 +654,62 @@ export default function ProjectTimecardPage({
                   </td>
                   {weekDays.map((day, dayIndex) => (
                     <td key={`${row.tempId}-${day.iso}`} className="border px-1 py-1">
-                      <div className="flex items-center justify-center gap-0.5">
-                        <input
-                          type="number"
-                          step="0.25"
-                          inputMode="decimal"
-                          size={5}
-                          className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
-                          value={row.days[dayIndex]?.st ?? 0}
-                          onChange={(ev) =>
-                            handleUpdateHours(
-                              rowIndex,
-                              dayIndex,
-                              "st",
-                              parseFloat(ev.target.value) || 0,
-                            )
-                          }
-                        />
-                        <input
-                          type="number"
-                          step="0.25"
-                          inputMode="decimal"
-                          size={5}
-                          className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
-                          value={row.days[dayIndex]?.ot ?? 0}
-                          onChange={(ev) =>
-                            handleUpdateHours(
-                              rowIndex,
-                              dayIndex,
-                              "ot",
-                              parseFloat(ev.target.value) || 0,
-                            )
-                          }
-                        />
-                        <input
-                          type="number"
-                          step="0.25"
-                          inputMode="decimal"
-                          size={5}
-                          className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
-                          value={row.days[dayIndex]?.dt ?? 0}
-                          onChange={(ev) =>
-                            handleUpdateHours(
-                              rowIndex,
-                              dayIndex,
-                              "dt",
-                              parseFloat(ev.target.value) || 0,
-                            )
-                          }
-                        />
+                      <div className="flex flex-col items-center gap-0.5">
+                        <div className="flex items-center justify-center gap-1 text-[10px] text-gray-500 whitespace-nowrap">
+                          <span>ST</span>
+                          <span>OT</span>
+                          <span>DT</span>
+                        </div>
+                        <div className="flex items-center justify-center gap-0.5">
+                          <input
+                            type="number"
+                            step="0.25"
+                            inputMode="decimal"
+                            size={5}
+                            className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
+                            value={row.days[dayIndex]?.st ?? 0}
+                            onChange={(ev) =>
+                              handleUpdateHours(
+                                rowIndex,
+                                dayIndex,
+                                "st",
+                                parseFloat(ev.target.value) || 0,
+                              )
+                            }
+                          />
+                          <input
+                            type="number"
+                            step="0.25"
+                            inputMode="decimal"
+                            size={5}
+                            className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
+                            value={row.days[dayIndex]?.ot ?? 0}
+                            onChange={(ev) =>
+                              handleUpdateHours(
+                                rowIndex,
+                                dayIndex,
+                                "ot",
+                                parseFloat(ev.target.value) || 0,
+                              )
+                            }
+                          />
+                          <input
+                            type="number"
+                            step="0.25"
+                            inputMode="decimal"
+                            size={5}
+                            className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
+                            value={row.days[dayIndex]?.dt ?? 0}
+                            onChange={(ev) =>
+                              handleUpdateHours(
+                                rowIndex,
+                                dayIndex,
+                                "dt",
+                                parseFloat(ev.target.value) || 0,
+                              )
+                            }
+                          />
+                        </div>
                       </div>
                     </td>
                   ))}
