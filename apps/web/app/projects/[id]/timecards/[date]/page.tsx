@@ -753,14 +753,14 @@ export default function ProjectTimecardPage({
                 <th className="border px-1 py-0.5 text-left align-middle">
                   <select
                     id="workerFilter"
-                    multiple
-                    value={selectedWorkerIds}
+                    value={selectedWorkerIds[0] ?? ""}
                     onChange={(e) => {
-                      const values = Array.from(e.target.selectedOptions).map((o) => o.value);
-                      setSelectedWorkerIds(values);
+                      const v = e.target.value;
+                      setSelectedWorkerIds(v ? [v] : []);
                     }}
-                    className="border rounded px-1 py-0.5 text-[10px] min-w-[120px] h-10"
+                    className="border rounded px-1 py-0.5 text-[10px] w-full"
                   >
+                    <option value="">All workers</option>
                     {filterWorkerOptions.map((opt) => (
                       <option key={opt.id} value={opt.id}>
                         {opt.name}
@@ -772,14 +772,14 @@ export default function ProjectTimecardPage({
                 <th className="border px-1 py-0.5 text-left align-middle">
                   <select
                     id="locationFilter"
-                    multiple
-                    value={selectedLocations}
+                    value={selectedLocations[0] ?? ""}
                     onChange={(e) => {
-                      const values = Array.from(e.target.selectedOptions).map((o) => o.value);
-                      setSelectedLocations(values);
+                      const v = e.target.value;
+                      setSelectedLocations(v ? [v] : []);
                     }}
-                    className="border rounded px-1 py-0.5 text-[10px] min-w-[90px] h-10"
+                    className="border rounded px-1 py-0.5 text-[10px] w-full"
                   >
+                    <option value="">All locations</option>
                     {locationOptions.map((loc) => (
                       <option key={loc} value={loc}>
                         {loc}
@@ -796,7 +796,7 @@ export default function ProjectTimecardPage({
                     <th className="border px-1 py-0.5 text-[10px] text-gray-500 text-center">DT</th>
                   </React.Fragment>
                 ))}
-                <th className="border px-1 py-0.5 text-center text-[10px] text-gray-500">
+    <th className="border px-1 py-0.5 text-center text-[10px] text-gray-500">
                   {selectedWorkerIds.length > 0 || selectedLocations.length > 0 ? (
                     <button
                       type="button"
