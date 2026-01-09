@@ -667,63 +667,6 @@ export default function ProjectTimecardPage({
         onChange={handleFileChange}
       />
 
-      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-700 mt-2">
-        <div className="flex items-center gap-1">
-          <label htmlFor="workerFilter" className="whitespace-nowrap">
-            Filter worker(s):
-          </label>
-          <select
-            id="workerFilter"
-            multiple
-            value={selectedWorkerIds}
-            onChange={(e) => {
-              const values = Array.from(e.target.selectedOptions).map((o) => o.value);
-              setSelectedWorkerIds(values);
-            }}
-            className="border rounded px-2 py-0.5 text-xs min-w-[160px] h-16"
-          >
-            {filterWorkerOptions.map((opt) => (
-              <option key={opt.id} value={opt.id}>
-                {opt.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex items-center gap-1">
-          <label htmlFor="locationFilter" className="whitespace-nowrap">
-            Filter location(s):
-          </label>
-          <select
-            id="locationFilter"
-            multiple
-            value={selectedLocations}
-            onChange={(e) => {
-              const values = Array.from(e.target.selectedOptions).map((o) => o.value);
-              setSelectedLocations(values);
-            }}
-            className="border rounded px-2 py-0.5 text-xs min-w-[120px] h-16"
-          >
-            {locationOptions.map((loc) => (
-              <option key={loc} value={loc}>
-                {loc}
-              </option>
-            ))}
-          </select>
-        </div>
-        {(selectedWorkerIds.length > 0 || selectedLocations.length > 0) && (
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedWorkerIds([]);
-              setSelectedLocations([]);
-            }}
-            className="border rounded px-2 py-0.5 text-xs bg-gray-100 hover:bg-gray-200"
-          >
-            Clear filters
-          </button>
-        )}
-      </div>
-
       {showPasteModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-3xl rounded-md bg-white p-4 shadow-lg border border-gray-200">
@@ -791,9 +734,9 @@ export default function ProjectTimecardPage({
           <table className="min-w-full text-sm border border-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th rowSpan={2} className="border px-2 py-1 text-left align-bottom">Worker</th>
-                <th rowSpan={2} className="border px-2 py-1 text-left align-bottom">Location</th>
-                <th rowSpan={2} className="border px-2 py-1 text-center align-bottom">Total Hrs</th>
+                <th className="border px-2 py-1 text-left align-bottom">Worker</th>
+                <th className="border px-2 py-1 text-left align-bottom">Location</th>
+                <th className="border px-2 py-1 text-center align-bottom">Total Hrs</th>
                 {weekDays.map((day) => (
                   <th
                     key={day.iso}
@@ -803,9 +746,49 @@ export default function ProjectTimecardPage({
                     <div className="text-xs font-medium whitespace-nowrap">{day.label}</div>
                   </th>
                 ))}
-                <th rowSpan={2} className="border px-2 py-1" />
+                <th className="border px-2 py-1" />
               </tr>
               <tr>
+                {/* Worker filter under Worker column */}
+                <th className="border px-1 py-0.5 text-left align-middle">
+                  <select
+                    id="workerFilter"
+                    multiple
+                    value={selectedWorkerIds}
+                    onChange={(e) => {
+                      const values = Array.from(e.target.selectedOptions).map((o) => o.value);
+                      setSelectedWorkerIds(values);
+                    }}
+                    className="border rounded px-1 py-0.5 text-[10px] min-w-[120px] h-10"
+                  >
+                    {filterWorkerOptions.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.name}
+                      </option>
+                    ))}
+                  </select>
+                </th>
+                {/* Location filter under Location column */}
+                <th className="border px-1 py-0.5 text-left align-middle">
+                  <select
+                    id="locationFilter"
+                    multiple
+                    value={selectedLocations}
+                    onChange={(e) => {
+                      const values = Array.from(e.target.selectedOptions).map((o) => o.value);
+                      setSelectedLocations(values);
+                    }}
+                    className="border rounded px-1 py-0.5 text-[10px] min-w-[90px] h-10"
+                  >
+                    {locationOptions.map((loc) => (
+                      <option key={loc} value={loc}>
+                        {loc}
+                      </option>
+                    ))}
+                  </select>
+                </th>
+                {/* Empty cell under Total Hrs to align with ST/OT/DT row */}
+                <th className="border px-1 py-0.5" />
                 {weekDays.map((day) => (
                   <React.Fragment key={`${day.iso}-sub`}>
                     <th className="border px-1 py-0.5 text-[10px] text-gray-500 text-center">ST</th>
@@ -813,6 +796,20 @@ export default function ProjectTimecardPage({
                     <th className="border px-1 py-0.5 text-[10px] text-gray-500 text-center">DT</th>
                   </React.Fragment>
                 ))}
+                <th className="border px-1 py-0.5 text-center text-[10px] text-gray-500">
+                  {selectedWorkerIds.length > 0 || selectedLocations.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedWorkerIds([]);
+                        setSelectedLocations([]);
+                      }}
+                      className="border rounded px-1 py-0.5 text-[10px] bg-gray-100 hover:bg-gray-200"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </th>
               </tr>
             </thead>
             <tbody>
