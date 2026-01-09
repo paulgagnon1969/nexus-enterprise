@@ -614,17 +614,27 @@ export default function ProjectTimecardPage({
           <table className="min-w-full text-sm border border-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="border px-2 py-1 text-left">Worker</th>
-                <th className="border px-2 py-1 text-left">Location</th>
+                <th rowSpan={2} className="border px-2 py-1 text-left align-bottom">Worker</th>
+                <th rowSpan={2} className="border px-2 py-1 text-left align-bottom">Location</th>
                 {weekDays.map((day) => (
-                  <th key={day.iso} className="border px-2 py-1 text-center align-bottom">
-                    <div className="flex flex-col items-center">
-                      <div className="text-xs font-medium">{day.label}</div>
-                      <div className="mt-0.5 text-[10px] text-gray-500 whitespace-nowrap">ST&nbsp;OT&nbsp;DT</div>
-                    </div>
+                  <th
+                    key={day.iso}
+                    colSpan={3}
+                    className="border px-2 py-1 text-center align-bottom"
+                  >
+                    <div className="text-xs font-medium whitespace-nowrap">{day.label}</div>
                   </th>
                 ))}
-                <th className="border px-2 py-1" />
+                <th rowSpan={2} className="border px-2 py-1" />
+              </tr>
+              <tr>
+                {weekDays.map((day) => (
+                  <React.Fragment key={`${day.iso}-sub`}>
+                    <th className="border px-1 py-0.5 text-[10px] text-gray-500 text-center">ST</th>
+                    <th className="border px-1 py-0.5 text-[10px] text-gray-500 text-center">OT</th>
+                    <th className="border px-1 py-0.5 text-[10px] text-gray-500 text-center">DT</th>
+                  </React.Fragment>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -653,65 +663,62 @@ export default function ProjectTimecardPage({
                     />
                   </td>
                   {weekDays.map((day, dayIndex) => (
-                    <td key={`${row.tempId}-${day.iso}`} className="border px-1 py-1">
-                      <div className="flex flex-col items-center gap-0.5">
-                        <div className="flex items-center justify-center gap-1 text-[10px] text-gray-500 whitespace-nowrap">
-                          <span>ST</span>
-                          <span>OT</span>
-                          <span>DT</span>
-                        </div>
-                        <div className="flex items-center justify-center gap-0.5">
-                          <input
-                            type="number"
-                            step="0.25"
-                            inputMode="decimal"
-                            size={5}
-                            className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
-                            value={row.days[dayIndex]?.st ?? 0}
-                            onChange={(ev) =>
-                              handleUpdateHours(
-                                rowIndex,
-                                dayIndex,
-                                "st",
-                                parseFloat(ev.target.value) || 0,
-                              )
-                            }
-                          />
-                          <input
-                            type="number"
-                            step="0.25"
-                            inputMode="decimal"
-                            size={5}
-                            className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
-                            value={row.days[dayIndex]?.ot ?? 0}
-                            onChange={(ev) =>
-                              handleUpdateHours(
-                                rowIndex,
-                                dayIndex,
-                                "ot",
-                                parseFloat(ev.target.value) || 0,
-                              )
-                            }
-                          />
-                          <input
-                            type="number"
-                            step="0.25"
-                            inputMode="decimal"
-                            size={5}
-                            className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
-                            value={row.days[dayIndex]?.dt ?? 0}
-                            onChange={(ev) =>
-                              handleUpdateHours(
-                                rowIndex,
-                                dayIndex,
-                                "dt",
-                                parseFloat(ev.target.value) || 0,
-                              )
-                            }
-                          />
-                        </div>
-                      </div>
-                    </td>
+                    <React.Fragment key={`${row.tempId}-${day.iso}`}>
+                      <td className="border px-1 py-1 text-center">
+                        <input
+                          type="number"
+                          step="0.25"
+                          inputMode="decimal"
+                          size={5}
+                          className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
+                          value={row.days[dayIndex]?.st ?? 0}
+                          onChange={(ev) =>
+                            handleUpdateHours(
+                              rowIndex,
+                              dayIndex,
+                              "st",
+                              parseFloat(ev.target.value) || 0,
+                            )
+                          }
+                        />
+                      </td>
+                      <td className="border px-1 py-1 text-center">
+                        <input
+                          type="number"
+                          step="0.25"
+                          inputMode="decimal"
+                          size={5}
+                          className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
+                          value={row.days[dayIndex]?.ot ?? 0}
+                          onChange={(ev) =>
+                            handleUpdateHours(
+                              rowIndex,
+                              dayIndex,
+                              "ot",
+                              parseFloat(ev.target.value) || 0,
+                            )
+                          }
+                        />
+                      </td>
+                      <td className="border px-1 py-1 text-center">
+                        <input
+                          type="number"
+                          step="0.25"
+                          inputMode="decimal"
+                          size={5}
+                          className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
+                          value={row.days[dayIndex]?.dt ?? 0}
+                          onChange={(ev) =>
+                            handleUpdateHours(
+                              rowIndex,
+                              dayIndex,
+                              "dt",
+                              parseFloat(ev.target.value) || 0,
+                            )
+                          }
+                        />
+                      </td>
+                    </React.Fragment>
                   ))}
                   <td className="border px-2 py-1 text-center">
                     <button
