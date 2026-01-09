@@ -560,7 +560,7 @@ export async function buildSourcesForProjectWeek(params: {
     where: { companyId, projectId, weekEndDate },
   });
 
-  return records.map((r) => {
+  return records.map((r: any) => {
     const daily: DailySodHours[] = [];
 
     if (r.dailyHoursJson) {

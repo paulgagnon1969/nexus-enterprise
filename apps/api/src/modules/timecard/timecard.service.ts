@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
-import { rebuildPayrollWeekForProject } from "@repo/database/src/payroll-from-timecards";
+import { rebuildPayrollWeekForProject } from "@repo/database";
 import * as argon2 from "argon2";
 import { Role, ProjectRole, ProjectParticipantScope, ProjectVisibilityLevel } from "@prisma/client";
 
@@ -213,10 +213,18 @@ export class TimecardService {
     const parse = require("csv-parse/sync").parse as typeof import("csv-parse/sync").parse;
     let rows: any[] = [];
     try {
+      // Detect whether the incoming text is comma- or tab-delimited based on the
+      // first line. This allows copy/paste directly from Excel/Sheets (TSV) as
+      // well as traditional CSV files.
+      const firstLine = csvText.split(/\r?\n/, 1)[0] ?? "";
+      const hasTabs = firstLine.includes("\t");
+
       rows = parse(csvText, {
         columns: true,
         skip_empty_lines: true,
         trim: true,
+        delimiter: hasTabs ? "\t" : ",",
+        relax_column_count: true,
       });
     } catch (err: any) {
       throw new NotFoundException(`Failed to parse CSV: ${err?.message || String(err)}`);

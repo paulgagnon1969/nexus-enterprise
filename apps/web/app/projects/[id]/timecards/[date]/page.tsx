@@ -123,12 +123,31 @@ function buildWeeklyRowsFromDaily(
 }
 
 async function apiFetch(path: string, init?: RequestInit) {
+  const headers = new Headers(init?.headers || {});
+
+  // Ensure JSON Content-Type by default unless caller overrides.
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  // Attach Bearer token from localStorage if present and not already provided.
+  if (typeof window !== "undefined") {
+    try {
+      const token = window.localStorage.getItem("accessToken");
+      if (token && !headers.has("Authorization")) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+    } catch (err) {
+      // Ignore localStorage errors; request will just be unauthenticated.
+      // eslint-disable-next-line no-console
+      console.warn("Failed to read accessToken from localStorage", err);
+    }
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
     ...init,
+    headers,
   });
   if (!res.ok) {
     const text = await res.text();
@@ -174,8 +193,17 @@ export default function ProjectTimecardPage({
           fullName: w.fullName ?? `${w.firstName ?? ""} ${w.lastName ?? ""}`.trim(),
         }));
         setWorkers(opts);
-      } catch (err) {
-        console.error("Failed to load workers", err);
+      } catch (err: any) {
+        const msg = err?.message ?? String(err ?? "");
+        // In prod, /workers may not exist yet; treat 404 as non-fatal so the
+        // weekly grid still works and we just have an empty dropdown.
+        if (msg.includes("API error 404")) {
+          // eslint-disable-next-line no-console
+          console.warn("/workers endpoint not available; worker dropdown will be empty");
+        } else {
+          // eslint-disable-next-line no-console
+          console.error("Failed to load workers", err);
+        }
       }
     }
     loadWorkers();

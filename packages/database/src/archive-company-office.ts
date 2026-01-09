@@ -17,7 +17,7 @@ const RETENTION_DAYS = parseInt(process.env.COMPANY_OFFICE_ARCHIVE_RETENTION_DAY
 async function archiveCompanyOfficesBatch(): Promise<number> {
   // We use a single transaction per batch so that inserts into the archive
   // table and deletes from the main table are atomic.
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx: any) => {
     // 1) Select a batch of old soft-deleted rows.
     //
     // NOTE: FOR UPDATE SKIP LOCKED ensures that if multiple archival workers

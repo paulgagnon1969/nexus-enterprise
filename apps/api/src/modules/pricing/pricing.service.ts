@@ -113,7 +113,7 @@ export async function importPriceListFromFile(csvPath: string) {
     }
   }
 
-  const { priceListId, itemCount } = await prisma.$transaction(async (tx) => {
+  const { priceListId, itemCount } = await prisma.$transaction(async (tx: any) => {
     await tx.priceList.updateMany({
       where: { kind: "GOLDEN", isActive: true },
       data: { isActive: false },
@@ -210,7 +210,7 @@ export async function ensureCompanyPriceListForCompany(companyId: string) {
     throw new Error("No active Golden Price List is configured in Nexus System.");
   }
 
-  const seeded = await prisma.$transaction(async (tx) => {
+  const seeded = await prisma.$transaction(async (tx: any) => {
     const base = await tx.priceList.findUnique({
       where: { id: golden.id },
       include: {
@@ -235,7 +235,7 @@ export async function ensureCompanyPriceListForCompany(companyId: string) {
     });
 
     if (base.items.length) {
-      const itemsData = base.items.map((it) => ({
+      const itemsData = base.items.map((it: any) => ({
         companyPriceListId: companyPriceList.id,
         priceListItemId: it.id,
         canonicalKeyHash: it.canonicalKeyHash,
@@ -369,7 +369,7 @@ export async function importCompanyPriceListFromFile(companyId: string, csvPath:
     });
   }
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     const chunkSize = 200;
 
     // Apply updates in chunks to avoid long transactions.
@@ -457,7 +457,7 @@ export async function getGoldenPriceListUploads(limit: number) {
     counts[pl.id] = count;
   }
 
-  return lists.map(pl => ({
+  return lists.map((pl: any) => ({
     id: pl.id,
     label: pl.label,
     revision: pl.revision,
@@ -509,7 +509,7 @@ export async function getCurrentGoldenPriceListTable() {
     });
   }
 
-  const rows = items.map((item) => {
+  const rows = items.map((item: any) => {
     const catKey = (item.cat ?? "").trim().toUpperCase();
     const mapping = catKey ? byCat.get(catKey) ?? null : null;
     return {

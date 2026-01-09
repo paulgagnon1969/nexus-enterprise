@@ -17,7 +17,10 @@ async function bootstrap() {
   );
 
   app.enableCors({
+    // Echo the requesting Origin (rather than "*") so that credentials can be used
+    // from the web app (cookies, auth headers, etc.).
     origin: true,
+    credentials: true,
     // Required for /users/me PATCH and any future REST updates from the web app.
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   });
