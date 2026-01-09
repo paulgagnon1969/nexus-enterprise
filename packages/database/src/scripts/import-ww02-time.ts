@@ -5,6 +5,12 @@ import prisma from "../client";
 
 const FORTIFIED_COMPANY_ID = "cmjr9okjz000401s6rdkbatvr";
 
+// Map WW02 Location codes to real Project IDs in Nexus Fortified Structures (prod)
+const PROJECT_ID_BY_CODE: Record<string, string> = {
+  CCT: "cmjwjgmlf000f01s6c5atcwuu",
+  CBS: "cmk65uim5000601s685j7bbpj",
+};
+
 interface Ww02Row {
   Number?: string;
   Name?: string;
@@ -169,6 +175,8 @@ async function main() {
 
     const employeeId = agg.name; // stable key for uniqueness
 
+    const projectId = PROJECT_ID_BY_CODE[agg.projectCode] ?? null;
+
     const result = await prisma.payrollWeekRecord.upsert({
       where: {
         PayrollWeek_company_proj_week_emp_key: {
@@ -188,10 +196,11 @@ async function main() {
         totalHoursDt: 0,
         baseHourlyRate,
         dailyHoursJson: daily as any,
+        projectId,
       },
       create: {
         companyId: FORTIFIED_COMPANY_ID,
-        projectId: null,
+        projectId,
         projectCode: agg.projectCode,
         workerId: null,
         employeeId,
