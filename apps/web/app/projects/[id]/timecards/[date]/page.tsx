@@ -26,6 +26,8 @@ interface TimecardDto {
 interface WorkerOption {
   id: string;
   fullName: string;
+  firstName?: string;
+  lastName?: string;
 }
 
 interface WeekDayInfo {
@@ -170,6 +172,8 @@ export default function ProjectTimecardPage({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [workers, setWorkers] = useState<WorkerOption[]>([]);
+  const [lastNameFilter, setLastNameFilter] = useState("");
+  const [locationFilter, setLocationFilter] = useState("");
 
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -191,6 +195,8 @@ export default function ProjectTimecardPage({
         const opts: WorkerOption[] = (data?.workers ?? data ?? []).map((w: any) => ({
           id: w.id,
           fullName: w.fullName ?? `${w.firstName ?? ""} ${w.lastName ?? ""}`.trim(),
+          firstName: w.firstName ?? undefined,
+          lastName: w.lastName ?? undefined,
         }));
         setWorkers(opts);
       } catch (err: any) {
@@ -454,6 +460,76 @@ export default function ProjectTimecardPage({
     });
   };
 
+  function getWorkerNamesForRow(row: WeeklyRow) {
+    const worker = workers.find((w) => w.id === row.workerId);
+    const fullName = (worker?.fullName || row.workerName || "").trim();
+
+    let firstName = worker?.firstName?.trim() || "";
+    let lastName = worker?.lastName?.trim() || "";
+
+    if (!firstName && !lastName && fullName) {
+      const parts = fullName.split(/\s+/);
+      if (parts.length === 1) {
+        // Single token – treat as last name
+        // eslint-disable-next-line prefer-destructuring
+        lastName = parts[0];
+      } else if (parts.length > 1) {
+        lastName = parts[parts.length - 1];
+        firstName = parts.slice(0, -1).join(" ");
+      }
+    }
+
+    return { fullName, firstName, lastName };
+  }
+
+  const visibleRows = useMemo(() => {
+    const nonBlank: WeeklyRow[] = [];
+    const blanks: WeeklyRow[] = [];
+
+    weeklyRows.forEach((row) => {
+      if (!row.workerId) {
+        blanks.push(row);
+      } else {
+        nonBlank.push(row);
+      }
+    });
+
+    const lnFilter = lastNameFilter.trim().toLowerCase();
+    const locFilter = locationFilter.trim().toLowerCase();
+
+    const filtered = nonBlank.filter((row) => {
+      const { lastName } = getWorkerNamesForRow(row);
+      const loc = (row.locationCode ?? "").toLowerCase();
+
+      if (lnFilter && !lastName.toLowerCase().includes(lnFilter)) {
+        return false;
+      }
+      if (locFilter && !loc.includes(locFilter)) {
+        return false;
+      }
+      return true;
+    });
+
+    filtered.sort((a, b) => {
+      const na = getWorkerNamesForRow(a);
+      const nb = getWorkerNamesForRow(b);
+
+      const la = na.lastName.toLowerCase();
+      const lb = nb.lastName.toLowerCase();
+      if (la < lb) return -1;
+      if (la > lb) return 1;
+
+      const fa = na.firstName.toLowerCase();
+      const fb = nb.firstName.toLowerCase();
+      if (fa < fb) return -1;
+      if (fa > fb) return 1;
+
+      return na.fullName.toLowerCase().localeCompare(nb.fullName.toLowerCase());
+    });
+
+    return [...filtered, ...blanks];
+  }, [weeklyRows, workers, lastNameFilter, locationFilter]);
+
   const totalHours = useMemo(
     () =>
       weeklyRows.reduce(
@@ -547,6 +623,47 @@ export default function ProjectTimecardPage({
         onChange={handleFileChange}
       />
 
+      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-700 mt-2">
+        <div className="flex items-center gap-1">
+          <label htmlFor="lastNameFilter" className="whitespace-nowrap">
+            Filter last name:
+          </label>
+          <input
+            id="lastNameFilter"
+            type="text"
+            value={lastNameFilter}
+            onChange={(e) => setLastNameFilter(e.target.value)}
+            className="border rounded px-2 py-0.5 text-xs"
+            placeholder="e.g. Smith"
+          />
+        </div>
+        <div className="flex items-center gap-1">
+          <label htmlFor="locationFilter" className="whitespace-nowrap">
+            Filter location:
+          </label>
+          <input
+            id="locationFilter"
+            type="text"
+            value={locationFilter}
+            onChange={(e) => setLocationFilter(e.target.value)}
+            className="border rounded px-2 py-0.5 text-xs"
+            placeholder="e.g. CBS"
+          />
+        </div>
+        {(lastNameFilter || locationFilter) && (
+          <button
+            type="button"
+            onClick={() => {
+              setLastNameFilter("");
+              setLocationFilter("");
+            }}
+            className="border rounded px-2 py-0.5 text-xs bg-gray-100 hover:bg-gray-200"
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
       {showPasteModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-3xl rounded-md bg-white p-4 shadow-lg border border-gray-200">
@@ -639,7 +756,7 @@ export default function ProjectTimecardPage({
               </tr>
             </thead>
             <tbody>
-              {weeklyRows.map((row, rowIndex) => (
+              {visibleRows.map((row, rowIndex) => (
                 <tr key={row.tempId ?? rowIndex}>
                   <td className="border px-2 py-1">
                     <select
