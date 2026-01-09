@@ -616,6 +616,7 @@ export default function ProjectTimecardPage({
               <tr>
                 <th rowSpan={2} className="border px-2 py-1 text-left align-bottom">Worker</th>
                 <th rowSpan={2} className="border px-2 py-1 text-left align-bottom">Location</th>
+                <th rowSpan={2} className="border px-2 py-1 text-center align-bottom">Total Hrs</th>
                 {weekDays.map((day) => (
                   <th
                     key={day.iso}
@@ -662,6 +663,11 @@ export default function ProjectTimecardPage({
                       onChange={(ev) => handleUpdateLocation(rowIndex, ev.target.value)}
                     />
                   </td>
+                  <td className="border px-2 py-1 text-right text-sm">
+                    {row.days
+                      .reduce((sum, d) => sum + d.st + d.ot + d.dt, 0)
+                      .toFixed(2)}
+                  </td>
                   {weekDays.map((day, dayIndex) => (
                     <React.Fragment key={`${row.tempId}-${day.iso}`}>
                       <td className="border px-1 py-1 text-center">
@@ -670,7 +676,11 @@ export default function ProjectTimecardPage({
                           step="0.25"
                           inputMode="decimal"
                           size={5}
-                          className="border rounded px-0.5 py-0.5 text-xs text-center"
+                          className={`border rounded px-0.5 py-0.5 text-xs text-center ${
+                            (row.days[dayIndex]?.st ?? 0) === 0
+                              ? "bg-gray-100 text-gray-400"
+                              : "bg-white text-gray-900"
+                          }`}
                           style={{ width: "5ch" }}
                           value={row.days[dayIndex]?.st ?? 0}
                           onChange={(ev) =>
@@ -689,7 +699,11 @@ export default function ProjectTimecardPage({
                           step="0.25"
                           inputMode="decimal"
                           size={5}
-                          className="border rounded px-0.5 py-0.5 text-xs text-center"
+                          className={`border rounded px-0.5 py-0.5 text-xs text-center ${
+                            (row.days[dayIndex]?.ot ?? 0) === 0
+                              ? "bg-gray-100 text-gray-400"
+                              : "bg-white text-gray-900"
+                          }`}
                           style={{ width: "5ch" }}
                           value={row.days[dayIndex]?.ot ?? 0}
                           onChange={(ev) =>
@@ -708,7 +722,11 @@ export default function ProjectTimecardPage({
                           step="0.25"
                           inputMode="decimal"
                           size={5}
-                          className="border rounded px-0.5 py-0.5 text-xs text-center"
+                          className={`border rounded px-0.5 py-0.5 text-xs text-center ${
+                            (row.days[dayIndex]?.dt ?? 0) === 0
+                              ? "bg-gray-100 text-gray-400"
+                              : "bg-white text-gray-900"
+                          }`}
                           style={{ width: "5ch" }}
                           value={row.days[dayIndex]?.dt ?? 0}
                           onChange={(ev) =>
