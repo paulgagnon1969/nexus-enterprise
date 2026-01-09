@@ -658,13 +658,13 @@ export default function ProjectTimecardPage({
                   </td>
                   {weekDays.map((day, dayIndex) => (
                     <td key={`${row.tempId}-${day.iso}`} className="border px-2 py-1">
-                      <div className="flex flex-col items-center gap-1">
+                      <div className="flex items-center justify-center gap-1">
                         <input
                           type="number"
                           step="0.25"
                           inputMode="decimal"
-                          size={4}
-                          className="border rounded px-1 py-0.5 text-xs w-12 text-center"
+                          size={5}
+                          className="border rounded px-1 py-0.5 text-xs w-14 text-center"
                           value={row.days[dayIndex]?.st ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
@@ -679,8 +679,8 @@ export default function ProjectTimecardPage({
                           type="number"
                           step="0.25"
                           inputMode="decimal"
-                          size={4}
-                          className="border rounded px-1 py-0.5 text-xs w-12 text-center"
+                          size={5}
+                          className="border rounded px-1 py-0.5 text-xs w-14 text-center"
                           value={row.days[dayIndex]?.ot ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
@@ -695,8 +695,8 @@ export default function ProjectTimecardPage({
                           type="number"
                           step="0.25"
                           inputMode="decimal"
-                          size={4}
-                          className="border rounded px-1 py-0.5 text-xs w-12 text-center"
+                          size={5}
+                          className="border rounded px-1 py-0.5 text-xs w-14 text-center"
                           value={row.days[dayIndex]?.dt ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
