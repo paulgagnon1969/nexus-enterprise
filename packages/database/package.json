@@ -16,13 +16,17 @@
     "import:pricelist": "ts-node src/run-import-price-list.ts",
     "import:pricelist-components": "ts-node src/run-import-pricelist-components.ts",
     "archive:company-offices": "ts-node src/archive-company-office.ts",
-    "import:bia-workers": "ts-node src/run-import-bia-workers.ts"
+    "import:bia-workers": "ts-node src/run-import-bia-workers.ts",
+    "import:fortified:payroll-admin": "ts-node src/scripts/import-fortified-payroll-admin.ts",
+    "import:fortified:ww02-time": "ts-node src/scripts/import-ww02-time.ts",
+    "report:fortified:ww02-time": "ts-node src/scripts/report-ww02-time.ts"
   },
   "dependencies": {
     "@prisma/client": "^7.0.0",
     "@prisma/adapter-pg": "^7.0.0",
     "pg": "^8.13.0",
-    "csv-parse": "^6.1.0"
+    "csv-parse": "^6.1.0",
+    "argon2": "^0.40.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
