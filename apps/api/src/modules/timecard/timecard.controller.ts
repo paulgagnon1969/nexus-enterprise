@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Body, Query, Param } from "@nestjs/common";
-import { TimecardService, UpsertTimecardDto } from "./timecard.service";
+import { TimecardService, UpsertTimecardDto, ImportWeeklyCsvDto } from "./timecard.service";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { UseGuards, Req } from "@nestjs/common";
@@ -55,6 +55,22 @@ export class TimecardController {
       projectId,
       userId: user.userId,
       date,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post("import-weekly-from-csv")
+  async importWeeklyFromCsv(
+    @Req() req: any,
+    @Param("projectId") projectId: string,
+    @Body() body: ImportWeeklyCsvDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const companyId = user.companyId;
+    return this.timecardService.importWeeklyFromCsv({
+      companyId,
+      projectId,
+      body,
     });
   }
 }
