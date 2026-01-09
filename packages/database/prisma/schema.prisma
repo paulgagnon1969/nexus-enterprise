@@ -73,6 +73,7 @@ model Company {
   projectFiles       ProjectFile[]
   companyPriceLists  CompanyPriceList[]
   dailyTimecards     DailyTimecard[]
+  timecardEditLogs   TimecardEditLog[]
 }
 
 model OrganizationTemplate {
@@ -450,9 +451,36 @@ model DailyTimecard {
   project Project @relation(fields: [projectId], references: [id])
   createdBy User? @relation(fields: [createdByUserId], references: [id])
   entries  DailyTimeEntry[]
+  edits    TimecardEditLog[]
 
   @@unique([companyId, projectId, date], name: "DailyTimecard_company_project_date_key")
   @@index([companyId, date], map: "DailyTimecard_company_date_idx")
+}
+
+/// Audit log for manual edits to daily time entries (e.g. worker reassignments)
+model TimecardEditLog {
+  id            String   @id @default(cuid())
+  companyId     String
+  projectId     String
+  timecardId    String
+  date          DateTime
+  oldWorkerId   String
+  newWorkerId   String
+  locationCode  String?
+  oldStHours    Float
+  oldOtHours    Float
+  oldDtHours    Float
+  newStHours    Float
+  newOtHours    Float
+  newDtHours    Float
+  editedByUserId String?
+  createdAt     DateTime @default(now())
+
+  company  Company       @relation(fields: [companyId], references: [id])
+  project  Project       @relation(fields: [projectId], references: [id])
+  timecard DailyTimecard @relation(fields: [timecardId], references: [id])
+
+  @@index([companyId, projectId, date], map: "TimecardEditLog_company_project_date_idx")
 }
 
 /// Individual worker entry on a daily timecard.
@@ -708,6 +736,7 @@ model Project {
   projectFileFolders   ProjectFileFolder[]
   projectFiles         ProjectFile[]
   dailyTimecards       DailyTimecard[]
+  timecardEditLogs     TimecardEditLog[]
 
   @@index([companyId, groupId], map: "Project_company_group_idx")
 }

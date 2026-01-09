@@ -116,20 +116,67 @@ export class TimecardService {
       },
     });
 
+    // Load existing entries so we can record audit logs when workers are
+    // reassigned but the underlying hours stay the same.
+    const existingEntries: any[] = await (this.prisma as any).dailyTimeEntry.findMany({
+      where: { timecardId: card.id },
+    });
+
+    const newEntriesData = (body.entries ?? []).map((e) => ({
+      timecardId: card.id,
+      workerId: e.workerId,
+      locationCode: e.locationCode ?? null,
+      stHours: e.stHours ?? 0,
+      otHours: e.otHours ?? 0,
+      dtHours: e.dtHours ?? 0,
+    }));
+
+    const editLogs: any[] = [];
+    const remainingOld = [...existingEntries];
+
+    for (const newEntry of newEntriesData) {
+      const idx = remainingOld.findIndex((old) =>
+        old.workerId !== newEntry.workerId &&
+        (old.locationCode ?? null) === (newEntry.locationCode ?? null) &&
+        Number(old.stHours ?? 0) === Number(newEntry.stHours ?? 0) &&
+        Number(old.otHours ?? 0) === Number(newEntry.otHours ?? 0) &&
+        Number(old.dtHours ?? 0) === Number(newEntry.dtHours ?? 0)
+      );
+
+      if (idx >= 0) {
+        const old = remainingOld[idx];
+        remainingOld.splice(idx, 1);
+
+        editLogs.push({
+          companyId,
+          projectId,
+          timecardId: card.id,
+          date: d,
+          oldWorkerId: old.workerId,
+          newWorkerId: newEntry.workerId,
+          locationCode: newEntry.locationCode ?? null,
+          oldStHours: Number(old.stHours ?? 0),
+          oldOtHours: Number(old.otHours ?? 0),
+          oldDtHours: Number(old.dtHours ?? 0),
+          newStHours: Number(newEntry.stHours ?? 0),
+          newOtHours: Number(newEntry.otHours ?? 0),
+          newDtHours: Number(newEntry.dtHours ?? 0),
+          editedByUserId: userId,
+        });
+      }
+    }
+
     // Replace entries with the provided set
     await (this.prisma as any).dailyTimeEntry.deleteMany({ where: { timecardId: card.id } });
 
-    if (body.entries?.length) {
+    if (newEntriesData.length) {
       await (this.prisma as any).dailyTimeEntry.createMany({
-        data: body.entries.map((e) => ({
-          timecardId: card.id,
-          workerId: e.workerId,
-          locationCode: e.locationCode ?? null,
-          stHours: e.stHours ?? 0,
-          otHours: e.otHours ?? 0,
-          dtHours: e.dtHours ?? 0,
-        })),
+        data: newEntriesData,
       });
+    }
+
+    if (editLogs.length) {
+      await (this.prisma as any).timecardEditLog.createMany({ data: editLogs });
     }
 
     // Rebuild weekly payroll for this project/week
