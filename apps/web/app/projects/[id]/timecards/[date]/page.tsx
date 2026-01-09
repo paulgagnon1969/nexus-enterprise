@@ -670,7 +670,8 @@ export default function ProjectTimecardPage({
                           step="0.25"
                           inputMode="decimal"
                           size={5}
-                          className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
+                          className="border rounded px-0.5 py-0.5 text-xs text-center"
+                          style={{ width: "5ch" }}
                           value={row.days[dayIndex]?.st ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
@@ -688,7 +689,8 @@ export default function ProjectTimecardPage({
                           step="0.25"
                           inputMode="decimal"
                           size={5}
-                          className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
+                          className="border rounded px-0.5 py-0.5 text-xs text-center"
+                          style={{ width: "5ch" }}
                           value={row.days[dayIndex]?.ot ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
@@ -706,7 +708,8 @@ export default function ProjectTimecardPage({
                           step="0.25"
                           inputMode="decimal"
                           size={5}
-                          className="border rounded px-0.5 py-0.5 text-xs w-12 text-center"
+                          className="border rounded px-0.5 py-0.5 text-xs text-center"
+                          style={{ width: "5ch" }}
                           value={row.days[dayIndex]?.dt ?? 0}
                           onChange={(ev) =>
                             handleUpdateHours(
