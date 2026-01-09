@@ -524,4 +524,96 @@ export class TimecardService {
       warnings,
     };
   }
+
+  async getEditLogsForProjectWeek(params: {
+    companyId: string;
+    projectId: string;
+    weekStartIso: string;
+    weekEndIso: string;
+  }) {
+    const { companyId, projectId, weekStartIso, weekEndIso } = params;
+    const start = this.parseDate(weekStartIso);
+    const end = this.parseDate(weekEndIso);
+
+    const logs = await (this.prisma as any).timecardEditLog.findMany({
+      where: {
+        companyId,
+        projectId,
+        date: {
+          gte: start,
+          lte: end,
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!logs.length) {
+      return { logs: [] };
+    }
+
+    const workerIds = Array.from(
+      new Set<string>(
+        logs.flatMap((l: any) => [l.oldWorkerId, l.newWorkerId].filter(Boolean)),
+      ),
+    );
+
+    const workers = await (this.prisma as any).worker.findMany({
+      where: { id: { in: workerIds } },
+      select: { id: true, firstName: true, lastName: true, fullName: true },
+    });
+    const workerById = new Map<string, any>();
+    workers.forEach((w: any) => workerById.set(w.id, w));
+
+    const userIds = Array.from(
+      new Set<string>(logs.map((l: any) => l.editedByUserId).filter(Boolean)),
+    );
+    let users: any[] = [];
+    if (userIds.length) {
+      users = await this.prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, email: true, firstName: true, lastName: true },
+      });
+    }
+    const userById = new Map<string, any>();
+    users.forEach((u) => userById.set(u.id, u));
+
+    const dto = logs.map((l: any) => {
+      const oldWorker = workerById.get(l.oldWorkerId);
+      const newWorker = workerById.get(l.newWorkerId);
+      const editor = l.editedByUserId ? userById.get(l.editedByUserId) : null;
+
+      const pickName = (w: any) =>
+        !w
+          ? null
+          : w.fullName ||
+            [w.firstName, w.lastName].filter((x: string | null) => x && x.trim()).join(" ");
+
+      const formatIso = (d: Date) => d.toISOString().slice(0, 10);
+
+      return {
+        id: l.id,
+        date: formatIso(l.date),
+        locationCode: l.locationCode,
+        oldWorkerId: l.oldWorkerId,
+        oldWorkerName: pickName(oldWorker),
+        newWorkerId: l.newWorkerId,
+        newWorkerName: pickName(newWorker),
+        oldStHours: l.oldStHours,
+        oldOtHours: l.oldOtHours,
+        oldDtHours: l.oldDtHours,
+        newStHours: l.newStHours,
+        newOtHours: l.newOtHours,
+        newDtHours: l.newDtHours,
+        editedByUserId: l.editedByUserId,
+        editedByName: editor
+          ? [editor.firstName, editor.lastName]
+              .filter((x: string | null) => x && x.trim())
+              .join(" ") || editor.email
+          : null,
+        createdAt: l.createdAt,
+      };
+    });
+
+    return { logs: dto };
+  }
 }

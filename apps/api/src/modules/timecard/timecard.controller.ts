@@ -73,4 +73,22 @@ export class TimecardController {
       body,
     });
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get("audit")
+  async getAuditLogs(
+    @Req() req: any,
+    @Param("projectId") projectId: string,
+    @Query("weekStart") weekStartIso: string,
+    @Query("weekEnd") weekEndIso: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const companyId = user.companyId;
+    return this.timecardService.getEditLogsForProjectWeek({
+      companyId,
+      projectId,
+      weekStartIso,
+      weekEndIso,
+    });
+  }
 }

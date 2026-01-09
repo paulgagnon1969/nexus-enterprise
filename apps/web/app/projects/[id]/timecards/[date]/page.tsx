@@ -43,6 +43,25 @@ interface WeeklyRow {
   days: { st: number; ot: number; dt: number }[]; // one entry per day in week
 }
 
+interface TimecardEditLogDto {
+  id: string;
+  date: string; // YYYY-MM-DD
+  locationCode?: string | null;
+  oldWorkerId: string;
+  oldWorkerName?: string | null;
+  newWorkerId: string;
+  newWorkerName?: string | null;
+  oldStHours: number;
+  oldOtHours: number;
+  oldDtHours: number;
+  newStHours: number;
+  newOtHours: number;
+  newDtHours: number;
+  editedByUserId?: string | null;
+  editedByName?: string | null;
+  createdAt: string | Date;
+}
+
 // Used to infer a default location filter for specific projects (e.g. CBS/CCT)
 const DEFAULT_LOCATION_BY_PROJECT_ID: Record<string, string> = {
   // Fortified Structures CBS & CCT projects
@@ -190,6 +209,11 @@ export default function ProjectTimecardPage({
   const [pasteWarnings, setPasteWarnings] = useState<string[] | null>(null);
   const [pasteSummary, setPasteSummary] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [showAuditModal, setShowAuditModal] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [auditLogs, setAuditLogs] = useState<TimecardEditLogDto[]>([]);
 
   const weekStartIso = useMemo(() => getWeekStartIso(date), [date]);
   const weekDays = useMemo<WeekDayInfo[]>(() => buildWeekDays(weekStartIso), [weekStartIso]);
@@ -361,6 +385,25 @@ export default function ProjectTimecardPage({
 
   const handleImportFromBackendRefresh = () => {
     setReloadToken(prev => prev + 1);
+  };
+
+  const handleOpenAuditModal = async () => {
+    if (!weekDays.length) return;
+    setShowAuditModal(true);
+    setAuditLoading(true);
+    setAuditError(null);
+    try {
+      const weekStart = weekDays[0].iso;
+      const weekEnd = weekDays[weekDays.length - 1].iso;
+      const resp = await apiFetch(
+        `/projects/${projectId}/timecards/audit?weekStart=${weekStart}&weekEnd=${weekEnd}`,
+      );
+      setAuditLogs((resp?.logs ?? []) as TimecardEditLogDto[]);
+    } catch (e: any) {
+      setAuditError(e?.message ?? "Failed to load audit history.");
+    } finally {
+      setAuditLoading(false);
+    }
   };
 
   const handleFileUploadClick = () => {
@@ -654,6 +697,14 @@ export default function ProjectTimecardPage({
         >
           {saving ? "Saving..." : "Save"}
         </button>
+        <button
+          type="button"
+          onClick={handleOpenAuditModal}
+          disabled={loading}
+          className="border rounded px-2 py-1 text-xs bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+        >
+          View changes
+        </button>
         <span className="ml-auto text-sm text-gray-600">
           Total hours (week): {totalHours.toFixed(2)}
         </span>
@@ -723,6 +774,85 @@ export default function ProjectTimecardPage({
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showAuditModal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-4xl rounded-md bg-white p-4 shadow-lg border border-gray-200 max-h-[80vh] overflow-auto">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-semibold">Timecard change history</h2>
+              <button
+                type="button"
+                onClick={() => setShowAuditModal(false)}
+                className="text-gray-500 hover:text-gray-800 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+            {auditLoading ? (
+              <div className="text-xs text-gray-500">Loading edits...</div>
+            ) : auditError ? (
+              <div className="text-xs text-red-600">{auditError}</div>
+            ) : auditLogs.length === 0 ? (
+              <div className="text-xs text-gray-500">No changes recorded for this week.</div>
+            ) : (
+              <table className="min-w-full text-xs border border-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="border px-2 py-1 text-left">Date</th>
+                    <th className="border px-2 py-1 text-left">Location</th>
+                    <th className="border px-2 py-1 text-left">Old worker</th>
+                    <th className="border px-2 py-1 text-left">New worker</th>
+                    <th className="border px-2 py-1 text-center">ST (old → new)</th>
+                    <th className="border px-2 py-1 text-center">OT (old → new)</th>
+                    <th className="border px-2 py-1 text-center">DT (old → new)</th>
+                    <th className="border px-2 py-1 text-left">Edited by</th>
+                    <th className="border px-2 py-1 text-left">When</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.map((log) => {
+                    const created = new Date(log.createdAt);
+                    const createdLabel = Number.isNaN(created.getTime())
+                      ? ""
+                      : created.toLocaleString();
+                    return (
+                      <tr key={log.id}>
+                        <td className="border px-2 py-1">
+                          {log.date}
+                        </td>
+                        <td className="border px-2 py-1">
+                          {log.locationCode ?? ""}
+                        </td>
+                        <td className="border px-2 py-1">
+                          {log.oldWorkerName ?? log.oldWorkerId}
+                        </td>
+                        <td className="border px-2 py-1">
+                          {log.newWorkerName ?? log.newWorkerId}
+                        </td>
+                        <td className="border px-2 py-1 text-center">
+                          {log.oldStHours.toFixed(2)} → {log.newStHours.toFixed(2)}
+                        </td>
+                        <td className="border px-2 py-1 text-center">
+                          {log.oldOtHours.toFixed(2)} → {log.newOtHours.toFixed(2)}
+                        </td>
+                        <td className="border px-2 py-1 text-center">
+                          {log.oldDtHours.toFixed(2)} → {log.newDtHours.toFixed(2)}
+                        </td>
+                        <td className="border px-2 py-1">
+                          {log.editedByName ?? ""}
+                        </td>
+                        <td className="border px-2 py-1">
+                          {createdLabel}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
