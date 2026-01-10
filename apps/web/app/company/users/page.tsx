@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { formatPhone } from "../../lib/phone";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const FORTIFIED_COMPANY_ID = "cmjr9okjz000401s6rdkbatvr";
 
 type CompanyRole = "OWNER" | "ADMIN" | "MEMBER" | "CLIENT";
 
@@ -2495,6 +2496,18 @@ interface CandidateRow {
   userId?: string | null; // underlying User.id when available (for journaling)
 }
 
+interface FortifiedCandidateRow {
+  id: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  source?: string | null;
+  status?: string | null;
+  createdAt?: string | null;
+  referrerEmail?: string | null;
+}
+
 function computeProfilePercentFromChecklist(checklist: CandidateChecklist | null | undefined): number | null {
   if (!checklist) return null;
   const keys: (keyof CandidateChecklist)[] = [
@@ -2538,6 +2551,11 @@ function ProspectiveCandidatesPanel({
   const [rows, setRows] = useState<CandidateRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Nex-Net shared pool for Nexus Fortified Structures.
+  const [fortifiedRows, setFortifiedRows] = useState<FortifiedCandidateRow[] | null>(null);
+  const [fortifiedLoading, setFortifiedLoading] = useState(false);
+  const [fortifiedError, setFortifiedError] = useState<string | null>(null);
 
   // Pipeline status filter (OnboardingStatus)
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
@@ -2611,6 +2629,56 @@ function ProspectiveCandidatesPanel({
       setError("Missing access token. Please log in again.");
       setLoading(false);
       return;
+    }
+
+    // For Nexus Fortified, also load the shared Nex-Net pool that has been
+    // explicitly made visible to this tenant.
+    if (companyId === FORTIFIED_COMPANY_ID) {
+      let cancelled = false;
+      (async () => {
+        try {
+          setFortifiedLoading(true);
+          setFortifiedError(null);
+          const res = await fetch(`${API_BASE}/referrals/fortified/candidates`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            throw new Error(
+              `Failed to load shared Nex-Net candidates (${res.status}) ${text}`,
+            );
+          }
+          const json: any[] = await res.json();
+          if (cancelled) return;
+          const mapped: FortifiedCandidateRow[] = (json || []).map((c: any) => {
+            const latestReferral = (c.referralsAsReferee || [])[0];
+            return {
+              id: c.id,
+              firstName: c.firstName ?? null,
+              lastName: c.lastName ?? null,
+              email: c.email ?? c.user?.email ?? null,
+              phone: c.phone ?? null,
+              source: c.source ?? null,
+              status: c.status ?? null,
+              createdAt: c.createdAt ?? null,
+              referrerEmail: latestReferral?.referrer?.email ?? null,
+            };
+          });
+          setFortifiedRows(mapped);
+        } catch (e: any) {
+          if (!cancelled) {
+            setFortifiedError(e?.message ?? "Failed to load shared Nex-Net candidates.");
+          }
+        } finally {
+          if (!cancelled) {
+            setFortifiedLoading(false);
+          }
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
     }
 
     async function load() {
@@ -2936,12 +3004,120 @@ function ProspectiveCandidatesPanel({
     window.location.href = "/messaging";
   }
 
+  const isFortifiedCompany = companyId === FORTIFIED_COMPANY_ID;
+
   return (
     <section style={{ marginTop: 8 }}>
       <h2 style={{ fontSize: 16, marginBottom: 4 }}>Prospective candidates</h2>
       <p style={{ fontSize: 12, color: "#4b5563", marginTop: 0 }}>
         Candidates who have submitted onboarding for <strong>{companyName}</strong>. Filter by region/state/city.
       </p>
+
+      {isFortifiedCompany && (
+        <div
+          style={{
+            marginTop: 8,
+            marginBottom: 12,
+            padding: 10,
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            background: "#ffffff",
+          }}
+        >
+          <h3 style={{ fontSize: 14, marginTop: 0, marginBottom: 4 }}>
+            Nex-Net pool candidates shared with Nexus Fortified
+          </h3>
+          <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0, marginBottom: 6 }}>
+            Prospective candidates from the central Nexus System recruiting pool that are explicitly visible to
+            Nexus Fortified Structures.
+          </p>
+          {fortifiedLoading && (
+            <p style={{ fontSize: 12, color: "#6b7280" }}>Loading shared Nex-Net candidates…</p>
+          )}
+          {fortifiedError && !fortifiedLoading && (
+            <p style={{ fontSize: 12, color: "#b91c1c" }}>{fortifiedError}</p>
+          )}
+          {!fortifiedLoading && !fortifiedError && (!fortifiedRows || fortifiedRows.length === 0) && (
+            <p style={{ fontSize: 12, color: "#6b7280" }}>No shared Nex-Net candidates yet.</p>
+          )}
+          {!fortifiedLoading && !fortifiedError && fortifiedRows && fortifiedRows.length > 0 && (
+            <div style={{ overflowX: "auto", marginTop: 4 }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 12,
+                }}
+              >
+                <thead>
+                  <tr style={{ backgroundColor: "#f9fafb" }}>
+                    <th style={{ textAlign: "left", padding: "4px 6px" }}>Candidate</th>
+                    <th style={{ textAlign: "left", padding: "4px 6px" }}>Email</th>
+                    <th style={{ textAlign: "left", padding: "4px 6px" }}>Phone</th>
+                    <th style={{ textAlign: "left", padding: "4px 6px" }}>Source</th>
+                    <th style={{ textAlign: "left", padding: "4px 6px" }}>Status</th>
+                    <th style={{ textAlign: "left", padding: "4px 6px" }}>Referrer</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fortifiedRows.map(row => {
+                    const name = (row.firstName || row.lastName)
+                      ? `${row.firstName ?? ""} ${row.lastName ?? ""}`.trim()
+                      : "—";
+                    return (
+                      <tr key={row.id}>
+                        <td style={{ padding: "4px 6px", borderTop: "1px solid #e5e7eb" }}>{name}</td>
+                        <td style={{ padding: "4px 6px", borderTop: "1px solid #e5e7eb" }}>
+                          {row.email ? (
+                            <a
+                              href={`mailto:${row.email}`}
+                              style={{ color: "#2563eb", textDecoration: "none" }}
+                            >
+                              {row.email}
+                            </a>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td style={{ padding: "4px 6px", borderTop: "1px solid #e5e7eb" }}>
+                          {row.phone ? (
+                            <a
+                              href={`tel:${row.phone.replace(/[^\\d+]/g, "")}`}
+                              style={{ color: "#6b7280", textDecoration: "none" }}
+                            >
+                              {row.phone}
+                            </a>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td style={{ padding: "4px 6px", borderTop: "1px solid #e5e7eb" }}>
+                          {row.source || "—"}
+                        </td>
+                        <td style={{ padding: "4px 6px", borderTop: "1px solid #e5e7eb" }}>
+                          {row.status || "—"}
+                        </td>
+                        <td style={{ padding: "4px 6px", borderTop: "1px solid #e5e7eb" }}>
+                          {row.referrerEmail ? (
+                            <a
+                              href={`mailto:${row.referrerEmail}`}
+                              style={{ color: "#2563eb", textDecoration: "none" }}
+                            >
+                              {row.referrerEmail}
+                            </a>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       <div
         style={{

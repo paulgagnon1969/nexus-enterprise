@@ -259,9 +259,82 @@ export class ReferralsService {
             },
           },
           orderBy: { createdAt: "desc" },
+          take: 1,
         },
       },
       take: 200,
+    });
+  }
+
+  /**
+   * Tenant-facing view: Nex-Net candidates that are explicitly visible to
+   * Nexus Fortified Structures via CandidatePoolVisibility.
+   */
+  async listCandidatesForFortified(actor: AuthenticatedUser) {
+    if (actor.companyId !== this.fortifiedCompanyId) {
+      throw new ForbiddenException("Only Nexus Fortified Structures can access this view.");
+    }
+
+    if (actor.role !== "OWNER" && actor.role !== "ADMIN") {
+      throw new ForbiddenException("Only Nexus Fortified admins can access this view.");
+    }
+
+    const visRows = await this.prisma.candidatePoolVisibility.findMany({
+      where: {
+        visibleToCompanyId: this.fortifiedCompanyId,
+        isAllowed: true,
+      },
+      select: {
+        candidateId: true,
+      },
+      take: 500,
+    });
+
+    const candidateIds = Array.from(
+      new Set(
+        visRows
+          .map(v => v.candidateId)
+          .filter((id): id is string => !!id && typeof id === "string"),
+      ),
+    );
+
+    if (!candidateIds.length) {
+      return [];
+    }
+
+    return this.prisma.nexNetCandidate.findMany({
+      where: {
+        id: { in: candidateIds },
+        isDeletedSoft: false,
+        // Hide private test candidates from Fortified by default.
+        visibilityScope: { not: "PRIVATE_TEST" as any },
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+        referralsAsReferee: {
+          include: {
+            referrer: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+      },
+      take: 500,
     });
   }
 
