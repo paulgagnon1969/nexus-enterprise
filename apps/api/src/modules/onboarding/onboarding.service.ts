@@ -1012,9 +1012,23 @@ export class OnboardingService {
     statuses?: string[],
     detailStatusCodes?: string[],
   ) {
+    const isSameCompany = actor.companyId === companyId;
+    const isGlobalAdmin = (actor as any).globalRole === "SUPER_ADMIN";
+
+    // SUPER_ADMINs can read onboarding sessions for any company. For normal
+    // users, require that they are acting within their current company
+    // context.
+    if (!isSameCompany && !isGlobalAdmin) {
+      throw new ForbiddenException("Not allowed to view onboarding for this company");
+    }
+
+    // Within the active company context, restrict access to OWNER / ADMIN /
+    // HIRING_MANAGER unless the caller is SUPER_ADMIN.
     if (
-      actor.companyId !== companyId ||
-      (actor.role !== "OWNER" && actor.role !== "ADMIN" && actor.profileCode !== "HIRING_MANAGER")
+      !isGlobalAdmin &&
+      actor.role !== "OWNER" &&
+      actor.role !== "ADMIN" &&
+      actor.profileCode !== "HIRING_MANAGER"
     ) {
       throw new ForbiddenException("Not allowed to view onboarding for this company");
     }
