@@ -200,6 +200,14 @@ export default function ProjectTimecardPage({
   const [workers, setWorkers] = useState<WorkerOption[]>([]);
   const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+  // Tracks whether the user has manually interacted with the worker filter.
+  // If we ever introduce a default worker selection, we will only apply it
+  // before the user has touched the filter.
+  const [workerFilterTouched, setWorkerFilterTouched] = useState(false);
+  // Tracks whether the user has manually interacted with the location filter.
+  // We only auto-default to a project-specific location (e.g. CBS/CCT) once,
+  // and never override the user's explicit "All locations" choice.
+  const [locationFilterTouched, setLocationFilterTouched] = useState(false);
 
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -291,10 +299,11 @@ export default function ProjectTimecardPage({
     }
   }, [projectId, weekDays, reloadToken]);
 
-  // When rows load for a project, default the location filter to the
-  // project's primary location code (e.g. CBS/CCT) if present in the data.
+  // When rows first load for a project, default the location filter to the
+  // project's primary location code (e.g. CBS/CCT) *once*, but never override
+  // an explicit user choice (including when they pick "All locations").
   useEffect(() => {
-    if (selectedLocations.length > 0) return;
+    if (locationFilterTouched) return; // user has made an explicit choice
     if (!weeklyRows.length) return;
 
     const projectDefault = DEFAULT_LOCATION_BY_PROJECT_ID[projectId];
@@ -308,8 +317,9 @@ export default function ProjectTimecardPage({
 
     if (allLocs.has(projectDefault)) {
       setSelectedLocations([projectDefault]);
+      setLocationFilterTouched(true);
     }
-  }, [projectId, weeklyRows, selectedLocations.length]);
+  }, [projectId, weeklyRows, locationFilterTouched]);
 
   const handleChangeDate = (next: string) => {
     setDate(next);
@@ -1007,6 +1017,7 @@ className="border px-32 py-1 text-center align-bottom"
                     value={selectedWorkerIds[0] ?? ""}
                     onChange={(e) => {
                       const v = e.target.value;
+                      setWorkerFilterTouched(true);
                       setSelectedWorkerIds(v ? [v] : []);
                     }}
                     className="border rounded px-1 py-0.5 text-[10px] w-full"
@@ -1026,6 +1037,7 @@ className="border px-32 py-1 text-center align-bottom"
                     value={selectedLocations[0] ?? ""}
                     onChange={(e) => {
                       const v = e.target.value;
+                      setLocationFilterTouched(true);
                       setSelectedLocations(v ? [v] : []);
                     }}
                     className="border rounded px-1 py-0.5 text-[10px] w-full"
