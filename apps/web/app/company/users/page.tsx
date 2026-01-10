@@ -2937,6 +2937,10 @@ function ProspectiveCandidatesPanel({
     { email: string; userId?: string | null }[] | null
   >(null);
 
+  const isFortifiedCompany = companyName
+    .toLowerCase()
+    .startsWith("nexus fortified structures");
+
   // Load candidate status definitions (global + company) once when tab is candidates
   useEffect(() => {
     const token = window.localStorage.getItem("accessToken");
@@ -2979,7 +2983,7 @@ function ProspectiveCandidatesPanel({
 
     // For Nexus Fortified, also load the shared Nex-Net pool that has been
     // explicitly made visible to this tenant.
-    if (companyId === FORTIFIED_COMPANY_ID) {
+    if (isFortifiedCompany) {
       let cancelled = false;
       (async () => {
         try {
@@ -3058,7 +3062,7 @@ function ProspectiveCandidatesPanel({
         }
 
         const basePath =
-          companyId === FORTIFIED_COMPANY_ID
+          isFortifiedCompany
             ? `${API_BASE}/onboarding/company/${companyId}/prospects`
             : `${API_BASE}/onboarding/company/${companyId}/sessions`;
 
@@ -3353,8 +3357,6 @@ function ProspectiveCandidatesPanel({
     setBulkMessageRecipients(finalRecipients);
     setShowBulkMessageModal(true);
   }
-
-  const isFortifiedCompany = companyId === FORTIFIED_COMPANY_ID;
 
   return (
     <section style={{ marginTop: 8 }}>

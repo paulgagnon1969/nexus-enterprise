@@ -1075,15 +1075,27 @@ export class OnboardingService {
     statuses?: string[],
     detailStatusCodes?: string[],
   ) {
+    // Determine whether this company is Nexus Fortified Structures based on its
+    // name so we don't depend on a specific hard-coded id in the database.
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { name: true },
+    });
+
+    const isFortifiedCompany =
+      !!company &&
+      typeof company.name === "string" &&
+      company.name.toLowerCase().startsWith("nexus fortified structures");
+
     // For non-Fortified tenants, reuse the existing company-scoped behavior.
-    if (companyId !== this.fortifiedCompanyId) {
+    if (!isFortifiedCompany) {
       return this.listSessionsForCompany(companyId, actor, statuses, detailStatusCodes);
     }
 
-    // Fortified-specific view: only OWNER / ADMIN at Nexus Fortified can access
-    // the shared Nex-Net prospective candidates pool.
-    if (actor.companyId !== this.fortifiedCompanyId) {
-      throw new ForbiddenException("Only Nexus Fortified admins can view shared prospects.");
+    // Fortified-specific view: only OWNER / ADMIN at the active Fortified
+    // company can access the shared Nex-Net prospective candidates pool.
+    if (actor.companyId !== companyId) {
+      throw new ForbiddenException("Only Nexus Fortified admins can view shared prospects for this company.");
     }
     if (actor.role !== "OWNER" && actor.role !== "ADMIN") {
       throw new ForbiddenException("Only Nexus Fortified admins can view shared prospects.");
@@ -1107,7 +1119,7 @@ export class OnboardingService {
       );
     }
 
-    const companyIds = [recruitingCompany.id, this.fortifiedCompanyId];
+    const companyIds = [recruitingCompany.id, companyId];
 
     return this.prisma.onboardingSession.findMany({
       where: {
