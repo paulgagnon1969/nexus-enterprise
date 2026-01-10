@@ -8,6 +8,7 @@ import {
   Req,
   UseGuards,
 } from "@nestjs/common";
+import { IsArray, IsEnum, IsOptional, IsString } from "class-validator";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { NttService } from "./ntt.service";
@@ -15,12 +16,29 @@ import { NttTicketReadGuard, NttTicketManageGuard } from "./ntt.guards";
 import { NttStatus, NttSubjectType } from "@prisma/client";
 
 class CreateNttDto {
+  @IsEnum(NttSubjectType)
   subjectType!: NttSubjectType;
+
+  @IsString()
   summary!: string;
+
+  @IsString()
   description!: string;
+
+  @IsOptional()
+  @IsString()
   pagePath?: string;
+
+  @IsOptional()
+  @IsString()
   pageLabel?: string;
+
+  @IsOptional()
   contextJson?: Record<string, any>;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   tagCodes?: string[];
 }
 
