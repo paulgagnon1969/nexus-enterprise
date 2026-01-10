@@ -2450,6 +2450,348 @@ function CompanyUsersPageInner() {
   );
 }
 
+interface CandidatesBroadcastRecipient {
+  email: string;
+  userId?: string | null;
+}
+
+function CandidatesBroadcastModal({
+  recipients,
+  onClose,
+}: {
+  recipients: CandidatesBroadcastRecipient[];
+  onClose: () => void;
+}) {
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linkLabel, setLinkLabel] = useState("");
+  const [links, setLinks] = useState<{ url: string; label?: string }[]>([]);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const uniqueEmails = Array.from(
+    new Set(
+      recipients
+        .map(r => (r.email || "").trim())
+        .filter((v): v is string => !!v && typeof v === "string"),
+    ),
+  );
+
+  const journalSubjectUserIds = Array.from(
+    new Set(
+      recipients
+        .map(r => r.userId)
+        .filter((v): v is string => !!v && typeof v === "string"),
+    ),
+  );
+
+  function handleAddLink() {
+    const url = linkUrl.trim();
+    if (!url) return;
+    setLinks(prev => [...prev, { url, label: linkLabel.trim() || undefined }]);
+    setLinkUrl("");
+    setLinkLabel("");
+  }
+
+  function handleRemoveLink(url: string) {
+    setLinks(prev => prev.filter(l => l.url !== url));
+  }
+
+  async function handleSubmit(ev: FormEvent) {
+    ev.preventDefault();
+    if (!body.trim()) return;
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setError("Missing access token; please log in again.");
+      return;
+    }
+    if (!uniqueEmails.length) {
+      setError("No valid recipient email addresses.");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setError(null);
+
+      const attachments =
+        links.length > 0
+          ? links.map(l => ({
+              kind: "EXTERNAL_LINK",
+              url: l.url,
+              filename: l.label || null,
+            }))
+          : undefined;
+
+      const res = await fetch(`${API_BASE}/messages/threads`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          subject: subject.trim() || null,
+          body: body.trim(),
+          participantUserIds: [],
+          toExternalEmails: [],
+          ccExternalEmails: [],
+          bccExternalEmails: uniqueEmails,
+          externalEmails: uniqueEmails,
+          groupIds: [],
+          journalSubjectUserIds: journalSubjectUserIds.length
+            ? journalSubjectUserIds
+            : undefined,
+          attachments,
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to send message (${res.status}) ${text}`);
+      }
+
+      setSuccessMessage("Message sent to selected candidates.");
+      setSubject("");
+      setBody("");
+      setLinks([]);
+      setLinkUrl("");
+      setLinkLabel("");
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to send message.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const previewEmails = uniqueEmails.slice(0, 3);
+  const extraCount = uniqueEmails.length - previewEmails.length;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        backgroundColor: "rgba(0,0,0,0.4)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 520,
+          background: "#ffffff",
+          borderRadius: 12,
+          boxShadow: "0 10px 30px rgba(15,23,42,0.25)",
+          padding: 16,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h2 style={{ margin: 0, fontSize: 16 }}>Send update to selected candidates</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 16 }}
+          >
+            ×
+          </button>
+        </div>
+
+        <p style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+          Sending to <strong>{uniqueEmails.length}</strong> candidate
+          {uniqueEmails.length === 1 ? "" : "s"}.
+          {previewEmails.length > 0 && (
+            <>
+              {" "}Example recipients: {previewEmails.join(", ")}
+              {extraCount > 0 && `, +${extraCount} more`}
+            </>
+          )}
+        </p>
+
+        {error && (
+          <p style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>Error: {error}</p>
+        )}
+        {successMessage && (
+          <p style={{ fontSize: 12, color: "#16a34a", marginTop: 4 }}>{successMessage}</p>
+        )}
+
+        {!successMessage && (
+          <form
+            onSubmit={handleSubmit}
+            style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}
+          >
+            <input
+              type="text"
+              value={subject}
+              onChange={e => setSubject(e.target.value)}
+              placeholder="Subject (optional)"
+              style={{
+                padding: "6px 8px",
+                fontSize: 12,
+                borderRadius: 6,
+                border: "1px solid #d1d5db",
+              }}
+            />
+            <textarea
+              value={body}
+              onChange={e => setBody(e.target.value)}
+              placeholder="Write a note or update to send to these candidates"
+              rows={4}
+              style={{
+                padding: "6px 8px",
+                fontSize: 12,
+                borderRadius: 6,
+                border: "1px solid #d1d5db",
+                resize: "vertical",
+              }}
+            />
+
+            <div>
+              <div style={{ marginTop: 4, marginBottom: 2, fontSize: 11 }}>Attachments (links)</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {links.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {links.map(l => (
+                      <span
+                        key={l.url}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          padding: "2px 6px",
+                          borderRadius: 999,
+                          border: "1px solid #d1d5db",
+                          backgroundColor: "#eef2ff",
+                        }}
+                      >
+                        <span>{l.label || l.url}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveLink(l.url)}
+                          style={{ border: "none", background: "transparent", cursor: "pointer" }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 4 }}>
+                  <input
+                    type="url"
+                    value={linkUrl}
+                    onChange={e => setLinkUrl(e.target.value)}
+                    placeholder="https://example.com/file.pdf"
+                    style={{
+                      flex: 2,
+                      border: "1px solid #d1d5db",
+                      borderRadius: 6,
+                      padding: "4px 6px",
+                      fontSize: 11,
+                    }}
+                  />
+                  <input
+                    type="text"
+                    value={linkLabel}
+                    onChange={e => setLinkLabel(e.target.value)}
+                    placeholder="Optional label"
+                    style={{
+                      flex: 1,
+                      border: "1px solid #d1d5db",
+                      borderRadius: 6,
+                      padding: "4px 6px",
+                      fontSize: 11,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddLink}
+                    disabled={!linkUrl.trim()}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 999,
+                      border: "none",
+                      backgroundColor: linkUrl.trim() ? "#6366f1" : "#e5e7eb",
+                      color: "#f9fafb",
+                      fontSize: 11,
+                      cursor: linkUrl.trim() ? "pointer" : "default",
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={submitting}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  border: "1px solid #d1d5db",
+                  backgroundColor: "#ffffff",
+                  fontSize: 11,
+                  cursor: submitting ? "default" : "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting || !body.trim() || uniqueEmails.length === 0}
+                style={{
+                  padding: "4px 12px",
+                  borderRadius: 999,
+                  border: "none",
+                  backgroundColor:
+                    submitting || !body.trim() || uniqueEmails.length === 0
+                      ? "#9ca3af"
+                      : "#0f172a",
+                  color: "#f9fafb",
+                  fontSize: 12,
+                  cursor:
+                    submitting || !body.trim() || uniqueEmails.length === 0
+                      ? "default"
+                      : "pointer",
+                }}
+              >
+                {submitting ? "Sending…" : "Send message"}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {successMessage && (
+          <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: "4px 12px",
+                borderRadius: 999,
+                border: "none",
+                backgroundColor: "#0f172a",
+                color: "#f9fafb",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Close
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 type CandidateStatus =
   | "NOT_STARTED"
   | "IN_PROGRESS"
@@ -2590,6 +2932,10 @@ function ProspectiveCandidatesPanel({
   const [showBulkJournalPanel, setShowBulkJournalPanel] = useState(false);
   const [bulkJournalText, setBulkJournalText] = useState("");
   const [bulkJournalSaving, setBulkJournalSaving] = useState(false);
+  const [showBulkMessageModal, setShowBulkMessageModal] = useState(false);
+  const [bulkMessageRecipients, setBulkMessageRecipients] = useState<
+    { email: string; userId?: string | null }[] | null
+  >(null);
 
   // Load candidate status definitions (global + company) once when tab is candidates
   useEffect(() => {
@@ -2963,45 +3309,34 @@ function ProspectiveCandidatesPanel({
   }
 
   function handleBulkMessageToSelected() {
-    if (typeof window === "undefined") return;
     const selectedRows = filtered.filter(r => selectedIds.includes(r.id));
-    if (!selectedRows.length) return;
-    const emails = Array.from(
-      new Set(
-        selectedRows
-          .map(r => r.email)
-          .map(e => e.trim())
-          .filter(Boolean),
-      ),
-    );
-    if (!emails.length) return;
-
-    // Best-effort: attach underlying userIds so the messaging API can log
-    // journal entries against specific users when broadcasting.
-    const journalSubjectUserIds = Array.from(
-      new Set(
-        selectedRows
-          .map(r => r.userId)
-          .filter((v): v is string => !!v && typeof v === "string"),
-      ),
-    );
-
-    const draftPayload = {
-      externalEmails: emails,
-      submittedFrom: submittedFrom.trim() || null,
-      submittedTo: submittedTo.trim() || null,
-      journalSubjectUserIds,
-    };
-
-    try {
-      window.localStorage.setItem(
-        "messagingDraftFromCandidates",
-        JSON.stringify(draftPayload),
-      );
-    } catch {
-      // non-fatal; fall through to navigation
+    if (!selectedRows.length) {
+      alert("Select at least one candidate.");
+      return;
     }
-    window.location.href = "/messaging";
+
+    const recipients = selectedRows
+      .map(r => ({ email: r.email.trim(), userId: r.userId ?? null }))
+      .filter(r => !!r.email);
+
+    const uniqueByEmail = new Map<string, { email: string; userId: string | null }>();
+    for (const r of recipients) {
+      const existing = uniqueByEmail.get(r.email);
+      if (!existing) {
+        uniqueByEmail.set(r.email, { email: r.email, userId: r.userId ?? null });
+      } else if (!existing.userId && r.userId) {
+        uniqueByEmail.set(r.email, { email: r.email, userId: r.userId });
+      }
+    }
+
+    const finalRecipients = Array.from(uniqueByEmail.values());
+    if (!finalRecipients.length) {
+      alert("No valid email addresses found for selected candidates.");
+      return;
+    }
+
+    setBulkMessageRecipients(finalRecipients);
+    setShowBulkMessageModal(true);
   }
 
   const isFortifiedCompany = companyId === FORTIFIED_COMPANY_ID;
@@ -3305,103 +3640,10 @@ function ProspectiveCandidatesPanel({
         </div>
       </div>
 
-      {showBulkJournalPanel && (
-        <div
-          style={{
-            marginTop: 8,
-            padding: 10,
-            borderRadius: 8,
-            border: "1px solid #e5e7eb",
-            backgroundColor: "#ffffff",
-            fontSize: 12,
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <div>
-              <strong>Journal / note for selected candidates</strong>
-              <div style={{ color: "#6b7280" }}>
-                This text will be saved to each selected candidate's journal.
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (bulkJournalSaving) return;
-                setShowBulkJournalPanel(false);
-              }}
-              style={{
-                border: "none",
-                borderRadius: 999,
-                width: 22,
-                height: 22,
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: "#f3f4f6",
-                cursor: "pointer",
-                fontSize: 13,
-              }}
-              aria-label="Close journal panel"
-            >
-              ×
-            </button>
-          </div>
-          <textarea
-            value={bulkJournalText}
-            onChange={e => setBulkJournalText(e.target.value)}
-            rows={3}
-            style={{
-              width: "100%",
-              padding: "6px 8px",
-              borderRadius: 6,
-              border: "1px solid #d1d5db",
-              fontSize: 12,
-              resize: "vertical",
-            }}
-            placeholder="Type a journal note that will be added to each selected candidate's profile"
-          />
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
-            <button
-              type="button"
-              onClick={() => {
-                if (bulkJournalSaving) return;
-                setShowBulkJournalPanel(false);
-              }}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 999,
-                border: "1px solid #d1d5db",
-                backgroundColor: "#ffffff",
-                fontSize: 11,
-                cursor: bulkJournalSaving ? "default" : "pointer",
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={bulkJournalSaving || !bulkJournalText.trim()}
-              onClick={() => void handleBulkJournalEntry(bulkJournalText)}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 999,
-                border: "1px solid #0f172a",
-                backgroundColor:
-                  bulkJournalSaving || !bulkJournalText.trim() ? "#e5e7eb" : "#0f172a",
-                color: bulkJournalSaving || !bulkJournalText.trim() ? "#4b5563" : "#f9fafb",
-                fontSize: 11,
-                cursor:
-                  bulkJournalSaving || !bulkJournalText.trim() ? "default" : "pointer",
-              }}
-            >
-              {bulkJournalSaving ? "Saving…" : "Save journal note"}
-            </button>
-          </div>
-        </div>
-      )}
-
       {loading ? (
-        <p style={{ fontSize: 12, color: "#6b7280", marginTop: 10 }}>Loading candidates…</p>
+        <p style={{ fontSize: 12, color: "#6b7280", marginTop: 10 }}>
+          Loading prospective candidates…
+        </p>
       ) : error ? (
         <p style={{ fontSize: 12, color: "#b91c1c", marginTop: 10 }}>{error}</p>
       ) : (
@@ -4274,6 +4516,118 @@ function ProspectiveCandidatesPanel({
         </table>
       </div>
     )}
+
+      {showBulkJournalPanel && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: 10,
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            backgroundColor: "#ffffff",
+            fontSize: 12,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 6,
+            }}
+          >
+            <div>
+              <strong>Journal / note for selected candidates</strong>
+              <div style={{ color: "#6b7280" }}>
+                This text will be saved to each selected candidate's journal.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (bulkJournalSaving) return;
+                setShowBulkJournalPanel(false);
+              }}
+              style={{
+                border: "none",
+                borderRadius: 999,
+                width: 22,
+                height: 22,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#f3f4f6",
+                cursor: "pointer",
+                fontSize: 13,
+              }}
+              aria-label="Close journal panel"
+            >
+              ×
+            </button>
+          </div>
+          <textarea
+            value={bulkJournalText}
+            onChange={e => setBulkJournalText(e.target.value)}
+            rows={3}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              borderRadius: 6,
+              border: "1px solid #d1d5db",
+              fontSize: 12,
+              resize: "vertical",
+            }}
+            placeholder="Type a journal note that will be added to each selected candidate's profile"
+          />
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
+            <button
+              type="button"
+              onClick={() => {
+                if (bulkJournalSaving) return;
+                setShowBulkJournalPanel(false);
+              }}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: "1px solid #d1d5db",
+                backgroundColor: "#ffffff",
+                fontSize: 11,
+                cursor: bulkJournalSaving ? "default" : "pointer",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={bulkJournalSaving || !bulkJournalText.trim()}
+              onClick={() => void handleBulkJournalEntry(bulkJournalText)}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: "1px solid #0f172a",
+                backgroundColor:
+                  bulkJournalSaving || !bulkJournalText.trim() ? "#e5e7eb" : "#0f172a",
+                color: bulkJournalSaving || !bulkJournalText.trim() ? "#4b5563" : "#f9fafb",
+                fontSize: 11,
+                cursor:
+                  bulkJournalSaving || !bulkJournalText.trim() ? "default" : "pointer",
+              }}
+            >
+              {bulkJournalSaving ? "Saving…" : "Save journal note"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showBulkMessageModal && bulkMessageRecipients && (
+        <CandidatesBroadcastModal
+          recipients={bulkMessageRecipients}
+          onClose={() => {
+            setShowBulkMessageModal(false);
+            setBulkMessageRecipients(null);
+          }}
+        />
+      )}
 
       <div style={{ marginTop: 10, fontSize: 11, color: "#6b7280" }}>
         Next step: well add skill/trade filters and a Solicit workflow (message/invite) once the pool UI stabilizes.
