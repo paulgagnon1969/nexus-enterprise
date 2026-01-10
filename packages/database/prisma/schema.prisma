@@ -74,6 +74,7 @@ model Company {
   companyPriceLists  CompanyPriceList[]
   dailyTimecards     DailyTimecard[]
   timecardEditLogs   TimecardEditLog[]
+  nttTickets         NttTicket[]
 }
 
 model OrganizationTemplate {
@@ -236,6 +237,12 @@ model User {
 
   // Daily timecards created by this user
   createdTimecards DailyTimecard[]
+
+  // NTT tickets initiated by this user
+  nttTicketsInitiated NttTicket[]
+
+  // Tasks created by this user (Todos, NTT workflows, etc.)
+  createdTasks Task[] @relation("TaskCreatedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -284,11 +291,43 @@ model MessageThread {
   createdBy    User                 @relation(fields: [createdById], references: [id])
   participants MessageParticipant[]
   messages     Message[]
+  nttTickets   NttTicket[]
 
   @@index([companyId, updatedAt], map: "MessageThread_company_updated_idx")
   @@index([companyId, type, updatedAt], map: "MessageThread_company_type_updated_idx")
   @@index([projectId, type, updatedAt], map: "MessageThread_project_type_updated_idx")
   @@index([companyId, subjectUserId, type], map: "MessageThread_company_subject_user_type_idx")
+}
+
+model NttTicket {
+  id              String         @id @default(cuid())
+  companyId       String
+  initiatorUserId String
+
+  subjectType     NttSubjectType
+  summary         String
+  description     String
+
+  status          NttStatus      @default(NEW)
+  severity        TaskPriority?
+
+  pagePath        String?
+  pageLabel       String?
+  contextJson     Json?
+
+  noteThreadId    String?
+  primaryFaqId    String?
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  resolvedAt      DateTime?
+
+  company         Company        @relation(fields: [companyId], references: [id])
+  initiator       User           @relation(fields: [initiatorUserId], references: [id])
+  noteThread      MessageThread? @relation(fields: [noteThreadId], references: [id])
+
+  @@index([companyId, status, createdAt], map: "NttTicket_company_status_created_idx")
+  @@index([initiatorUserId, createdAt], map: "NttTicket_initiator_created_idx")
 }
 
 /// Participant in a message thread. Either internal (userId) or purely
@@ -1012,10 +1051,20 @@ model Task {
   updatedAt         DateTime         @updatedAt
   priority          TaskPriority     @default(MEDIUM)
   projectParticleId String?
+
+  createdByUserId   String?
+  relatedEntityType String?
+  relatedEntityId   String?
+  reminderIntervalMinutes Int?
+  lastReminderAt    DateTime?
+
   assignee          User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
   company           Company          @relation(fields: [companyId], references: [id])
   project           Project          @relation(fields: [projectId], references: [id])
   projectParticle   ProjectParticle? @relation(fields: [projectParticleId], references: [id])
+  createdBy         User?            @relation("TaskCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([companyId, relatedEntityType, relatedEntityId], map: "Task_related_entity_idx")
 }
 
 model EstimateVersion {
@@ -1884,6 +1933,23 @@ enum TaskPriority {
   MEDIUM
   HIGH
   CRITICAL
+}
+
+enum NttSubjectType {
+  APPLICATION_QUESTION
+  APPLICATION_FAILURE
+  UI_IMPROVEMENT
+  OTHER
+}
+
+enum NttStatus {
+  NEW
+  TRIAGED
+  IN_PROGRESS
+  WAITING_ON_USER
+  RESOLVED
+  CLOSED
+  DEFERRED
 }
 
 enum DailyLogStatus {
