@@ -1,3 +1,3 @@
 company_id,project_code,week_end_date,worker_name,worker_email,worker_phone,location_code,st_sun,ot_sun,dt_sun,st_mon,ot_mon,dt_mon,st_tue,ot_tue,dt_tue,st_wed,ot_wed,dt_wed,st_thu,ot_thu,dt_thu,st_fri,ot_fri,dt_fri,st_sat,ot_sat,dt_sat
-cmjr9okjz000401s6rdkbatvr,CBS,2026-01-10,"Sergio Barragan Ramirez",sergio@example.com,555-123-0001,CBS,0,0,0,8,0,0,8,0,0,8,0,0,8,0,0,8,0,0,0,0,0
-cmjr9okjz000401s6rdkbatvr,CCT,2026-01-10,"Juan Perez",juan@example.com,555-123-0002,CCT,0,0,0,10,0,0,10,0,0,10,0,0,10,0,0,6,0,0,0,0,0
+cmjr9okjz000401s6rdkbatvr,CBS,1/10/26,Sergio Barragan Ramirez,sergio@example.com,555-123-0001,CBS,0,0,0,8,0,0,8,0,0,8,0,0,8,0,0,8,0,0,0,0,0
+cmjr9okjz000401s6rdkbatvr,CCT,1/10/26,Juan Perez,juan@example.com,555-123-0002,CCT,0,0,0,10,0,0,10,0,0,10,0,0,10,0,0,6,0,0,0,0,0

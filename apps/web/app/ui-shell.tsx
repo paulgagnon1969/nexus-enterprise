@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import NavDropdown from "./components/nav-dropdown";
 import { LanguageToggle } from "./components/language-toggle";
 import { useLanguage } from "./language-context";
+import { NttBadge } from "./components/ntt-badge";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -647,6 +648,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="app-main" style={noMainScroll ? { overflow: "hidden" } : undefined}>
         {children}
       </main>
+
+      {/* Global Nexus Trouble Ticket badge on authenticated, non-public routes */}
+      {!isAuthRoute && !isPublicRoute && <NttBadge />}
     </div>
   );
 }
