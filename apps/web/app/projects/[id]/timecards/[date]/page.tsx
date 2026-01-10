@@ -215,6 +215,9 @@ export default function ProjectTimecardPage({
   const [auditError, setAuditError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<TimecardEditLogDto[]>([]);
 
+  // Per-day expansion state for showing/hiding OT/DT columns under each day
+  const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
+
   const weekStartIso = useMemo(() => getWeekStartIso(date), [date]);
   const weekDays = useMemo<WeekDayInfo[]>(() => buildWeekDays(weekStartIso), [weekStartIso]);
 
@@ -449,6 +452,13 @@ export default function ProjectTimecardPage({
     }
   };
 
+  const toggleDayExpanded = (iso: string) => {
+    setExpandedDays((prev) => ({
+      ...prev,
+      [iso]: !prev[iso],
+    }));
+  };
+
   const handleFileUploadClick = () => {
     if (fileInputRef.current) {
       fileInputRef.current.click();
@@ -667,12 +677,12 @@ export default function ProjectTimecardPage({
 
   const totalHours = useMemo(
     () =>
-      weeklyRows.reduce(
+      visibleRows.reduce(
         (sum, row) =>
           sum + row.days.reduce((inner, d) => inner + d.st + d.ot + d.dt, 0),
         0,
       ),
-    [weeklyRows],
+    [visibleRows],
   );
 
   return (
@@ -927,15 +937,18 @@ export default function ProjectTimecardPage({
                 <th className="border px-2 py-1 text-left align-bottom">Worker</th>
                 <th className="border px-2 py-1 text-left align-bottom">Location</th>
                 <th className="border px-2 py-1 text-center align-bottom">Total Hrs</th>
-                {weekDays.map((day) => (
-                  <th
-                    key={day.iso}
-                    colSpan={3}
-                    className="border px-2 py-1 text-center align-bottom"
-                  >
-                    <div className="text-xs font-medium whitespace-nowrap">{day.label}</div>
-                  </th>
-                ))}
+                {weekDays.map((day) => {
+                  const expanded = expandedDays[day.iso] ?? false;
+                  return (
+                    <th
+                      key={day.iso}
+                      colSpan={expanded ? 3 : 1}
+                      className="border px-2 py-1 text-center align-bottom"
+                    >
+                      <div className="text-xs font-medium whitespace-nowrap">{day.label}</div>
+                    </th>
+                  );
+                })}
                 <th className="border px-2 py-1" />
               </tr>
               <tr>
@@ -979,13 +992,29 @@ export default function ProjectTimecardPage({
                 </th>
                 {/* Empty cell under Total Hrs to align with ST/OT/DT row */}
                 <th className="border px-1 py-0.5" />
-                {weekDays.map((day) => (
-                  <React.Fragment key={`${day.iso}-sub`}>
-                    <th className="border px-1 py-0.5 text-[10px] text-gray-500 text-center">ST</th>
-                    <th className="border px-1 py-0.5 text-[10px] text-gray-500 text-center">OT</th>
-                    <th className="border px-1 py-0.5 text-[10px] text-gray-500 text-center">DT</th>
-                  </React.Fragment>
-                ))}
+                {weekDays.map((day) => {
+                  const expanded = expandedDays[day.iso] ?? false;
+                  return (
+                    <React.Fragment key={`${day.iso}-sub`}>
+                      <th className="border px-1 py-0.5 text-[10px] text-gray-500 text-center">
+                        <button
+                          type="button"
+                          onClick={() => toggleDayExpanded(day.iso)}
+                          className="inline-flex items-center gap-1 text-[10px] text-gray-600 hover:text-gray-900"
+                        >
+                          <span>ST</span>
+                          <span>{expanded ? "▾" : "▸"}</span>
+                        </button>
+                      </th>
+                      {expanded && (
+                        <>
+                          <th className="border px-1 py-0.5 text-[10px] text-gray-500 text-center">OT</th>
+                          <th className="border px-1 py-0.5 text-[10px] text-gray-500 text-center">DT</th>
+                        </>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
     <th className="border px-1 py-0.5 text-center text-[10px] text-gray-500">
                   {selectedWorkerIds.length > 0 || selectedLocations.length > 0 ? (
                     <button
@@ -1003,113 +1032,133 @@ export default function ProjectTimecardPage({
               </tr>
             </thead>
             <tbody>
-              {visibleRows.map((row, rowIndex) => (
-                <tr key={row.tempId ?? rowIndex}>
-                  <td className="border px-2 py-1">
-                    <select
-                      className="border rounded px-1 py-0.5 text-sm w-full"
-                      value={row.workerId}
-                      onChange={(ev) => handleUpdateWorker(row.tempId, ev.target.value)}
-                    >
-                      <option value="">Select worker</option>
-                      {workers.map((w) => (
-                        <option key={w.id} value={w.id}>
-                          {w.fullName}
+              {visibleRows.map((row, rowIndex) => {
+                const isAddWorkerRow = !row.workerId;
+                return (
+                  <tr key={row.tempId ?? rowIndex}>
+                    <td className="border px-2 py-1">
+                      <select
+                        className={
+                          "border rounded px-1 py-0.5 text-sm w-full " +
+                          (isAddWorkerRow
+                            ? "bg-blue-50 border-blue-400 text-blue-900 font-semibold"
+                            : "")
+                        }
+                        value={row.workerId}
+                        onChange={(ev) => handleUpdateWorker(row.tempId, ev.target.value)}
+                      >
+                        <option value="">
+                          {isAddWorkerRow ? "Add worker to timecard" : "Select worker"}
                         </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="border px-2 py-1">
-                    <input
-                      type="text"
-                      className="border rounded px-1 py-0.5 text-sm w-full"
-                      value={row.locationCode ?? ""}
-                      onChange={(ev) => handleUpdateLocation(row.tempId, ev.target.value)}
-                    />
-                  </td>
-                  <td className="border px-2 py-1 text-right text-sm">
-                    {row.days
-                      .reduce((sum, d) => sum + d.st + d.ot + d.dt, 0)
-                      .toFixed(2)}
-                  </td>
-                  {weekDays.map((day, dayIndex) => (
-                    <React.Fragment key={`${row.tempId}-${day.iso}`}>
-                      <td className="border px-1 py-1 text-center">
-                        <input
-                          type="number"
-                          step="0.25"
-                          inputMode="decimal"
-                          size={5}
-                          className={`border rounded px-0.5 py-0.5 text-xs text-center bg-white text-gray-900 ${
-                            (row.days[dayIndex]?.st ?? 0) > 0 ? "font-bold" : ""
-                          }`}
-                          style={{ width: "5ch" }}
-                          value={row.days[dayIndex]?.st ?? 0}
-                          onChange={(ev) =>
-                            handleUpdateHours(
-                              row.tempId,
-                              dayIndex,
-                              "st",
-                              parseFloat(ev.target.value) || 0,
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="border px-1 py-1 text-center">
-                        <input
-                          type="number"
-                          step="0.25"
-                          inputMode="decimal"
-                          size={5}
-                          className={`border rounded px-0.5 py-0.5 text-xs text-center bg-white text-gray-900 ${
-                            (row.days[dayIndex]?.ot ?? 0) > 0 ? "font-bold" : ""
-                          }`}
-                          style={{ width: "5ch" }}
-                          value={row.days[dayIndex]?.ot ?? 0}
-                          onChange={(ev) =>
-                            handleUpdateHours(
-                              row.tempId,
-                              dayIndex,
-                              "ot",
-                              parseFloat(ev.target.value) || 0,
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="border px-1 py-1 text-center">
-                        <input
-                          type="number"
-                          step="0.25"
-                          inputMode="decimal"
-                          size={5}
-                          className={`border rounded px-0.5 py-0.5 text-xs text-center bg-white text-gray-900 ${
-                            (row.days[dayIndex]?.dt ?? 0) > 0 ? "font-bold" : ""
-                          }`}
-                          style={{ width: "5ch" }}
-                          value={row.days[dayIndex]?.dt ?? 0}
-                          onChange={(ev) =>
-                            handleUpdateHours(
-                              row.tempId,
-                              dayIndex,
-                              "dt",
-                              parseFloat(ev.target.value) || 0,
-                            )
-                          }
-                        />
-                      </td>
-                    </React.Fragment>
-                  ))}
-                  <td className="border px-2 py-1 text-center">
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteRow(row.tempId)}
-                      className="text-xs text-red-600 hover:underline"
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                        {workers.map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.fullName}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="border px-2 py-1">
+                      <input
+                        type="text"
+                        className="border rounded px-1 py-0.5 text-sm w-full"
+                        value={row.locationCode ?? ""}
+                        onChange={(ev) => handleUpdateLocation(row.tempId, ev.target.value)}
+                      />
+                    </td>
+                    <td className="border px-2 py-1 text-right text-sm">
+                      {row.days
+                        .reduce((sum, d) => sum + d.st + d.ot + d.dt, 0)
+                        .toFixed(2)}
+                    </td>
+                    {weekDays.map((day, dayIndex) => {
+                      const expanded = expandedDays[day.iso] ?? false;
+                      return (
+                        <React.Fragment key={`${row.tempId}-${day.iso}`}>
+                          <td className="border px-1 py-1 text-center">
+                            <input
+                              type="number"
+                              step="0.25"
+                              inputMode="decimal"
+                              size={5}
+                              className={`border rounded px-0.5 py-0.5 text-xs text-center bg-white text-gray-900 ${
+                                (row.days[dayIndex]?.st ?? 0) > 0 ? "font-bold" : ""
+                              }`}
+                              style={{ width: "5ch" }}
+                              tabIndex={0}
+                              value={row.days[dayIndex]?.st ?? 0}
+                              onChange={(ev) =>
+                                handleUpdateHours(
+                                  row.tempId,
+                                  dayIndex,
+                                  "st",
+                                  parseFloat(ev.target.value) || 0,
+                                )
+                              }
+                            />
+                          </td>
+                          {expanded && (
+                            <>
+                              <td className="border px-1 py-1 text-center">
+                                <input
+                                  type="number"
+                                  step="0.25"
+                                  inputMode="decimal"
+                                  size={5}
+                                  className={`border rounded px-0.5 py-0.5 text-xs text-center bg-white text-gray-900 ${
+                                    (row.days[dayIndex]?.ot ?? 0) > 0 ? "font-bold" : ""
+                                  }`}
+                                  style={{ width: "5ch" }}
+                                  tabIndex={-1}
+                                  value={row.days[dayIndex]?.ot ?? 0}
+                                  onChange={(ev) =>
+                                    handleUpdateHours(
+                                      row.tempId,
+                                      dayIndex,
+                                      "ot",
+                                      parseFloat(ev.target.value) || 0,
+                                    )
+                                  }
+                                />
+                              </td>
+                              <td className="border px-1 py-1 text-center">
+                                <input
+                                  type="number"
+                                  step="0.25"
+                                  inputMode="decimal"
+                                  size={5}
+                                  className={`border rounded px-0.5 py-0.5 text-xs text-center bg-white text-gray-900 ${
+                                    (row.days[dayIndex]?.dt ?? 0) > 0 ? "font-bold" : ""
+                                  }`}
+                                  style={{ width: "5ch" }}
+                                  tabIndex={-1}
+                                  value={row.days[dayIndex]?.dt ?? 0}
+                                  onChange={(ev) =>
+                                    handleUpdateHours(
+                                      row.tempId,
+                                      dayIndex,
+                                      "dt",
+                                      parseFloat(ev.target.value) || 0,
+                                    )
+                                  }
+                                />
+                              </td>
+                            </>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                    <td className="border px-2 py-1 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRow(row.tempId)}
+                        className="text-xs text-red-600 hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
