@@ -21,6 +21,36 @@ interface CreateReferralDto {
 export class ReferralsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private readonly fortifiedCompanyId = "cmjr9okjz000401s6rdkbatvr";
+
+  private async ensureFortifiedVisibilityForCandidate(
+    prisma: any,
+    candidateId: string,
+    createdByUserId: string | null,
+  ) {
+    if (!candidateId) return;
+
+    const existing = await prisma.candidatePoolVisibility.findFirst({
+      where: {
+        candidateId,
+        visibleToCompanyId: this.fortifiedCompanyId,
+      },
+    });
+
+    if (existing) return;
+
+    const createdBy = createdByUserId ?? "system-fortified-visibility";
+
+    await prisma.candidatePoolVisibility.create({
+      data: {
+        candidateId,
+        visibleToCompanyId: this.fortifiedCompanyId,
+        isAllowed: true,
+        createdByUserId: createdBy,
+      },
+    });
+  }
+
   private generateToken(): string {
     return randomBytes(24).toString("hex");
   }
@@ -92,6 +122,8 @@ export class ReferralsService {
           },
         });
       }
+
+      await this.ensureFortifiedVisibilityForCandidate(tx, candidate.id, actor.userId ?? null);
 
       const referral = await tx.referral.create({
         data: {
