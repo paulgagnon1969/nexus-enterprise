@@ -1062,6 +1062,69 @@ export class OnboardingService {
     });
   }
 
+  /**
+   * Prospective candidates view used by the web app. For most companies this
+   * behaves identically to listSessionsForCompany. For Nexus Fortified
+   * Structures, this returns a unified view over the Nexus System recruiting
+   * pool plus any local Fortified onboarding sessions so admins can see the
+   * same prospective list as Nexus System.
+   */
+  async listProspectsForCompany(
+    companyId: string,
+    actor: AuthenticatedUser,
+    statuses?: string[],
+    detailStatusCodes?: string[],
+  ) {
+    // For non-Fortified tenants, reuse the existing company-scoped behavior.
+    if (companyId !== this.fortifiedCompanyId) {
+      return this.listSessionsForCompany(companyId, actor, statuses, detailStatusCodes);
+    }
+
+    // Fortified-specific view: only OWNER / ADMIN at Nexus Fortified can access
+    // the shared Nex-Net prospective candidates pool.
+    if (actor.companyId !== this.fortifiedCompanyId) {
+      throw new ForbiddenException("Only Nexus Fortified admins can view shared prospects.");
+    }
+    if (actor.role !== "OWNER" && actor.role !== "ADMIN") {
+      throw new ForbiddenException("Only Nexus Fortified admins can view shared prospects.");
+    }
+
+    // Resolve the canonical Nexus System recruiting company id so we always
+    // read from the same pool that /apply and startPublicSession use.
+    const recruitingCompany = await this.prisma.company.findFirst({
+      where: {
+        name: {
+          equals: "Nexus System",
+          mode: "insensitive",
+        } as any,
+      },
+      select: { id: true },
+    });
+
+    if (!recruitingCompany) {
+      throw new BadRequestException(
+        "Recruiting pool company (Nexus System) not found. Ensure a company named 'Nexus System' exists.",
+      );
+    }
+
+    const companyIds = [recruitingCompany.id, this.fortifiedCompanyId];
+
+    return this.prisma.onboardingSession.findMany({
+      where: {
+        companyId: { in: companyIds },
+        status: statuses && statuses.length ? { in: statuses as any } : undefined,
+        detailStatusCode:
+          detailStatusCodes && detailStatusCodes.length
+            ? { in: detailStatusCodes.map(c => c.toUpperCase()) }
+            : undefined,
+      },
+      include: {
+        profile: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
   // Candidate self-view: latest onboarding session for the current user in the
   // active company context (typically the Nexus System recruiting pool for
   // public applicants). Includes profile + basic checklist, but omits

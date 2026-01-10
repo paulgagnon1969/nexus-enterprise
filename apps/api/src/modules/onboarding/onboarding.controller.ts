@@ -186,6 +186,26 @@ export class OnboardingController {
     return this.onboarding.listSessionsForCompany(companyId, actor, statuses, detailCodes);
   }
 
+  // Unified prospective candidates view for the web app. For most tenants this
+  // is equivalent to /company/:companyId/sessions. For Nexus Fortified
+  // Structures it returns a shared view over the Nexus System recruiting pool
+  // plus any local Fortified onboarding sessions.
+  @UseGuards(JwtAuthGuard)
+  @Get("company/:companyId/prospects")
+  async listProspectsForCompany(
+    @Param("companyId") companyId: string,
+    @Query("status") status: string | undefined,
+    @Query("detailStatusCode") detailStatusCode: string | undefined,
+    @Req() req: any,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    const statuses = status ? status.split(",") : undefined;
+    const detailCodes = detailStatusCode
+      ? detailStatusCode.split(",").map(s => s.trim()).filter(Boolean)
+      : undefined;
+    return this.onboarding.listProspectsForCompany(companyId, actor, statuses, detailCodes);
+  }
+
   // Authenticated candidate self-view: return the latest onboarding session for the
   // current user in the current company context. This powers the /candidate portal
   // so applicants can see what they have completed vs what is still pending.
