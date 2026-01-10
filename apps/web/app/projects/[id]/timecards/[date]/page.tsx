@@ -200,6 +200,14 @@ export default function ProjectTimecardPage({
   const [workers, setWorkers] = useState<WorkerOption[]>([]);
   const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+  // Tracks whether the user has manually interacted with the worker filter.
+  // If we ever introduce a default worker selection, we will only apply it
+  // before the user has touched the filter.
+  const [workerFilterTouched, setWorkerFilterTouched] = useState(false);
+  // Tracks whether the user has manually interacted with the location filter.
+  // We only auto-default to a project-specific location (e.g. CBS/CCT) once,
+  // and never override the user's explicit "All locations" choice.
+  const [locationFilterTouched, setLocationFilterTouched] = useState(false);
 
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -217,6 +225,9 @@ export default function ProjectTimecardPage({
 
   // Per-day expansion state for showing/hiding OT/DT columns under each day
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
+
+  // Dropdown menu for bulk timecard actions (upload, paste, copy, add, save, view changes)
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
 
   const weekStartIso = useMemo(() => getWeekStartIso(date), [date]);
   const weekDays = useMemo<WeekDayInfo[]>(() => buildWeekDays(weekStartIso), [weekStartIso]);
@@ -288,10 +299,11 @@ export default function ProjectTimecardPage({
     }
   }, [projectId, weekDays, reloadToken]);
 
-  // When rows load for a project, default the location filter to the
-  // project's primary location code (e.g. CBS/CCT) if present in the data.
+  // When rows first load for a project, default the location filter to the
+  // project's primary location code (e.g. CBS/CCT) *once*, but never override
+  // an explicit user choice (including when they pick "All locations").
   useEffect(() => {
-    if (selectedLocations.length > 0) return;
+    if (locationFilterTouched) return; // user has made an explicit choice
     if (!weeklyRows.length) return;
 
     const projectDefault = DEFAULT_LOCATION_BY_PROJECT_ID[projectId];
@@ -305,8 +317,9 @@ export default function ProjectTimecardPage({
 
     if (allLocs.has(projectDefault)) {
       setSelectedLocations([projectDefault]);
+      setLocationFilterTouched(true);
     }
-  }, [projectId, weeklyRows, selectedLocations.length]);
+  }, [projectId, weeklyRows, locationFilterTouched]);
 
   const handleChangeDate = (next: string) => {
     setDate(next);
@@ -692,7 +705,7 @@ export default function ProjectTimecardPage({
           <h1 className="text-lg font-semibold">Weekly Time Accounting</h1>
           <span className="text-sm text-gray-500">Project: {projectId}</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center" style={{ gap: "100px" }}>
           <div className="flex flex-col text-xs text-gray-500">
             {weekDays.length > 0 && (
               <div className="flex items-center gap-2">
@@ -724,55 +737,97 @@ export default function ProjectTimecardPage({
 
       {error && <div className="text-sm text-red-600">{error}</div>}
 
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={handleFileUploadClick}
-          disabled={saving || loading}
-          className="border rounded px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
-        >
-          Upload weekly CSV
-        </button>
-        <button
-          type="button"
-          onClick={handleOpenPasteModal}
-          disabled={saving || loading}
-          className="border rounded px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
-        >
-          Paste weekly CSV
-        </button>
-        <button
-          type="button"
-          onClick={handleCopyFromPreviousWeek}
-          disabled={saving || loading}
-          className="border rounded px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
-        >
-          Copy from last week
-        </button>
-        <button
-          type="button"
-          onClick={handleAddRow}
-          disabled={saving || loading}
-          className="border rounded px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
-        >
-          Add worker
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving || loading}
-          className="border rounded px-3 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {saving ? "Saving..." : "Save"}
-        </button>
-        <button
-          type="button"
-          onClick={handleOpenAuditModal}
-          disabled={loading}
-          className="border rounded px-2 py-1 text-xs bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-50"
-        >
-          View changes
-        </button>
+      <div className="flex items-center gap-2 relative">
+        {/* Actions dropdown trigger */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowActionsMenu((prev) => !prev)}
+            className="border rounded px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
+            disabled={loading}
+          >
+            Timecard actions ▾
+          </button>
+
+          {showActionsMenu && (
+            <>
+              {/* Click-away overlay */}
+              <div
+                className="fixed inset-0 z-30"
+                onClick={() => setShowActionsMenu(false)}
+              />
+              <div className="absolute z-40 mt-1 w-56 rounded-md border bg-white shadow-lg text-sm">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActionsMenu(false);
+                    handleFileUploadClick();
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-gray-100 disabled:opacity-50"
+                  disabled={saving || loading}
+                >
+                  Upload weekly CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActionsMenu(false);
+                    handleOpenPasteModal();
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-gray-100 disabled:opacity-50"
+                  disabled={saving || loading}
+                >
+                  Paste weekly CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActionsMenu(false);
+                    handleCopyFromPreviousWeek();
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-gray-100 disabled:opacity-50"
+                  disabled={saving || loading || !weekDays.length}
+                >
+                  Copy from last week
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActionsMenu(false);
+                    handleAddRow();
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-gray-100 disabled:opacity-50"
+                  disabled={saving || loading}
+                >
+                  Add worker
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActionsMenu(false);
+                    handleSave();
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-gray-100 disabled:opacity-50"
+                  disabled={saving || loading}
+                >
+                  {saving ? "Saving..." : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActionsMenu(false);
+                    handleOpenAuditModal();
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-gray-100 disabled:opacity-50 text-xs"
+                  disabled={loading}
+                >
+                  View changes
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
         <div className="flex-1" />
         <span className="text-sm text-gray-600">
           Total hours (week): {" "}
@@ -931,7 +986,10 @@ export default function ProjectTimecardPage({
         <div className="text-sm text-gray-500">Loading weekly timecard...</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full text-sm border border-gray-200">
+          <table
+            className="min-w-full text-sm border border-gray-200 border-separate"
+            style={{ borderSpacing: "24px 0" }}
+          >
             <thead className="bg-gray-50">
               <tr>
                 <th className="border px-2 py-1 text-left align-bottom">Worker</th>
@@ -943,7 +1001,7 @@ export default function ProjectTimecardPage({
                     <th
                       key={day.iso}
                       colSpan={expanded ? 3 : 1}
-                      className="border px-4 py-1 text-center align-bottom"
+className="border px-32 py-1 text-center align-bottom"
                     >
                       <div className="text-xs font-medium whitespace-nowrap">{day.label}</div>
                     </th>
@@ -959,6 +1017,7 @@ export default function ProjectTimecardPage({
                     value={selectedWorkerIds[0] ?? ""}
                     onChange={(e) => {
                       const v = e.target.value;
+                      setWorkerFilterTouched(true);
                       setSelectedWorkerIds(v ? [v] : []);
                     }}
                     className="border rounded px-1 py-0.5 text-[10px] w-full"
@@ -978,6 +1037,7 @@ export default function ProjectTimecardPage({
                     value={selectedLocations[0] ?? ""}
                     onChange={(e) => {
                       const v = e.target.value;
+                      setLocationFilterTouched(true);
                       setSelectedLocations(v ? [v] : []);
                     }}
                     className="border rounded px-1 py-0.5 text-[10px] w-full"
@@ -996,15 +1056,17 @@ export default function ProjectTimecardPage({
                   const expanded = expandedDays[day.iso] ?? false;
                   return (
                     <React.Fragment key={`${day.iso}-sub`}>
-                      <th className="border px-2 py-0.5 text-[10px] text-gray-500 text-center">
-                        <button
-                          type="button"
-                          onClick={() => toggleDayExpanded(day.iso)}
-                          className="inline-flex items-center gap-1 text-[10px] text-gray-600 hover:text-gray-900"
-                        >
-                          <span>ST</span>
-                          <span>{expanded ? "▾" : "▸"}</span>
-                        </button>
+                      <th className="border px-16 py-0.5 text-[10px] text-gray-500 text-left">
+<div style={{ width: "8ch" }}>
+                          <button
+                            type="button"
+                            onClick={() => toggleDayExpanded(day.iso)}
+                            className="inline-flex items-center justify-between gap-1 w-full text-[10px] text-gray-600 hover:text-gray-900 text-left"
+                          >
+                            <span>ST</span>
+                            <span>{expanded ? "▾" : "▸"}</span>
+                          </button>
+                        </div>
                       </th>
                       {expanded && (
                         <>
@@ -1074,7 +1136,7 @@ export default function ProjectTimecardPage({
                       const expanded = expandedDays[day.iso] ?? false;
                       return (
                         <React.Fragment key={`${row.tempId}-${day.iso}`}>
-                          <td className="border px-2 py-1 text-center">
+                          <td className="border px-16 py-1 text-left">
                             <input
                               type="number"
                               step="0.25"
@@ -1100,7 +1162,7 @@ export default function ProjectTimecardPage({
                           </td>
                           {expanded && (
                             <>
-                              <td className="border px-2 py-1 text-center">
+                              <td className="border px-16 py-1 text-left">
                                 <input
                                   type="number"
                                   step="0.25"
@@ -1124,7 +1186,7 @@ export default function ProjectTimecardPage({
                                   }
                                 />
                               </td>
-                              <td className="border px-2 py-1 text-center">
+                              <td className="border px-16 py-1 text-left">
                                 <input
                                   type="number"
                                   step="0.25"

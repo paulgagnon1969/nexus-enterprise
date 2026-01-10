@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { PageCard } from "../ui-shell";
+import { MessageComposer } from "../components/message-composer";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -40,13 +41,7 @@ export default function MessageBoardPage() {
   const [loadingThread, setLoadingThread] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [newSubject, setNewSubject] = useState("");
-  const [newBody, setNewBody] = useState("");
-  const [creating, setCreating] = useState(false);
-
-  const [newLinkUrl, setNewLinkUrl] = useState("");
-  const [newLinkLabel, setNewLinkLabel] = useState("");
-  const [newThreadLinks, setNewThreadLinks] = useState<{ url: string; label?: string }[]>([]);
+  // Compose state now lives in MessageComposer; keep only thread/reply state here.
 
   const [replyBody, setReplyBody] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
@@ -138,17 +133,7 @@ export default function MessageBoardPage() {
     };
   }, [selectedId]);
 
-  function addNewThreadLink() {
-    const url = newLinkUrl.trim();
-    if (!url) return;
-    setNewThreadLinks(prev => [...prev, { url, label: newLinkLabel.trim() || undefined }]);
-    setNewLinkUrl("");
-    setNewLinkLabel("");
-  }
-
-  function removeNewThreadLink(url: string) {
-    setNewThreadLinks(prev => prev.filter(l => l.url !== url));
-  }
+  // New thread link management is handled inside MessageComposer now.
 
   function addReplyLink() {
     const url = replyLinkUrl.trim();
@@ -162,15 +147,17 @@ export default function MessageBoardPage() {
     setReplyLinks(prev => prev.filter(l => l.url !== url));
   }
 
-  async function handleCreateThread(ev: React.FormEvent) {
-    ev.preventDefault();
+  async function handleCreateThreadFromComposer(payload: {
+    subject: string;
+    body: string;
+    links: { url: string; label?: string }[];
+  }) {
     if (typeof window === "undefined") return;
     const token = window.localStorage.getItem("accessToken");
     if (!token) return;
-    if (!newBody.trim()) return;
+    if (!payload.body.trim()) return;
 
     try {
-      setCreating(true);
       const res = await fetch(`${API_BASE}/messages/board/threads`, {
         method: "POST",
         headers: {
@@ -178,11 +165,11 @@ export default function MessageBoardPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          subject: newSubject.trim() || null,
-          body: newBody.trim(),
+          subject: payload.subject.trim() || null,
+          body: payload.body.trim(),
           attachments:
-            newThreadLinks.length > 0
-              ? newThreadLinks.map(l => ({
+            payload.links.length > 0
+              ? payload.links.map(l => ({
                   kind: "EXTERNAL_LINK",
                   url: l.url,
                   filename: l.label || null,
@@ -193,9 +180,6 @@ export default function MessageBoardPage() {
       if (!res.ok) {
         throw new Error(`Failed to create board thread (${res.status})`);
       }
-      setNewSubject("");
-      setNewBody("");
-      setNewThreadLinks([]);
 
       const threadsRes = await fetch(`${API_BASE}/messages/board/threads`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -206,8 +190,6 @@ export default function MessageBoardPage() {
       }
     } catch (e: any) {
       setError(e?.message ?? "Failed to create board thread");
-    } finally {
-      setCreating(false);
     }
   }
 
@@ -268,127 +250,7 @@ export default function MessageBoardPage() {
           )}
 
           <div style={{ marginTop: 8, marginBottom: 12 }}>
-            <form onSubmit={handleCreateThread} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <input
-                type="text"
-                value={newSubject}
-                onChange={e => setNewSubject(e.target.value)}
-                placeholder="Topic (optional)"
-                style={{
-                  padding: "6px 8px",
-                  fontSize: 12,
-                  borderRadius: 6,
-                  border: "1px solid #d1d5db",
-                }}
-              />
-              <textarea
-                value={newBody}
-                onChange={e => setNewBody(e.target.value)}
-                placeholder="Post a message to the board"
-                rows={3}
-                style={{
-                  padding: "6px 8px",
-                  fontSize: 12,
-                  borderRadius: 6,
-                  border: "1px solid #d1d5db",
-                  resize: "vertical",
-                }}
-              />
-
-              <div>
-                <div style={{ marginTop: 4, marginBottom: 2, fontSize: 11 }}>Attachments (links)</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  {newThreadLinks.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                      {newThreadLinks.map(l => (
-                        <span
-                          key={l.url}
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 4,
-                            padding: "2px 6px",
-                            borderRadius: 999,
-                            border: "1px solid #d1d5db",
-                            backgroundColor: "#eef2ff",
-                          }}
-                        >
-                          <span>{l.label || l.url}</span>
-                          <button
-                            type="button"
-                            onClick={() => removeNewThreadLink(l.url)}
-                            style={{ border: "none", background: "transparent", cursor: "pointer" }}
-                          >
-                            ×
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div style={{ display: "flex", gap: 4 }}>
-                    <input
-                      type="url"
-                      value={newLinkUrl}
-                      onChange={e => setNewLinkUrl(e.target.value)}
-                      placeholder="https://example.com/file.pdf"
-                      style={{
-                        flex: 2,
-                        border: "1px solid #d1d5db",
-                        borderRadius: 6,
-                        padding: "4px 6px",
-                        fontSize: 11,
-                      }}
-                    />
-                    <input
-                      type="text"
-                      value={newLinkLabel}
-                      onChange={e => setNewLinkLabel(e.target.value)}
-                      placeholder="Optional label"
-                      style={{
-                        flex: 1,
-                        border: "1px solid #d1d5db",
-                        borderRadius: 6,
-                        padding: "4px 6px",
-                        fontSize: 11,
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={addNewThreadLink}
-                      disabled={!newLinkUrl.trim()}
-                      style={{
-                        padding: "4px 8px",
-                        borderRadius: 999,
-                        border: "none",
-                        backgroundColor: newLinkUrl.trim() ? "#6366f1" : "#e5e7eb",
-                        color: "#f9fafb",
-                        fontSize: 11,
-                        cursor: newLinkUrl.trim() ? "pointer" : "default",
-                      }}
-                    >
-                      Add
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={creating || !newBody.trim()}
-                style={{
-                  alignSelf: "flex-end",
-                  padding: "4px 10px",
-                  borderRadius: 999,
-                  border: "none",
-                  background: creating ? "#9ca3af" : "#0f766e",
-                  color: "#f9fafb",
-                  fontSize: 12,
-                  cursor: creating ? "default" : "pointer",
-                }}
-              >
-                {creating ? "Posting..." : "Post"}
-              </button>
-            </form>
+            <MessageComposer mode="board" onSubmitBoard={handleCreateThreadFromComposer} />
           </div>
 
           <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Recent topics</div>
