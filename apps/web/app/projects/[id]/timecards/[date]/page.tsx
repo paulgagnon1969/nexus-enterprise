@@ -218,6 +218,9 @@ export default function ProjectTimecardPage({
   // Per-day expansion state for showing/hiding OT/DT columns under each day
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
 
+  // Dropdown menu for bulk timecard actions (upload, paste, copy, add, save, view changes)
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
+
   const weekStartIso = useMemo(() => getWeekStartIso(date), [date]);
   const weekDays = useMemo<WeekDayInfo[]>(() => buildWeekDays(weekStartIso), [weekStartIso]);
 
@@ -692,7 +695,7 @@ export default function ProjectTimecardPage({
           <h1 className="text-lg font-semibold">Weekly Time Accounting</h1>
           <span className="text-sm text-gray-500">Project: {projectId}</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center" style={{ gap: "100px" }}>
           <div className="flex flex-col text-xs text-gray-500">
             {weekDays.length > 0 && (
               <div className="flex items-center gap-2">
@@ -724,55 +727,97 @@ export default function ProjectTimecardPage({
 
       {error && <div className="text-sm text-red-600">{error}</div>}
 
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={handleFileUploadClick}
-          disabled={saving || loading}
-          className="border rounded px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
-        >
-          Upload weekly CSV
-        </button>
-        <button
-          type="button"
-          onClick={handleOpenPasteModal}
-          disabled={saving || loading}
-          className="border rounded px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
-        >
-          Paste weekly CSV
-        </button>
-        <button
-          type="button"
-          onClick={handleCopyFromPreviousWeek}
-          disabled={saving || loading}
-          className="border rounded px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
-        >
-          Copy from last week
-        </button>
-        <button
-          type="button"
-          onClick={handleAddRow}
-          disabled={saving || loading}
-          className="border rounded px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
-        >
-          Add worker
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving || loading}
-          className="border rounded px-3 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {saving ? "Saving..." : "Save"}
-        </button>
-        <button
-          type="button"
-          onClick={handleOpenAuditModal}
-          disabled={loading}
-          className="border rounded px-2 py-1 text-xs bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-50"
-        >
-          View changes
-        </button>
+      <div className="flex items-center gap-2 relative">
+        {/* Actions dropdown trigger */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowActionsMenu((prev) => !prev)}
+            className="border rounded px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
+            disabled={loading}
+          >
+            Timecard actions ▾
+          </button>
+
+          {showActionsMenu && (
+            <>
+              {/* Click-away overlay */}
+              <div
+                className="fixed inset-0 z-30"
+                onClick={() => setShowActionsMenu(false)}
+              />
+              <div className="absolute z-40 mt-1 w-56 rounded-md border bg-white shadow-lg text-sm">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActionsMenu(false);
+                    handleFileUploadClick();
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-gray-100 disabled:opacity-50"
+                  disabled={saving || loading}
+                >
+                  Upload weekly CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActionsMenu(false);
+                    handleOpenPasteModal();
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-gray-100 disabled:opacity-50"
+                  disabled={saving || loading}
+                >
+                  Paste weekly CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActionsMenu(false);
+                    handleCopyFromPreviousWeek();
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-gray-100 disabled:opacity-50"
+                  disabled={saving || loading || !weekDays.length}
+                >
+                  Copy from last week
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActionsMenu(false);
+                    handleAddRow();
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-gray-100 disabled:opacity-50"
+                  disabled={saving || loading}
+                >
+                  Add worker
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActionsMenu(false);
+                    handleSave();
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-gray-100 disabled:opacity-50"
+                  disabled={saving || loading}
+                >
+                  {saving ? "Saving..." : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowActionsMenu(false);
+                    handleOpenAuditModal();
+                  }}
+                  className="w-full text-left px-3 py-1.5 hover:bg-gray-100 disabled:opacity-50 text-xs"
+                  disabled={loading}
+                >
+                  View changes
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
         <div className="flex-1" />
         <span className="text-sm text-gray-600">
           Total hours (week): {" "}
