@@ -3057,8 +3057,12 @@ function ProspectiveCandidatesPanel({
           params.set("detailStatusCode", detailStatusFilter.trim());
         }
 
-        const url = `${API_BASE}/onboarding/company/${companyId}/sessions` +
-          (params.toString() ? `?${params.toString()}` : "");
+        const basePath =
+          companyId === FORTIFIED_COMPANY_ID
+            ? `${API_BASE}/onboarding/company/${companyId}/prospects`
+            : `${API_BASE}/onboarding/company/${companyId}/sessions`;
+
+        const url = basePath + (params.toString() ? `?${params.toString()}` : "");
 
         const res = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
