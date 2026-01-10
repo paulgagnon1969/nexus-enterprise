@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
+// Hard-coded IDs for Nexus System and Nexus Fortified Structures tenants.
+const NEXUS_SYSTEM_COMPANY_ID = "cmjr7o4zs000101s6z1rt1ssz";
+const FORTIFIED_COMPANY_ID = "cmjr9okjz000401s6rdkbatvr";
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -98,13 +102,31 @@ export default function LoginPage() {
           if (me.userType) {
             localStorage.setItem("userType", me.userType);
           }
+
+          // For admins and above in the Nexus System tenant, default their
+          // preferred organization to Nexus Fortified Structures on first login.
+          try {
+            const memberships = Array.isArray((me as any).memberships)
+              ? (me as any).memberships
+              : [];
+            const isNexusSystemAdminOrAbove = memberships.some(
+              (m: any) =>
+                m?.companyId === NEXUS_SYSTEM_COMPANY_ID &&
+                (m?.role === "OWNER" || m?.role === "ADMIN"),
+            );
+            const hasLastCompany = !!localStorage.getItem("lastCompanyId");
+            if (isNexusSystemAdminOrAbove && !hasLastCompany) {
+              localStorage.setItem("lastCompanyId", FORTIFIED_COMPANY_ID);
+            }
+          } catch {
+            // best-effort only
+          }
         }
 
         if (me?.userType === "APPLICANT") {
           router.push("/settings/profile");
-        } else if (me?.globalRole === "SUPER_ADMIN") {
-          router.push("/system");
         } else {
+          // All internal users (including SUPER_ADMIN) land in the project workspace.
           router.push("/projects");
         }
       } catch {
