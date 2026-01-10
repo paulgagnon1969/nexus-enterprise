@@ -2988,12 +2988,23 @@ function ProspectiveCandidatesPanel({
           const res = await fetch(`${API_BASE}/referrals/fortified/candidates`, {
             headers: { Authorization: `Bearer ${token}` },
           });
+
+          // In environments where the Nex-Net API is not yet deployed, treat
+          // 404 as "no shared Nex-Net candidates" instead of surfacing a
+          // noisy error banner to end-users.
+          if (res.status === 404) {
+            if (!cancelled) {
+              setFortifiedRows([]);
+            }
+            return;
+          }
+
           if (!res.ok) {
-            const text = await res.text().catch(() => "");
             throw new Error(
-              `Failed to load shared Nex-Net candidates (${res.status}) ${text}`,
+              `Failed to load shared Nex-Net candidates (${res.status})`,
             );
           }
+
           const json: any[] = await res.json();
           if (cancelled) return;
           const mapped: FortifiedCandidateRow[] = (json || []).map((c: any) => {
