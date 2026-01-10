@@ -387,6 +387,49 @@ export default function ProjectTimecardPage({
     setReloadToken(prev => prev + 1);
   };
 
+  const handleExportCertifiedPayroll = async () => {
+    if (!weekDays.length) return;
+    try {
+      const weekEndIso = weekDays[weekDays.length - 1].iso;
+
+      let token: string | null = null;
+      if (typeof window !== "undefined") {
+        try {
+          token = window.localStorage.getItem("accessToken");
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("Failed to read accessToken from localStorage for export", err);
+        }
+      }
+
+      const url = `${API_BASE}/projects/${projectId}/certified-payroll.csv?weekEnd=${weekEndIso}`;
+      const res = await fetch(url, {
+        method: "GET",
+        credentials: "include",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Export failed (${res.status}): ${text}`);
+      }
+
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.download = `certified-payroll-${projectId}-${weekEndIso}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.error("Failed to export Certified Payroll", err);
+      setError(err?.message ?? "Failed to export Certified Payroll CSV");
+    }
+  };
+
   const handleOpenAuditModal = async () => {
     if (!weekDays.length) return;
     setShowAuditModal(true);
@@ -642,9 +685,19 @@ export default function ProjectTimecardPage({
         <div className="flex items-center gap-3">
           <div className="flex flex-col text-xs text-gray-500">
             {weekDays.length > 0 && (
-              <span>
-                Week: {weekDays[0].label} 												- {weekDays[weekDays.length - 1].label}
-              </span>
+              <div className="flex items-center gap-2">
+                <span>
+                  Week: {weekDays[0].label} - {weekDays[weekDays.length - 1].label}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleExportCertifiedPayroll}
+                  className="border rounded px-2 py-0.5 text-[11px] bg-white text-gray-700 hover:bg-gray-100"
+                  disabled={loading || saving || !weekDays.length}
+                >
+                  Export Certified Payroll
+                </button>
+              </div>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -710,8 +763,10 @@ export default function ProjectTimecardPage({
         >
           View changes
         </button>
-        <span className="ml-auto text-sm text-gray-600">
-          Total hours (week): {totalHours.toFixed(2)}
+        <div className="flex-1" />
+        <span className="text-sm text-gray-600">
+          Total hours (week): {" "}
+          <span className="font-bold">{totalHours.toFixed(2)}</span>
         </span>
       </div>
 
