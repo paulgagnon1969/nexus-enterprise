@@ -988,7 +988,7 @@ export default function ProjectTimecardPage({
                     <th
                       key={day.iso}
                       colSpan={expanded ? 3 : 1}
-                      className="border px-4 py-1 text-center align-bottom"
+className="border px-32 py-1 text-center align-bottom"
                     >
                       <div className="text-xs font-medium whitespace-nowrap">{day.label}</div>
                     </th>
@@ -1041,7 +1041,7 @@ export default function ProjectTimecardPage({
                   const expanded = expandedDays[day.iso] ?? false;
                   return (
                     <React.Fragment key={`${day.iso}-sub`}>
-                      <th className="border px-2 py-0.5 text-[10px] text-gray-500 text-center">
+<th className="border px-16 py-0.5 text-[10px] text-gray-500 text-center">
                         <button
                           type="button"
                           onClick={() => toggleDayExpanded(day.iso)}
@@ -1119,7 +1119,7 @@ export default function ProjectTimecardPage({
                       const expanded = expandedDays[day.iso] ?? false;
                       return (
                         <React.Fragment key={`${row.tempId}-${day.iso}`}>
-                          <td className="border px-2 py-1 text-center">
+<td className="border px-16 py-1 text-center">
                             <input
                               type="number"
                               step="0.25"
@@ -1130,7 +1130,7 @@ export default function ProjectTimecardPage({
                                   ? "font-bold"
                                   : ""
                               }`}
-                              style={{ width: "7.5ch" }}
+style={{ width: "7.5ch", marginLeft: "27px" }}
                               tabIndex={0}
                               value={row.days[dayIndex]?.st ?? 0}
                               onChange={(ev) =>
@@ -1145,7 +1145,7 @@ export default function ProjectTimecardPage({
                           </td>
                           {expanded && (
                             <>
-                              <td className="border px-2 py-1 text-center">
+                              <td className="border px-4 py-1 text-center">
                                 <input
                                   type="number"
                                   step="0.25"
@@ -1156,7 +1156,7 @@ export default function ProjectTimecardPage({
                                       ? "font-bold"
                                       : ""
                                   }`}
-                                  style={{ width: "7.5ch" }}
+style={{ width: "7.5ch", marginLeft: "27px" }}
                                   tabIndex={-1}
                                   value={row.days[dayIndex]?.ot ?? 0}
                                   onChange={(ev) =>
