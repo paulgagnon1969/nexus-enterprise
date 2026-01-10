@@ -75,6 +75,13 @@ model Company {
   dailyTimecards     DailyTimecard[]
   timecardEditLogs   TimecardEditLog[]
   nttTickets         NttTicket[]
+
+  // Locations & inventory
+  locations          Location[]
+  materialLots       MaterialLot[]
+  inventoryParticles InventoryParticle[]
+  inventoryMovements InventoryMovement[]
+  personLocations    PersonLocation[]
 }
 
 model OrganizationTemplate {
@@ -1797,6 +1804,24 @@ model CompanyPriceListItem {
   @@index([companyPriceListId, cat, sel])
 }
 
+enum LocationType {
+  SITE
+  BUILDING
+  WAREHOUSE
+  ZONE
+  AISLE
+  SHELF
+  BIN
+  PERSON
+  VIRTUAL
+}
+
+enum InventoryItemType {
+  ASSET
+  MATERIAL
+  PARTICLE
+}
+
 enum GlobalRole {
   NONE
   SUPER_ADMIN
@@ -2016,6 +2041,11 @@ model Asset {
   isTrackable     Boolean            @default(false)
   isConsumable    Boolean            @default(false)
   priceListItemId String?
+
+  // Location-aware field (optional initially)
+  currentLocationId String?
+  currentLocation   Location? @relation("AssetCurrentLocation", fields: [currentLocationId], references: [id])
+
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   company         Company            @relation(fields: [companyId], references: [id])
@@ -2024,6 +2054,7 @@ model Asset {
   transactions    AssetTransaction[]
 
   @@index([companyId, assetType], map: "Asset_company_type_idx")
+  @@index([companyId, currentLocationId])
 }
 
 model AssetUsage {
@@ -2115,6 +2146,134 @@ enum TransactionKind {
   TIME_PUNCH
   MAINTENANCE
   ADJUSTMENT
+}
+
+model Location {
+  id        String       @id @default(cuid())
+  companyId String
+  type      LocationType
+  name      String
+  code      String?
+
+  parentLocationId String?
+  parent           Location?  @relation("LocationHierarchy", fields: [parentLocationId], references: [id])
+  children         Location[] @relation("LocationHierarchy")
+
+  isActive Boolean @default(true)
+  metadata Json?
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  currentAssets       Asset[]             @relation("AssetCurrentLocation")
+  currentMaterialLots MaterialLot[]       @relation("MaterialLotCurrentLocation")
+  currentParticles    InventoryParticle[] @relation("InventoryParticleCurrentLocation")
+  virtualParticles    InventoryParticle[] @relation("InventoryParticleVirtualLocation")
+
+  movementsFrom InventoryMovement[] @relation("InventoryMovementFromLocation")
+  movementsTo   InventoryMovement[] @relation("InventoryMovementToLocation")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, type])
+  @@unique([companyId, code], name: "Location_companyId_code_unique")
+}
+
+model PersonLocation {
+  id         String   @id @default(cuid())
+  companyId  String
+  userId     String
+  locationId String
+
+  company  Company  @relation(fields: [companyId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+  location Location @relation(fields: [locationId], references: [id])
+
+  @@unique([companyId, userId], name: "PersonLocation_companyId_userId_unique")
+}
+
+model MaterialLot {
+  id        String   @id @default(cuid())
+  companyId String
+
+  sku   String
+  name  String
+  quantity Decimal @db.Decimal(18, 4)
+  uom      String
+
+  currentLocationId String
+  currentLocation   Location @relation("MaterialLotCurrentLocation", fields: [currentLocationId], references: [id])
+
+  metadata Json?
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  movements InventoryMovement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, sku])
+  @@index([companyId, currentLocationId])
+}
+
+model InventoryParticle {
+  id        String   @id @default(cuid())
+  companyId String
+
+  parentEntityType String
+  parentEntityId   String
+
+  quantity Decimal @db.Decimal(18, 4)
+  uom      String
+
+  locationId String
+  location   Location @relation("InventoryParticleCurrentLocation", fields: [locationId], references: [id])
+
+  virtualLocationId String?
+  virtualLocation   Location? @relation("InventoryParticleVirtualLocation", fields: [virtualLocationId], references: [id])
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  movements InventoryMovement[]
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, locationId])
+  @@index([companyId, parentEntityType, parentEntityId])
+}
+
+model InventoryMovement {
+  id        String            @id @default(cuid())
+  companyId String
+
+  itemType InventoryItemType
+  itemId   String
+
+  fromLocationId String?
+  fromLocation   Location? @relation("InventoryMovementFromLocation", fields: [fromLocationId], references: [id])
+
+  toLocationId String
+  toLocation   Location @relation("InventoryMovementToLocation", fields: [toLocationId], references: [id])
+
+  quantity Decimal? @db.Decimal(18, 4)
+
+  movedByUserId String
+  movedAt       DateTime @default(now())
+
+  reason String
+  note   String?
+
+  company Company @relation(fields: [companyId], references: [id])
+  movedBy User    @relation(fields: [movedByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, itemType, itemId])
+  @@index([companyId, toLocationId, movedAt])
 }
 
 /// Simple test model used to validate migration pipelines.
