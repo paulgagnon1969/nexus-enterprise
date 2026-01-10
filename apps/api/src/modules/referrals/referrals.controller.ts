@@ -103,6 +103,14 @@ export class ReferralsController {
     return this.referrals.listCandidatesForSystem(actor);
   }
 
+  // Nexus Fortified Structures: Nex-Net candidates shared to this tenant.
+  @UseGuards(JwtAuthGuard)
+  @Get("fortified/candidates")
+  async listCandidatesForFortified(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.referrals.listCandidatesForFortified(actor);
+  }
+
   // Candidate training assignments (SUPER_ADMIN only for now).
   @UseGuards(JwtAuthGuard)
   @GlobalRoles(GlobalRole.SUPER_ADMIN)
