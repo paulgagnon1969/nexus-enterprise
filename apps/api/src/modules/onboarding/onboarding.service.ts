@@ -33,6 +33,8 @@ export class OnboardingService {
   ) {}
 
   private readonly fortifiedCompanyId = "cmjr9okjz000401s6rdkbatvr";
+  // Canonical Nexus System company id used for the recruiting pool.
+  private readonly nexusSystemCompanyId = "cmjr7o4zs000101s6z1rt1ssz";
 
   private async ensureFortifiedVisibilityForCandidate(
     prisma: any,
@@ -1117,23 +1119,29 @@ export class OnboardingService {
 
     // Resolve the canonical Nexus System recruiting company id so we always
     // read from the same pool that /apply and startPublicSession use.
-    const recruitingCompany = await this.prisma.company.findFirst({
-      where: {
-        name: {
-          equals: "Nexus System",
-          mode: "insensitive",
-        } as any,
-      },
-      select: { id: true },
-    });
+    let recruitingCompanyId = this.nexusSystemCompanyId;
 
-    if (!recruitingCompany) {
-      throw new BadRequestException(
-        "Recruiting pool company (Nexus System) not found. Ensure a company named 'Nexus System' exists.",
-      );
+    if (!recruitingCompanyId) {
+      const recruitingCompany = await this.prisma.company.findFirst({
+        where: {
+          name: {
+            equals: "Nexus System",
+            mode: "insensitive",
+          } as any,
+        },
+        select: { id: true },
+      });
+
+      if (!recruitingCompany) {
+        throw new BadRequestException(
+          "Recruiting pool company (Nexus System) not found. Ensure a company named 'Nexus System' exists.",
+        );
+      }
+
+      recruitingCompanyId = recruitingCompany.id;
     }
 
-    const companyIds = [recruitingCompany.id, companyId];
+    const companyIds = [recruitingCompanyId, companyId];
 
     return this.prisma.onboardingSession.findMany({
       where: {
