@@ -2973,73 +2973,80 @@ function ProspectiveCandidatesPanel({
     void loadStatusDefs();
   }, [companyId]);
 
+  // Fortified-only: load shared Nex-Net candidate panel (separate from the
+  // main prospective candidates grid).
+  useEffect(() => {
+    if (!isFortifiedCompany) return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        setFortifiedLoading(true);
+        setFortifiedError(null);
+        const res = await fetch(`${API_BASE}/referrals/fortified/candidates`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        // In environments where the Nex-Net API is not yet deployed, treat
+        // 404 as "no shared Nex-Net candidates" instead of surfacing a
+        // noisy error banner to end-users.
+        if (res.status === 404) {
+          if (!cancelled) {
+            setFortifiedRows([]);
+          }
+          return;
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            `Failed to load shared Nex-Net candidates (${res.status})`,
+          );
+        }
+
+        const json: any[] = await res.json();
+        if (cancelled) return;
+        const mapped: FortifiedCandidateRow[] = (json || []).map((c: any) => {
+          const latestReferral = (c.referralsAsReferee || [])[0];
+          return {
+            id: c.id,
+            firstName: c.firstName ?? null,
+            lastName: c.lastName ?? null,
+            email: c.email ?? c.user?.email ?? null,
+            phone: c.phone ?? null,
+            source: c.source ?? null,
+            status: c.status ?? null,
+            createdAt: c.createdAt ?? null,
+            referrerEmail: latestReferral?.referrer?.email ?? null,
+          };
+        });
+        setFortifiedRows(mapped);
+      } catch (e: any) {
+        if (!cancelled) {
+          setFortifiedError(e?.message ?? "Failed to load shared Nex-Net candidates.");
+        }
+      } finally {
+        if (!cancelled) {
+          setFortifiedLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, isFortifiedCompany]);
+
+  // Main prospective candidates grid (Nexus System and Fortified). For
+  // Fortified we hit the shared /prospects endpoint; for other tenants we use
+  // the company-local /sessions endpoint.
   useEffect(() => {
     const token = window.localStorage.getItem("accessToken");
     if (!token) {
       setError("Missing access token. Please log in again.");
       setLoading(false);
       return;
-    }
-
-    // For Nexus Fortified, also load the shared Nex-Net pool that has been
-    // explicitly made visible to this tenant.
-    if (isFortifiedCompany) {
-      let cancelled = false;
-      (async () => {
-        try {
-          setFortifiedLoading(true);
-          setFortifiedError(null);
-          const res = await fetch(`${API_BASE}/referrals/fortified/candidates`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-
-          // In environments where the Nex-Net API is not yet deployed, treat
-          // 404 as "no shared Nex-Net candidates" instead of surfacing a
-          // noisy error banner to end-users.
-          if (res.status === 404) {
-            if (!cancelled) {
-              setFortifiedRows([]);
-            }
-            return;
-          }
-
-          if (!res.ok) {
-            throw new Error(
-              `Failed to load shared Nex-Net candidates (${res.status})`,
-            );
-          }
-
-          const json: any[] = await res.json();
-          if (cancelled) return;
-          const mapped: FortifiedCandidateRow[] = (json || []).map((c: any) => {
-            const latestReferral = (c.referralsAsReferee || [])[0];
-            return {
-              id: c.id,
-              firstName: c.firstName ?? null,
-              lastName: c.lastName ?? null,
-              email: c.email ?? c.user?.email ?? null,
-              phone: c.phone ?? null,
-              source: c.source ?? null,
-              status: c.status ?? null,
-              createdAt: c.createdAt ?? null,
-              referrerEmail: latestReferral?.referrer?.email ?? null,
-            };
-          });
-          setFortifiedRows(mapped);
-        } catch (e: any) {
-          if (!cancelled) {
-            setFortifiedError(e?.message ?? "Failed to load shared Nex-Net candidates.");
-          }
-        } finally {
-          if (!cancelled) {
-            setFortifiedLoading(false);
-          }
-        }
-      })();
-
-      return () => {
-        cancelled = true;
-      };
     }
 
     async function load() {
@@ -3087,7 +3094,7 @@ function ProspectiveCandidatesPanel({
     }
 
     void load();
-  }, [companyId, statusFilter, detailStatusFilter]);
+  }, [companyId, statusFilter, detailStatusFilter, isFortifiedCompany]);
 
   const stateOptions = useMemo(() => {
     const set = new Set<string>();
