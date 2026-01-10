@@ -30,6 +30,7 @@ import { MessagingModule } from "./modules/messaging/messaging.module";
 import { SystemDocsModule } from "./modules/system-docs/system-docs.module";
 import { TimecardModule } from "./modules/timecard/timecard.module";
 import { WorkerModule } from "./modules/worker/worker.module";
+import { NttModule } from "./modules/ntt/ntt.module";
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { WorkerModule } from "./modules/worker/worker.module";
     SystemDocsModule,
     TimecardModule,
     WorkerModule,
+    NttModule,
   ],
   controllers: [DevController]
 })

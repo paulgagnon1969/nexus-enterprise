@@ -976,7 +976,10 @@ export default function ProjectTimecardPage({
         <div className="text-sm text-gray-500">Loading weekly timecard...</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full text-sm border border-gray-200">
+          <table
+            className="min-w-full text-sm border border-gray-200 border-separate"
+            style={{ borderSpacing: "24px 0" }}
+          >
             <thead className="bg-gray-50">
               <tr>
                 <th className="border px-2 py-1 text-left align-bottom">Worker</th>
@@ -1041,15 +1044,17 @@ className="border px-32 py-1 text-center align-bottom"
                   const expanded = expandedDays[day.iso] ?? false;
                   return (
                     <React.Fragment key={`${day.iso}-sub`}>
-<th className="border px-16 py-0.5 text-[10px] text-gray-500 text-center">
-                        <button
-                          type="button"
-                          onClick={() => toggleDayExpanded(day.iso)}
-                          className="inline-flex items-center gap-1 text-[10px] text-gray-600 hover:text-gray-900"
-                        >
-                          <span>ST</span>
-                          <span>{expanded ? "▾" : "▸"}</span>
-                        </button>
+                      <th className="border px-16 py-0.5 text-[10px] text-gray-500 text-left">
+<div style={{ width: "8ch" }}>
+                          <button
+                            type="button"
+                            onClick={() => toggleDayExpanded(day.iso)}
+                            className="inline-flex items-center justify-between gap-1 w-full text-[10px] text-gray-600 hover:text-gray-900 text-left"
+                          >
+                            <span>ST</span>
+                            <span>{expanded ? "▾" : "▸"}</span>
+                          </button>
+                        </div>
                       </th>
                       {expanded && (
                         <>
@@ -1119,7 +1124,7 @@ className="border px-32 py-1 text-center align-bottom"
                       const expanded = expandedDays[day.iso] ?? false;
                       return (
                         <React.Fragment key={`${row.tempId}-${day.iso}`}>
-<td className="border px-16 py-1 text-center">
+                          <td className="border px-16 py-1 text-left">
                             <input
                               type="number"
                               step="0.25"
@@ -1130,7 +1135,7 @@ className="border px-32 py-1 text-center align-bottom"
                                   ? "font-bold"
                                   : ""
                               }`}
-style={{ width: "7.5ch", marginLeft: "27px" }}
+                              style={{ width: "7.5ch" }}
                               tabIndex={0}
                               value={row.days[dayIndex]?.st ?? 0}
                               onChange={(ev) =>
@@ -1145,7 +1150,7 @@ style={{ width: "7.5ch", marginLeft: "27px" }}
                           </td>
                           {expanded && (
                             <>
-                              <td className="border px-4 py-1 text-center">
+                              <td className="border px-16 py-1 text-left">
                                 <input
                                   type="number"
                                   step="0.25"
@@ -1156,7 +1161,7 @@ style={{ width: "7.5ch", marginLeft: "27px" }}
                                       ? "font-bold"
                                       : ""
                                   }`}
-style={{ width: "7.5ch", marginLeft: "27px" }}
+                                  style={{ width: "7.5ch" }}
                                   tabIndex={-1}
                                   value={row.days[dayIndex]?.ot ?? 0}
                                   onChange={(ev) =>
@@ -1169,7 +1174,7 @@ style={{ width: "7.5ch", marginLeft: "27px" }}
                                   }
                                 />
                               </td>
-                              <td className="border px-2 py-1 text-center">
+                              <td className="border px-16 py-1 text-left">
                                 <input
                                   type="number"
                                   step="0.25"
