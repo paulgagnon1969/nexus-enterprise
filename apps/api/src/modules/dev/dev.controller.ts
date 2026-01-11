@@ -2,6 +2,7 @@ import { Body, Controller, Post, Req, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { EmailService } from "../../common/email.service";
+import { MessageBirdSmsClient } from "../../common/messagebird-sms.client";
 
 interface CreateSnapshotDto {
   label?: string;
@@ -11,9 +12,17 @@ interface TestEmailDto {
   to?: string;
 }
 
+interface TestSmsDto {
+  to?: string;
+  body?: string;
+}
+
 @Controller("dev")
 export class DevController {
-  constructor(private readonly email: EmailService) {}
+  constructor(
+    private readonly email: EmailService,
+    private readonly sms: MessageBirdSmsClient,
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @Post("snapshots")
@@ -78,5 +87,42 @@ export class DevController {
       body: (result as any).body,
       error: (result as any).error,
     };
+  }
+
+  // Dev-only helper to verify API -> MessageBird SMS connectivity.
+  // Requires a valid JWT (same as other /dev endpoints).
+  @UseGuards(JwtAuthGuard)
+  @Post("test-sms")
+  async sendTestSms(@Req() req: any, @Body() body: TestSmsDto) {
+    const user = req.user as AuthenticatedUser;
+
+    const to = body.to || process.env.TEST_SMS_TO || "";
+    const smsBody =
+      body.body ||
+      `Nexus dev test SMS from user ${user.userId} at ${new Date().toISOString()}`;
+
+    if (!to) {
+      return {
+        ok: false,
+        skipped: true,
+        reason:
+          "No recipient phone specified and TEST_SMS_TO is not configured in this environment.",
+      };
+    }
+
+    try {
+      const result = await this.sms.sendSms(to, smsBody);
+      return {
+        ok: true,
+        to,
+        id: result?.id,
+      };
+    } catch (err: any) {
+      return {
+        ok: false,
+        to,
+        error: err?.message ?? String(err),
+      };
+    }
   }
 }
