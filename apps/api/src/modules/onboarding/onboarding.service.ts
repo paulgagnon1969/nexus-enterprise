@@ -231,6 +231,79 @@ export class OnboardingService {
     });
   }
 
+  async updateSessionProfile(
+    id: string,
+    actor: AuthenticatedUser,
+    input: {
+      firstName?: string | null;
+      lastName?: string | null;
+      phone?: string | null;
+      dob?: string | null;
+      addressLine1?: string | null;
+      addressLine2?: string | null;
+      city?: string | null;
+      state?: string | null;
+      postalCode?: string | null;
+    },
+  ) {
+    const session = await this.prisma.onboardingSession.findUnique({
+      where: { id },
+      include: { profile: true },
+    });
+
+    if (!session) {
+      throw new NotFoundException("Onboarding session not found");
+    }
+
+    const sameCompany = session.companyId === actor.companyId;
+
+    if (!sameCompany && actor.globalRole !== ("SUPER_ADMIN" as any)) {
+      throw new ForbiddenException("Not allowed to edit onboarding profile for this company");
+    }
+
+    // HR and above within the owning company (or SUPER_ADMIN for Nexus System).
+    const isAdminOrOwner = actor.role === Role.OWNER || actor.role === Role.ADMIN;
+    const isHiringManager = actor.profileCode === "HIRING_MANAGER";
+    const isHrProfile = actor.profileCode === "HR";
+    const isSuperAdmin = actor.globalRole === ("SUPER_ADMIN" as any);
+
+    if (!isSuperAdmin && !isAdminOrOwner && !isHiringManager && !isHrProfile) {
+      throw new ForbiddenException("Not allowed to edit onboarding profile for this company");
+    }
+
+    const next = {
+      firstName: this.normalizeProfileField(input.firstName ?? session.profile?.firstName ?? null),
+      lastName: this.normalizeProfileField(input.lastName ?? session.profile?.lastName ?? null),
+      phone: this.normalizeProfileField(input.phone ?? session.profile?.phone ?? null),
+      dob: input.dob ? new Date(input.dob) : (session.profile?.dob as any) ?? null,
+      addressLine1: this.normalizeProfileField(
+        input.addressLine1 ?? session.profile?.addressLine1 ?? null,
+      ),
+      addressLine2: this.normalizeProfileField(
+        input.addressLine2 ?? session.profile?.addressLine2 ?? null,
+      ),
+      city: this.normalizeProfileField(input.city ?? session.profile?.city ?? null),
+      state: this.normalizeProfileField(input.state ?? session.profile?.state ?? null),
+      postalCode: this.normalizeProfileField(
+        input.postalCode ?? session.profile?.postalCode ?? null,
+      ),
+    };
+
+    const updatedProfile = await this.prisma.onboardingProfile.upsert({
+      where: { sessionId: session.id },
+      update: next,
+      create: {
+        sessionId: session.id,
+        ...next,
+      },
+    });
+
+    return {
+      id: session.id,
+      profile: updatedProfile,
+    };
+  }
+
   async startSession(
     companyId: string,
     email: string,
