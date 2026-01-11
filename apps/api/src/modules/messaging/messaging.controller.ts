@@ -156,4 +156,17 @@ export class MessagingController {
       body.attachments,
     );
   }
+
+  @Post("candidate-correspondence")
+  async getCandidateCorrespondenceSummary(
+    @Req() req: any,
+    @Body()
+    body: {
+      companyId: string;
+      userIds: string[];
+    },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.messaging.getCandidateCorrespondenceSummary(actor, body);
+  }
 }

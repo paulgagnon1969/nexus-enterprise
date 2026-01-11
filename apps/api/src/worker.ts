@@ -832,7 +832,8 @@ export async function startWorker() {
       }
     },
     {
-      connection: getBullRedisConnection(),
+      // Cast to any to avoid BullMQ/ioredis multi-version type incompatibility.
+      connection: getBullRedisConnection() as any,
       concurrency: Number(process.env.IMPORT_WORKER_CONCURRENCY || 1),
     },
   );

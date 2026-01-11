@@ -25,7 +25,8 @@ export function getImportQueue(): Queue {
   if (importQueue) return importQueue;
 
   importQueue = new Queue(IMPORT_QUEUE_NAME, {
-    connection: getBullRedisConnection()
+    // Cast to any to avoid BullMQ/ioredis multi-version type incompatibility.
+    connection: getBullRedisConnection() as any,
   });
 
   return importQueue;

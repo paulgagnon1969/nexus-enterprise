@@ -784,6 +784,14 @@ function SystemLayoutInner({ children }: { children: ReactNode }) {
             Project Management
           </Link>
           <Link
+            href="/locations"
+            target="_blank"
+            rel="noreferrer"
+            style={{ textDecoration: "none", color: "#111827" }}
+          >
+            Locations
+          </Link>
+          <Link
             href="/files"
             target="_blank"
             rel="noreferrer"

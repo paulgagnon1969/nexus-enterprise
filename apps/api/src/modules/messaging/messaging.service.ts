@@ -869,6 +869,119 @@ export class MessagingService {
     return message;
   }
 
+  /**
+   * For a given company and a list of candidate userIds, return the last
+   * DIRECT-message interaction timestamp and direction (INTERNAL send vs
+   * EXTERNAL reply) per user. Used by the Prospective Candidates grid to
+   * populate a "Correspondences" column.
+   */
+  async getCandidateCorrespondenceSummary(
+    actor: AuthenticatedUser,
+    params: { companyId: string; userIds: string[] },
+  ): Promise<
+    {
+      userId: string;
+      lastMessageAt: string;
+      direction: "SENT" | "RECEIVED";
+    }[]
+  > {
+    const companyId = this.assertCompanyContext(actor);
+    if (companyId !== params.companyId && actor.globalRole !== "SUPER_ADMIN") {
+      throw new ForbiddenException("Cannot view correspondence for another company");
+    }
+
+    const inputIds = (params.userIds || []).filter(id => typeof id === "string" && id.trim());
+    const uniqueUserIds = Array.from(new Set(inputIds));
+    if (uniqueUserIds.length === 0) {
+      return [];
+    }
+
+    // Only owners/admins/hiring managers (or super-admins) can read candidate
+    // correspondence summaries for the company.
+    if (actor.globalRole !== "SUPER_ADMIN") {
+      const membership = await this.prisma.companyMembership.findFirst({
+        where: { companyId, userId: actor.userId },
+        include: { profile: true },
+      });
+      const profileCode = membership?.profile?.code ?? null;
+      const isPrivileged =
+        !!membership &&
+        (membership.role === "OWNER" ||
+          membership.role === "ADMIN" ||
+          profileCode === "HIRING_MANAGER");
+      if (!isPrivileged) {
+        throw new ForbiddenException("Not allowed to view correspondence summaries");
+      }
+    }
+
+    // Strategy:
+    // 1) Find DIRECT threads in this company where at least one participant has
+    //    userId in the given set (candidate side).
+    // 2) For each such thread, load the most recent message.
+    // 3) Compute direction based on whether the sender is an internal user
+    //    (senderId non-null AND sender.userType == INTERNAL) vs an external
+    //    email-only sender (senderId null and senderEmail present).
+    // 4) For each candidate userId, pick the latest message across all their
+    //    threads.
+
+    const threads = await this.prisma.messageThread.findMany({
+      where: {
+        companyId,
+        type: $Enums.MessageThreadType.DIRECT,
+        participants: {
+          some: {
+            userId: { in: uniqueUserIds },
+          },
+        },
+      },
+      include: {
+        messages: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          include: {
+            sender: true,
+          },
+        },
+        participants: {
+          select: {
+            userId: true,
+          },
+        },
+      },
+    });
+
+    const latestByUser: Record<
+      string,
+      {
+        lastMessageAt: Date;
+        direction: "SENT" | "RECEIVED";
+      }
+    > = {};
+
+    for (const thread of threads) {
+      const last = thread.messages[0];
+      if (!last) continue;
+      const lastAt = last.createdAt;
+      const isInternalSender = !!last.senderId && last.sender?.userType === $Enums.UserType.INTERNAL;
+      const direction: "SENT" | "RECEIVED" = isInternalSender ? "SENT" : "RECEIVED";
+
+      for (const p of thread.participants) {
+        const userId = p.userId;
+        if (!userId || !uniqueUserIds.includes(userId)) continue;
+        const existing = latestByUser[userId];
+        if (!existing || existing.lastMessageAt < lastAt) {
+          latestByUser[userId] = { lastMessageAt: lastAt, direction };
+        }
+      }
+    }
+
+    return Object.entries(latestByUser).map(([userId, meta]) => ({
+      userId,
+      lastMessageAt: meta.lastMessageAt.toISOString(),
+      direction: meta.direction,
+    }));
+  }
+
   private renderMessageHtml(fromEmail: string, subject: string, body: string): string {
     const safeBody = this.escapeHtml(body).replace(/\r?\n/g, "<br/>");
     const safeSubject = this.escapeHtml(subject || "");
