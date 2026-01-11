@@ -870,10 +870,19 @@ export class MessagingService {
   }
 
   /**
-   * For a given company and a list of candidate userIds, return the last
-   * DIRECT-message interaction timestamp and direction (INTERNAL send vs
-   * EXTERNAL reply) per user. Used by the Prospective Candidates grid to
-   * populate a "Correspondences" column.
+   * For a given company and a list of candidate userIds, return DIRECT-message
+   * correspondence metadata per user:
+   *   - lastMessageAt: timestamp of the most recent message in any DIRECT
+   *     thread involving the user
+   *   - direction: whether that most recent message was SENT by an internal
+   *     user or RECEIVED from the external candidate
+   *   - sentCount: total number of DIRECT messages sent by internal users to
+   *     that candidate
+   *   - receivedCount: total number of DIRECT messages sent by the candidate
+   *     back into the system
+   *
+   * Used by the Prospective Candidates grid to populate a
+   * "Correspondences" column.
    */
   async getCandidateCorrespondenceSummary(
     actor: AuthenticatedUser,
@@ -883,6 +892,8 @@ export class MessagingService {
       userId: string;
       lastMessageAt: string;
       direction: "SENT" | "RECEIVED";
+      sentCount: number;
+      receivedCount: number;
     }[]
   > {
     const companyId = this.assertCompanyContext(actor);
@@ -936,8 +947,7 @@ export class MessagingService {
       },
       include: {
         messages: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
+          orderBy: { createdAt: "asc" },
           include: {
             sender: true,
           },
@@ -955,22 +965,47 @@ export class MessagingService {
       {
         lastMessageAt: Date;
         direction: "SENT" | "RECEIVED";
+        sentCount: number;
+        receivedCount: number;
       }
     > = {};
 
     for (const thread of threads) {
-      const last = thread.messages[0];
-      if (!last) continue;
-      const lastAt = last.createdAt;
-      const isInternalSender = !!last.senderId && last.sender?.userType === $Enums.UserType.INTERNAL;
-      const direction: "SENT" | "RECEIVED" = isInternalSender ? "SENT" : "RECEIVED";
+      if (!thread.messages || thread.messages.length === 0) continue;
 
-      for (const p of thread.participants) {
-        const userId = p.userId;
-        if (!userId || !uniqueUserIds.includes(userId)) continue;
-        const existing = latestByUser[userId];
-        if (!existing || existing.lastMessageAt < lastAt) {
-          latestByUser[userId] = { lastMessageAt: lastAt, direction };
+      // Walk messages in chronological order so we can compute both the latest
+      // timestamp and aggregate counts.
+      for (const msg of thread.messages) {
+        const lastAt = msg.createdAt;
+        const isInternalSender =
+          !!msg.senderId && msg.sender?.userType === $Enums.UserType.INTERNAL;
+        const direction: "SENT" | "RECEIVED" = isInternalSender ? "SENT" : "RECEIVED";
+
+        for (const p of thread.participants) {
+          const userId = p.userId;
+          if (!userId || !uniqueUserIds.includes(userId)) continue;
+
+          const existing = latestByUser[userId] ?? {
+            lastMessageAt: lastAt,
+            direction,
+            sentCount: 0,
+            receivedCount: 0,
+          };
+
+          // Update last message metadata if this message is newer.
+          if (!latestByUser[userId] || existing.lastMessageAt <= lastAt) {
+            existing.lastMessageAt = lastAt;
+            existing.direction = direction;
+          }
+
+          // Increment counts based on who sent the message.
+          if (direction === "SENT") {
+            existing.sentCount += 1;
+          } else {
+            existing.receivedCount += 1;
+          }
+
+          latestByUser[userId] = existing;
         }
       }
     }
@@ -979,6 +1014,8 @@ export class MessagingService {
       userId,
       lastMessageAt: meta.lastMessageAt.toISOString(),
       direction: meta.direction,
+      sentCount: meta.sentCount,
+      receivedCount: meta.receivedCount,
     }));
   }
 

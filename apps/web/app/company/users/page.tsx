@@ -2937,13 +2937,17 @@ function ProspectiveCandidatesPanel({
     { email: string; userId?: string | null }[] | null
   >(null);
 
-  // Lazy-loaded per-candidate correspondence metadata (currently journal-based).
+  // Lazy-loaded per-candidate correspondence metadata from messaging
+  // threads. Used to populate the "Correspondences" column with
+  // Sent/Received counts and last-activity direction.
   const [correspondenceByUserId, setCorrespondenceByUserId] = useState<
     Record<
       string,
       {
-        lastAt: string;
-        direction: "SENT" | "RECEIVED";
+        lastAt: string | null;
+        direction: "SENT" | "RECEIVED" | null;
+        sentCount: number;
+        receivedCount: number;
       }
     >
   >({});
@@ -3147,15 +3151,35 @@ function ProspectiveCandidatesPanel({
         const next: Record<
           string,
           {
-            lastAt: string;
-            direction: "SENT" | "RECEIVED";
+            lastAt: string | null;
+            direction: "SENT" | "RECEIVED" | null;
+            sentCount: number;
+            receivedCount: number;
           }
         > = {};
         for (const item of json || []) {
           if (!item || typeof item.userId !== "string" || !item.userId) continue;
-          if (typeof item.lastMessageAt !== "string") continue;
-          const dir: "SENT" | "RECEIVED" = item.direction === "RECEIVED" ? "RECEIVED" : "SENT";
-          next[item.userId] = { lastAt: item.lastMessageAt, direction: dir };
+
+          const lastAt =
+            typeof item.lastMessageAt === "string" && item.lastMessageAt
+              ? item.lastMessageAt
+              : null;
+          const hasSent = typeof item.sentCount === "number" && item.sentCount > 0;
+          const hasReceived =
+            typeof item.receivedCount === "number" && item.receivedCount > 0;
+          const dir: "SENT" | "RECEIVED" | null =
+            item.direction === "RECEIVED" || (!hasSent && hasReceived)
+              ? "RECEIVED"
+              : hasSent
+              ? "SENT"
+              : null;
+
+          next[item.userId] = {
+            lastAt,
+            direction: dir,
+            sentCount: hasSent ? item.sentCount : 0,
+            receivedCount: hasReceived ? item.receivedCount : 0,
+          };
         }
         if (!cancelled && Object.keys(next).length > 0) {
           setCorrespondenceByUserId(prev => ({ ...prev, ...next }));
@@ -4251,11 +4275,33 @@ function ProspectiveCandidatesPanel({
                       {(() => {
                         if (!r.userId) return "—";
                         const meta = correspondenceByUserId[r.userId];
-                        if (!meta?.lastAt) return "—";
-                        const dateText = new Date(meta.lastAt).toLocaleString();
-                        const isReceived = meta.direction === "RECEIVED";
-                        const color = isReceived ? "#16a34a" : "#1d4ed8"; // green for replies, blue for sends
-                        return <span style={{ color, fontWeight: 600 }}>{dateText}</span>;
+                        if (!meta) return "—";
+                        const sent = meta.sentCount ?? 0;
+                        const received = meta.receivedCount ?? 0;
+                        if (!sent && !received) {
+                          return <span style={{ color: "#6b7280" }}>—</span>;
+                        }
+
+                        const tooltip =
+                          meta.direction === "RECEIVED"
+                            ? `Received (${received})`
+                            : meta.direction === "SENT"
+                            ? `Sent (${sent})`
+                            : "";
+
+                        return (
+                          <div
+                            style={{ display: "flex", flexDirection: "column", gap: 2 }}
+                            title={tooltip || undefined}
+                          >
+                            <span style={{ color: "#1d4ed8", fontWeight: 600 }}>
+                              Sent ({sent})
+                            </span>
+                            <span style={{ color: "#16a34a", fontWeight: 600 }}>
+                              Received ({received})
+                            </span>
+                          </div>
+                        );
                       })()}
                     </td>
                     <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12, color: "#6b7280" }}>
