@@ -108,6 +108,10 @@ export default function CompanyUserProfilePage() {
   const [clientSaving, setClientSaving] = useState(false);
   const [clientError, setClientError] = useState<string | null>(null);
 
+  // HR (confidential) card: shown only when backend provides HR payload and
+  // collapsed by default so sensitive details are not immediately visible.
+  const [hrCollapsed, setHrCollapsed] = useState(true);
+
   // Admin-only: per-skill rating details (including comments)
   const [detailsBySkillId, setDetailsBySkillId] = useState<Record<string, any>>({});
   const [detailsLoadingBySkillId, setDetailsLoadingBySkillId] = useState<Record<string, boolean>>({});
@@ -638,7 +642,7 @@ export default function CompanyUserProfilePage() {
               </div>
             )}
 
-            {isAdminOrAbove && hasHr && profile.hr && (
+            {hasHr && profile.hr && (
               <div
                 style={{
                   marginTop: hasWorker ? 8 : 0,
@@ -649,70 +653,112 @@ export default function CompanyUserProfilePage() {
                   fontSize: 13,
                 }}
               >
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>HR (confidential)</div>
-                <p style={{ margin: 0 }}>
-                  <strong>HR email:</strong>{" "}
-                  {profile.hr.displayEmail ? (
-                    <a
-                      href={`mailto:${profile.hr.displayEmail}`}
-                      style={{ color: "#2563eb", textDecoration: "none" }}
+                <button
+                  type="button"
+                  onClick={() => setHrCollapsed(prev => !prev)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    width: "100%",
+                    padding: 0,
+                    margin: 0,
+                    border: "none",
+                    background: "transparent",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  <span>HR (confidential)</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 12, color: "#6b7280" }}>
+                      {hrCollapsed ? "Show" : "Hide"}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        padding: "1px 6px",
+                        borderRadius: 999,
+                        border: `1px solid ${hrCollapsed ? "#b91c1c" : "#16a34a"}`,
+                        color: hrCollapsed ? "#b91c1c" : "#166534",
+                        backgroundColor: hrCollapsed ? "#fef2f2" : "#ecfdf3",
+                        textTransform: "uppercase",
+                        letterSpacing: 0.3,
+                      }}
                     >
-                      {profile.hr.displayEmail}
-                    </a>
-                  ) : (
-                    "—"
-                  )}
-                </p>
-                <p style={{ margin: 0 }}>
-                  <strong>HR phone:</strong>{" "}
-                  {(() => {
-                    const formatted = formatPhone(
-                      profile.hr?.phone ?? null,
-                      profile.hr?.country ?? "US",
-                    );
-                    if (!formatted) return "—";
-                    return (
-                      <a
-                        href={formatted.href}
-                        style={{ color: "#2563eb", textDecoration: "none" }}
-                      >
-                        {formatted.display}
-                      </a>
-                    );
-                  })()}
-                </p>
-                <p style={{ margin: 0, marginTop: 4 }}>
-                  <strong>Address:</strong>{" "}
-                  {(() => {
-                    const parts: string[] = [];
-                    if (profile.hr.addressLine1) parts.push(profile.hr.addressLine1);
-                    if (profile.hr.addressLine2) parts.push(profile.hr.addressLine2);
-                    const cityStateHr = [profile.hr.city, profile.hr.state]
-                      .filter(Boolean)
-                      .join(", ");
-                    if (cityStateHr) parts.push(cityStateHr);
-                    if (profile.hr.postalCode) parts.push(profile.hr.postalCode);
-                    const addr = parts.join(", ");
-                    if (!addr) return "—";
-                    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                      addr,
-                    )}`;
-                    return (
-                      <a
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: "#2563eb", textDecoration: "none" }}
-                      >
-                        {addr}
-                      </a>
-                    );
-                  })()}
-                </p>
-                {profile.hr.country && (
-                  <p style={{ margin: 0, marginTop: 2, fontSize: 12, color: "#6b7280" }}>
-                    {profile.hr.country}
-                  </p>
+                      {hrCollapsed ? "Lock" : "Open"}
+                    </span>
+                  </span>
+                </button>
+
+                {!hrCollapsed && (
+                  <div style={{ marginTop: 6 }}>
+                    <p style={{ margin: 0 }}>
+                      <strong>HR email:</strong>{" "}
+                      {profile.hr.displayEmail ? (
+                        <a
+                          href={`mailto:${profile.hr.displayEmail}`}
+                          style={{ color: "#2563eb", textDecoration: "none" }}
+                        >
+                          {profile.hr.displayEmail}
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </p>
+                    <p style={{ margin: 0 }}>
+                      <strong>HR phone:</strong>{" "}
+                      {(() => {
+                        const formatted = formatPhone(
+                          profile.hr?.phone ?? null,
+                          profile.hr?.country ?? "US",
+                        );
+                        if (!formatted) return "—";
+                        return (
+                          <a
+                            href={formatted.href}
+                            style={{ color: "#2563eb", textDecoration: "none" }}
+                          >
+                            {formatted.display}
+                          </a>
+                        );
+                      })()}
+                    </p>
+                    <p style={{ margin: 0, marginTop: 4 }}>
+                      <strong>Address:</strong>{" "}
+                      {(() => {
+                        const parts: string[] = [];
+                        if (profile.hr.addressLine1) parts.push(profile.hr.addressLine1);
+                        if (profile.hr.addressLine2) parts.push(profile.hr.addressLine2);
+                        const cityStateHr = [profile.hr.city, profile.hr.state]
+                          .filter(Boolean)
+                          .join(", ");
+                        if (cityStateHr) parts.push(cityStateHr);
+                        if (profile.hr.postalCode) parts.push(profile.hr.postalCode);
+                        const addr = parts.join(", ");
+                        if (!addr) return "—";
+                        const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                          addr,
+                        )}`;
+                        return (
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ color: "#2563eb", textDecoration: "none" }}
+                          >
+                            {addr}
+                          </a>
+                        );
+                      })()}
+                    </p>
+                    {profile.hr.country && (
+                      <p style={{ margin: 0, marginTop: 2, fontSize: 12, color: "#6b7280" }}>
+                        {profile.hr.country}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             )}
