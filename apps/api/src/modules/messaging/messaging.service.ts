@@ -907,6 +907,24 @@ export class MessagingService {
       return [];
     }
 
+    // Resolve candidate userIds to their login emails so we can also attribute
+    // correspondence that was sent purely via external email (e.g. broadcast
+    // messages from the Prospective Candidates panel) back to these users.
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: uniqueUserIds } },
+      select: { id: true, email: true },
+    });
+
+    const emailToUserIds = new Map<string, string[]>();
+    for (const u of users) {
+      const email = (u.email || "").trim().toLowerCase();
+      if (!email) continue;
+      const list = emailToUserIds.get(email) ?? [];
+      list.push(u.id);
+      emailToUserIds.set(email, list);
+    }
+    const candidateEmails = Array.from(emailToUserIds.keys());
+
     // Only owners/admins/hiring managers (or super-admins) can read candidate
     // correspondence summaries for the company.
     if (actor.globalRole !== "SUPER_ADMIN") {
@@ -935,14 +953,25 @@ export class MessagingService {
     // 4) For each candidate userId, pick the latest message across all their
     //    threads.
 
+    // We consider DIRECT threads where either:
+    //   - a participant has userId in the given set (1:1 or internal threads), OR
+    //   - an external participant email matches one of the candidate login emails
+    //     (broadcasts sent via email only).
+    const participantOr: any[] = [
+      { userId: { in: uniqueUserIds } },
+    ];
+    if (candidateEmails.length > 0) {
+      participantOr.push({ isExternal: true, email: { in: candidateEmails } });
+    }
+
     const threads = await this.prisma.messageThread.findMany({
       where: {
         companyId,
         type: $Enums.MessageThreadType.DIRECT,
         participants: {
           some: {
-            userId: { in: uniqueUserIds },
-          },
+            OR: participantOr,
+          } as any,
         },
       },
       include: {
@@ -955,6 +984,8 @@ export class MessagingService {
         participants: {
           select: {
             userId: true,
+            email: true,
+            isExternal: true,
           },
         },
       },
@@ -982,30 +1013,47 @@ export class MessagingService {
         const direction: "SENT" | "RECEIVED" = isInternalSender ? "SENT" : "RECEIVED";
 
         for (const p of thread.participants) {
-          const userId = p.userId;
-          if (!userId || !uniqueUserIds.includes(userId)) continue;
+          const targetUserIds: string[] = [];
 
-          const existing = latestByUser[userId] ?? {
-            lastMessageAt: lastAt,
-            direction,
-            sentCount: 0,
-            receivedCount: 0,
-          };
-
-          // Update last message metadata if this message is newer.
-          if (!latestByUser[userId] || existing.lastMessageAt <= lastAt) {
-            existing.lastMessageAt = lastAt;
-            existing.direction = direction;
+          // Direct association via userId (e.g. 1:1 threads where the candidate
+          // is an explicit participant).
+          if (p.userId && uniqueUserIds.includes(p.userId)) {
+            targetUserIds.push(p.userId);
+          } else if (p.isExternal && p.email) {
+            // Broadcast or email-only threads: map external participant email
+            // back to one or more candidate userIds that share that login email.
+            const normalized = p.email.trim().toLowerCase();
+            const mapped = emailToUserIds.get(normalized);
+            if (mapped && mapped.length) {
+              targetUserIds.push(...mapped);
+            }
           }
 
-          // Increment counts based on who sent the message.
-          if (direction === "SENT") {
-            existing.sentCount += 1;
-          } else {
-            existing.receivedCount += 1;
-          }
+          if (!targetUserIds.length) continue;
 
-          latestByUser[userId] = existing;
+          for (const userId of targetUserIds) {
+            const existing = latestByUser[userId] ?? {
+              lastMessageAt: lastAt,
+              direction,
+              sentCount: 0,
+              receivedCount: 0,
+            };
+
+            // Update last message metadata if this message is newer.
+            if (!latestByUser[userId] || existing.lastMessageAt <= lastAt) {
+              existing.lastMessageAt = lastAt;
+              existing.direction = direction;
+            }
+
+            // Increment counts based on who sent the message.
+            if (direction === "SENT") {
+              existing.sentCount += 1;
+            } else {
+              existing.receivedCount += 1;
+            }
+
+            latestByUser[userId] = existing;
+          }
         }
       }
     }
