@@ -307,4 +307,28 @@ export class OnboardingController {
     const actor = req.user as AuthenticatedUser;
     return this.onboarding.setSessionDetailStatus(id, actor, body);
   }
+
+  // HR/admin-only: allow privileged users to normalize/edit onboarding profile
+  // fields for a candidate (e.g. fix capitalization, fill in missing city/state).
+  @UseGuards(JwtAuthGuard)
+  @Post("sessions/:id/profile")
+  async updateSessionProfile(
+    @Param("id") id: string,
+    @Req() req: any,
+    @Body()
+    body: {
+      firstName?: string | null;
+      lastName?: string | null;
+      phone?: string | null;
+      dob?: string | null;
+      addressLine1?: string | null;
+      addressLine2?: string | null;
+      city?: string | null;
+      state?: string | null;
+      postalCode?: string | null;
+    },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.onboarding.updateSessionProfile(id, actor, body ?? {});
+  }
 }

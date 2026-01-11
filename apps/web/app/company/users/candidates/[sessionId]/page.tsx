@@ -86,6 +86,11 @@ export default function CandidateDetailPage() {
   >([]);
   const [journalDraft, setJournalDraft] = useState("");
   const [savingJournal, setSavingJournal] = useState(false);
+
+  // HR/admin-only editing of onboarding profile snapshot
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
   const categoryGroups = useMemo(
@@ -501,10 +506,10 @@ export default function CandidateDetailPage() {
 
       {canViewHr && (
         <section style={{ marginTop: 16 }}>
-          <h2 style={{ fontSize: 16, marginBottom: 4 }}>Onboarding profile (HR view)</h2>
+        <h2 style={{ fontSize: 16, marginBottom: 4 }}>Onboarding profile (HR view)</h2>
           <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
-            Read-only snapshot of the candidates self-entered profile fields so HR can quickly
-            see what is complete or missing.
+            Editable snapshot of the candidates self-entered profile fields so HR can quickly
+            see what is complete or missing and correct obvious issues.
           </p>
           <div
             style={{
@@ -581,62 +586,324 @@ export default function CandidateDetailPage() {
               <div style={{ minWidth: 180 }}>
                 <p style={{ margin: 0 }}>
                   <strong>First name:</strong>{" "}
-                  <span style={{ color: session.profile?.firstName ? "#111827" : "#b91c1c" }}>
-                    {session.profile?.firstName || "(missing)"}
-                  </span>
+                  <input
+                    type="text"
+                    value={session.profile?.firstName ?? ""}
+                    onChange={e =>
+                      setSession(prev =>
+                        prev
+                          ? {
+                              ...prev,
+                              profile: {
+                                ...(prev.profile || {}),
+                                firstName: e.target.value,
+                              },
+                            }
+                          : prev,
+                      )
+                    }
+                    style={{
+                      fontSize: 12,
+                      padding: "2px 4px",
+                      borderRadius: 4,
+                      border: `1px solid ${session.profile?.firstName ? "#d1d5db" : "#fca5a5"}`,
+                      minWidth: 140,
+                    }}
+                  />
                 </p>
                 <p style={{ margin: 0 }}>
                   <strong>Last name:</strong>{" "}
-                  <span style={{ color: session.profile?.lastName ? "#111827" : "#b91c1c" }}>
-                    {session.profile?.lastName || "(missing)"}
-                  </span>
+                  <input
+                    type="text"
+                    value={session.profile?.lastName ?? ""}
+                    onChange={e =>
+                      setSession(prev =>
+                        prev
+                          ? {
+                              ...prev,
+                              profile: {
+                                ...(prev.profile || {}),
+                                lastName: e.target.value,
+                              },
+                            }
+                          : prev,
+                      )
+                    }
+                    style={{
+                      fontSize: 12,
+                      padding: "2px 4px",
+                      borderRadius: 4,
+                      border: `1px solid ${session.profile?.lastName ? "#d1d5db" : "#fca5a5"}`,
+                      minWidth: 140,
+                    }}
+                  />
                 </p>
                 <p style={{ margin: 0 }}>
                   <strong>Phone:</strong>{" "}
-                  <span style={{ color: session.profile?.phone ? "#111827" : "#b91c1c" }}>
-                    {session.profile?.phone || "(missing)"}
-                  </span>
+                  <input
+                    type="text"
+                    value={session.profile?.phone ?? ""}
+                    onChange={e =>
+                      setSession(prev =>
+                        prev
+                          ? {
+                              ...prev,
+                              profile: {
+                                ...(prev.profile || {}),
+                                phone: e.target.value,
+                              },
+                            }
+                          : prev,
+                      )
+                    }
+                    style={{
+                      fontSize: 12,
+                      padding: "2px 4px",
+                      borderRadius: 4,
+                      border: `1px solid ${session.profile?.phone ? "#d1d5db" : "#fca5a5"}`,
+                      minWidth: 140,
+                    }}
+                  />
                 </p>
                 <p style={{ margin: 0 }}>
                   <strong>Date of birth:</strong>{" "}
-                  <span style={{ color: session.profile?.dob ? "#111827" : "#b91c1c" }}>
-                    {session.profile?.dob ? String(session.profile.dob).slice(0, 10) : "(missing)"}
-                  </span>
+                  <input
+                    type="date"
+                    value={session.profile?.dob ? String(session.profile.dob).slice(0, 10) : ""}
+                    onChange={e =>
+                      setSession(prev =>
+                        prev
+                          ? {
+                              ...prev,
+                              profile: {
+                                ...(prev.profile || {}),
+                                dob: e.target.value || null,
+                              },
+                            }
+                          : prev,
+                      )
+                    }
+                    style={{
+                      fontSize: 12,
+                      padding: "2px 4px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      minWidth: 140,
+                    }}
+                  />
                 </p>
               </div>
 
               <div style={{ minWidth: 220 }}>
                 <p style={{ margin: 0 }}>
                   <strong>Address line 1:</strong>{" "}
-                  <span style={{ color: session.profile?.addressLine1 ? "#111827" : "#b91c1c" }}>
-                    {session.profile?.addressLine1 || "(missing)"}
-                  </span>
+                  <input
+                    type="text"
+                    value={session.profile?.addressLine1 ?? ""}
+                    onChange={e =>
+                      setSession(prev =>
+                        prev
+                          ? {
+                              ...prev,
+                              profile: {
+                                ...(prev.profile || {}),
+                                addressLine1: e.target.value,
+                              },
+                            }
+                          : prev,
+                      )
+                    }
+                    style={{
+                      fontSize: 12,
+                      padding: "2px 4px",
+                      borderRadius: 4,
+                      border: `1px solid ${session.profile?.addressLine1 ? "#d1d5db" : "#fca5a5"}`,
+                      minWidth: 180,
+                    }}
+                  />
                 </p>
                 <p style={{ margin: 0 }}>
                   <strong>Address line 2:</strong>{" "}
-                  <span style={{ color: session.profile?.addressLine2 ? "#111827" : "#6b7280" }}>
-                    {session.profile?.addressLine2 || "(none)"}
-                  </span>
+                  <input
+                    type="text"
+                    value={session.profile?.addressLine2 ?? ""}
+                    onChange={e =>
+                      setSession(prev =>
+                        prev
+                          ? {
+                              ...prev,
+                              profile: {
+                                ...(prev.profile || {}),
+                                addressLine2: e.target.value,
+                              },
+                            }
+                          : prev,
+                      )
+                    }
+                    style={{
+                      fontSize: 12,
+                      padding: "2px 4px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      minWidth: 180,
+                    }}
+                  />
                 </p>
                 <p style={{ margin: 0 }}>
                   <strong>City:</strong>{" "}
-                  <span style={{ color: session.profile?.city ? "#111827" : "#b91c1c" }}>
-                    {session.profile?.city || "(missing)"}
-                  </span>
+                  <input
+                    type="text"
+                    value={session.profile?.city ?? ""}
+                    onChange={e =>
+                      setSession(prev =>
+                        prev
+                          ? {
+                              ...prev,
+                              profile: {
+                                ...(prev.profile || {}),
+                                city: e.target.value,
+                              },
+                            }
+                          : prev,
+                      )
+                    }
+                    style={{
+                      fontSize: 12,
+                      padding: "2px 4px",
+                      borderRadius: 4,
+                      border: `1px solid ${session.profile?.city ? "#d1d5db" : "#fca5a5"}`,
+                      minWidth: 140,
+                    }}
+                  />
                 </p>
                 <p style={{ margin: 0 }}>
                   <strong>State:</strong>{" "}
-                  <span style={{ color: session.profile?.state ? "#111827" : "#b91c1c" }}>
-                    {session.profile?.state || "(missing)"}
-                  </span>
+                  <input
+                    type="text"
+                    value={session.profile?.state ?? ""}
+                    onChange={e =>
+                      setSession(prev =>
+                        prev
+                          ? {
+                              ...prev,
+                              profile: {
+                                ...(prev.profile || {}),
+                                state: e.target.value,
+                              },
+                            }
+                          : prev,
+                      )
+                    }
+                    style={{
+                      fontSize: 12,
+                      padding: "2px 4px",
+                      borderRadius: 4,
+                      border: `1px solid ${session.profile?.state ? "#d1d5db" : "#fca5a5"}`,
+                      minWidth: 80,
+                    }}
+                  />
                 </p>
                 <p style={{ margin: 0 }}>
                   <strong>Postal code:</strong>{" "}
-                  <span style={{ color: session.profile?.postalCode ? "#111827" : "#b91c1c" }}>
-                    {session.profile?.postalCode || "(missing)"}
-                  </span>
+                  <input
+                    type="text"
+                    value={session.profile?.postalCode ?? ""}
+                    onChange={e =>
+                      setSession(prev =>
+                        prev
+                          ? {
+                              ...prev,
+                              profile: {
+                                ...(prev.profile || {}),
+                                postalCode: e.target.value,
+                              },
+                            }
+                          : prev,
+                      )
+                    }
+                    style={{
+                      fontSize: 12,
+                      padding: "2px 4px",
+                      borderRadius: 4,
+                      border: `1px solid ${session.profile?.postalCode ? "#d1d5db" : "#fca5a5"}`,
+                      minWidth: 100,
+                    }}
+                  />
                 </p>
               </div>
+            </div>
+            <div
+              style={{
+                marginTop: 10,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <button
+                type="button"
+                disabled={savingProfile}
+                onClick={async () => {
+                  const token = window.localStorage.getItem("accessToken");
+                  if (!token) {
+                    alert("Missing access token. Please log in again.");
+                    return;
+                  }
+                  try {
+                    setSavingProfile(true);
+                    setProfileError(null);
+                    const res = await fetch(
+                      `${API_BASE}/onboarding/sessions/${session.id}/profile`,
+                      {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({
+                          firstName: session.profile?.firstName ?? null,
+                          lastName: session.profile?.lastName ?? null,
+                          phone: session.profile?.phone ?? null,
+                          dob: session.profile?.dob ? String(session.profile.dob).slice(0, 10) : null,
+                          addressLine1: session.profile?.addressLine1 ?? null,
+                          addressLine2: session.profile?.addressLine2 ?? null,
+                          city: session.profile?.city ?? null,
+                          state: session.profile?.state ?? null,
+                          postalCode: session.profile?.postalCode ?? null,
+                        }),
+                      },
+                    );
+                    if (!res.ok) {
+                      const text = await res.text().catch(() => "");
+                      throw new Error(
+                        `Failed to save onboarding profile (${res.status}) ${text}`,
+                      );
+                    }
+                    const json = await res.json().catch(() => null);
+                    if (json && json.profile) {
+                      setSession(prev => (prev ? { ...prev, profile: json.profile } : prev));
+                    }
+                  } catch (err: any) {
+                    setProfileError(err?.message ?? "Failed to save onboarding profile.");
+                  } finally {
+                    setSavingProfile(false);
+                  }
+                }}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #0f172a",
+                  backgroundColor: savingProfile ? "#e5e7eb" : "#0f172a",
+                  color: savingProfile ? "#4b5563" : "#f9fafb",
+                  fontSize: 12,
+                  cursor: savingProfile ? "default" : "pointer",
+                }}
+              >
+                {savingProfile ? "Saving…" : "Save profile changes"}
+              </button>
+              {profileError && (
+                <span style={{ fontSize: 11, color: "#b91c1c" }}>{profileError}</span>
+              )}
             </div>
           </div>
         </section>

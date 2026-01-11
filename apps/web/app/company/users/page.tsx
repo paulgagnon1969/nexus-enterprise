@@ -2926,6 +2926,8 @@ function ProspectiveCandidatesPanel({
     | "STATUS_DESC"
     | "PROFILE_ASC"
     | "PROFILE_DESC"
+    | "CORR_ASC"
+    | "CORR_DESC"
     | "SUBMITTED_ASC"
     | "SUBMITTED_DESC"
   >("PROFILE_DESC");
@@ -3296,6 +3298,23 @@ function ProspectiveCandidatesPanel({
         // Tie-break by name when profile percent is equal.
         const cmpName = compareByName(a, b);
         return sortMode === "PROFILE_ASC" ? cmpName : -cmpName;
+      }
+
+      if (sortMode === "CORR_ASC" || sortMode === "CORR_DESC") {
+        const aMeta = correspondenceByUserId[a.userId ?? ""];
+        const bMeta = correspondenceByUserId[b.userId ?? ""];
+        const aTime = aMeta?.lastAt ? new Date(aMeta.lastAt).getTime() : Number.NaN;
+        const bTime = bMeta?.lastAt ? new Date(bMeta.lastAt).getTime() : Number.NaN;
+
+        const aHas = Number.isFinite(aTime);
+        const bHas = Number.isFinite(bTime);
+
+        if (!aHas && !bHas) return 0;
+        if (!aHas) return 1; // rows with no correspondence go to the bottom
+        if (!bHas) return -1;
+
+        const diff = aTime - bTime;
+        return sortMode === "CORR_ASC" ? diff : -diff;
       }
 
       if (sortMode === "REGION_ASC" || sortMode === "REGION_DESC") {
@@ -3976,7 +3995,35 @@ function ProspectiveCandidatesPanel({
                   </button>
                 </th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>
-                  Correspondences
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSortMode(prev =>
+                        prev === "CORR_ASC" ? "CORR_DESC" : "CORR_ASC",
+                      )
+                    }
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: 0,
+                      margin: 0,
+                      border: "none",
+                      background: "transparent",
+                      fontSize: "inherit",
+                      cursor: "pointer",
+                      color: "#111827",
+                    }}
+                  >
+                    <span>Correspondences</span>
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>
+                      {sortMode === "CORR_ASC"
+                        ? "↑"
+                        : sortMode === "CORR_DESC"
+                        ? "↓"
+                        : "↕"}
+                    </span>
+                  </button>
                 </th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>
                   <button
