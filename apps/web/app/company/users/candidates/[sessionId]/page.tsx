@@ -91,6 +91,10 @@ export default function CandidateDetailPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
 
+  // Collapse the HR onboarding profile card by default so sensitive fields
+  // are not immediately visible; HR/admins can click to unlock.
+  const [hrProfileCollapsed, setHrProfileCollapsed] = useState(true);
+
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
   const categoryGroups = useMemo(
@@ -506,56 +510,108 @@ export default function CandidateDetailPage() {
 
       {canViewHr && (
         <section style={{ marginTop: 16 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 4 }}>Onboarding profile (HR view)</h2>
-          <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
-            Editable snapshot of the candidates self-entered profile fields so HR can quickly
-            see what is complete or missing and correct obvious issues.
-          </p>
           <div
             style={{
-              marginTop: 4,
-              fontSize: 12,
-              color: "#4b5563",
               display: "flex",
               alignItems: "center",
-              gap: 8,
+              justifyContent: "space-between",
+              marginBottom: 4,
             }}
           >
-            <span>
-              Profile completion:
-              {" "}
-              <strong>{isNaN(checklistPercent) ? "0" : checklistPercent}%</strong>
-            </span>
-            <span
+            <button
+              type="button"
+              onClick={() => setHrProfileCollapsed(prev => !prev)}
               style={{
-                flex: "0 0 120px",
-                height: 6,
-                borderRadius: 999,
-                background: "#e5e7eb",
-                overflow: "hidden",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                width: "100%",
+                padding: 0,
+                margin: 0,
+                border: "none",
+                background: "transparent",
+                fontSize: 16,
+                fontWeight: 600,
+                cursor: "pointer",
               }}
             >
-              <span
-                style={{
-                  display: "block",
-                  height: "100%",
-                  width: `${Math.min(100, Math.max(0, checklistPercent))}%`,
-                  background: checklistPercent >= 80 ? "#16a34a" : "#f97316",
-                }}
-              />
-            </span>
+              <span>Onboarding profile (HR view)</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "#6b7280" }}>
+                  {hrProfileCollapsed ? "Show" : "Hide"}
+                </span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    padding: "1px 6px",
+                    borderRadius: 999,
+                    border: `1px solid ${hrProfileCollapsed ? "#b91c1c" : "#16a34a"}`,
+                    color: hrProfileCollapsed ? "#b91c1c" : "#166534",
+                    backgroundColor: hrProfileCollapsed ? "#fef2f2" : "#ecfdf3",
+                    textTransform: "uppercase",
+                    letterSpacing: 0.3,
+                  }}
+                >
+                  {hrProfileCollapsed ? "Lock" : "Open"}
+                </span>
+              </span>
+            </button>
           </div>
+
           <div
             style={{
-              marginTop: 6,
-              padding: 10,
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: "#ffffff",
-              fontSize: 13,
+              display: hrProfileCollapsed ? "none" : "block",
             }}
           >
-            <div style={{ marginBottom: 8 }}>
+              <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
+                Editable snapshot of the candidates self-entered profile fields so HR can quickly
+                see what is complete or missing and correct obvious issues.
+              </p>
+              <div
+                style={{
+                  marginTop: 4,
+                  fontSize: 12,
+                  color: "#4b5563",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span>
+                  Profile completion:
+                  {" "}
+                  <strong>{isNaN(checklistPercent) ? "0" : checklistPercent}%</strong>
+                </span>
+                <span
+                  style={{
+                    flex: "0 0 120px",
+                    height: 6,
+                    borderRadius: 999,
+                    background: "#e5e7eb",
+                    overflow: "hidden",
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "block",
+                      height: "100%",
+                      width: `${Math.min(100, Math.max(0, checklistPercent))}%`,
+                      background: checklistPercent >= 80 ? "#16a34a" : "#f97316",
+                    }}
+                  />
+                </span>
+              </div>
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: 10,
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                  background: "#ffffff",
+                  fontSize: 13,
+                }}
+              >
+                <div style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>Checklist</div>
               <ul style={{ paddingLeft: 18, margin: 0, fontSize: 12 }}>
                 {checklistItems.map(item => {
@@ -905,6 +961,7 @@ export default function CandidateDetailPage() {
                 <span style={{ fontSize: 11, color: "#b91c1c" }}>{profileError}</span>
               )}
             </div>
+          </div>
           </div>
         </section>
       )}
