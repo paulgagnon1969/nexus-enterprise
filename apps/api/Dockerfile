@@ -16,7 +16,8 @@ COPY apps/web/package.json apps/web/package.json
 COPY packages/database/package.json packages/database/package.json
 
 # Install dependencies for the whole monorepo
-RUN npm ci
+# Use npm install instead of npm ci because we do not commit a package-lock.json yet
+RUN npm install
 
 # Copy the rest of the repo
 COPY . .

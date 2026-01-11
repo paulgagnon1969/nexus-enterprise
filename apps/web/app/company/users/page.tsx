@@ -2928,7 +2928,7 @@ function ProspectiveCandidatesPanel({
     | "PROFILE_DESC"
     | "SUBMITTED_ASC"
     | "SUBMITTED_DESC"
-  >("SUBMITTED_DESC");
+  >("PROFILE_DESC");
   const [showBulkJournalPanel, setShowBulkJournalPanel] = useState(false);
   const [bulkJournalText, setBulkJournalText] = useState("");
   const [bulkJournalSaving, setBulkJournalSaving] = useState(false);
@@ -2936,6 +2936,17 @@ function ProspectiveCandidatesPanel({
   const [bulkMessageRecipients, setBulkMessageRecipients] = useState<
     { email: string; userId?: string | null }[] | null
   >(null);
+
+  // Lazy-loaded per-candidate correspondence metadata (currently journal-based).
+  const [correspondenceByUserId, setCorrespondenceByUserId] = useState<
+    Record<
+      string,
+      {
+        lastAt: string;
+        direction: "SENT" | "RECEIVED";
+      }
+    >
+  >({});
 
   const isFortifiedCompany = companyName
     .toLowerCase()
@@ -3096,6 +3107,69 @@ function ProspectiveCandidatesPanel({
     void load();
   }, [companyId, statusFilter, detailStatusFilter, isFortifiedCompany]);
 
+  // Load per-candidate correspondence metadata once we have rows and userIds.
+  // This uses the dedicated correspondence summary API so we can distinguish
+  // between internal sends vs external replies.
+  useEffect(() => {
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    const userIdsToLoad = Array.from(
+      new Set(
+        rows
+          .map(r => r.userId)
+          .filter(
+            (id): id is string => !!id && typeof id === "string" && !correspondenceByUserId[id],
+          ),
+      ),
+    );
+
+    if (userIdsToLoad.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/messages/candidate-correspondence`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            companyId,
+            userIds: userIdsToLoad,
+          }),
+        });
+        if (!res.ok) return;
+        const json: any[] = await res.json();
+        const next: Record<
+          string,
+          {
+            lastAt: string;
+            direction: "SENT" | "RECEIVED";
+          }
+        > = {};
+        for (const item of json || []) {
+          if (!item || typeof item.userId !== "string" || !item.userId) continue;
+          if (typeof item.lastMessageAt !== "string") continue;
+          const dir: "SENT" | "RECEIVED" = item.direction === "RECEIVED" ? "RECEIVED" : "SENT";
+          next[item.userId] = { lastAt: item.lastMessageAt, direction: dir };
+        }
+        if (!cancelled && Object.keys(next).length > 0) {
+          setCorrespondenceByUserId(prev => ({ ...prev, ...next }));
+        }
+      } catch {
+        // non-fatal; skip enrichment on error
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rows, correspondenceByUserId, companyId]);
+
   const stateOptions = useMemo(() => {
     const set = new Set<string>();
     for (const r of rows) {
@@ -3158,6 +3232,29 @@ function ProspectiveCandidatesPanel({
       return true;
     })
     .sort((a, b) => {
+      const compareByName = (aRow: CandidateRow, bRow: CandidateRow) => {
+        const aLast = (aRow.profile?.lastName || "").trim().toLowerCase();
+        const bLast = (bRow.profile?.lastName || "").trim().toLowerCase();
+        const aFirst = (aRow.profile?.firstName || "").trim().toLowerCase();
+        const bFirst = (bRow.profile?.firstName || "").trim().toLowerCase();
+
+        let cmpName = 0;
+        if (aLast || bLast) {
+          if (aLast !== bLast) {
+            cmpName = aLast < bLast ? -1 : aLast > bLast ? 1 : 0;
+          }
+        }
+        if (cmpName === 0 && (aFirst || bFirst)) {
+          if (aFirst !== bFirst) {
+            cmpName = aFirst < bFirst ? -1 : aFirst > bFirst ? 1 : 0;
+          }
+        }
+        if (cmpName === 0) {
+          cmpName = aRow.email.toLowerCase().localeCompare(bRow.email.toLowerCase());
+        }
+        return cmpName;
+      };
+
       if (sortMode === "SUBMITTED_ASC" || sortMode === "SUBMITTED_DESC") {
         const aTime = new Date(a.createdAt).getTime();
         const bTime = new Date(b.createdAt).getTime();
@@ -3168,9 +3265,13 @@ function ProspectiveCandidatesPanel({
       if (sortMode === "PROFILE_ASC" || sortMode === "PROFILE_DESC") {
         const aPct = computeProfilePercentFromChecklist(a.checklist) ?? -1;
         const bPct = computeProfilePercentFromChecklist(b.checklist) ?? -1;
-        if (aPct === bPct) return 0;
-        const diff = aPct - bPct;
-        return sortMode === "PROFILE_ASC" ? diff : -diff;
+        if (aPct !== bPct) {
+          const diff = aPct - bPct;
+          return sortMode === "PROFILE_ASC" ? diff : -diff;
+        }
+        // Tie-break by name when profile percent is equal.
+        const cmpName = compareByName(a, b);
+        return sortMode === "PROFILE_ASC" ? cmpName : -cmpName;
       }
 
       if (sortMode === "REGION_ASC" || sortMode === "REGION_DESC") {
@@ -3206,25 +3307,7 @@ function ProspectiveCandidatesPanel({
       }
 
       // Default: sort by candidate name (last, first, then email).
-      const aLast = (a.profile?.lastName || "").trim().toLowerCase();
-      const bLast = (b.profile?.lastName || "").trim().toLowerCase();
-      const aFirst = (a.profile?.firstName || "").trim().toLowerCase();
-      const bFirst = (b.profile?.firstName || "").trim().toLowerCase();
-
-      let cmpName = 0;
-      if (aLast || bLast) {
-        if (aLast !== bLast) {
-          cmpName = aLast < bLast ? -1 : aLast > bLast ? 1 : 0;
-        }
-      }
-      if (cmpName === 0 && (aFirst || bFirst)) {
-        if (aFirst !== bFirst) {
-          cmpName = aFirst < bFirst ? -1 : aFirst > bFirst ? 1 : 0;
-        }
-      }
-      if (cmpName === 0) {
-        cmpName = a.email.toLowerCase().localeCompare(b.email.toLowerCase());
-      }
+      const cmpName = compareByName(a, b);
       return sortMode === "NAME_ASC" ? cmpName : -cmpName;
     });
 
@@ -3869,6 +3952,9 @@ function ProspectiveCandidatesPanel({
                   </button>
                 </th>
                 <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                  Correspondences
+                </th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>
                   <button
                     type="button"
                     onClick={() =>
@@ -4129,7 +4215,7 @@ function ProspectiveCandidatesPanel({
                                   position: "absolute",
                                   inset: 0,
                                   width: `${clamped}%`,
-                                  backgroundColor: "#1d4ed8",
+                                  backgroundColor: "#16a34a", // green fill
                                   transition: "width 120ms ease-out",
                                 }}
                               />
@@ -4143,9 +4229,8 @@ function ProspectiveCandidatesPanel({
                                   alignItems: "center",
                                   justifyContent: "center",
                                   fontSize: 11,
-                                  fontWeight: 600,
-                                  color: "#f9fafb",
-                                  textShadow: "0 1px 1px rgba(15,23,42,0.45)",
+                                  fontWeight: 700,
+                                  color: "#1d4ed8", // Nexus blue text
                                 }}
                               >
                                 {clamped}%
@@ -4153,6 +4238,24 @@ function ProspectiveCandidatesPanel({
                             </div>
                           </div>
                         );
+                      })()}
+                    </td>
+                    <td
+                      style={{
+                        padding: "6px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        fontSize: 12,
+                        color: "#6b7280",
+                      }}
+                    >
+                      {(() => {
+                        if (!r.userId) return "—";
+                        const meta = correspondenceByUserId[r.userId];
+                        if (!meta?.lastAt) return "—";
+                        const dateText = new Date(meta.lastAt).toLocaleString();
+                        const isReceived = meta.direction === "RECEIVED";
+                        const color = isReceived ? "#16a34a" : "#1d4ed8"; // green for replies, blue for sends
+                        return <span style={{ color, fontWeight: 600 }}>{dateText}</span>;
                       })()}
                     </td>
                     <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12, color: "#6b7280" }}>
