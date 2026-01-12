@@ -45,6 +45,23 @@ export class CreateDailyLogDto {
   @IsString()
   confidentialNotes?: string | null;
 
+  // Optional PETL context
+  @IsOptional()
+  @IsString()
+  buildingId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  unitId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  roomParticleId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  sowItemId?: string | null;
+
   @IsOptional()
   @IsBoolean()
   shareInternal?: boolean;

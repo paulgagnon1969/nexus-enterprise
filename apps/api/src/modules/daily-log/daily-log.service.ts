@@ -95,18 +95,45 @@ export class DailyLogService {
           },
         },
         attachments: true,
+        building: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+        unit: {
+          select: {
+            id: true,
+            label: true,
+            floor: true,
+          },
+        },
+        roomParticle: {
+          select: {
+            id: true,
+            name: true,
+            fullLabel: true,
+          },
+        },
+        sowItem: {
+          select: {
+            id: true,
+            description: true,
+          },
+        },
       },
     });
 
     const visibleLogs = logs.filter(l => this.canViewDailyLog(actor, l, project, companyId));
 
-    return visibleLogs.map(l => ({
-      ...l,
-      notifyUserIdsJson: undefined,
-      tagsJson: undefined,
-      createdByUser: l.createdBy,
-      createdBy: undefined,
-    }));
+    return visibleLogs.map((l: any) => {
+      const { createdBy, notifyUserIdsJson: _n, tagsJson: _t, ...rest } = l;
+      return {
+        ...rest,
+        createdByUser: createdBy,
+      };
+    });
   }
 
   async listAttachments(
@@ -215,6 +242,57 @@ export class DailyLogService {
     return attachment;
   }
 
+  async addAttachmentLink(
+    dailyLogId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    payload: {
+      fileUrl: string;
+      fileName?: string | null;
+      mimeType?: string | null;
+      sizeBytes?: number | null;
+    },
+  ) {
+    const log = await this.prisma.dailyLog.findFirst({
+      where: { id: dailyLogId, project: { companyId } },
+      include: { project: true },
+    });
+
+    if (!log) {
+      throw new NotFoundException("Daily log not found in this company");
+    }
+
+    await this.assertProjectAccess(log.projectId, companyId, actor, null);
+
+    if (!payload.fileUrl) {
+      throw new NotFoundException("fileUrl is required");
+    }
+
+    // Optionally create a ProjectFile in the future; for now, just persist the link.
+    const attachment = await this.prisma.dailyLogAttachment.create({
+      data: {
+        dailyLogId,
+        fileUrl: payload.fileUrl,
+        fileName: payload.fileName ?? null,
+        mimeType: payload.mimeType ?? null,
+        sizeBytes:
+          typeof payload.sizeBytes === "number" ? payload.sizeBytes : null,
+      },
+    });
+
+    await this.audit.log(actor, "DAILY_LOG_ATTACHMENT_LINKED", {
+      companyId,
+      projectId: log.projectId,
+      metadata: {
+        dailyLogId,
+        attachmentId: attachment.id,
+        fileUrl: attachment.fileUrl,
+      },
+    });
+
+    return attachment;
+  }
+
   async createForProject(
     projectId: string,
     companyId: string,
@@ -244,6 +322,10 @@ export class DailyLogService {
         manpowerOnsite: dto.manpowerOnsite ?? null,
         personOnsite: dto.personOnsite ?? null,
         confidentialNotes: dto.confidentialNotes ?? null,
+        buildingId: dto.buildingId ?? null,
+        unitId: dto.unitId ?? null,
+        roomParticleId: dto.roomParticleId ?? null,
+        sowItemId: dto.sowItemId ?? null,
         shareInternal: dto.shareInternal ?? true,
         shareSubs: dto.shareSubs ?? false,
         shareClient: dto.shareClient ?? false,
@@ -258,7 +340,34 @@ export class DailyLogService {
             id: true,
             email: true
           }
-        }
+        },
+        building: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+        unit: {
+          select: {
+            id: true,
+            label: true,
+            floor: true,
+          },
+        },
+        roomParticle: {
+          select: {
+            id: true,
+            name: true,
+            fullLabel: true,
+          },
+        },
+        sowItem: {
+          select: {
+            id: true,
+            description: true,
+          },
+        },
       }
     });
 

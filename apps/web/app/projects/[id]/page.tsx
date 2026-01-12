@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { uploadImageFileToNexusUploads } from "../../lib/uploads";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -109,6 +110,11 @@ interface DailyLog {
     email: string;
   } | null;
   attachments?: DailyLogAttachmentDto[];
+  // Optional PETL context for PUDL
+  building?: { id: string; name: string; code: string | null } | null;
+  unit?: { id: string; label: string; floor: number | null } | null;
+  roomParticle?: { id: string; name: string; fullLabel: string } | null;
+  sowItem?: { id: string; code: string | null; description: string | null } | null;
 }
 
 interface NewDailyLogState {
@@ -127,6 +133,11 @@ interface NewDailyLogState {
   shareSubs: boolean;
   shareClient: boolean;
   sharePrivate: boolean;
+  // Optional PETL context when composing from PETL
+  buildingId?: string | null;
+  unitId?: string | null;
+  roomParticleId?: string | null;
+  sowItemId?: string | null;
 }
 
 interface RoomComponentAgg {
@@ -307,6 +318,15 @@ export default function ProjectDetailPage({
   const [dailyLogMessage, setDailyLogMessage] = useState<string | null>(null);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [showPendingClientOnly, setShowPendingClientOnly] = useState(false);
+  // When launched from PETL, capture context for a new PUDL
+  const [pudlContext, setPudlContext] = useState<{
+    open: boolean;
+    buildingId: string | null;
+    unitId: string | null;
+    roomParticleId: string | null;
+    sowItemId: string | null;
+    breadcrumb: string | null;
+  }>({ open: false, buildingId: null, unitId: null, roomParticleId: null, sowItemId: null, breadcrumb: null });
 
   const [roomComponentsPanel, setRoomComponentsPanel] = useState<{
     open: boolean;
@@ -1224,7 +1244,7 @@ export default function ProjectDetailPage({
         .map(t => t.trim())
         .filter(Boolean);
 
-      const body = {
+      const body: any = {
         logDate: newDailyLog.logDate,
         title: newDailyLog.title || null,
         tags: tagsArray,
@@ -1242,6 +1262,12 @@ export default function ProjectDetailPage({
         sharePrivate: newDailyLog.sharePrivate,
         notifyUserIds: [] as string[],
       };
+
+      // Attach PETL context if present (PUDL scenario)
+      if (newDailyLog.buildingId) body.buildingId = newDailyLog.buildingId;
+      if (newDailyLog.unitId) body.unitId = newDailyLog.unitId;
+      if (newDailyLog.roomParticleId) body.roomParticleId = newDailyLog.roomParticleId;
+      if (newDailyLog.sowItemId) body.sowItemId = newDailyLog.sowItemId;
 
       const res = await fetch(`${API_BASE}/projects/${id}/daily-logs`, {
         method: "POST",
@@ -1272,7 +1298,20 @@ export default function ProjectDetailPage({
         manpowerOnsite: "",
         personOnsite: "",
         confidentialNotes: "",
+        buildingId: undefined,
+        unitId: undefined,
+        roomParticleId: undefined,
+        sowItemId: undefined,
       }));
+
+      setPudlContext({
+        open: false,
+        buildingId: null,
+        unitId: null,
+        roomParticleId: null,
+        sowItemId: null,
+        breadcrumb: null,
+      });
 
       setDailyLogMessage("Daily log saved.");
     } catch (err: any) {
@@ -4323,6 +4362,23 @@ export default function ProjectDetailPage({
                     </div>
                   </div>
 
+                  {pudlContext.open && pudlContext.breadcrumb && (
+                    <div
+                      style={{
+                        marginBottom: 6,
+                        padding: "6px 8px",
+                        borderRadius: 4,
+                        background: "#eff6ff",
+                        border: "1px solid #bfdbfe",
+                        fontSize: 12,
+                        color: "#1d4ed8",
+                      }}
+                    >
+                      <div style={{ fontWeight: 600 }}>PUDL context</div>
+                      <div>{pudlContext.breadcrumb}</div>
+                    </div>
+                  )}
+
                   <div style={{ marginBottom: 6 }}>
                     <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>
                       Title
@@ -4735,7 +4791,38 @@ export default function ProjectDetailPage({
                                   borderTop: "1px solid #e5e7eb",
                                 }}
                               >
-                                {log.title || ""}
+                                <div>{log.title || ""}</div>
+                                {log.roomParticle || log.unit || log.building ? (
+                                  <div
+                                    style={{
+                                      marginTop: 2,
+                                      fontSize: 11,
+                                      color: "#6b7280",
+                                    }}
+                                  >
+                                    {(() => {
+                                      const parts: string[] = [];
+                                      if (log.building) {
+                                        parts.push(
+                                          `${log.building.code || ""} ${log.building.name}`.trim(),
+                                        );
+                                      }
+                                      if (log.unit) {
+                                        const floorLabel =
+                                          typeof log.unit.floor === "number"
+                                            ? ` (Floor ${log.unit.floor})`
+                                            : "";
+                                        parts.push(`${log.unit.label}${floorLabel}`);
+                                      }
+                                      if (log.roomParticle) {
+                                        parts.push(
+                                          log.roomParticle.fullLabel || log.roomParticle.name,
+                                        );
+                                      }
+                                      return parts.filter(Boolean).join(" · ");
+                                    })()}
+                                  </div>
+                                ) : null}
                               </td>
                               <td
                                 style={{
@@ -4783,7 +4870,87 @@ export default function ProjectDetailPage({
                                   borderTop: "1px solid #e5e7eb",
                                 }}
                               >
-                                {log.attachments?.length ?? 0}
+                                {log.attachments && log.attachments.length > 0 ? (
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      flexWrap: "wrap",
+                                      gap: 4,
+                                      maxWidth: 200,
+                                    }}
+                                  >
+                                    {log.attachments.map(att => {
+                                      const url = att.fileUrl;
+                                      const name = att.fileName || "attachment";
+                                      const lower = (url || "").toLowerCase();
+                                      const isImage =
+                                        lower.endsWith(".png") ||
+                                        lower.endsWith(".jpg") ||
+                                        lower.endsWith(".jpeg") ||
+                                        lower.endsWith(".gif") ||
+                                        lower.endsWith(".webp") ||
+                                        (att.mimeType || "").startsWith("image/");
+                                      if (!isImage) {
+                                        return (
+                                          <a
+                                            key={att.id}
+                                            href={url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            style={{
+                                              fontSize: 11,
+                                              color: "#2563eb",
+                                              textDecoration: "none",
+                                            }}
+                                          >
+                                            {name}
+                                          </a>
+                                        );
+                                      }
+                                      return (
+                                        <a
+                                          key={att.id}
+                                          href={url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          style={{
+                                            display: "inline-flex",
+                                            flexDirection: "column",
+                                            alignItems: "center",
+                                            textDecoration: "none",
+                                          }}
+                                        >
+                                          <img
+                                            src={url}
+                                            alt={name}
+                                            style={{
+                                              width: 56,
+                                              height: 56,
+                                              objectFit: "cover",
+                                              borderRadius: 4,
+                                              border: "1px solid #e5e7eb",
+                                            }}
+                                          />
+                                          <span
+                                            style={{
+                                              marginTop: 2,
+                                              maxWidth: 80,
+                                              overflow: "hidden",
+                                              textOverflow: "ellipsis",
+                                              whiteSpace: "nowrap",
+                                              fontSize: 10,
+                                              color: "#4b5563",
+                                            }}
+                                          >
+                                            {name}
+                                          </span>
+                                        </a>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  log.attachments?.length ?? 0
+                                )}
                               </td>
                               <td
                                 style={{
@@ -4957,30 +5124,38 @@ export default function ProjectDetailPage({
                           }
                           try {
                             setAttachmentsUploading(true);
+                            const uploaded: DailyLogAttachmentDto[] = [];
                             for (const file of Array.from(files)) {
-                              const form = new FormData();
-                              form.append("file", file);
-                              await fetch(`${API_BASE}/daily-logs/${latest.id}/attachments`, {
-                                method: "POST",
-                                headers: {
-                                  Authorization: `Bearer ${token}`,
+                              // Upload to GCS via shared helper
+                              const link = await uploadImageFileToNexusUploads(file, "JOURNAL");
+                              // Tell API to link this URL as a DailyLogAttachment
+                              const resp = await fetch(
+                                `${API_BASE}/daily-logs/${latest.id}/attachments/link`,
+                                {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                  body: JSON.stringify({
+                                    fileUrl: link.url,
+                                    fileName: link.label,
+                                  }),
                                 },
-                                body: form,
-                              });
+                              );
+                              if (resp.ok) {
+                                const att: DailyLogAttachmentDto = await resp.json();
+                                uploaded.push(att);
+                              }
                             }
-                            // Refresh latest log's attachments
-                            const resp = await fetch(
-                              `${API_BASE}/daily-logs/${latest.id}/attachments`,
-                              {
-                                headers: { Authorization: `Bearer ${token}` },
-                              },
-                            );
-                            if (resp.ok) {
-                              const attachments: DailyLogAttachmentDto[] = await resp.json();
+                            if (uploaded.length > 0) {
                               setDailyLogs(prev =>
                                 prev.map(l =>
                                   l.id === latest.id
-                                    ? { ...l, attachments }
+                                    ? {
+                                        ...l,
+                                        attachments: [...(l.attachments || []), ...uploaded],
+                                      }
                                     : l,
                                 ),
                               );
@@ -5410,24 +5585,98 @@ export default function ProjectDetailPage({
                           {isExpanded ? "▾ " : "▸ "}
                           {g.roomName}
                           {g.particleId && (
-                            <button
-                              type="button"
-                              onClick={e => {
-                                e.stopPropagation();
-                                void openRoomComponentsPanel(g.particleId, g.roomName);
-                              }}
-                              style={{
-                                marginLeft: 8,
-                                padding: "2px 6px",
-                                borderRadius: 999,
-                                border: "1px solid #0f172a",
-                                background: "#ffffff",
-                                fontSize: 11,
-                                cursor: "pointer",
-                              }}
-                            >
-                              Components
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  void openRoomComponentsPanel(g.particleId, g.roomName);
+                                }}
+                                style={{
+                                  marginLeft: 8,
+                                  padding: "2px 6px",
+                                  borderRadius: 999,
+                                  border: "1px solid #0f172a",
+                                  background: "#ffffff",
+                                  fontSize: 11,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Components
+                              </button>
+                              <button
+                                type="button"
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  // Derive a simple breadcrumb from hierarchy + room
+                                  let breadcrumb: string | null = g.roomName;
+                                  if (hierarchy) {
+                                    const room = hierarchy.buildings
+                                      .flatMap((b: any) =>
+                                        (b.units || []).flatMap((u: any) =>
+                                          (u.particles || []).map((p: any) => ({
+                                            b,
+                                            u,
+                                            p,
+                                          })),
+                                        ),
+                                      )
+                                      .concat(
+                                        hierarchy.units
+                                          .flatMap((u: any) =>
+                                            (u.particles || []).map((p: any) => ({
+                                              b: null,
+                                              u,
+                                              p,
+                                            })),
+                                          ),
+                                      )
+                                      .find((r: any) => r.p.id === g.particleId);
+                                    if (room) {
+                                      const parts: string[] = [];
+                                      if (room.b) parts.push(`${room.b.code || ""} ${room.b.name}`.trim());
+                                      if (room.u) {
+                                        const floorLabel =
+                                          typeof room.u.floor === "number"
+                                            ? ` (Floor ${room.u.floor})`
+                                            : "";
+                                        parts.push(`${room.u.label}${floorLabel}`);
+                                      }
+                                      parts.push(room.p.fullLabel || room.p.name);
+                                      breadcrumb = parts.filter(Boolean).join("  b7 ");
+                                    }
+                                  }
+
+                                  setPudlContext({
+                                    open: true,
+                                    buildingId: null,
+                                    unitId: null,
+                                    roomParticleId: g.particleId,
+                                    sowItemId: null,
+                                    breadcrumb,
+                                  });
+
+                                  setNewDailyLog(prev => ({
+                                    ...prev,
+                                    roomParticleId: g.particleId,
+                                  }));
+
+                                  setActiveTab("DAILY_LOGS");
+                                }}
+                                style={{
+                                  marginLeft: 6,
+                                  padding: "2px 6px",
+                                  borderRadius: 999,
+                                  border: "1px solid #2563eb",
+                                  background: "#eff6ff",
+                                  fontSize: 11,
+                                  cursor: "pointer",
+                                  color: "#1d4ed8",
+                                }}
+                              >
+                                PUDL
+                              </button>
+                            </>
                           )}
                         </td>
                         <td
