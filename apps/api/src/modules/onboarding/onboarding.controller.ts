@@ -311,6 +311,13 @@ export class OnboardingController {
   // HR/admin-only: allow privileged users to normalize/edit onboarding profile
   // fields for a candidate (e.g. fix capitalization, fill in missing city/state).
   @UseGuards(JwtAuthGuard)
+  @Post("admin/normalize-states")
+  async normalizeStates(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.onboarding.normalizeProspectiveCandidateStates(actor);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post("sessions/:id/profile")
   async updateSessionProfile(
     @Param("id") id: string,
