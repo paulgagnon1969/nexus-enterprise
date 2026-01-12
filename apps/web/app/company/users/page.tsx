@@ -3671,22 +3671,7 @@ function ProspectiveCandidatesPanel({
           </select>
         </label>
 
-        <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          State
-          <select
-            value={stateFilter}
-            onChange={e => setStateFilter(e.target.value)}
-            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", minWidth: 100 }}
-          >
-            <option value="">All states</option>
-            {stateOptions.map(st => (
-              <option key={st} value={st}>
-                {st}
-              </option>
-            ))}
-          </select>
-        </label>
-
+        {/* City to the left of State to match the table column order */}
         <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           City
           <select
@@ -3698,6 +3683,22 @@ function ProspectiveCandidatesPanel({
             {cityOptions.map(city => (
               <option key={city} value={city}>
                 {city}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          State
+          <select
+            value={stateFilter}
+            onChange={e => setStateFilter(e.target.value)}
+            style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", minWidth: 100 }}
+          >
+            <option value="">All states</option>
+            {stateOptions.map(st => (
+              <option key={st} value={st}>
+                {st}
               </option>
             ))}
           </select>

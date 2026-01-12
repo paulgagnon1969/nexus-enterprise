@@ -333,6 +333,7 @@ export class OnboardingController {
       city?: string | null;
       state?: string | null;
       postalCode?: string | null;
+      country?: string | null;
     },
   ) {
     const actor = req.user as AuthenticatedUser;

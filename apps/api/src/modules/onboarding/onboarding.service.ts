@@ -317,6 +317,7 @@ export class OnboardingService {
       city?: string | null;
       state?: string | null;
       postalCode?: string | null;
+      country?: string | null;
     },
   ) {
     const session = await this.prisma.onboardingSession.findUnique({
@@ -360,6 +361,7 @@ export class OnboardingService {
       postalCode: this.normalizeProfileField(
         input.postalCode ?? session.profile?.postalCode ?? null,
       ),
+      country: this.normalizeProfileField(input.country ?? session.profile?.country ?? null),
     };
 
     const updatedProfile = await this.prisma.onboardingProfile.upsert({
