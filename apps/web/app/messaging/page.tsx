@@ -841,9 +841,10 @@ export default function MessagingPage() {
           <p style={{ fontSize: 12, color: "#b91c1c" }}>Error: {error}</p>
         )}
         <div style={{ display: "flex", gap: 12, flex: 1 }}>
+          {/* Left: folders/navigation */}
           <div
             style={{
-              flex: "0 0 260px",
+              flex: "0 0 220px",
               borderRight: "1px solid #e5e7eb",
               paddingRight: 12,
               display: "flex",
@@ -883,722 +884,738 @@ export default function MessagingPage() {
                 );
               })}
             </nav>
-
           </div>
 
-        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-          <div style={{ marginBottom: 8 }}>
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-                marginBottom: 4,
-              }}
-            >
-              <input
-                type="text"
-                value={threadSearch}
-                onChange={e => setThreadSearch(e.target.value)}
-                placeholder="Search subject, recipients, or message text"
+          {/* Middle: thread list (Outlook-style) */}
+          <div
+            style={{
+              flex: "0 0 320px",
+              borderRight: "1px solid #e5e7eb",
+              paddingRight: 12,
+              display: "flex",
+              flexDirection: "column",
+              minWidth: 0,
+            }}
+          >
+            <div style={{ marginBottom: 8 }}>
+              <div
                 style={{
-                  flex: 1,
-                  border: "1px solid #d1d5db",
-                  borderRadius: 6,
-                  padding: "4px 6px",
-                  fontSize: 12,
-                }}
-              />
-              <select
-                value={threadSortKey}
-                onChange={e =>
-                  setThreadSortKey(e.target.value as typeof threadSortKey)
-                }
-                style={{
-                  border: "1px solid #d1d5db",
-                  borderRadius: 6,
-                  padding: "4px 6px",
-                  fontSize: 12,
-                  backgroundColor: "#ffffff",
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  marginBottom: 4,
                 }}
               >
-                <option value="updatedDesc">Last updated (newest first)</option>
-                <option value="updatedAsc">Last updated (oldest first)</option>
-                <option value="subjectAsc">Subject A–Z</option>
-                <option value="subjectDesc">Subject Z–A</option>
-              </select>
-            </div>
+                <input
+                  type="text"
+                  value={threadSearch}
+                  onChange={e => setThreadSearch(e.target.value)}
+                  placeholder="Search subject, recipients, or message text"
+                  style={{
+                    flex: 1,
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                    padding: "4px 6px",
+                    fontSize: 12,
+                  }}
+                />
+                <select
+                  value={threadSortKey}
+                  onChange={e =>
+                    setThreadSortKey(e.target.value as typeof threadSortKey)
+                  }
+                  style={{
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                    padding: "4px 6px",
+                    fontSize: 12,
+                    backgroundColor: "#ffffff",
+                  }}
+                >
+                  <option value="updatedDesc">Last updated (newest first)</option>
+                  <option value="updatedAsc">Last updated (oldest first)</option>
+                  <option value="subjectAsc">Subject A–Z</option>
+                  <option value="subjectDesc">Subject Z–A</option>
+                </select>
+              </div>
 
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-              Threads
-            </div>
-            {loadingThreads && !threads && (
-              <p style={{ fontSize: 12, color: "#6b7280" }}>Loading…</p>
-            )}
-            {threads && threads.length === 0 && (
-              <p style={{ fontSize: 12, color: "#6b7280" }}>No conversations yet.</p>
-            )}
-            {sortedThreads && sortedThreads.length > 0 && (
-              <ul
-                style={{
-                  listStyle: "none",
-                  padding: 0,
-                  margin: 0,
-                  fontSize: 12,
-                  maxHeight: 220,
-                  overflowY: "auto",
-                  borderRadius: 8,
-                  border: "1px solid #e5e7eb",
-                }}
-              >
-                {sortedThreads.map(t => {
-                  const updated = t.updatedAt ? new Date(t.updatedAt) : null;
-                  const anyThread: any = t as any;
-                  const previewBodyRaw: string | undefined =
-                    (Array.isArray(anyThread.messages) && anyThread.messages.length > 0
-                      ? anyThread.messages[0]?.body
-                      : undefined) || anyThread.latestBody || anyThread.previewBody;
-                  const previewBody = (previewBodyRaw || "")
-                    .replace(/\s+/g, " ")
-                    .trim();
-                  const previewBodyShort = previewBody.length > 120
-                    ? `${previewBody.slice(0, 117)}...`
-                    : previewBody;
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                Threads
+              </div>
+              {loadingThreads && !threads && (
+                <p style={{ fontSize: 12, color: "#6b7280" }}>Loading…</p>
+              )}
+              {threads && threads.length === 0 && (
+                <p style={{ fontSize: 12, color: "#6b7280" }}>No conversations yet.</p>
+              )}
+              {sortedThreads && sortedThreads.length > 0 && (
+                <ul
+                  style={{
+                    listStyle: "none",
+                    padding: 0,
+                    margin: 0,
+                    fontSize: 12,
+                    overflowY: "auto",
+                    borderRadius: 8,
+                    border: "1px solid #e5e7eb",
+                    maxHeight: "100%",
+                  }}
+                >
+                  {sortedThreads.map(t => {
+                    const updated = t.updatedAt ? new Date(t.updatedAt) : null;
+                    const anyThread: any = t as any;
+                    const previewBodyRaw: string | undefined =
+                      (Array.isArray(anyThread.messages) && anyThread.messages.length > 0
+                        ? anyThread.messages[0]?.body
+                        : undefined) || anyThread.latestBody || anyThread.previewBody;
+                    const previewBody = (previewBodyRaw || "")
+                      .replace(/\s+/g, " ")
+                      .trim();
+                    const previewBodyShort = previewBody.length > 120
+                      ? `${previewBody.slice(0, 117)}...`
+                      : previewBody;
 
-                  const hasAttachments = (() => {
-                    if (Array.isArray(anyThread.messages)) {
-                      for (const m of anyThread.messages as any[]) {
-                        if (Array.isArray(m.attachments) && m.attachments.length > 0) {
-                          return true;
+                    const hasAttachments = (() => {
+                      if (Array.isArray(anyThread.messages)) {
+                        for (const m of anyThread.messages as any[]) {
+                          if (Array.isArray(m.attachments) && m.attachments.length > 0) {
+                            return true;
+                          }
                         }
                       }
-                    }
-                    if (typeof anyThread.hasAttachments === "boolean") {
-                      return anyThread.hasAttachments;
-                    }
-                    return false;
-                  })();
+                      if (typeof anyThread.hasAttachments === "boolean") {
+                        return anyThread.hasAttachments;
+                      }
+                      return false;
+                    })();
 
-                  return (
-                    <li key={t.id}>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedId(t.id)}
-                        style={{
-                          width: "100%",
-                          textAlign: "left",
-                          padding: "6px 8px",
-                          borderRadius: 0,
-                          border: "none",
-                          borderBottom: "1px solid #e5e7eb",
-                          backgroundColor:
-                            selectedId === t.id ? "#eff6ff" : "#ffffff",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <div
+                    return (
+                      <li key={t.id}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedId(t.id)}
                           style={{
-                            display: "flex",
-                            alignItems: "flex-start",
-                            justifyContent: "space-between",
-                            gap: 8,
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "6px 8px",
+                            borderRadius: 0,
+                            border: "none",
+                            borderBottom: "1px solid #e5e7eb",
+                            backgroundColor:
+                              selectedId === t.id ? "#eff6ff" : "#ffffff",
+                            cursor: "pointer",
                           }}
                         >
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 11, color: "#4b5563" }}>
-                              {summarizeParticipants(t)}
-                            </div>
-                            <div
-                              style={{
-                                fontWeight: 600,
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                              }}
-                            >
-                              Subject: {t.subject || "(no subject)"}
-                            </div>
-                            {previewBodyShort && (
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "flex-start",
+                              justifyContent: "space-between",
+                              gap: 8,
+                            }}
+                          >
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 11, color: "#4b5563" }}>
+                                {summarizeParticipants(t)}
+                              </div>
                               <div
                                 style={{
-                                  fontSize: 11,
-                                  color: "#4b5563",
+                                  fontWeight: 600,
                                   whiteSpace: "nowrap",
                                   overflow: "hidden",
                                   textOverflow: "ellipsis",
                                 }}
                               >
-                                Message: {previewBodyShort}
+                                Subject: {t.subject || "(no subject)"}
                               </div>
-                            )}
-                          </div>
-                          <div
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              alignItems: "flex-end",
-                              gap: 2,
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {updated && (
-                              <div
-                                style={{
-                                  fontSize: 11,
-                                  color: "#9ca3af",
-                                }}
-                              >
-                                {updated.toLocaleString()}
-                              </div>
-                            )}
-                            {hasAttachments && (
-                              <div
-                                style={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  fontSize: 11,
-                                  color: "#6b7280",
-                                  gap: 4,
-                                }}
-                              >
-                                <span
-                                  aria-hidden="true"
+                              {previewBodyShort && (
+                                <div
                                   style={{
-                                    display: "inline-block",
-                                    width: 10,
-                                    height: 10,
-                                    borderRadius: 2,
-                                    border: "1px solid #9ca3af",
-                                    borderTop: "2px solid #9ca3af",
-                                    transform: "rotate(-45deg)",
+                                    fontSize: 11,
+                                    color: "#4b5563",
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
                                   }}
-                                />
-                                <span>Attachments</span>
-                              </div>
-                            )}
+                                >
+                                  Message: {previewBodyShort}
+                                </div>
+                              )}
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "flex-end",
+                                gap: 2,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {updated && (
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#9ca3af",
+                                  }}
+                                >
+                                  {updated.toLocaleString()}
+                                </div>
+                              )}
+                              {hasAttachments && (
+                                <div
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    fontSize: 11,
+                                    color: "#6b7280",
+                                    gap: 4,
+                                  }}
+                                >
+                                  <span
+                                    aria-hidden="true"
+                                    style={{
+                                      display: "inline-block",
+                                      width: 10,
+                                      height: 10,
+                                      borderRadius: 2,
+                                      border: "1px solid #9ca3af",
+                                      borderTop: "2px solid #9ca3af",
+                                      transform: "rotate(-45deg)",
+                                    }}
+                                  />
+                                  <span>Attachments</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
           </div>
 
-          {selectedId && loadingThread && !selectedThread && (
-            <p style={{ fontSize: 12, color: "#6b7280" }}>Loading conversation…</p>
-          )}
-
-          {!selectedId && (
-            <p style={{ fontSize: 12, color: "#6b7280" }}>
-              Select a conversation above or start a new one.
-            </p>
-          )}
-
-        {selectedThread && (
-          <>
-            {showProjectFilePicker && selectedThreadProjectId && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: 60,
-                  right: 16,
-                  zIndex: 30,
-                }}
-              >
-                <ProjectFilePicker
-                  projectId={selectedThreadProjectId}
-                  mode={showProjectFilePicker}
-                  onClose={() => setShowProjectFilePicker(null)}
-                  onSelect={(file: ProjectFileSummary) => {
-                    // For now, just attach as external link to keep backend unchanged.
-                    const asLink = {
-                      url: file.storageUrl,
-                      label: file.fileName,
-                    };
-                    if (showProjectFilePicker === "new") {
-                      setNewMessageLinks(prev => [...prev, asLink]);
-                    } else {
-                      setReplyLinks(prev => [...prev, asLink]);
-                    }
-                    setShowProjectFilePicker(null);
-                  }}
-                />
-              </div>
+          {/* Right: conversation detail */}
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              minWidth: 0,
+            }}
+          >
+            {selectedId && loadingThread && !selectedThread && (
+              <p style={{ fontSize: 12, color: "#6b7280" }}>Loading conversation…</p>
             )}
 
-            <header style={{ marginBottom: 8 }}>
-              <h3 style={{ marginTop: 0, marginBottom: 2, fontSize: 15 }}>
-                {selectedThread.subject || "(no subject)"}
-              </h3>
-              {selectedThread.participants && selectedThread.participants.length > 0 && (
-                <div style={{ fontSize: 11, color: "#4b5563" }}>
-                  {(() => {
-                    const parts = selectedThread.participants as ThreadParticipantDto[];
-                    const internal = parts.filter(p => !p.isExternal && (p.userId || p.displayName || p.email));
-                    const toExternal = parts.filter(
-                      p => p.isExternal && (p.headerRole === "TO" || !p.headerRole),
-                    );
-                    const ccExternal = parts.filter(
-                      p => p.isExternal && p.headerRole === "CC",
-                    );
-                    const bccExternal = parts.filter(
-                      p => p.isExternal && p.headerRole === "BCC",
-                    );
+            {!selectedId && (
+              <p style={{ fontSize: 12, color: "#6b7280" }}>
+                Select a conversation in the middle column or start a new one.
+              </p>
+            )}
 
-                    const labelFor = (p: ThreadParticipantDto) => {
-                      if (p.displayName && p.displayName.trim()) return p.displayName.trim();
-                      if (p.email && p.email.trim()) return p.email.trim();
-                      return p.userId || p.id;
-                    };
+            {selectedThread && (
+              <>
+                {showProjectFilePicker && selectedThreadProjectId && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 60,
+                      right: 16,
+                      zIndex: 30,
+                    }}
+                  >
+                    <ProjectFilePicker
+                      projectId={selectedThreadProjectId}
+                      mode={showProjectFilePicker}
+                      onClose={() => setShowProjectFilePicker(null)}
+                      onSelect={(file: ProjectFileSummary) => {
+                        const asLink = {
+                          url: file.storageUrl,
+                          label: file.fileName,
+                        };
+                        if (showProjectFilePicker === "new") {
+                          setNewMessageLinks(prev => [...prev, asLink]);
+                        } else {
+                          setReplyLinks(prev => [...prev, asLink]);
+                        }
+                        setShowProjectFilePicker(null);
+                      }}
+                    />
+                  </div>
+                )}
 
-                    const segments: string[] = [];
+                <header style={{ marginBottom: 8 }}>
+                  <h3 style={{ marginTop: 0, marginBottom: 2, fontSize: 15 }}>
+                    {selectedThread.subject || "(no subject)"}
+                  </h3>
+                  {selectedThread.participants && selectedThread.participants.length > 0 && (
+                    <div style={{ fontSize: 11, color: "#4b5563" }}>
+                      {(() => {
+                        const parts = selectedThread.participants as ThreadParticipantDto[];
+                        const internal = parts.filter(p => !p.isExternal && (p.userId || p.displayName || p.email));
+                        const toExternal = parts.filter(
+                          p => p.isExternal && (p.headerRole === "TO" || !p.headerRole),
+                        );
+                        const ccExternal = parts.filter(
+                          p => p.isExternal && p.headerRole === "CC",
+                        );
+                        const bccExternal = parts.filter(
+                          p => p.isExternal && p.headerRole === "BCC",
+                        );
 
-                    if (internal.length > 0) {
-                      segments.push(
-                        `Team: ${internal
-                          .map(labelFor)
-                          .join(", ")}`,
-                      );
-                    }
-                    if (toExternal.length > 0) {
-                      segments.push(
-                        `To: ${toExternal
-                          .map(labelFor)
-                          .join(", ")}`,
-                      );
-                    }
-                    if (ccExternal.length > 0) {
-                      segments.push(
-                        `CC: ${ccExternal
-                          .map(labelFor)
-                          .join(", ")}`,
-                      );
-                    }
-                    if (bccExternal.length > 0) {
-                      segments.push(
-                        `BCC: ${bccExternal
-                          .map(labelFor)
-                          .join(", ")}`,
-                      );
-                    }
+                        const labelFor = (p: ThreadParticipantDto) => {
+                          if (p.displayName && p.displayName.trim()) return p.displayName.trim();
+                          if (p.email && p.email.trim()) return p.email.trim();
+                          return p.userId || p.id;
+                        };
 
-                    return segments.join("  ·  ");
-                  })()}
-                </div>
-              )}
-            </header>
+                        const segments: string[] = [];
 
-              <div
-                style={{
-                  flex: 1,
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 8,
-                  padding: 8,
-                  overflowY: "auto",
-                  marginBottom: 8,
-                  fontSize: 12,
-                }}
-              >
-                {sortedMessages.length > 0 ? (
-                  sortedMessages.map(m => {
-                    const ts = m.createdAt ? new Date(m.createdAt) : null;
-                    const isExternalEmail = !m.senderId && !!m.senderEmail;
-                    const isGoogleSecurityAlert =
-                      isExternalEmail &&
-                      (!!m.senderEmail?.toLowerCase().includes("no-reply@accounts.google.com") ||
-                        /security alert/i.test(m.subject || "") ||
-                        /2-step verification/i.test(m.subject || ""));
+                        if (internal.length > 0) {
+                          segments.push(
+                            `Team: ${internal
+                              .map(labelFor)
+                              .join(", ")}`,
+                          );
+                        }
+                        if (toExternal.length > 0) {
+                          segments.push(
+                            `To: ${toExternal
+                              .map(labelFor)
+                              .join(", ")}`,
+                          );
+                        }
+                        if (ccExternal.length > 0) {
+                          segments.push(
+                            `CC: ${ccExternal
+                              .map(labelFor)
+                              .join(", ")}`,
+                          );
+                        }
+                        if (bccExternal.length > 0) {
+                          segments.push(
+                            `BCC: ${bccExternal
+                              .map(labelFor)
+                              .join(", ")}`,
+                          );
+                        }
 
-                    const isExpandedAlert =
-                      isGoogleSecurityAlert && expandedAlertMessageIds.has(m.id);
+                        return segments.join("  ·  ");
+                      })()}
+                    </div>
+                  )}
+                </header>
 
-                    // Collapse Google security alerts into a compact row, with an
-                    // optional "Show details" toggle.
-                    if (isGoogleSecurityAlert && !isExpandedAlert) {
-                      return (
-                        <div
-                          key={m.id}
-                          style={{
-                            marginBottom: 4,
-                            padding: "4px 6px",
-                            borderRadius: 6,
-                            backgroundColor: "#f3f4f6",
-                            fontSize: 11,
-                            color: "#6b7280",
-                          }}
-                        >
-                          <span
+                <div
+                  style={{
+                    flex: 1,
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 8,
+                    padding: 8,
+                    overflowY: "auto",
+                    marginBottom: 8,
+                    fontSize: 12,
+                  }}
+                >
+                  {sortedMessages.length > 0 ? (
+                    sortedMessages.map(m => {
+                      const ts = m.createdAt ? new Date(m.createdAt) : null;
+                      const isExternalEmail = !m.senderId && !!m.senderEmail;
+                      const isGoogleSecurityAlert =
+                        isExternalEmail &&
+                        (!!m.senderEmail?.toLowerCase().includes("no-reply@accounts.google.com") ||
+                          /security alert/i.test(m.subject || "") ||
+                          /2-step verification/i.test(m.subject || ""));
+
+                      const isExpandedAlert =
+                        isGoogleSecurityAlert && expandedAlertMessageIds.has(m.id);
+
+                      if (isGoogleSecurityAlert && !isExpandedAlert) {
+                        return (
+                          <div
+                            key={m.id}
                             style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 4,
+                              marginBottom: 4,
+                              padding: "4px 6px",
+                              borderRadius: 6,
+                              backgroundColor: "#f3f4f6",
+                              fontSize: 11,
+                              color: "#6b7280",
                             }}
                           >
                             <span
                               style={{
                                 display: "inline-flex",
                                 alignItems: "center",
-                                justifyContent: "center",
-                                width: 14,
-                                height: 14,
-                                borderRadius: 999,
-                                backgroundColor: "#e5e7eb",
-                                fontSize: 9,
-                                fontWeight: 600,
-                              }}
-                            >
-                              !
-                            </span>
-                            <span>Google security alert (hidden)</span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setExpandedAlertMessageIds(prev => {
-                                  const next = new Set(prev);
-                                  next.add(m.id);
-                                  return next;
-                                });
-                              }}
-                              style={{
-                                marginLeft: 8,
-                                padding: "1px 6px",
-                                borderRadius: 999,
-                                border: "1px solid #d1d5db",
-                                backgroundColor: "#ffffff",
-                                fontSize: 10,
-                                cursor: "pointer",
-                              }}
-                            >
-                              Show details
-                            </button>
-                          </span>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div key={m.id} style={{ marginBottom: 8 }}>
-                        <div style={{ fontSize: 11, color: "#9ca3af", display: "flex", alignItems: "center", gap: 6 }}>
-                          <span>{ts ? ts.toLocaleString() : ""}</span>
-                          {isExternalEmail && (
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                padding: "1px 6px",
-                                borderRadius: 999,
-                                backgroundColor: "#fef3c7",
-                                color: "#92400e",
-                                border: "1px solid #fbbf24",
-                                fontSize: 10,
+                                gap: 4,
                               }}
                             >
                               <span
                                 style={{
-                                  display: "inline-block",
-                                  width: 10,
-                                  height: 10,
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  width: 14,
+                                  height: 14,
                                   borderRadius: 999,
-                                  backgroundColor: "#facc15",
-                                  marginRight: 4,
+                                  backgroundColor: "#e5e7eb",
+                                  fontSize: 9,
+                                  fontWeight: 600,
                                 }}
-                              />
-                              External email
+                              >
+                                !
+                              </span>
+                              <span>Google security alert (hidden)</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setExpandedAlertMessageIds(prev => {
+                                    const next = new Set(prev);
+                                    next.add(m.id);
+                                    return next;
+                                  });
+                                }}
+                                style={{
+                                  marginLeft: 8,
+                                  padding: "1px 6px",
+                                  borderRadius: 999,
+                                  border: "1px solid #d1d5db",
+                                  backgroundColor: "#ffffff",
+                                  fontSize: 10,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Show details
+                              </button>
                             </span>
-                          )}
-                        </div>
-                        {isExternalEmail && (
-                          <div style={{ fontSize: 11, color: "#b45309" }}>
-                            From external: {m.senderEmail}
                           </div>
-                        )}
-                        <div>{m.body}</div>
-                        {m.attachments && m.attachments.length > 0 && (
-                          <div style={{ marginTop: 4, fontSize: 11 }}>
-                            {m.attachments.map(att => {
-                              const name = (att.filename || att.url || "").toLowerCase();
-                              const isImage = /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name);
-                              if (isImage) {
+                        );
+                      }
+
+                      return (
+                        <div key={m.id} style={{ marginBottom: 8 }}>
+                          <div style={{ fontSize: 11, color: "#9ca3af", display: "flex", alignItems: "center", gap: 6 }}>
+                            <span>{ts ? ts.toLocaleString() : ""}</span>
+                            {isExternalEmail && (
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  padding: "1px 6px",
+                                  borderRadius: 999,
+                                  backgroundColor: "#fef3c7",
+                                  color: "#92400e",
+                                  border: "1px solid #fbbf24",
+                                  fontSize: 10,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    display: "inline-block",
+                                    width: 10,
+                                    height: 10,
+                                    borderRadius: 999,
+                                    backgroundColor: "#facc15",
+                                    marginRight: 4,
+                                  }}
+                                />
+                                External email
+                              </span>
+                            )}
+                          </div>
+                          {isExternalEmail && (
+                            <div style={{ fontSize: 11, color: "#b45309" }}>
+                              From external: {m.senderEmail}
+                            </div>
+                          )}
+                          <div>{m.body}</div>
+                          {m.attachments && m.attachments.length > 0 && (
+                            <div style={{ marginTop: 4, fontSize: 11 }}>
+                              {m.attachments.map(att => {
+                                const name = (att.filename || att.url || "").toLowerCase();
+                                const isImage = /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name);
+                                if (isImage) {
+                                  return (
+                                    <div
+                                      key={att.id}
+                                      style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}
+                                    >
+                                      <a
+                                        href={att.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                                      >
+                                        <img
+                                          src={att.url}
+                                          alt={att.filename || "Screenshot"}
+                                          style={{
+                                            width: 80,
+                                            height: 80,
+                                            objectFit: "cover",
+                                            borderRadius: 6,
+                                            border: "1px solid #e5e7eb",
+                                            backgroundColor: "#f9fafb",
+                                          }}
+                                        />
+                                        <span style={{ color: "#2563eb", textDecoration: "underline" }}>
+                                          {att.filename || att.url}
+                                        </span>
+                                      </a>
+                                    </div>
+                                  );
+                                }
                                 return (
-                                  <div
-                                    key={att.id}
-                                    style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}
-                                  >
+                                  <div key={att.id}>
                                     <a
                                       href={att.url}
                                       target="_blank"
                                       rel="noreferrer"
-                                      style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                                      style={{ color: "#2563eb", textDecoration: "underline" }}
                                     >
-                                      <img
-                                        src={att.url}
-                                        alt={att.filename || "Screenshot"}
-                                        style={{
-                                          width: 80,
-                                          height: 80,
-                                          objectFit: "cover",
-                                          borderRadius: 6,
-                                          border: "1px solid #e5e7eb",
-                                          backgroundColor: "#f9fafb",
-                                        }}
-                                      />
-                                      <span style={{ color: "#2563eb", textDecoration: "underline" }}>
-                                        {att.filename || att.url}
-                                      </span>
+                                      {att.filename || att.url}
                                     </a>
                                   </div>
                                 );
-                              }
-                              return (
-                                <div key={att.id}>
-                                  <a
-                                    href={att.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    style={{ color: "#2563eb", textDecoration: "underline" }}
-                                  >
-                                    {att.filename || att.url}
-                                  </a>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                ) : (
-                  <p style={{ fontSize: 12, color: "#6b7280" }}>No messages yet.</p>
-                )}
-              </div>
-
-              <form onSubmit={handleSendReply} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <textarea
-                  value={replyBody}
-                  onChange={e => setReplyBody(e.target.value)}
-                  onPaste={handleReplyBodyPaste}
-                  placeholder="Type a reply"
-                  rows={3}
-                  style={{
-                    padding: "6px 8px",
-                    fontSize: 12,
-                    borderRadius: 6,
-                    border: "1px solid #d1d5db",
-                    resize: "vertical",
-                  }}
-                />
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setShowReplyAttachments(v => !v)}
-                    style={{
-                      marginTop: 2,
-                      padding: "4px 8px",
-                      borderRadius: 999,
-                      border: "1px solid #d1d5db",
-                      backgroundColor: "#ffffff",
-                      fontSize: 11,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {showReplyAttachments ? "Hide attachments" : "Add attachments"}
-                  </button>
-
-                  {showReplyAttachments && (
-                    <div
-                      style={{
-                        marginTop: 6,
-                        padding: 8,
-                        borderRadius: 8,
-                        border: "1px solid #e5e7eb",
-                        backgroundColor: "#f9fafb",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 6,
-                      }}
-                    >
-                      <div style={{ fontSize: 11, fontWeight: 600 }}>Attachments</div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11 }}>
-                        <button
-                          type="button"
-                          disabled
-                          style={{
-                            textAlign: "left",
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            border: "1px solid #e5e7eb",
-                            backgroundColor: "#f9fafb",
-                            color: "#9ca3af",
-                            cursor: "default",
-                          }}
-                          title="Select from Project files (coming soon)"
-                        >
-                          1. Select file from Project files (coming soon)
-                        </button>
-                        <button
-                          type="button"
-                          disabled
-                          style={{
-                            textAlign: "left",
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            border: "1px solid #e5e7eb",
-                            backgroundColor: "#f9fafb",
-                            color: "#9ca3af",
-                            cursor: "default",
-                          }}
-                          title="Upload from your device (coming soon)"
-                        >
-                          2. Upload from your device (coming soon)
-                        </button>
-                        <button
-                          type="button"
-                          disabled
-                          style={{
-                            textAlign: "left",
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            border: "1px solid #e5e7eb",
-                            backgroundColor: "#f9fafb",
-                            color: "#9ca3af",
-                            cursor: "default",
-                          }}
-                          title="Create a new file in Project files (stub – future session)"
-                        >
-                          3. Create a new file in Project files (stub)
-                        </button>
-                      </div>
-
-                      <div style={{ marginTop: 4 }}>
-                        <div style={{ marginBottom: 4, fontSize: 11 }}>Select from Project files</div>
-                        <button
-                          type="button"
-                          disabled={!selectedThreadProjectId}
-                          onClick={() => setShowProjectFilePicker("reply")}
-                          style={{
-                            textAlign: "left",
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            border: "1px solid #d1d5db",
-                            backgroundColor: selectedThreadProjectId
-                              ? "#ffffff"
-                              : "#f3f4f6",
-                            color: selectedThreadProjectId ? "#111827" : "#9ca3af",
-                            fontSize: 11,
-                            cursor: selectedThreadProjectId ? "pointer" : "default",
-                            marginBottom: 6,
-                          }}
-                          title={
-                            selectedThreadProjectId
-                              ? "Attach an existing file from this project"
-                              : "Open a thread linked to a project to select files"
-                          }
-                        >
-                          Choose file from project Files
-                        </button>
-
-                        <div style={{ marginTop: 4, marginBottom: 2, fontSize: 11 }}>
-                          Or attach an external link
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          {replyLinks.length > 0 && (
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                              {replyLinks.map(l => (
-                                <span
-                                  key={l.url}
-                                  style={{
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: 4,
-                                    padding: "2px 6px",
-                                    borderRadius: 999,
-                                    border: "1px solid #d1d5db",
-                                    backgroundColor: "#eef2ff",
-                                  }}
-                                >
-                                  <span>{l.label || l.url}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => removeReplyLink(l.url)}
-                                    style={{ border: "none", background: "transparent", cursor: "pointer" }}
-                                  >
-                                    ×
-                                  </button>
-                                </span>
-                              ))}
+                              })}
                             </div>
                           )}
-                          <div style={{ display: "flex", gap: 4 }}>
-                            <input
-                              type="url"
-                              value={replyLinkUrl}
-                              onChange={e => setReplyLinkUrl(e.target.value)}
-                              placeholder="https://example.com/file.pdf"
-                              style={{
-                                flex: 2,
-                                border: "1px solid #d1d5db",
-                                borderRadius: 6,
-                                padding: "4px 6px",
-                                fontSize: 11,
-                              }}
-                            />
-                            <input
-                              type="text"
-                              value={replyLinkLabel}
-                              onChange={e => setReplyLinkLabel(e.target.value)}
-                              placeholder="Optional label"
-                              style={{
-                                flex: 1,
-                                border: "1px solid #d1d5db",
-                                borderRadius: 6,
-                                padding: "4px 6px",
-                                fontSize: 11,
-                              }}
-                            />
-                            <button
-                              type="button"
-                              onClick={addReplyLink}
-                              disabled={!replyLinkUrl.trim()}
-                              style={{
-                                padding: "4px 8px",
-                                borderRadius: 999,
-                                border: "none",
-                                backgroundColor: replyLinkUrl.trim() ? "#6366f1" : "#e5e7eb",
-                                color: "#f9fafb",
-                                fontSize: 11,
-                                cursor: replyLinkUrl.trim() ? "pointer" : "default",
-                              }}
-                            >
-                              Add link
-                            </button>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p style={{ fontSize: 12, color: "#6b7280" }}>No messages yet.</p>
+                  )}
+                </div>
+
+                <form onSubmit={handleSendReply} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <textarea
+                    value={replyBody}
+                    onChange={e => setReplyBody(e.target.value)}
+                    onPaste={handleReplyBodyPaste}
+                    placeholder="Type a reply"
+                    rows={3}
+                    style={{
+                      padding: "6px 8px",
+                      fontSize: 12,
+                      borderRadius: 6,
+                      border: "1px solid #d1d5db",
+                      resize: "vertical",
+                    }}
+                  />
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowReplyAttachments(v => !v)}
+                      style={{
+                        marginTop: 2,
+                        padding: "4px 8px",
+                        borderRadius: 999,
+                        border: "1px solid #d1d5db",
+                        backgroundColor: "#ffffff",
+                        fontSize: 11,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {showReplyAttachments ? "Hide attachments" : "Add attachments"}
+                    </button>
+
+                    {showReplyAttachments && (
+                      <div
+                        style={{
+                          marginTop: 6,
+                          padding: 8,
+                          borderRadius: 8,
+                          border: "1px solid #e5e7eb",
+                          backgroundColor: "#f9fafb",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ fontSize: 11, fontWeight: 600 }}>Attachments</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11 }}>
+                          <button
+                            type="button"
+                            disabled
+                            style={{
+                              textAlign: "left",
+                              padding: "4px 8px",
+                              borderRadius: 6,
+                              border: "1px solid #e5e7eb",
+                              backgroundColor: "#f9fafb",
+                              color: "#9ca3af",
+                              cursor: "default",
+                            }}
+                            title="Select from Project files (coming soon)"
+                          >
+                            1. Select file from Project files (coming soon)
+                          </button>
+                          <button
+                            type="button"
+                            disabled
+                            style={{
+                              textAlign: "left",
+                              padding: "4px 8px",
+                              borderRadius: 6,
+                              border: "1px solid #e5e7eb",
+                              backgroundColor: "#f9fafb",
+                              color: "9ca3af",
+                              cursor: "default",
+                            }}
+                            title="Upload from your device (coming soon)"
+                          >
+                            2. Upload from your device (coming soon)
+                          </button>
+                          <button
+                            type="button"
+                            disabled
+                            style={{
+                              textAlign: "left",
+                              padding: "4px 8px",
+                              borderRadius: 6,
+                              border: "1px solid #e5e7eb",
+                              backgroundColor: "#f9fafb",
+                              color: "#9ca3af",
+                              cursor: "default",
+                            }}
+                            title="Create a new file in Project files (stub – future session)"
+                          >
+                            3. Create a new file in Project files (stub)
+                          </button>
+                        </div>
+
+                        <div style={{ marginTop: 4 }}>
+                          <div style={{ marginBottom: 4, fontSize: 11 }}>Select from Project files</div>
+                          <button
+                            type="button"
+                            disabled={!selectedThreadProjectId}
+                            onClick={() => setShowProjectFilePicker("reply")}
+                            style={{
+                              textAlign: "left",
+                              padding: "4px 8px",
+                              borderRadius: 6,
+                              border: "1px solid #d1d5db",
+                              backgroundColor: selectedThreadProjectId
+                                ? "#ffffff"
+                                : "#f3f4f6",
+                              color: selectedThreadProjectId ? "#111827" : "#9ca3af",
+                              fontSize: 11,
+                              cursor: selectedThreadProjectId ? "pointer" : "default",
+                              marginBottom: 6,
+                            }}
+                            title={
+                              selectedThreadProjectId
+                                ? "Attach an existing file from this project"
+                                : "Open a thread linked to a project to select files"
+                            }
+                          >
+                            Choose file from project Files
+                          </button>
+
+                          <div style={{ marginTop: 4, marginBottom: 2, fontSize: 11 }}>
+                            Or attach an external link
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            {replyLinks.length > 0 && (
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                {replyLinks.map(l => (
+                                  <span
+                                    key={l.url}
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 4,
+                                      padding: "2px 6px",
+                                      borderRadius: 999,
+                                      border: "1px solid #d1d5db",
+                                      backgroundColor: "#eef2ff",
+                                    }}
+                                  >
+                                    <span>{l.label || l.url}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeReplyLink(l.url)}
+                                      style={{ border: "none", background: "transparent", cursor: "pointer" }}
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <div style={{ display: "flex", gap: 4 }}>
+                              <input
+                                type="url"
+                                value={replyLinkUrl}
+                                onChange={e => setReplyLinkUrl(e.target.value)}
+                                placeholder="https://example.com/file.pdf"
+                                style={{
+                                  flex: 2,
+                                  border: "1px solid #d1d5db",
+                                  borderRadius: 6,
+                                  padding: "4px 6px",
+                                  fontSize: 11,
+                                }}
+                              />
+                              <input
+                                type="text"
+                                value={replyLinkLabel}
+                                onChange={e => setReplyLinkLabel(e.target.value)}
+                                placeholder="Optional label"
+                                style={{
+                                  flex: 1,
+                                  border: "1px solid #d1d5db",
+                                  borderRadius: 6,
+                                  padding: "4px 6px",
+                                  fontSize: 11,
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={addReplyLink}
+                                disabled={!replyLinkUrl.trim()}
+                                style={{
+                                  padding: "4px 8px",
+                                  borderRadius: 999,
+                                  border: "none",
+                                  backgroundColor: replyLinkUrl.trim() ? "#6366f1" : "#e5e7eb",
+                                  color: "#f9fafb",
+                                  fontSize: 11,
+                                  cursor: replyLinkUrl.trim() ? "pointer" : "default",
+                                }}
+                              >
+                                Add link
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-                <button
-                  type="submit"
-                  disabled={sendingReply || !replyBody.trim()}
-                  style={{
-                    alignSelf: "flex-end",
-                    padding: "4px 10px",
-                    borderRadius: 999,
-                    border: "none",
-                    background: sendingReply ? "#9ca3af" : "#16a34a",
-                    color: "#f9fafb",
-                    fontSize: 12,
-                    cursor: sendingReply ? "default" : "pointer",
-                  }}
-                >
-                  {sendingReply ? "Sending..." : "Send"}
-                </button>
-              </form>
-            </>
-          )}
-        </div>
+                    )}
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={sendingReply || !replyBody.trim()}
+                    style={{
+                      alignSelf: "flex-end",
+                      padding: "4px 10px",
+                      borderRadius: 999,
+                      border: "none",
+                      background: sendingReply ? "#9ca3af" : "#16a34a",
+                      color: "#f9fafb",
+                      fontSize: 12,
+                      cursor: sendingReply ? "default" : "pointer",
+                    }}
+                  >
+                    {sendingReply ? "Sending..." : "Send"}
+                  </button>
+                </form>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
