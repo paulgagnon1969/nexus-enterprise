@@ -792,7 +792,12 @@ export default function MessagingPage() {
   return (
     <PageCard>
       <div
-        style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 400 }}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          minHeight: "80vh",
+        }}
       >
         <div
           style={{
