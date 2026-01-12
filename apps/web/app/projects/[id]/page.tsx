@@ -5762,6 +5762,9 @@ export default function ProjectDetailPage({
                                     <th style={{ textAlign: "left", padding: "4px 8px" }}>
                                       Sel
                                     </th>
+                                    <th style={{ textAlign: "left", padding: "4px 8px" }}>
+                                      PUDL
+                                    </th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -5907,6 +5910,53 @@ export default function ProjectDetailPage({
                                         }}
                                       >
                                         {item.selectionCode ?? ""}
+                                      </td>
+                                      <td
+                                        style={{
+                                          padding: "3px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                        }}
+                                      >
+                                        <button
+                                          type="button"
+                                          onClick={e => {
+                                            e.stopPropagation();
+                                            // Build a PUDL scoped to this SOW line + room
+                                            const sowLabel = item.description || `Line ${item.lineNo}`;
+                                            const parts: string[] = [];
+                                            parts.push(g.roomName);
+                                            parts.push(`SOW: ${sowLabel}`);
+                                            const breadcrumb = parts.filter(Boolean).join(" · ");
+
+                                            setPudlContext({
+                                              open: true,
+                                              buildingId: null,
+                                              unitId: null,
+                                              roomParticleId: g.particleId ?? null,
+                                              sowItemId: item.id,
+                                              breadcrumb,
+                                            });
+
+                                            setNewDailyLog(prev => ({
+                                              ...prev,
+                                              roomParticleId: g.particleId ?? prev.roomParticleId,
+                                              sowItemId: item.id,
+                                            }));
+
+                                            setActiveTab("DAILY_LOGS");
+                                          }}
+                                          style={{
+                                            padding: "2px 6px",
+                                            borderRadius: 999,
+                                            border: "1px solid #2563eb",
+                                            background: "#eff6ff",
+                                            fontSize: 11,
+                                            cursor: "pointer",
+                                            color: "#1d4ed8",
+                                          }}
+                                        >
+                                          PUDL
+                                        </button>
                                       </td>
                                     </tr>
                                   ))}
