@@ -518,9 +518,14 @@ export default function MessagingPage() {
 
     void (async () => {
       try {
+        let anyUploaded = false;
         for (const file of images) {
           const link = await uploadImageAndReturnLink(file);
+          anyUploaded = true;
           setNewMessageLinks(prev => [...prev, { url: link.url, label: link.label }]);
+        }
+        if (anyUploaded) {
+          setShowNewMessageAttachments(true);
         }
       } catch (err) {
         // Best-effort: surface a simple alert; we don't want to break typing.
@@ -566,9 +571,14 @@ export default function MessagingPage() {
 
     void (async () => {
       try {
+        let anyUploaded = false;
         for (const file of images) {
           const link = await uploadImageAndReturnLink(file);
+          anyUploaded = true;
           setReplyLinks(prev => [...prev, { url: link.url, label: link.label }]);
+        }
+        if (anyUploaded) {
+          setShowReplyAttachments(true);
         }
       } catch (err) {
         console.error("Failed to upload pasted image for reply", err);
