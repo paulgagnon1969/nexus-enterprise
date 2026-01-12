@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
-import { NttStatus, NttSubjectType, TaskStatus } from "@prisma/client";
+import { NttStatus, NttSubjectType, TaskStatus, $Enums } from "@prisma/client";
 import {
   canManageNttTicket,
   canReadNttTicket,
@@ -18,6 +18,14 @@ export interface CreateNttTicketInput {
   pageLabel?: string;
   contextJson?: Record<string, any>;
   tagCodes?: string[];
+  attachments?: {
+    kind: $Enums.AttachmentKind;
+    url: string;
+    filename?: string | null;
+    mimeType?: string | null;
+    sizeBytes?: number | null;
+    assetId?: string | null;
+  }[];
 }
 
 export interface CreateNttTaskInput {
@@ -42,6 +50,7 @@ export class NttService {
       pageLabel,
       contextJson,
       tagCodes,
+      attachments,
     } = input;
 
     const thread = await this.prisma.messageThread.create({
@@ -67,6 +76,31 @@ export class NttService {
         noteThreadId: thread.id,
       },
     });
+
+    // Seed the ticket's note thread with the initial description and any
+    // attachments provided (e.g. screenshots from the NTT composer).
+    const message = await this.prisma.message.create({
+      data: {
+        threadId: thread.id,
+        senderId: initiatorUserId,
+        senderEmail: null,
+        body: description,
+      },
+    });
+
+    if (attachments && attachments.length > 0) {
+      await this.prisma.messageAttachment.createMany({
+        data: attachments.map(a => ({
+          messageId: message.id,
+          kind: a.kind,
+          url: a.url,
+          filename: a.filename ?? null,
+          mimeType: a.mimeType ?? null,
+          sizeBytes: typeof a.sizeBytes === "number" ? a.sizeBytes : null,
+          assetId: a.assetId ?? null,
+        })),
+      });
+    }
 
     if (tagCodes && tagCodes.length > 0) {
       const tags = await this.prisma.tag.findMany({

@@ -576,78 +576,205 @@ export default function CompanyUserProfilePage() {
           {profile.company.name} · {profile.companyRole}
         </p>
 
-        <section style={{ marginTop: 16 }}>
-          <h2 style={{ fontSize: 16, marginBottom: 4 }}>Identity</h2>
-          <p style={{ fontSize: 13 }}>
-            <strong>Email:</strong>{" "}
-            <a
-              href={`mailto:${profile.email}`}
-              style={{ color: "#2563eb", textDecoration: "none" }}
-            >
-              {profile.email}
-            </a>
-          </p>
-          <p style={{ fontSize: 13 }}>
-            <strong>User type:</strong> {profile.userType}
-          </p>
-          <p style={{ fontSize: 13 }}>
-            <strong>Global role:</strong> {profile.globalRole}
-          </p>
-        </section>
-
-        {(canViewHr || hasWorker) && (
-          <section style={{ marginTop: 16 }}>
-            <h2 style={{ fontSize: 16, marginBottom: 4 }}>Contact & HR</h2>
+        <div
+          style={{
+            marginTop: 16,
+            display: "flex",
+            gap: 16,
+            alignItems: "flex-start",
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ flex: "1 1 0", minWidth: 320 }}>
+            <section>
+              <h2 style={{ fontSize: 16, marginBottom: 4 }}>Identity</h2>
+              <p style={{ fontSize: 13 }}>
+                <strong>Email:</strong>{" "}
+                <a
+                  href={`mailto:${profile.email}`}
+                  style={{ color: "#2563eb", textDecoration: "none" }}
+                >
+                  {profile.email}
+                </a>
+              </p>
+              <p style={{ fontSize: 13 }}>
+                <strong>User type:</strong> {profile.userType}
+              </p>
+              <p style={{ fontSize: 13 }}>
+                <strong>Global role:</strong> {profile.globalRole}
+              </p>
+            </section>
 
             {hasWorker && profile.worker && (
-              <div style={{ fontSize: 13, marginBottom: 8 }}>
-                <div>
-                  <strong>Worker record:</strong>{" "}
-                  {profile.worker.fullName || "Imported worker"}
-                  {workerLink && (
-                    <>
-                      {" "}·{" "}
-                      <a
-                        href={workerLink}
-                        style={{ color: "#2563eb", textDecoration: "none", fontSize: 12 }}
-                      >
-                        View weekly hours
-                      </a>
-                    </>
+              <section style={{ marginTop: 16 }}>
+                <h2 style={{ fontSize: 16, marginBottom: 4 }}>Worker record</h2>
+                <div style={{ fontSize: 13 }}>
+                  <div>
+                    <strong>Worker:</strong>{" "}
+                    {profile.worker.fullName || "Imported worker"}
+                    {workerLink && (
+                      <>
+                        {" "}·{" "}
+                        <a
+                          href={workerLink}
+                          style={{ color: "#2563eb", textDecoration: "none", fontSize: 12 }}
+                        >
+                          View weekly hours
+                        </a>
+                      </>
+                    )}
+                  </div>
+                  {profile.worker.phone && (
+                    <div>
+                      <strong>Worker phone:</strong>{" "}
+                      {(() => {
+                        const formatted = formatPhone(
+                          profile.worker?.phone ?? null,
+                          profile.hr?.country ?? "US",
+                        );
+                        if (!formatted) return profile.worker?.phone;
+                        return (
+                          <a
+                            href={formatted.href}
+                            style={{ color: "#2563eb", textDecoration: "none" }}
+                          >
+                            {formatted.display}
+                          </a>
+                        );
+                      })()}
+                    </div>
+                  )}
+                  {profile.worker.city && (
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>
+                      {profile.worker.city}
+                      {profile.worker.state ? `, ${profile.worker.state}` : ""}
+                      {profile.worker.postalCode ? ` ${profile.worker.postalCode}` : ""}
+                    </div>
                   )}
                 </div>
-                {profile.worker.phone && (
-                  <div>
-                    <strong>Worker phone:</strong>{" "}
-                    {(() => {
-                      const formatted = formatPhone(
-                        profile.worker?.phone ?? null,
-                        profile.hr?.country ?? "US",
-                      );
-                      if (!formatted) return profile.worker?.phone;
-                      return (
-                        <a
-                          href={formatted.href}
-                          style={{ color: "#2563eb", textDecoration: "none" }}
-                        >
-                          {formatted.display}
-                        </a>
-                      );
-                    })()}
-                  </div>
-                )}
-                {profile.worker.city && (
-                  <div style={{ fontSize: 12, color: "#6b7280" }}>
-                    {profile.worker.city}
-                    {profile.worker.state ? `, ${profile.worker.state}` : ""}
-                    {profile.worker.postalCode ? ` ${profile.worker.postalCode}` : ""}
-                  </div>
-                )}
-              </div>
+              </section>
             )}
 
-            {canViewHr && (
-              <div
+            <section style={{ marginTop: 16 }}>
+              <h2 style={{ fontSize: 16, marginBottom: 4 }}>Reputation (overall)</h2>
+              <p style={{ fontSize: 13 }}>
+                <strong>Rating:</strong> {displayedReputation.toFixed(1)} / 5 ·
+                <span style={{ marginLeft: 4 }}>
+                  {profile.reputation.count} rating{profile.reputation.count === 1 ? "" : "s"}
+                </span>
+              </p>
+              {profile.reputation.override != null && (
+                <p style={{ fontSize: 12, color: "#6b7280" }}>
+                  (Includes admin override of {profile.reputation.override}/5)
+                </p>
+              )}
+              {canRate && (
+                <form
+                  onSubmit={async e => {
+                    e.preventDefault();
+                    setOverallError(null);
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) {
+                      setOverallError("Missing access token.");
+                      return;
+                    }
+                    if (!overallLevel) {
+                      setOverallError("Select a level.");
+                      return;
+                    }
+                    try {
+                      setOverallSaving(true);
+                      const res = await fetch(`${API_BASE}/reputation/user/${profile.id}/overall`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ score: Number(overallLevel), comment: overallNotes.trim() || undefined }),
+                      });
+                      if (!res.ok) {
+                        const text = await res.text();
+                        throw new Error(`Failed to submit overall rating (${res.status}): ${text}`);
+                      }
+                      setOverallLevel("");
+                      setOverallNotes("");
+                    } catch (err: any) {
+                      setOverallError(err.message || "Failed to submit overall rating.");
+                    } finally {
+                      setOverallSaving(false);
+                    }
+                  }}
+                  style={{
+                    marginTop: 8,
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 8,
+                    alignItems: "center",
+                    fontSize: 12,
+                  }}
+                >
+                  <span style={{ fontWeight: 600 }}>Add overall employer rating:</span>
+                  <select
+                    value={overallLevel}
+                    onChange={e => setOverallLevel(e.target.value)}
+                    style={{
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                    }}
+                  >
+                    <option value="">Level…</option>
+                    <option value="1">1 – Novice</option>
+                    <option value="2">2 – Beginner</option>
+                    <option value="3">3 – Competent</option>
+                    <option value="4">4 – Proficient</option>
+                    <option value="5">5 – Expert</option>
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="Optional comment"
+                    value={overallNotes}
+                    onChange={e => setOverallNotes(e.target.value)}
+                    style={{
+                      flex: 1,
+                      minWidth: 200,
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={overallSaving}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #0f172a",
+                      backgroundColor: overallSaving ? "#e5e7eb" : "#0f172a",
+                      color: overallSaving ? "#4b5563" : "#f9fafb",
+                      cursor: overallSaving ? "default" : "pointer",
+                    }}
+                  >
+                    {overallSaving ? "Saving…" : "Save overall rating"}
+                  </button>
+                  {overallError && (
+                    <span style={{ color: "#b91c1c" }}>{overallError}</span>
+                  )}
+                </form>
+              )}
+            </section>
+          </div>
+
+          {canViewHr && (
+            <section
+              style={{
+                flex: "0 0 340px",
+                maxWidth: 380,
+                fontSize: 13,
+              }}
+            >
+              {canViewHr && (
+                <div
                 style={{
                   marginTop: hasWorker ? 8 : 0,
                   padding: 10,
@@ -1008,120 +1135,21 @@ export default function CompanyUserProfilePage() {
                 )}
               </div>
             )}
-          </section>
-        )}
+            </section>
+          )}
+        </div>
 
-        <section style={{ marginTop: 16 }}>
-          <h2 style={{ fontSize: 16, marginBottom: 4 }}>Reputation (overall)</h2>
-          <p style={{ fontSize: 13 }}>
-            <strong>Rating:</strong> {displayedReputation.toFixed(1)} / 5 ·
-            <span style={{ marginLeft: 4 }}>
-              {profile.reputation.count} rating{profile.reputation.count === 1 ? "" : "s"}
-            </span>
-          </p>
-          {profile.reputation.override != null && (
-            <p style={{ fontSize: 12, color: "#6b7280" }}>
-              (Includes admin override of {profile.reputation.override}/5)
-            </p>
-          )}
-          {canRate && (
-            <form
-              onSubmit={async e => {
-                e.preventDefault();
-                setOverallError(null);
-                const token = localStorage.getItem("accessToken");
-                if (!token) {
-                  setOverallError("Missing access token.");
-                  return;
-                }
-                if (!overallLevel) {
-                  setOverallError("Select a level.");
-                  return;
-                }
-                try {
-                  setOverallSaving(true);
-                  const res = await fetch(`${API_BASE}/reputation/user/${profile.id}/overall`, {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${token}`,
-                    },
-                    body: JSON.stringify({ score: Number(overallLevel), comment: overallNotes.trim() || undefined }),
-                  });
-                  if (!res.ok) {
-                    const text = await res.text();
-                    throw new Error(`Failed to submit overall rating (${res.status}): ${text}`);
-                  }
-                  setOverallLevel("");
-                  setOverallNotes("");
-                } catch (err: any) {
-                  setOverallError(err.message || "Failed to submit overall rating.");
-                } finally {
-                  setOverallSaving(false);
-                }
-              }}
-              style={{
-                marginTop: 8,
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 8,
-                alignItems: "center",
-                fontSize: 12,
-              }}
-            >
-              <span style={{ fontWeight: 600 }}>Add overall employer rating:</span>
-              <select
-                value={overallLevel}
-                onChange={e => setOverallLevel(e.target.value)}
-                style={{
-                  padding: "4px 6px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                }}
-              >
-                <option value="">Level…</option>
-                <option value="1">1 – Novice</option>
-                <option value="2">2 – Beginner</option>
-                <option value="3">3 – Competent</option>
-                <option value="4">4 – Proficient</option>
-                <option value="5">5 – Expert</option>
-              </select>
-              <input
-                type="text"
-                placeholder="Optional comment"
-                value={overallNotes}
-                onChange={e => setOverallNotes(e.target.value)}
-                style={{
-                  flex: 1,
-                  minWidth: 200,
-                  padding: "4px 6px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                }}
-              />
-              <button
-                type="submit"
-                disabled={overallSaving}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 4,
-                  border: "1px solid #0f172a",
-                  backgroundColor: overallSaving ? "#e5e7eb" : "#0f172a",
-                  color: overallSaving ? "#4b5563" : "#f9fafb",
-                  cursor: overallSaving ? "default" : "pointer",
-                }}
-              >
-                {overallSaving ? "Saving…" : "Save overall rating"}
-              </button>
-              {overallError && (
-                <span style={{ color: "#b91c1c" }}>{overallError}</span>
-              )}
-            </form>
-          )}
-        </section>
+        <hr
+          style={{
+            marginTop: 16,
+            marginBottom: 12,
+            border: 0,
+            borderTop: "1px solid #e5e7eb",
+          }}
+        />
       </div>
 
-      <section style={{ marginTop: 16, flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <section style={{ marginTop: 0, flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
         <h2 style={{ fontSize: 16, marginBottom: 4 }}>Skills</h2>
 
         <div style={{ display: "flex", gap: 16, alignItems: "stretch", flex: "1 1 auto", minHeight: 0 }}>

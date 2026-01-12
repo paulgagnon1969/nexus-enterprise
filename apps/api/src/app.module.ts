@@ -31,6 +31,7 @@ import { SystemDocsModule } from "./modules/system-docs/system-docs.module";
 import { TimecardModule } from "./modules/timecard/timecard.module";
 import { WorkerModule } from "./modules/worker/worker.module";
 import { NttModule } from "./modules/ntt/ntt.module";
+import { UploadsModule } from "./modules/uploads/uploads.module";
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { NttModule } from "./modules/ntt/ntt.module";
     TimecardModule,
     WorkerModule,
     NttModule,
+    UploadsModule,
   ],
   controllers: [DevController]
 })

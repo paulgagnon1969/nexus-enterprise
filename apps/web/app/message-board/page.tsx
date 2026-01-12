@@ -49,6 +49,90 @@ export default function MessageBoardPage() {
   const [replyLinkLabel, setReplyLinkLabel] = useState("");
   const [replyLinks, setReplyLinks] = useState<{ url: string; label?: string }[]>([]);
 
+  function extractClipboardImages(e: React.ClipboardEvent<HTMLTextAreaElement>): File[] {
+    const items = e.clipboardData?.items;
+    if (!items || items.length === 0) return [];
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    return files;
+  }
+
+  async function uploadImageAndReturnLink(file: File): Promise<{ url: string; label: string }> {
+    if (typeof window === "undefined") {
+      throw new Error("Window is not available");
+    }
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      throw new Error("Missing access token; please log in again.");
+    }
+
+    const metaRes = await fetch(`${API_BASE}/uploads`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        contentType: file.type || "image/png",
+        fileName: file.name || "screenshot.png",
+        scope: "MESSAGE",
+      }),
+    });
+
+    if (!metaRes.ok) {
+      throw new Error(`Failed to prepare upload (${metaRes.status})`);
+    }
+
+    const meta: any = await metaRes.json();
+    const uploadUrl: string | undefined = meta.uploadUrl;
+    const publicUrl: string | undefined = meta.publicUrl || meta.fileUri;
+    if (!uploadUrl || !publicUrl) {
+      throw new Error("Upload metadata was incomplete");
+    }
+
+    const putRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+      },
+      body: file,
+    });
+
+    if (!putRes.ok) {
+      throw new Error(`Failed to upload image (${putRes.status})`);
+    }
+
+    const label = file.name && file.name.trim().length > 0 ? file.name : "Screenshot";
+    return { url: publicUrl, label };
+  }
+
+  function handleReplyBodyPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const images = extractClipboardImages(e);
+    if (images.length === 0) return;
+
+    e.preventDefault();
+
+    void (async () => {
+      try {
+        for (const file of images) {
+          const link = await uploadImageAndReturnLink(file);
+          setReplyLinks(prev => [...prev, { url: link.url, label: link.label }]);
+        }
+      } catch (err) {
+        console.error("Failed to upload pasted image for board reply", err);
+        if (typeof window !== "undefined") {
+          window.alert("Failed to upload pasted image. Please try again or attach it as a link.");
+        }
+      }
+    })();
+  }
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const token = window.localStorage.getItem("accessToken");
@@ -336,18 +420,53 @@ export default function MessageBoardPage() {
                         <div>{m.body}</div>
                         {m.attachments && m.attachments.length > 0 && (
                           <div style={{ marginTop: 4, fontSize: 11 }}>
-                            {m.attachments.map(att => (
-                              <div key={att.id}>
-                                <a
-                                  href={att.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  style={{ color: "#2563eb", textDecoration: "underline" }}
-                                >
-                                  {att.filename || att.url}
-                                </a>
-                              </div>
-                            ))}
+                            {m.attachments.map(att => {
+                              const name = (att.filename || att.url || "").toLowerCase();
+                              const isImage = /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name);
+                              if (isImage) {
+                                return (
+                                  <div
+                                    key={att.id}
+                                    style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}
+                                  >
+                                    <a
+                                      href={att.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                                    >
+                                      <img
+                                        src={att.url}
+                                        alt={att.filename || "Screenshot"}
+                                        style={{
+                                          width: 80,
+                                          height: 80,
+                                          objectFit: "cover",
+                                          borderRadius: 6,
+                                          border: "1px solid #e5e7eb",
+                                          backgroundColor: "#f9fafb",
+                                        }}
+                                      />
+                                      <span style={{ color: "#2563eb", textDecoration: "underline" }}>
+                                        {att.filename || att.url}
+                                      </span>
+                                    </a>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div key={att.id}>
+                                  <a
+                                    href={att.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ color: "#2563eb", textDecoration: "underline" }}
+                                  >
+                                    {att.filename || att.url}
+                                  </a>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -362,6 +481,7 @@ export default function MessageBoardPage() {
                 <textarea
                   value={replyBody}
                   onChange={e => setReplyBody(e.target.value)}
+                  onPaste={handleReplyBodyPaste}
                   placeholder="Reply to this topic"
                   rows={3}
                   style={{

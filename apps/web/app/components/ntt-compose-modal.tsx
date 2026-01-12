@@ -41,6 +41,14 @@ export function NttComposeModal({ pagePath, pageLabel, contextJson, onClose }: N
       pageLabel,
       contextJson,
       tagCodes,
+      attachments:
+        payload.links.length > 0
+          ? payload.links.map(l => ({
+              kind: "EXTERNAL_LINK",
+              url: l.url,
+              filename: l.label || null,
+            }))
+          : undefined,
     };
 
     const res = await fetch(`${API_BASE}/ntt`, {

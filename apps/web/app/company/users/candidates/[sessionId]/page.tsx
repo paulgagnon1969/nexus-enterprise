@@ -90,10 +90,19 @@ export default function CandidateDetailPage() {
   const [journalLoading, setJournalLoading] = useState(false);
   const [journalError, setJournalError] = useState<string | null>(null);
   const [journalEntries, setJournalEntries] = useState<
-    { id: string; body: string; createdAt: string; senderEmail?: string | null }[]
+    {
+      id: string;
+      body: string;
+      createdAt: string;
+      senderEmail?: string | null;
+      attachments?: { id: string; url: string; filename?: string | null }[];
+    }[]
   >([]);
   const [journalDraft, setJournalDraft] = useState("");
   const [savingJournal, setSavingJournal] = useState(false);
+  const [journalAttachments, setJournalAttachments] = useState<
+    { url: string; label?: string }[]
+  >([]);
 
   // HR/admin-only editing of onboarding profile snapshot
   const [savingProfile, setSavingProfile] = useState(false);
@@ -327,6 +336,13 @@ export default function CandidateDetailPage() {
             body: m.body ?? "",
             createdAt: m.createdAt,
             senderEmail: m.senderEmail ?? null,
+            attachments: Array.isArray(m.attachments)
+              ? m.attachments.map((att: any) => ({
+                  id: att.id,
+                  url: att.url,
+                  filename: att.filename ?? null,
+                }))
+              : [],
           })),
         );
       } catch (e: any) {
@@ -517,124 +533,141 @@ export default function CandidateDetailPage() {
       <h1 style={{ marginTop: 0, fontSize: 20 }}>Candidate</h1>
       <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>Prospective worker from Nexis profile</p>
 
-      <section style={{ marginTop: 16 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 4 }}>Contact</h2>
-        <p style={{ fontSize: 13 }}>
-          <strong>Name:</strong>{" "}
-          <span>{displayName}</span>
-        </p>
-        <p style={{ fontSize: 13 }}>
-          <strong>Email:</strong>{" "}
-          <a
-            href={`mailto:${session.email}`}
-            style={{ color: "#2563eb", textDecoration: "none" }}
-          >
-            {session.email}
-          </a>
-        </p>
-        <p style={{ fontSize: 13 }}>
-          <strong>Phone:</strong>{" "}
-          {(() => {
-            const formatted = formatPhone(session.profile?.phone ?? null, "US");
-            if (!formatted) return <span>—</span>;
-            return (
-              <a href={formatted.href} style={{ color: "#2563eb", textDecoration: "none" }}>
-                {formatted.display}
+      <div
+        style={{
+          marginTop: 16,
+          display: "flex",
+          gap: 16,
+          alignItems: "flex-start",
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ flex: "1 1 0", minWidth: 320 }}>
+          <section>
+            <h2 style={{ fontSize: 16, marginBottom: 4 }}>Contact</h2>
+            <p style={{ fontSize: 13 }}>
+              <strong>Name:</strong>{" "}
+              <span>{displayName}</span>
+            </p>
+            <p style={{ fontSize: 13 }}>
+              <strong>Email:</strong>{" "}
+              <a
+                href={`mailto:${session.email}`}
+                style={{ color: "#2563eb", textDecoration: "none" }}
+              >
+                {session.email}
               </a>
-            );
-          })()}
-        </p>
-      </section>
+            </p>
+            <p style={{ fontSize: 13 }}>
+              <strong>Phone:</strong>{" "}
+              {(() => {
+                const formatted = formatPhone(session.profile?.phone ?? null, "US");
+                if (!formatted) return <span>—</span>;
+                return (
+                  <a href={formatted.href} style={{ color: "#2563eb", textDecoration: "none" }}>
+                    {formatted.display}
+                  </a>
+                );
+              })()}
+            </p>
+          </section>
 
-      <section style={{ marginTop: 16 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 4 }}>Location</h2>
-        <p style={{ fontSize: 13 }}>
-          <strong>City / State:</strong>{" "}
-          <span>
-            {session.profile?.city || "—"}
-            {session.profile?.state ? `, ${session.profile.state}` : ""}
-          </span>
-        </p>
-        <p style={{ fontSize: 13 }}>
-          <strong>Postal code:</strong>{" "}
-          <span>{session.profile?.postalCode || "—"}</span>
-        </p>
-      </section>
+          <section style={{ marginTop: 16 }}>
+            <h2 style={{ fontSize: 16, marginBottom: 4 }}>Location</h2>
+            <p style={{ fontSize: 13 }}>
+              <strong>City / State:</strong>{" "}
+              <span>
+                {session.profile?.city || "—"}
+                {session.profile?.state ? `, ${session.profile.state}` : ""}
+              </span>
+            </p>
+            <p style={{ fontSize: 13 }}>
+              <strong>Postal code:</strong>{" "}
+              <span>{session.profile?.postalCode || "—"}</span>
+            </p>
+          </section>
 
-      <section style={{ marginTop: 16 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 4 }}>Status</h2>
-        <p style={{ fontSize: 13 }}>
-          <strong>Onboarding status:</strong>{" "}
-          <span>{session.status}</span>
-        </p>
-        {canViewHr && detailStatusOptions.length > 0 && (
-          <p style={{ fontSize: 13, marginTop: 4 }}>
-            <strong>Candidate status:</strong>{" "}
-            <select
-              value={session.detailStatusCode ?? ""}
-              onChange={async e => {
-                const nextCode = e.target.value || null;
-                const token = window.localStorage.getItem("accessToken");
-                if (!token) {
-                  alert("Missing access token. Please log in again.");
-                  return;
-                }
-                try {
-                  const res = await fetch(
-                    `${API_BASE}/onboarding/sessions/${session.id}/detail-status`,
-                    {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${token}`,
-                      },
-                      body: JSON.stringify({ detailStatusCode: nextCode }),
-                    },
-                  );
-                  if (!res.ok) {
-                    const text = await res.text().catch(() => "");
-                    throw new Error(
-                      `Failed to update candidate status (${res.status}) ${text}`,
-                    );
-                  }
-                  setSession(prev => (prev ? { ...prev, detailStatusCode: nextCode } : prev));
-                } catch (err: any) {
-                  alert(err?.message ?? "Failed to update candidate status.");
-                }
-              }}
-              style={{
-                padding: "2px 6px",
-                borderRadius: 4,
-                border: "1px solid #d1d5db",
-                fontSize: 12,
-              }}
-            >
-              <option value="">(none)</option>
-              {detailStatusOptions.map(opt => (
-                <option key={opt.id} value={opt.code}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </p>
-        )}
-        <p style={{ fontSize: 13, color: "#6b7280" }}>
-          <strong>Submitted / created:</strong>{" "}
-          <span>{new Date(session.createdAt).toLocaleString()}</span>
-        </p>
-      </section>
+          <section style={{ marginTop: 16 }}>
+            <h2 style={{ fontSize: 16, marginBottom: 4 }}>Status</h2>
+            <p style={{ fontSize: 13 }}>
+              <strong>Onboarding status:</strong>{" "}
+              <span>{session.status}</span>
+            </p>
+            {canViewHr && detailStatusOptions.length > 0 && (
+              <p style={{ fontSize: 13, marginTop: 4 }}>
+                <strong>Candidate status:</strong>{" "}
+                <select
+                  value={session.detailStatusCode ?? ""}
+                  onChange={async e => {
+                    const nextCode = e.target.value || null;
+                    const token = window.localStorage.getItem("accessToken");
+                    if (!token) {
+                      alert("Missing access token. Please log in again.");
+                      return;
+                    }
+                    try {
+                      const res = await fetch(
+                        `${API_BASE}/onboarding/sessions/${session.id}/detail-status`,
+                        {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({ detailStatusCode: nextCode }),
+                        },
+                      );
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        throw new Error(
+                          `Failed to update candidate status (${res.status}) ${text}`,
+                        );
+                      }
+                      setSession(prev => (prev ? { ...prev, detailStatusCode: nextCode } : prev));
+                    } catch (err: any) {
+                      alert(err?.message ?? "Failed to update candidate status.");
+                    }
+                  }}
+                  style={{
+                    padding: "2px 6px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                >
+                  <option value="">(none)</option>
+                  {detailStatusOptions.map(opt => (
+                    <option key={opt.id} value={opt.code}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </p>
+            )}
+            <p style={{ fontSize: 13, color: "#6b7280" }}>
+              <strong>Submitted / created:</strong>{" "}
+              <span>{new Date(session.createdAt).toLocaleString()}</span>
+            </p>
+          </section>
+        </div>
 
-      {canViewHr && (
-        <section style={{ marginTop: 16 }}>
-          <div
+        {canViewHr && (
+          <section
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 4,
+              flex: "0 0 360px",
+              maxWidth: 400,
+              margin: 0,
             }}
           >
-            <button
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 4,
+              }}
+            >
+              <button
               type="button"
               onClick={() => setHrProfileCollapsed(prev => !prev)}
               style={{
@@ -1146,7 +1179,18 @@ export default function CandidateDetailPage() {
         </section>
       )}
 
-      <section style={{ marginTop: 16 }}>
+      </div>
+
+      <hr
+        style={{
+          marginTop: 16,
+          marginBottom: 12,
+          border: 0,
+          borderTop: "1px solid #e5e7eb",
+        }}
+      />
+
+      <section style={{ marginTop: 0 }}>
         <h2 style={{ fontSize: 16, marginBottom: 4 }}>Self-assessed skills</h2>
         {skillsLoading ? (
           <p style={{ fontSize: 12, color: "#6b7280" }}>Loading skills…</p>
@@ -1615,6 +1659,57 @@ export default function CandidateDetailPage() {
                       <div style={{ whiteSpace: "pre-wrap", color: "#111827" }}>
                         {entry.body}
                       </div>
+                      {entry.attachments && entry.attachments.length > 0 && (
+                        <div style={{ marginTop: 4, fontSize: 11 }}>
+                          {entry.attachments.map(att => {
+                            const name = (att.filename || att.url || "").toLowerCase();
+                            const isImage = /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name);
+                            if (isImage) {
+                              return (
+                                <div
+                                  key={att.id}
+                                  style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}
+                                >
+                                  <a
+                                    href={att.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                                  >
+                                    <img
+                                      src={att.url}
+                                      alt={att.filename || "Screenshot"}
+                                      style={{
+                                        width: 72,
+                                        height: 72,
+                                        objectFit: "cover",
+                                        borderRadius: 6,
+                                        border: "1px solid #e5e7eb",
+                                        backgroundColor: "#f9fafb",
+                                      }}
+                                    />
+                                    <span style={{ color: "#2563eb", textDecoration: "underline" }}>
+                                      {att.filename || att.url}
+                                    </span>
+                                  </a>
+                                </div>
+                              );
+                            }
+                            return (
+                              <div key={att.id}>
+                                <a
+                                  href={att.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ color: "#2563eb", textDecoration: "underline" }}
+                                >
+                                  {att.filename || att.url}
+                                </a>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -1646,6 +1741,14 @@ export default function CandidateDetailPage() {
                           body: journalDraft.trim(),
                           // Default: internal-only; toggle UI could set this true
                           shareWithSubject: false,
+                          attachments:
+                            journalAttachments.length > 0
+                              ? journalAttachments.map(att => ({
+                                  kind: "UPLOADED_FILE",
+                                  url: att.url,
+                                  filename: att.label || null,
+                                }))
+                              : undefined,
                         }),
                       },
                     );
@@ -1661,10 +1764,19 @@ export default function CandidateDetailPage() {
                         body: created.body ?? journalDraft.trim(),
                         createdAt: created.createdAt ?? new Date().toISOString(),
                         senderEmail: created.senderEmail ?? null,
+                        attachments:
+                          journalAttachments.length > 0
+                            ? journalAttachments.map((att, idx) => ({
+                                id: `${created.id}-att-${idx}`,
+                                url: att.url,
+                                filename: att.label || null,
+                              }))
+                            : [],
                       },
                       ...prev,
                     ]);
                     setJournalDraft("");
+                    setJournalAttachments([]);
                   } catch (err: any) {
                     alert(err?.message ?? "Failed to add journal entry.");
                   } finally {
@@ -1683,6 +1795,73 @@ export default function CandidateDetailPage() {
                   <textarea
                     value={journalDraft}
                     onChange={e => setJournalDraft(e.target.value)}
+                    onPaste={async e => {
+                      const items = e.clipboardData?.items;
+                      if (!items || items.length === 0) return;
+                      const images: File[] = [];
+                      for (let i = 0; i < items.length; i += 1) {
+                        const item = items[i];
+                        if (item.kind === "file" && item.type.startsWith("image/")) {
+                          const file = item.getAsFile();
+                          if (file) images.push(file);
+                        }
+                      }
+                      if (images.length === 0) return;
+
+                      e.preventDefault();
+
+                      const token = window.localStorage.getItem("accessToken");
+                      if (!token) {
+                        alert("Missing access token. Please log in again.");
+                        return;
+                      }
+
+                      for (const file of images) {
+                        try {
+                          const metaRes = await fetch(`${API_BASE}/uploads`, {
+                            method: "POST",
+                            headers: {
+                              "Content-Type": "application/json",
+                              Authorization: `Bearer ${token}`,
+                            },
+                            body: JSON.stringify({
+                              contentType: file.type || "image/png",
+                              fileName: file.name || "screenshot.png",
+                              scope: "JOURNAL",
+                            }),
+                          });
+                          if (!metaRes.ok) {
+                            throw new Error(`Failed to prepare upload (${metaRes.status})`);
+                          }
+                          const meta: any = await metaRes.json();
+                          const uploadUrl: string | undefined = meta.uploadUrl;
+                          const publicUrl: string | undefined = meta.publicUrl || meta.fileUri;
+                          if (!uploadUrl || !publicUrl) {
+                            throw new Error("Upload metadata was incomplete");
+                          }
+
+                          const putRes = await fetch(uploadUrl, {
+                            method: "PUT",
+                            headers: {
+                              "Content-Type": file.type || "application/octet-stream",
+                            },
+                            body: file,
+                          });
+                          if (!putRes.ok) {
+                            throw new Error(`Failed to upload image (${putRes.status})`);
+                          }
+
+                          const label = file.name && file.name.trim().length > 0
+                            ? file.name
+                            : "Screenshot";
+                          setJournalAttachments(prev => [...prev, { url: publicUrl, label }]);
+                        } catch (err: any) {
+                          console.error("Failed to upload pasted journal image", err);
+                          alert(err?.message ?? "Failed to upload pasted image.");
+                          break;
+                        }
+                      }
+                    }}
                     rows={3}
                     style={{
                       marginTop: 4,
@@ -1695,6 +1874,44 @@ export default function CandidateDetailPage() {
                     }}
                   />
                 </label>
+                {journalAttachments.length > 0 && (
+                  <div style={{ marginTop: 6, fontSize: 11 }}>
+                    <div style={{ marginBottom: 2 }}>Attached images</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {journalAttachments.map(att => (
+                        <span
+                          key={att.url}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            padding: "2px 6px",
+                            borderRadius: 999,
+                            border: "1px solid #d1d5db",
+                            backgroundColor: "#eef2ff",
+                          }}
+                        >
+                          <span>{att.label || att.url}</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setJournalAttachments(prev =>
+                                prev.filter(x => x.url !== att.url),
+                              )
+                            }
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              cursor: "pointer",
+                            }}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div style={{ display: "flex", justifyContent: "flex-end" }}>
                   <button
                     type="submit"
