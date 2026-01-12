@@ -53,6 +53,7 @@ interface UserProfileDto {
     postalCode?: string | null;
     country?: string | null;
   } | null;
+  canViewHr?: boolean;
   worker?: {
     id: string;
     fullName: string | null;
@@ -251,8 +252,9 @@ export default function CompanyUserProfilePage() {
   }
 
   const displayedReputation = profile.reputation.override ?? profile.reputation.avg;
-  const hasHr = !!profile.hr;
+  const canViewHr = profile.canViewHr ?? !!profile.hr;
   const hasWorker = !!profile.worker;
+  const hr = profile.hr || {};
 
   const workerLink =
     profile.worker && profile.worker.id
@@ -593,7 +595,7 @@ export default function CompanyUserProfilePage() {
           </p>
         </section>
 
-        {(hasHr || hasWorker) && (
+        {(canViewHr || hasWorker) && (
           <section style={{ marginTop: 16 }}>
             <h2 style={{ fontSize: 16, marginBottom: 4 }}>Contact & HR</h2>
 
@@ -644,7 +646,7 @@ export default function CompanyUserProfilePage() {
               </div>
             )}
 
-            {hasHr && profile.hr && (
+            {canViewHr && (
               <div
                 style={{
                   marginTop: hasWorker ? 8 : 0,
@@ -706,7 +708,7 @@ export default function CompanyUserProfilePage() {
                         <div style={{ fontSize: 12, color: "#6b7280" }}>HR email</div>
                         <input
                           type="email"
-                          value={profile.hr.displayEmail ?? ""}
+                          value={hr.displayEmail ?? ""}
                           onChange={e =>
                             setProfile(prev =>
                               prev
@@ -734,7 +736,7 @@ export default function CompanyUserProfilePage() {
                         <div style={{ fontSize: 12, color: "#6b7280" }}>HR phone</div>
                         <input
                           type="tel"
-                          value={profile.hr.phone ?? ""}
+                          value={hr.phone ?? ""}
                           onChange={e =>
                             setProfile(prev =>
                               prev
@@ -765,7 +767,7 @@ export default function CompanyUserProfilePage() {
                         <div style={{ fontSize: 12, color: "#6b7280" }}>Address line 1</div>
                         <input
                           type="text"
-                          value={profile.hr.addressLine1 ?? ""}
+                          value={hr.addressLine1 ?? ""}
                           onChange={e =>
                             setProfile(prev =>
                               prev
@@ -792,7 +794,7 @@ export default function CompanyUserProfilePage() {
                         <div style={{ fontSize: 12, color: "#6b7280" }}>Address line 2</div>
                         <input
                           type="text"
-                          value={profile.hr.addressLine2 ?? ""}
+                          value={hr.addressLine2 ?? ""}
                           onChange={e =>
                             setProfile(prev =>
                               prev
@@ -822,7 +824,7 @@ export default function CompanyUserProfilePage() {
                         <div style={{ fontSize: 12, color: "#6b7280" }}>City</div>
                         <input
                           type="text"
-                          value={profile.hr.city ?? ""}
+                          value={hr.city ?? ""}
                           onChange={e =>
                             setProfile(prev =>
                               prev
@@ -849,7 +851,7 @@ export default function CompanyUserProfilePage() {
                         <div style={{ fontSize: 12, color: "#6b7280" }}>State</div>
                         <input
                           type="text"
-                          value={profile.hr.state ?? ""}
+                          value={hr.state ?? ""}
                           onChange={e =>
                             setProfile(prev =>
                               prev
@@ -876,7 +878,7 @@ export default function CompanyUserProfilePage() {
                         <div style={{ fontSize: 12, color: "#6b7280" }}>Postal code</div>
                         <input
                           type="text"
-                          value={profile.hr.postalCode ?? ""}
+                          value={hr.postalCode ?? ""}
                           onChange={e =>
                             setProfile(prev =>
                               prev
@@ -903,7 +905,7 @@ export default function CompanyUserProfilePage() {
                         <div style={{ fontSize: 12, color: "#6b7280" }}>Country</div>
                         <input
                           type="text"
-                          value={profile.hr.country ?? ""}
+                          value={hr.country ?? ""}
                           onChange={e =>
                             setProfile(prev =>
                               prev
@@ -941,7 +943,7 @@ export default function CompanyUserProfilePage() {
                         type="button"
                         disabled={savingHr}
                         onClick={async () => {
-                          if (!profile?.hr) return;
+                          if (!profile) return;
                           const token = localStorage.getItem("accessToken");
                           if (!token) {
                             setHrError("Missing access token. Please log in again.");
@@ -950,15 +952,16 @@ export default function CompanyUserProfilePage() {
                           try {
                             setSavingHr(true);
                             setHrError(null);
+                            const currentHr = profile.hr || {};
                             const body = {
-                              displayEmail: profile.hr.displayEmail ?? null,
-                              phone: profile.hr.phone ?? null,
-                              addressLine1: profile.hr.addressLine1 ?? null,
-                              addressLine2: profile.hr.addressLine2 ?? null,
-                              city: profile.hr.city ?? null,
-                              state: profile.hr.state ?? null,
-                              postalCode: profile.hr.postalCode ?? null,
-                              country: profile.hr.country ?? null,
+                              displayEmail: currentHr.displayEmail ?? null,
+                              phone: currentHr.phone ?? null,
+                              addressLine1: currentHr.addressLine1 ?? null,
+                              addressLine2: currentHr.addressLine2 ?? null,
+                              city: currentHr.city ?? null,
+                              state: currentHr.state ?? null,
+                              postalCode: currentHr.postalCode ?? null,
+                              country: currentHr.country ?? null,
                             };
                             const res = await fetch(
                               `${API_BASE}/users/${profile.id}/portfolio-hr`,

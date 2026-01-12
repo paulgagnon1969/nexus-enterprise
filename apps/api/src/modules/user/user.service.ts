@@ -8,6 +8,14 @@ import {
   encryptPortfolioHrJson,
 } from "../../common/crypto/portfolio-hr.crypto";
 
+type HrDocumentPayload = {
+  id: string;
+  type: string;
+  fileUrl: string;
+  fileName?: string | null;
+  mimeType?: string | null;
+};
+
 type PortfolioHrPayload = {
   // Contact / identity (HR-only)
   displayEmail?: string | null;
@@ -29,6 +37,9 @@ type PortfolioHrPayload = {
 
   // HIPAA / medical / notes
   hipaaNotes?: string | null;
+
+  // HR documents (non-secret; URLs to storage)
+  documents?: HrDocumentPayload[];
 };
 
 function calculateProfileCompletionPercent(user: {
@@ -661,6 +672,8 @@ export class UserService {
     });
 
     // Optional portfolio for this user in the actor's company.
+    const canViewHr = this.canViewHrPortfolio(actor, targetUserId);
+
     let portfolio = await this.prisma.userPortfolio.findUnique({
       where: {
         UserPortfolio_company_user_key: {
@@ -698,7 +711,7 @@ export class UserService {
     }
 
     let hrPublic: any = null;
-    if (portfolio && this.canViewHrPortfolio(actor, targetUserId)) {
+    if (portfolio && canViewHr) {
       const hr = await this.prisma.userPortfolioHr.findUnique({
         where: { portfolioId: portfolio.id },
         select: {
@@ -768,6 +781,23 @@ export class UserService {
       });
     }
 
+    // Decide HR edit capability.
+    const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
+    const isOwnerOrAdmin = actor.role === Role.OWNER || actor.role === Role.ADMIN;
+    const isHrProfile = actor.profileCode === "HR";
+
+    // Nexus System detection by company name (matches onboarding service logic).
+    const companyName = membership.company?.name?.toLowerCase() ?? "";
+    const isNexusSystemCompany = companyName === "nexus system";
+
+    const canEditHr =
+      !!portfolio &&
+      (isSuperAdmin ||
+        // Nexus System HR/Admin can edit any user's Nexus System portfolio.
+        (isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile)) ||
+        // Tenant OWNER/ADMIN/HR can edit HR portfolio for their own company membership.
+        (!isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile)));
+
     return {
       id: user.id,
       email: user.email,
@@ -789,6 +819,8 @@ export class UserService {
           }
         : null,
       hr: hrPublic,
+      canViewHr,
+      canEditHr,
       worker,
       skills,
     };
