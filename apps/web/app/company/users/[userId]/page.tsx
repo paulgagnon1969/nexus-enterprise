@@ -111,6 +111,8 @@ export default function CompanyUserProfilePage() {
   // HR (confidential) card: shown only when backend provides HR payload and
   // collapsed by default so sensitive details are not immediately visible.
   const [hrCollapsed, setHrCollapsed] = useState(true);
+  const [savingHr, setSavingHr] = useState(false);
+  const [hrError, setHrError] = useState<string | null>(null);
 
   // Admin-only: per-skill rating details (including comments)
   const [detailsBySkillId, setDetailsBySkillId] = useState<Record<string, any>>({});
@@ -693,71 +695,312 @@ export default function CompanyUserProfilePage() {
                 </button>
 
                 {!hrCollapsed && (
-                  <div style={{ marginTop: 6 }}>
-                    <p style={{ margin: 0 }}>
-                      <strong>HR email:</strong>{" "}
-                      {profile.hr.displayEmail ? (
-                        <a
-                          href={`mailto:${profile.hr.displayEmail}`}
-                          style={{ color: "#2563eb", textDecoration: "none" }}
-                        >
-                          {profile.hr.displayEmail}
-                        </a>
-                      ) : (
-                        "—"
+                  <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>
+                      Editable HR contact snapshot for this worker. Changes here update
+                      the worker's HR portfolio for this company only.
+                    </div>
+
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                      <label style={{ flex: "1 1 220px" }}>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>HR email</div>
+                        <input
+                          type="email"
+                          value={profile.hr.displayEmail ?? ""}
+                          onChange={e =>
+                            setProfile(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    hr: {
+                                      ...(prev.hr || {}),
+                                      displayEmail: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          placeholder={profile.email}
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                          }}
+                        />
+                      </label>
+                      <label style={{ flex: "1 1 180px" }}>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>HR phone</div>
+                        <input
+                          type="tel"
+                          value={profile.hr.phone ?? ""}
+                          onChange={e =>
+                            setProfile(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    hr: {
+                                      ...(prev.hr || {}),
+                                      phone: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          placeholder="(555) 555-5555"
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                      <label style={{ flex: "1 1 260px" }}>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>Address line 1</div>
+                        <input
+                          type="text"
+                          value={profile.hr.addressLine1 ?? ""}
+                          onChange={e =>
+                            setProfile(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    hr: {
+                                      ...(prev.hr || {}),
+                                      addressLine1: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                          }}
+                        />
+                      </label>
+                      <label style={{ flex: "1 1 220px" }}>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>Address line 2</div>
+                        <input
+                          type="text"
+                          value={profile.hr.addressLine2 ?? ""}
+                          onChange={e =>
+                            setProfile(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    hr: {
+                                      ...(prev.hr || {}),
+                                      addressLine2: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                      <label style={{ flex: "1 1 180px" }}>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>City</div>
+                        <input
+                          type="text"
+                          value={profile.hr.city ?? ""}
+                          onChange={e =>
+                            setProfile(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    hr: {
+                                      ...(prev.hr || {}),
+                                      city: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                          }}
+                        />
+                      </label>
+                      <label style={{ flex: "0 0 100px" }}>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>State</div>
+                        <input
+                          type="text"
+                          value={profile.hr.state ?? ""}
+                          onChange={e =>
+                            setProfile(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    hr: {
+                                      ...(prev.hr || {}),
+                                      state: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                          }}
+                        />
+                      </label>
+                      <label style={{ flex: "0 0 120px" }}>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>Postal code</div>
+                        <input
+                          type="text"
+                          value={profile.hr.postalCode ?? ""}
+                          onChange={e =>
+                            setProfile(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    hr: {
+                                      ...(prev.hr || {}),
+                                      postalCode: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                          }}
+                        />
+                      </label>
+                      <label style={{ flex: "0 0 120px" }}>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>Country</div>
+                        <input
+                          type="text"
+                          value={profile.hr.country ?? ""}
+                          onChange={e =>
+                            setProfile(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    hr: {
+                                      ...(prev.hr || {}),
+                                      country: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    <div
+                      style={{
+                        marginTop: 6,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        disabled={savingHr}
+                        onClick={async () => {
+                          if (!profile?.hr) return;
+                          const token = localStorage.getItem("accessToken");
+                          if (!token) {
+                            setHrError("Missing access token. Please log in again.");
+                            return;
+                          }
+                          try {
+                            setSavingHr(true);
+                            setHrError(null);
+                            const body = {
+                              displayEmail: profile.hr.displayEmail ?? null,
+                              phone: profile.hr.phone ?? null,
+                              addressLine1: profile.hr.addressLine1 ?? null,
+                              addressLine2: profile.hr.addressLine2 ?? null,
+                              city: profile.hr.city ?? null,
+                              state: profile.hr.state ?? null,
+                              postalCode: profile.hr.postalCode ?? null,
+                              country: profile.hr.country ?? null,
+                            };
+                            const res = await fetch(
+                              `${API_BASE}/users/${profile.id}/portfolio-hr`,
+                              {
+                                method: "PATCH",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  Authorization: `Bearer ${token}`,
+                                },
+                                body: JSON.stringify(body),
+                              },
+                            );
+                            if (!res.ok) {
+                              const text = await res.text().catch(() => "");
+                              throw new Error(
+                                `Failed to save HR contact (${res.status}) ${text}`,
+                              );
+                            }
+                            const json = await res.json();
+                            setProfile(json);
+                          } catch (e: any) {
+                            setHrError(e?.message ?? "Failed to save HR contact.");
+                          } finally {
+                            setSavingHr(false);
+                          }
+                        }}
+                        style={{
+                          padding: "4px 10px",
+                          borderRadius: 4,
+                          border: "1px solid #0f172a",
+                          backgroundColor: savingHr ? "#e5e7eb" : "#0f172a",
+                          color: savingHr ? "#4b5563" : "#f9fafb",
+                          fontSize: 12,
+                          cursor: savingHr ? "default" : "pointer",
+                        }}
+                      >
+                        {savingHr ? "Saving…" : "Save HR contact"}
+                      </button>
+                      {hrError && (
+                        <span style={{ fontSize: 11, color: "#b91c1c" }}>{hrError}</span>
                       )}
-                    </p>
-                    <p style={{ margin: 0 }}>
-                      <strong>HR phone:</strong>{" "}
-                      {(() => {
-                        const formatted = formatPhone(
-                          profile.hr?.phone ?? null,
-                          profile.hr?.country ?? "US",
-                        );
-                        if (!formatted) return "—";
-                        return (
-                          <a
-                            href={formatted.href}
-                            style={{ color: "#2563eb", textDecoration: "none" }}
-                          >
-                            {formatted.display}
-                          </a>
-                        );
-                      })()}
-                    </p>
-                    <p style={{ margin: 0, marginTop: 4 }}>
-                      <strong>Address:</strong>{" "}
-                      {(() => {
-                        const parts: string[] = [];
-                        if (profile.hr.addressLine1) parts.push(profile.hr.addressLine1);
-                        if (profile.hr.addressLine2) parts.push(profile.hr.addressLine2);
-                        const cityStateHr = [profile.hr.city, profile.hr.state]
-                          .filter(Boolean)
-                          .join(", ");
-                        if (cityStateHr) parts.push(cityStateHr);
-                        if (profile.hr.postalCode) parts.push(profile.hr.postalCode);
-                        const addr = parts.join(", ");
-                        if (!addr) return "—";
-                        const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                          addr,
-                        )}`;
-                        return (
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ color: "#2563eb", textDecoration: "none" }}
-                          >
-                            {addr}
-                          </a>
-                        );
-                      })()}
-                    </p>
-                    {profile.hr.country && (
-                      <p style={{ margin: 0, marginTop: 2, fontSize: 12, color: "#6b7280" }}>
-                        {profile.hr.country}
-                      </p>
-                    )}
+                    </div>
                   </div>
                 )}
               </div>

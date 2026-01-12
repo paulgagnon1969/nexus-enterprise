@@ -39,6 +39,19 @@ export class UserController {
     return this.users.updateMyPortfolio(actor, body ?? {});
   }
 
+  // Admin/HR-only: update HR portfolio fields for a specific user in the
+  // current company context (non-sensitive contact details only).
+  @UseGuards(JwtAuthGuard)
+  @Patch(":id/portfolio-hr")
+  updateUserPortfolioHr(
+    @Param("id") targetUserId: string,
+    @Req() req: any,
+    @Body() body: any,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.users.updateUserPortfolioHr(actor, targetUserId, body ?? {});
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get(":id/profile")
   profile(@Param("id") id: string, @Req() req: any) {
