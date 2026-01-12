@@ -103,6 +103,14 @@ export default function CandidateDetailPage() {
   // sending the user to a 404 when legacy records exist without files.
   const [docAvailable, setDocAvailable] = useState<Record<string, boolean>>({});
 
+  // HR-only document uploads from the candidate detail page (Nexus System HR
+  // acting on behalf of the candidate). These reuse the existing public
+  // onboarding document endpoint, then refresh the session to pick up the
+  // new documents.
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingGovId, setUploadingGovId] = useState(false);
+  const [docUploadError, setDocUploadError] = useState<string | null>(null);
+
   // Collapse the HR onboarding profile card by default so sensitive fields
   // are not immediately visible; HR/admins can click to unlock.
   const [hrProfileCollapsed, setHrProfileCollapsed] = useState(true);
@@ -428,6 +436,63 @@ export default function CandidateDetailPage() {
   const checklistPercent = Math.round(
     (completedChecklistCount / (checklistItems.length || 1)) * 100,
   );
+
+  // Only Nexus System HR / SUPER_ADMIN will have canViewHr in this context, so
+  // we can safely use that flag to decide whether to show HR document upload
+  // controls.
+  const canUploadHrDocs = !!(canViewHr && session?.token);
+
+  async function uploadHrDocument(type: "PHOTO" | "GOV_ID", file: File) {
+    if (!session?.token) return;
+    setDocUploadError(null);
+
+    try {
+      if (type === "PHOTO") setUploadingPhoto(true);
+      if (type === "GOV_ID") setUploadingGovId(true);
+
+      const form = new FormData();
+      form.append("type", type);
+      form.append("file", file);
+
+      const res = await fetch(`${API_BASE}/onboarding/${session.token}/document`, {
+        method: "POST",
+        body: form,
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Failed to upload ${type === "PHOTO" ? "photo" : "ID"}.`);
+      }
+
+      // Refresh the authenticated session-for-review so we pick up the
+      // newly added document and the updated checklist state.
+      const accessToken = window.localStorage.getItem("accessToken");
+      if (accessToken) {
+        const refreshRes = await fetch(
+          `${API_BASE}/onboarding/sessions/${session.id}`,
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+        );
+        if (refreshRes.ok) {
+          const refreshed = await refreshRes.json();
+          setSession(prev =>
+            prev
+              ? {
+                  ...prev,
+                  status: refreshed.status ?? prev.status,
+                  checklist: refreshed.checklist ?? prev.checklist,
+                  documents: refreshed.documents ?? prev.documents,
+                }
+              : prev,
+          );
+        }
+      }
+    } catch (e: any) {
+      setDocUploadError(e?.message ?? "Failed to upload document.");
+    } finally {
+      if (type === "PHOTO") setUploadingPhoto(false);
+      if (type === "GOV_ID") setUploadingGovId(false);
+    }
+  }
 
   return (
     <div className="app-card">
@@ -1397,6 +1462,71 @@ export default function CandidateDetailPage() {
                     );
                   })}
                 </ul>
+
+                {canUploadHrDocs && (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      paddingTop: 8,
+                      borderTop: "1px dashed #e5e7eb",
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                      Update documents (Nexus System HR)
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      <label style={{ fontSize: 12 }}>
+                        Profile photo
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={async e => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            await uploadHrDocument("PHOTO", file);
+                            // allow re-upload
+                            e.target.value = "";
+                          }}
+                          style={{ display: "block", marginTop: 2, fontSize: 12 }}
+                        />
+                        <span style={{ fontSize: 11, color: "#6b7280" }}>
+                          {uploadingPhoto
+                            ? "Uploading photo…"
+                            : checklist.photoUploaded
+                            ? "Photo on file. Selecting a new file will replace it."
+                            : "Select a clear photo of the candidate to upload."}
+                        </span>
+                      </label>
+
+                      <label style={{ fontSize: 12 }}>
+                        Government ID
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={async e => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            await uploadHrDocument("GOV_ID", file);
+                            e.target.value = "";
+                          }}
+                          style={{ display: "block", marginTop: 2, fontSize: 12 }}
+                        />
+                        <span style={{ fontSize: 11, color: "#6b7280" }}>
+                          {uploadingGovId
+                            ? "Uploading ID…"
+                            : checklist.govIdUploaded
+                            ? "ID on file. Selecting a new file will replace it."
+                            : "Upload a driver’s license or other government ID."}
+                        </span>
+                      </label>
+                    </div>
+                    {docUploadError && (
+                      <div style={{ marginTop: 6, fontSize: 11, color: "#b91c1c" }}>
+                        {docUploadError}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })()}
