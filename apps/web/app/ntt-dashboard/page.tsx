@@ -47,10 +47,17 @@ interface TaskDto {
   createdAt?: string;
 }
 
+interface MessageAttachmentDto {
+  id: string;
+  url: string;
+  filename?: string | null;
+}
+
 interface MessageDto {
   id: string;
   body: string;
   createdAt?: string;
+  attachments?: MessageAttachmentDto[];
 }
 
 export default function NttDashboardPage() {
@@ -447,6 +454,57 @@ export default function NttDashboardPage() {
                 {ts ? ts.toLocaleString() : ""}
               </div>
               <div style={{ whiteSpace: "pre-wrap" }}>{m.body}</div>
+              {m.attachments && m.attachments.length > 0 && (
+                <div style={{ marginTop: 4, fontSize: 11 }}>
+                  {m.attachments.map(att => {
+                    const name = (att.filename || att.url || "").toLowerCase();
+                    const isImage = /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name);
+                    if (isImage) {
+                      return (
+                        <div
+                          key={att.id}
+                          style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}
+                        >
+                          <a
+                            href={att.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+                          >
+                            <img
+                              src={att.url}
+                              alt={att.filename || "Screenshot"}
+                              style={{
+                                width: 80,
+                                height: 80,
+                                objectFit: "cover",
+                                borderRadius: 6,
+                                border: "1px solid #e5e7eb",
+                                backgroundColor: "#f9fafb",
+                              }}
+                            />
+                            <span style={{ color: "#2563eb", textDecoration: "underline" }}>
+                              {att.filename || att.url}
+                            </span>
+                          </a>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={att.id}>
+                        <a
+                          href={att.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: "#2563eb", textDecoration: "underline" }}
+                        >
+                          {att.filename || att.url}
+                        </a>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}

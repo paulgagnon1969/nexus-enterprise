@@ -8,12 +8,29 @@ import {
   Req,
   UseGuards,
 } from "@nestjs/common";
-import { IsArray, IsEnum, IsOptional, IsString } from "class-validator";
+import { IsArray, IsEnum, IsOptional, IsString, ValidateNested } from "class-validator";
+import { Type } from "class-transformer";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { NttService } from "./ntt.service";
 import { NttTicketReadGuard, NttTicketManageGuard } from "./ntt.guards";
-import { NttStatus, NttSubjectType } from "@prisma/client";
+import { NttStatus, NttSubjectType, $Enums } from "@prisma/client";
+
+class NttAttachmentDto {
+  @IsEnum($Enums.AttachmentKind)
+  kind!: $Enums.AttachmentKind;
+
+  @IsString()
+  url!: string;
+
+  @IsOptional()
+  @IsString()
+  filename?: string | null;
+
+  @IsOptional()
+  @IsString()
+  mimeType?: string | null;
+}
 
 class CreateNttDto {
   @IsEnum(NttSubjectType)
@@ -40,6 +57,12 @@ class CreateNttDto {
   @IsArray()
   @IsString({ each: true })
   tagCodes?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => NttAttachmentDto)
+  attachments?: NttAttachmentDto[];
 }
 
 @Controller("ntt")
@@ -60,6 +83,7 @@ export class NttController {
       pageLabel: dto.pageLabel,
       contextJson: dto.contextJson,
       tagCodes: dto.tagCodes,
+      attachments: dto.attachments,
     });
   }
 

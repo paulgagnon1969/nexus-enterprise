@@ -2934,6 +2934,9 @@ function ProspectiveCandidatesPanel({
   const [showBulkJournalPanel, setShowBulkJournalPanel] = useState(false);
   const [bulkJournalText, setBulkJournalText] = useState("");
   const [bulkJournalSaving, setBulkJournalSaving] = useState(false);
+  const [bulkJournalAttachments, setBulkJournalAttachments] = useState<
+    { url: string; label?: string }[]
+  >([]);
   const [showBulkMessageModal, setShowBulkMessageModal] = useState(false);
   const [bulkMessageRecipients, setBulkMessageRecipients] = useState<
     { email: string; userId?: string | null }[] | null
@@ -3442,7 +3445,17 @@ function ProspectiveCandidatesPanel({
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({ body: trimmed }),
+            body: JSON.stringify({
+              body: trimmed,
+              attachments:
+                bulkJournalAttachments.length > 0
+                  ? bulkJournalAttachments.map(att => ({
+                      kind: "UPLOADED_FILE",
+                      url: att.url,
+                      filename: att.label || null,
+                    }))
+                  : undefined,
+            }),
           });
           if (!res.ok) {
             const text = await res.text().catch(() => "");
@@ -3452,6 +3465,7 @@ function ProspectiveCandidatesPanel({
       );
       alert("Journal entry added for selected candidates.");
       setBulkJournalText("");
+      setBulkJournalAttachments([]);
       setShowBulkJournalPanel(false);
     } catch (e: any) {
       alert(e?.message ?? "Failed to add journal entries");
@@ -4789,6 +4803,74 @@ function ProspectiveCandidatesPanel({
           <textarea
             value={bulkJournalText}
             onChange={e => setBulkJournalText(e.target.value)}
+            onPaste={async e => {
+              const items = e.clipboardData?.items;
+              if (!items || items.length === 0) return;
+              const images: File[] = [];
+              for (let i = 0; i < items.length; i += 1) {
+                const item = items[i];
+                if (item.kind === "file" && item.type.startsWith("image/")) {
+                  const file = item.getAsFile();
+                  if (file) images.push(file);
+                }
+              }
+              if (images.length === 0) return;
+
+              e.preventDefault();
+
+              if (typeof window === "undefined") return;
+              const token = window.localStorage.getItem("accessToken");
+              if (!token) {
+                alert("Missing access token. Please log in again.");
+                return;
+              }
+
+              for (const file of images) {
+                try {
+                  const metaRes = await fetch(`${API_BASE}/uploads`, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                      contentType: file.type || "image/png",
+                      fileName: file.name || "screenshot.png",
+                      scope: "JOURNAL",
+                    }),
+                  });
+                  if (!metaRes.ok) {
+                    throw new Error(`Failed to prepare upload (${metaRes.status})`);
+                  }
+                  const meta: any = await metaRes.json();
+                  const uploadUrl: string | undefined = meta.uploadUrl;
+                  const publicUrl: string | undefined = meta.publicUrl || meta.fileUri;
+                  if (!uploadUrl || !publicUrl) {
+                    throw new Error("Upload metadata was incomplete");
+                  }
+
+                  const putRes = await fetch(uploadUrl, {
+                    method: "PUT",
+                    headers: {
+                      "Content-Type": file.type || "application/octet-stream",
+                    },
+                    body: file,
+                  });
+                  if (!putRes.ok) {
+                    throw new Error(`Failed to upload image (${putRes.status})`);
+                  }
+
+                  const label = file.name && file.name.trim().length > 0
+                    ? file.name
+                    : "Screenshot";
+                  setBulkJournalAttachments(prev => [...prev, { url: publicUrl, label }]);
+                } catch (err: any) {
+                  console.error("Failed to upload pasted bulk journal image", err);
+                  alert(err?.message ?? "Failed to upload pasted image.");
+                  break;
+                }
+              }
+            }}
             rows={3}
             style={{
               width: "100%",
@@ -4800,6 +4882,42 @@ function ProspectiveCandidatesPanel({
             }}
             placeholder="Type a journal note that will be added to each selected candidate's profile"
           />
+          {bulkJournalAttachments.length > 0 && (
+            <div style={{ marginTop: 6, fontSize: 11 }}>
+              <div style={{ marginBottom: 2 }}>Attached images</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {bulkJournalAttachments.map(att => (
+                  <span
+                    key={att.url}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "2px 6px",
+                      borderRadius: 999,
+                      border: "1px solid #d1d5db",
+                      backgroundColor: "#eef2ff",
+                    }}
+                  >
+                    <span>{att.label || att.url}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBulkJournalAttachments(prev => prev.filter(x => x.url !== att.url))
+                      }
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        cursor: "pointer",
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 6 }}>
             <button
               type="button"

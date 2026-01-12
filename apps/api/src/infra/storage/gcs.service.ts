@@ -78,6 +78,17 @@ export class GcsService {
   }
 
   /**
+   * Compute a public HTTP URL for a given gs:// URI. This assumes the
+   * underlying bucket/object is readable via this base; callers are
+   * responsible for configuring bucket ACLs appropriately.
+   */
+  getPublicUrlFromUri(uri: string): string {
+    const { bucket, object } = this.parseGsUri(uri);
+    const base = process.env.GCS_PUBLIC_BASE_URL || "https://storage.googleapis.com";
+    return `${base}/${bucket}/${object}`;
+  }
+
+  /**
    * Download a gs:// URI to a temporary file and return the local path.
    */
   async downloadToTmp(uri: string): Promise<string> {
