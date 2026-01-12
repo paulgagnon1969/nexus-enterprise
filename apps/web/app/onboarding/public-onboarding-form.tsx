@@ -805,12 +805,8 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
               autoComplete="bday"
               value={dob}
               onChange={e => {
-                const value = e.target.value;
-                setDob(value);
-                // When a full date is entered, move focus to the next field.
-                if (value && addressLine1Ref.current) {
-                  addressLine1Ref.current.focus();
-                }
+                // Let the browser handle full yyyy input without jumping focus.
+                setDob(e.target.value);
               }}
               onBlur={() => void saveProfileIfNeeded()}
               style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}

@@ -16,6 +16,7 @@ interface CandidateProfile {
   city?: string | null;
   state?: string | null;
   postalCode?: string | null;
+  country?: string | null;
 }
 
 interface CandidateSessionForReview {
@@ -41,6 +42,13 @@ interface CandidateSessionForReview {
     accountNumberMasked?: string | null;
     bankName?: string | null;
   } | null;
+  documents?: {
+    id: string;
+    type: string;
+    fileUrl: string;
+    fileName?: string | null;
+    mimeType?: string | null;
+  }[] | null;
 }
 
 interface MeMembership {
@@ -172,6 +180,7 @@ export default function CandidateDetailPage() {
           bankInfo: json.bankInfo ?? null,
           checklist: json.checklist ?? null,
           detailStatusCode: json.detailStatusCode ?? null,
+          documents: json.documents ?? null,
         });
       } catch (e: any) {
         setError(e?.message ?? "Failed to load candidate.");
@@ -886,6 +895,33 @@ export default function CandidateDetailPage() {
                     }}
                   />
                 </p>
+                <p style={{ margin: 0 }}>
+                  <strong>Country:</strong>{" "}
+                  <input
+                    type="text"
+                    value={session.profile?.country ?? ""}
+                    onChange={e =>
+                      setSession(prev =>
+                        prev
+                          ? {
+                              ...prev,
+                              profile: {
+                                ...(prev.profile || {}),
+                                country: e.target.value,
+                              },
+                            }
+                          : prev,
+                      )
+                    }
+                    style={{
+                      fontSize: 12,
+                      padding: "2px 4px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      minWidth: 100,
+                    }}
+                  />
+                </p>
               </div>
             </div>
             <div
@@ -921,6 +957,7 @@ export default function CandidateDetailPage() {
                       city: session.profile?.city ?? null,
                       state: session.profile?.state ?? null,
                       postalCode: session.profile?.postalCode ?? null,
+                      country: session.profile?.country ?? null,
                     };
 
                     // Primary path: HR-only authenticated endpoint.
@@ -1146,6 +1183,140 @@ export default function CandidateDetailPage() {
               );
             })()}
           </p>
+
+          {Array.isArray(session.documents) && session.documents.length > 0 && (() => {
+            const docs = session.documents ?? [];
+            const photos = docs.filter(d => (d.type || "").toUpperCase() === "PHOTO");
+            const govIds = docs.filter(d => (d.type || "").toUpperCase() === "GOV_ID");
+            const others = docs.filter(d => {
+              const t = (d.type || "").toUpperCase();
+              return t !== "PHOTO" && t !== "GOV_ID";
+            });
+
+            return (
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: 10,
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                  background: "#ffffff",
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Onboarding documents</div>
+                <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {photos.map(doc => {
+                    const label = doc.fileName || "Profile photo";
+                    return (
+                      <li key={doc.id}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <img
+                            src={doc.fileUrl}
+                            alt={label}
+                            style={{
+                              width: 56,
+                              height: 56,
+                              borderRadius: 6,
+                              objectFit: "cover",
+                              border: "1px solid #e5e7eb",
+                            }}
+                          />
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 500 }}>Profile photo</div>
+                            <a
+                              href={doc.fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}
+                            >
+                              View full-size
+                            </a>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+
+                  {govIds.map(doc => {
+                    const label = doc.fileName || "Government ID";
+                    return (
+                      <li key={doc.id}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div
+                            style={{
+                              width: 40,
+                              height: 40,
+                              borderRadius: 8,
+                              border: "1px solid #fee2e2",
+                              background: "#fef2f2",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 11,
+                              color: "#b91c1c",
+                              fontWeight: 600,
+                            }}
+                          >
+                            ID
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 500 }}>Government ID</div>
+                            <a
+                              href={doc.fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}
+                            >
+                              View uploaded ID ({label})
+                            </a>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+
+                  {others.map(doc => {
+                    const label = doc.fileName || doc.type || "Attachment";
+                    return (
+                      <li key={doc.id}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div
+                            style={{
+                              width: 40,
+                              height: 40,
+                              borderRadius: 8,
+                              border: "1px solid #e5e7eb",
+                              background: "#f9fafb",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 11,
+                              color: "#4b5563",
+                            }}
+                          >
+                            FILE
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 500 }}>{label}</div>
+                            <a
+                              href={doc.fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}
+                            >
+                              View attachment
+                            </a>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })()}
+
           {session.bankInfo && (
             <div
               style={{
