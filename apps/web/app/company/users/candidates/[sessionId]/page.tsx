@@ -908,7 +908,23 @@ export default function CandidateDetailPage() {
                   try {
                     setSavingProfile(true);
                     setProfileError(null);
-                    const res = await fetch(
+
+                    const body = {
+                      firstName: session.profile?.firstName ?? null,
+                      lastName: session.profile?.lastName ?? null,
+                      phone: session.profile?.phone ?? null,
+                      dob: session.profile?.dob
+                        ? String(session.profile.dob).slice(0, 10)
+                        : null,
+                      addressLine1: session.profile?.addressLine1 ?? null,
+                      addressLine2: session.profile?.addressLine2 ?? null,
+                      city: session.profile?.city ?? null,
+                      state: session.profile?.state ?? null,
+                      postalCode: session.profile?.postalCode ?? null,
+                    };
+
+                    // Primary path: HR-only authenticated endpoint.
+                    let res = await fetch(
                       `${API_BASE}/onboarding/sessions/${session.id}/profile`,
                       {
                         method: "POST",
@@ -916,28 +932,48 @@ export default function CandidateDetailPage() {
                           "Content-Type": "application/json",
                           Authorization: `Bearer ${token}`,
                         },
-                        body: JSON.stringify({
-                          firstName: session.profile?.firstName ?? null,
-                          lastName: session.profile?.lastName ?? null,
-                          phone: session.profile?.phone ?? null,
-                          dob: session.profile?.dob ? String(session.profile.dob).slice(0, 10) : null,
-                          addressLine1: session.profile?.addressLine1 ?? null,
-                          addressLine2: session.profile?.addressLine2 ?? null,
-                          city: session.profile?.city ?? null,
-                          state: session.profile?.state ?? null,
-                          postalCode: session.profile?.postalCode ?? null,
-                        }),
+                        body: JSON.stringify(body),
                       },
                     );
+
+                    // Fallback for environments where the new HR endpoint has
+                    // not been deployed yet: use the existing token-based
+                    // public profile endpoint so edits still persist.
+                    if (res.status === 404 && session.token) {
+                      res = await fetch(`${API_BASE}/onboarding/${session.token}/profile`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify(body),
+                      });
+                    }
+
                     if (!res.ok) {
                       const text = await res.text().catch(() => "");
                       throw new Error(
                         `Failed to save onboarding profile (${res.status}) ${text}`,
                       );
                     }
+
                     const json = await res.json().catch(() => null);
                     if (json && json.profile) {
                       setSession(prev => (prev ? { ...prev, profile: json.profile } : prev));
+                    } else {
+                      // Token-based endpoint currently does not return profile;
+                      // assume success and mark checklist as having profile
+                      // information complete.
+                      setSession(prev =>
+                        prev
+                          ? {
+                              ...prev,
+                              checklist: {
+                                ...(prev.checklist || {}),
+                                profileComplete: true,
+                              },
+                            }
+                          : prev,
+                      );
                     }
                   } catch (err: any) {
                     setProfileError(err?.message ?? "Failed to save onboarding profile.");

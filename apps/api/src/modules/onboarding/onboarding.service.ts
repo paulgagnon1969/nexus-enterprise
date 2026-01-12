@@ -78,6 +78,79 @@ export class OnboardingService {
     return trimmed === "" ? null : trimmed;
   }
 
+  // Best-effort normalization of US state values to two-letter abbreviations.
+  // Accepts inputs like "Arizona", "az", "AZ" and returns "AZ". If the
+  // value cannot be mapped, we return a trimmed version unchanged.
+  private normalizeUsState(value?: string | null): string | null {
+    const base = this.normalizeProfileField(value);
+    if (!base) return null;
+
+    const upper = base.toUpperCase();
+    // Already looks like a 2-letter code.
+    if (/^[A-Z]{2}$/.test(upper)) {
+      return upper;
+    }
+
+    const map: Record<string, string> = {
+      ALABAMA: "AL",
+      ALASKA: "AK",
+      ARIZONA: "AZ",
+      ARKANSAS: "AR",
+      CALIFORNIA: "CA",
+      COLORADO: "CO",
+      CONNECTICUT: "CT",
+      DELAWARE: "DE",
+      "DISTRICT OF COLUMBIA": "DC",
+      "WASHINGTON DC": "DC",
+      FLORIDA: "FL",
+      GEORGIA: "GA",
+      HAWAII: "HI",
+      IDAHO: "ID",
+      ILLINOIS: "IL",
+      INDIANA: "IN",
+      IOWA: "IA",
+      KANSAS: "KS",
+      KENTUCKY: "KY",
+      LOUISIANA: "LA",
+      MAINE: "ME",
+      MARYLAND: "MD",
+      MASSACHUSETTS: "MA",
+      MICHIGAN: "MI",
+      MINNESOTA: "MN",
+      MISSISSIPPI: "MS",
+      MISSOURI: "MO",
+      MONTANA: "MT",
+      NEBRASKA: "NE",
+      NEVADA: "NV",
+      "NEW HAMPSHIRE": "NH",
+      "NEW JERSEY": "NJ",
+      "NEW MEXICO": "NM",
+      "NEW YORK": "NY",
+      "NORTH CAROLINA": "NC",
+      "NORTH DAKOTA": "ND",
+      OHIO: "OH",
+      OKLAHOMA: "OK",
+      OREGON: "OR",
+      PENNSYLVANIA: "PA",
+      "RHODE ISLAND": "RI",
+      "SOUTH CAROLINA": "SC",
+      "SOUTH DAKOTA": "SD",
+      TENNESSEE: "TN",
+      TEXAS: "TX",
+      UTAH: "UT",
+      VERMONT: "VT",
+      VIRGINIA: "VA",
+      WASHINGTON: "WA",
+      "WEST VIRGINIA": "WV",
+      WISCONSIN: "WI",
+      WYOMING: "WY",
+    };
+
+    const key = upper.replace(/\./g, "").trim();
+    const mapped = map[key];
+    return mapped || upper;
+  }
+
   // --- Candidate status definitions (Prospective Candidates pipeline) ---
 
   async listStatusDefinitions(companyId: string, actor: AuthenticatedUser) {
@@ -283,7 +356,7 @@ export class OnboardingService {
         input.addressLine2 ?? session.profile?.addressLine2 ?? null,
       ),
       city: this.normalizeProfileField(input.city ?? session.profile?.city ?? null),
-      state: this.normalizeProfileField(input.state ?? session.profile?.state ?? null),
+      state: this.normalizeUsState(input.state ?? session.profile?.state ?? null),
       postalCode: this.normalizeProfileField(
         input.postalCode ?? session.profile?.postalCode ?? null,
       ),
@@ -691,12 +764,17 @@ export class OnboardingService {
   }) {
     const session = await this.getSessionByToken(token);
 
+    const normalizedProfile = {
+      ...profile,
+      state: this.normalizeUsState(profile.state ?? null) ?? undefined,
+    };
+
     await this.prisma.onboardingProfile.upsert({
       where: { sessionId: session.id },
-      update: profile,
+      update: normalizedProfile,
       create: {
         sessionId: session.id,
-        ...profile,
+        ...normalizedProfile,
       },
     });
 
@@ -1289,6 +1367,35 @@ export class OnboardingService {
     }
 
     return updated;
+  }
+
+  async normalizeProspectiveCandidateStates(actor: AuthenticatedUser) {
+    if ((actor as any).globalRole !== "SUPER_ADMIN") {
+      throw new ForbiddenException("Only SUPER_ADMIN can normalize candidate states");
+    }
+
+    const profiles = await this.prisma.onboardingProfile.findMany({
+      where: {
+        state: { not: null },
+      },
+      select: {
+        sessionId: true,
+        state: true,
+      },
+    });
+
+    let updated = 0;
+    for (const p of profiles) {
+      const next = this.normalizeUsState(p.state);
+      if (!next || next === p.state) continue;
+      await this.prisma.onboardingProfile.update({
+        where: { sessionId: p.sessionId },
+        data: { state: next },
+      });
+      updated += 1;
+    }
+
+    return { updated };
   }
 
   async getLatestSessionForUser(actor: AuthenticatedUser) {
