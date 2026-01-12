@@ -806,7 +806,21 @@ export default function MessagingPage() {
             justifyContent: "space-between",
           }}
         >
-          <h2 style={{ marginTop: 0, fontSize: 16 }}>Messages</h2>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <h2 style={{ marginTop: 0, fontSize: 16 }}>Messages</h2>
+            <span
+              style={{
+                fontSize: 11,
+                padding: "2px 6px",
+                borderRadius: 999,
+                border: "1px solid #22c55e",
+                backgroundColor: "#dcfce7",
+                color: "#166534",
+              }}
+            >
+              v-next
+            </span>
+          </div>
           <button
             type="button"
             onClick={() => setShowComposer(v => !v)}
