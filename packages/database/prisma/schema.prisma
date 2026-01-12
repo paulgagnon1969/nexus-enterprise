@@ -948,6 +948,7 @@ model ProjectBuilding {
   project   Project           @relation(fields: [projectId], references: [id])
   particles ProjectParticle[]
   units     ProjectUnit[]
+  dailyLogs DailyLog[]        @relation("ProjectBuildingDailyLogs")
 }
 
 model ProjectUnit {
@@ -964,6 +965,7 @@ model ProjectUnit {
   building     ProjectBuilding?  @relation(fields: [buildingId], references: [id])
   company      Company           @relation(fields: [companyId], references: [id])
   project      Project           @relation(fields: [projectId], references: [id])
+  dailyLogs    DailyLog[]        @relation("ProjectUnitDailyLogs")
 
   @@unique([projectId, label], name: "ProjectUnit_projectId_label_key")
 }
@@ -992,6 +994,7 @@ model ProjectParticle {
   sowItems                 SowItem[]
   sowLogicalItems          SowLogicalItem[]
   tasks                    Task[]
+  dailyLogs                DailyLog[]          @relation("ProjectParticleDailyLogs")
 }
 
 model AdminAuditLog {
@@ -1301,6 +1304,7 @@ model SowItem {
   rawRow               RawXactRow               @relation(fields: [rawRowId], references: [id])
   sow                  Sow                      @relation(fields: [sowId], references: [id])
   assetUsages          AssetUsage[]
+  dailyLogs            DailyLog[]               @relation("SowItemDailyLogs")
 
   @@index([estimateVersionId, projectParticleId], map: "SowItem_estimate_particle_idx")
   @@index([projectParticleId], map: "SowItem_particle_idx")
@@ -1402,6 +1406,11 @@ model DailyLog {
   manpowerOnsite       String?
   personOnsite         String?
   confidentialNotes    String?
+  /// Optional PETL context
+  buildingId           String?
+  unitId               String?
+  roomParticleId       String?
+  sowItemId            String?
   shareInternal        Boolean              @default(true)
   shareSubs            Boolean              @default(false)
   shareClient          Boolean              @default(false)
@@ -1415,8 +1424,14 @@ model DailyLog {
   project              Project              @relation(fields: [projectId], references: [id])
   attachments          DailyLogAttachment[]
   assetUsages          AssetUsage[]
+  building             ProjectBuilding?     @relation("ProjectBuildingDailyLogs", fields: [buildingId], references: [id])
+  unit                 ProjectUnit?         @relation("ProjectUnitDailyLogs", fields: [unitId], references: [id])
+  roomParticle         ProjectParticle?     @relation("ProjectParticleDailyLogs", fields: [roomParticleId], references: [id])
+  sowItem              SowItem?             @relation("SowItemDailyLogs", fields: [sowItemId], references: [id])
 
   @@index([projectId], map: "DailyLog_project_idx")
+  @@index([projectId, roomParticleId], map: "DailyLog_project_room_idx")
+  @@index([projectId, sowItemId], map: "DailyLog_project_sow_idx")
 }
 
 model DailyLogAttachment {

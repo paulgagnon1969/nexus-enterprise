@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { DailyLogService } from "./daily-log.service";
@@ -52,5 +52,23 @@ export class DailyLogAttachmentsController {
       buffer,
       size: buffer.length,
     });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Post("link")
+  async linkAttachment(
+    @Req() req: any,
+    @Param("logId") logId: string,
+    @Body()
+    body: {
+      fileUrl: string;
+      fileName?: string | null;
+      mimeType?: string | null;
+      sizeBytes?: number | null;
+    },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.addAttachmentLink(logId, user.companyId, user, body);
   }
 }
