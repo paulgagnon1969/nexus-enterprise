@@ -5,6 +5,7 @@ import { GcsService } from "../../infra/storage/gcs.service";
 
 @Controller("uploads")
 @UseGuards(JwtAuthGuard)
+// Handles signed upload URL creation for rich message/journal attachments.
 export class UploadsController {
   constructor(private readonly gcs: GcsService) {}
 
