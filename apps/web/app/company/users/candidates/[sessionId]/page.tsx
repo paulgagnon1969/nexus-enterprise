@@ -99,6 +99,10 @@ export default function CandidateDetailPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
 
+  // Track availability of uploaded onboarding documents so we can avoid
+  // sending the user to a 404 when legacy records exist without files.
+  const [docAvailable, setDocAvailable] = useState<Record<string, boolean>>({});
+
   // Collapse the HR onboarding profile card by default so sensitive fields
   // are not immediately visible; HR/admins can click to unlock.
   const [hrProfileCollapsed, setHrProfileCollapsed] = useState(true);
@@ -326,6 +330,44 @@ export default function CandidateDetailPage() {
 
     void loadJournal();
   }, [canViewHr, session?.userId]);
+
+  // Best-effort detection of missing onboarding document files. Some legacy
+  // records may reference files that are no longer present on disk; instead of
+  // sending HR to a 404 page, we mark those as unavailable and show a friendly
+  // message.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const docs = session?.documents;
+    if (!Array.isArray(docs) || docs.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      const updates: Record<string, boolean> = {};
+      for (const doc of docs) {
+        if (!doc?.id) continue;
+        if (!doc.fileUrl) {
+          updates[doc.id] = false;
+          continue;
+        }
+        const url = doc.fileUrl.startsWith("http")
+          ? doc.fileUrl
+          : `${window.location.origin}${doc.fileUrl}`;
+        try {
+          const res = await fetch(url, { method: "HEAD" });
+          updates[doc.id] = res.ok;
+        } catch {
+          updates[doc.id] = false;
+        }
+      }
+      if (!cancelled && Object.keys(updates).length) {
+        setDocAvailable(prev => ({ ...prev, ...updates }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.documents]);
 
   const renderStars = (value: number | null, size: number) => {
     const filledCount = value == null ? 0 : Math.round(value);
@@ -1152,7 +1194,7 @@ export default function CandidateDetailPage() {
         )}
       </section>
 
-      {canViewHr && (
+      {canViewHr && !hrProfileCollapsed && (
         <section style={{ marginTop: 16 }}>
           <h2 style={{ fontSize: 16, marginBottom: 4 }}>HR (confidential)</h2>
           <p style={{ fontSize: 13 }}>
@@ -1193,6 +1235,24 @@ export default function CandidateDetailPage() {
               return t !== "PHOTO" && t !== "GOV_ID";
             });
 
+            if (!photos.length && !govIds.length && !others.length) {
+              return (
+                <div
+                  style={{
+                    marginTop: 6,
+                    padding: 10,
+                    borderRadius: 8,
+                    border: "1px solid #e5e7eb",
+                    background: "#ffffff",
+                    fontSize: 12,
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>Onboarding documents</div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>No attachment uploaded.</div>
+                </div>
+              );
+            }
+
             return (
               <div
                 style={{
@@ -1208,6 +1268,14 @@ export default function CandidateDetailPage() {
                 <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 6 }}>
                   {photos.map(doc => {
                     const label = doc.fileName || "Profile photo";
+                    const available = docAvailable[doc.id];
+                    if (available === false) {
+                      return (
+                        <li key={doc.id}>
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>No attachment uploaded.</div>
+                        </li>
+                      );
+                    }
                     return (
                       <li key={doc.id}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1240,6 +1308,14 @@ export default function CandidateDetailPage() {
 
                   {govIds.map(doc => {
                     const label = doc.fileName || "Government ID";
+                    const available = docAvailable[doc.id];
+                    if (available === false) {
+                      return (
+                        <li key={doc.id}>
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>No attachment uploaded.</div>
+                        </li>
+                      );
+                    }
                     return (
                       <li key={doc.id}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1278,6 +1354,14 @@ export default function CandidateDetailPage() {
 
                   {others.map(doc => {
                     const label = doc.fileName || doc.type || "Attachment";
+                    const available = docAvailable[doc.id];
+                    if (available === false) {
+                      return (
+                        <li key={doc.id}>
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>No attachment uploaded.</div>
+                        </li>
+                      );
+                    }
                     return (
                       <li key={doc.id}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

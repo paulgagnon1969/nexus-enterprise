@@ -380,6 +380,101 @@ export class UserService {
     return this.getMyPortfolio(actor);
   }
 
+  // Admin/HR-only update of non-sensitive HR portfolio fields for a specific
+  // user in the current company context. This allows HR/admins to adjust
+  // display email, phone, and mailing address for a worker from the Company
+  // Users profile page.
+  async updateUserPortfolioHr(actor: AuthenticatedUser, targetUserId: string, body: any) {
+    const companyId = actor.companyId;
+    if (!companyId) {
+      throw new ForbiddenException("Missing company context");
+    }
+
+    // Ensure the target user is a member of the actor's company.
+    const membership = await this.prisma.companyMembership.findFirst({
+      where: { userId: targetUserId, companyId },
+      select: { role: true },
+    });
+
+    if (!membership) {
+      throw new ForbiddenException("User is not a member of your company");
+    }
+
+    const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
+    const isHr = actor.profileCode === "HR";
+    const isOwnerOrAdmin = membership.role === Role.OWNER || membership.role === Role.ADMIN;
+
+    if (!isSuperAdmin && !isHr && !isOwnerOrAdmin) {
+      throw new ForbiddenException("Not allowed to edit HR portfolio for this user");
+    }
+
+    // Ensure there is a portfolio row for this (company, user).
+    const portfolio = await this.prisma.userPortfolio.upsert({
+      where: {
+        UserPortfolio_company_user_key: {
+          companyId,
+          userId: targetUserId,
+        },
+      },
+      update: {},
+      create: {
+        companyId,
+        userId: targetUserId,
+      },
+      select: { id: true },
+    });
+
+    const existing = await this.prisma.userPortfolioHr.findUnique({
+      where: { portfolioId: portfolio.id },
+      select: {
+        encryptedJson: true,
+      },
+    });
+
+    const currentPayload: PortfolioHrPayload = existing
+      ? (decryptPortfolioHrJson(Buffer.from(existing.encryptedJson)) as PortfolioHrPayload)
+      : {};
+
+    const next: PortfolioHrPayload = { ...currentPayload };
+
+    const setMaybe = (key: keyof PortfolioHrPayload, value: any) => {
+      const v = this.normalizeField(value);
+      if (v === undefined) return;
+      (next as any)[key] = v;
+    };
+
+    // Only non-sensitive contact/location fields are updatable via this
+    // endpoint. Highly sensitive fields (SSN, banking, HIPAA notes) remain
+    // editable only by the worker themself via /settings/profile.
+    setMaybe("displayEmail", body.displayEmail);
+    setMaybe("phone", body.phone);
+    setMaybe("addressLine1", body.addressLine1);
+    setMaybe("addressLine2", body.addressLine2);
+    setMaybe("city", body.city);
+    setMaybe("state", body.state);
+    setMaybe("postalCode", body.postalCode);
+    setMaybe("country", body.country);
+
+    const encryptedJson = encryptPortfolioHrJson(next);
+    const encryptedBytes = Uint8Array.from(encryptedJson);
+
+    await this.prisma.userPortfolioHr.upsert({
+      where: { portfolioId: portfolio.id },
+      update: {
+        encryptedJson: encryptedBytes,
+        // Non-sensitive edit path: we do not change any of the masked
+        // last-4 fields here.
+      },
+      create: {
+        portfolioId: portfolio.id,
+        encryptedJson: encryptedBytes,
+      },
+    });
+
+    // Reuse existing profile DTO so the client can refresh its view.
+    return this.getProfile(targetUserId, actor);
+  }
+
   async updateUserType(
     actor: AuthenticatedUser,
     targetUserId: string,
