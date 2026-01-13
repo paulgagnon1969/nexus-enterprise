@@ -1689,9 +1689,7 @@ export class OnboardingService {
   async getSessionForReview(id: string, actor: AuthenticatedUser) {
     // First, resolve the session by id only so we can support cross-tenant
     // views in tightly controlled cases (e.g. Nexus Fortified viewing Nexus
-    // System pool candidates). Default behavior still enforces that only the
-    // owning company (actor.companyId) can review its own sessions unless a
-    // CandidatePoolVisibility grant exists.
+    // System pool candidates).
     const session = await this.prisma.onboardingSession.findUnique({
       where: { id },
       include: {
@@ -1722,66 +1720,15 @@ export class OnboardingService {
     }
 
     // Cross-tenant path: allow Nexus Fortified Structures admins to review
-    // Nexus System pool candidates when there is an explicit
-    // CandidatePoolVisibility grant. This supports Tenant Collaboration
-    // scenarios where Fortified is hiring from the shared Nex-Net pool.
+    // Nexus System pool candidates. We rely on listProspectsForCompany to
+    // decide which sessions they can see; once they have a session id, we do
+    // not apply additional candidate visibility gating here.
     const isFortifiedTenant = actor.companyId === this.fortifiedCompanyId;
     const isFortifiedAdmin = actor.role === "OWNER" || actor.role === "ADMIN";
 
     if (!isFortifiedTenant || !isFortifiedAdmin) {
       // For all other tenants/company combinations we keep the strict
       // per-company isolation.
-      throw new ForbiddenException("Not allowed to review onboarding for this company");
-    }
-
-    const normalizedEmail = this.normalizeEmail(session.email);
-
-    const candidateWhereOr: any[] = [];
-    if (session.userId) {
-      candidateWhereOr.push({ userId: session.userId });
-    }
-    if (normalizedEmail) {
-      candidateWhereOr.push({ email: normalizedEmail });
-    }
-
-    if (!candidateWhereOr.length) {
-      throw new ForbiddenException("Not allowed to review onboarding for this company");
-    }
-
-    const candidates = await this.prisma.nexNetCandidate.findMany({
-      where: { OR: candidateWhereOr as any },
-      select: {
-        id: true,
-        visibilityScope: true,
-        isHiddenFromDefaultViews: true,
-      },
-    });
-
-    if (!candidates.length) {
-      throw new ForbiddenException("Not allowed to review onboarding for this company");
-    }
-
-    const visibleCandidateIds = candidates
-      .filter(
-        (c) =>
-          c.visibilityScope !== "PRIVATE_TEST" &&
-          !c.isHiddenFromDefaultViews,
-      )
-      .map((c) => c.id);
-
-    if (!visibleCandidateIds.length) {
-      throw new ForbiddenException("Not allowed to review onboarding for this company");
-    }
-
-    const vis = await this.prisma.candidatePoolVisibility.findFirst({
-      where: {
-        candidateId: { in: visibleCandidateIds },
-        visibleToCompanyId: this.fortifiedCompanyId,
-        isAllowed: true,
-      },
-    });
-
-    if (!vis) {
       throw new ForbiddenException("Not allowed to review onboarding for this company");
     }
 
