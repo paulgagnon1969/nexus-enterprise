@@ -318,6 +318,13 @@ export default function ProjectDetailPage({
   const [dailyLogMessage, setDailyLogMessage] = useState<string | null>(null);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [showPendingClientOnly, setShowPendingClientOnly] = useState(false);
+  // Person/s onsite multi-select state for Daily Logs
+  const [personOnsiteList, setPersonOnsiteList] = useState<string[]>([]);
+  const [personOnsiteDraft, setPersonOnsiteDraft] = useState<string>("");
+  const [personOnsiteGroups, setPersonOnsiteGroups] = useState<
+    { id: string; name: string; members: string[] }[]
+  >([]);
+  const [selectedPersonOnsiteGroupId, setSelectedPersonOnsiteGroupId] = useState<string>("");
   // When launched from PETL, capture context for a new PUDL
   const [pudlContext, setPudlContext] = useState<{
     open: boolean;
@@ -445,6 +452,87 @@ export default function ProjectDetailPage({
     buildings: any[];
     units: any[];
   } | null>(null);
+
+  // Derived list of known project participants for use in the Daily Log
+  // "Person/s onsite" multi-select. We include both myOrganization and
+  // collaborators, deduplicated by display label.
+  const personOnsiteOptions = useMemo(() => {
+    if (!participants) return [] as { value: string; label: string }[];
+
+    const opts: { value: string; label: string }[] = [];
+
+    const addParticipant = (m: Participant) => {
+      const user: any = m.user as any;
+      const first = (user?.firstName || "").trim();
+      const last = (user?.lastName || "").trim();
+      const name = [first, last].filter(Boolean).join(" ");
+      const label = name || (user?.email as string) || "(user)";
+      if (!label) return;
+      opts.push({ value: label, label });
+    };
+
+    for (const m of participants.myOrganization ?? []) addParticipant(m as any);
+    for (const m of participants.collaborators ?? []) addParticipant(m as any);
+
+    const seen = new Set<string>();
+    const deduped = opts.filter(opt => {
+      const key = opt.value.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    deduped.sort((a, b) => a.label.localeCompare(b.label));
+    return deduped;
+  }, [participants]);
+
+  // Helper to keep Person/s onsite list, backing string, and manpower count in sync.
+  function updatePersonOnsiteList(updater: (prev: string[]) => string[]) {
+    setPersonOnsiteList(prevNames => {
+      const next = updater(prevNames).map(name => name.trim()).filter(Boolean);
+      const joined = next.join(", ");
+      setNewDailyLog(prevLog => ({
+        ...prevLog,
+        personOnsite: joined,
+        manpowerOnsite: next.length ? String(next.length) : "",
+      }));
+      return next;
+    });
+  }
+
+  // Favorite Person/s onsite groups (saved locally per project).
+  useEffect(() => {
+    if (!project) return;
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(`dailyLogPersonGroups:${project.id}`);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const cleaned = parsed
+        .filter((g: any) => g && typeof g.name === "string" && Array.isArray(g.members))
+        .map((g: any) => ({
+          id: String(g.id ?? `${g.name}-${Math.random().toString(36).slice(2, 8)}`),
+          name: String(g.name),
+          members: g.members.map((m: any) => String(m)).filter((m: string) => !!m.trim()),
+        }));
+      setPersonOnsiteGroups(cleaned);
+    } catch {
+      // ignore localStorage parsing errors
+    }
+  }, [project]);
+
+  function persistPersonOnsiteGroups(next: { id: string; name: string; members: string[] }[]) {
+    setPersonOnsiteGroups(next);
+    if (typeof window !== "undefined" && project) {
+      try {
+        window.localStorage.setItem(`dailyLogPersonGroups:${project.id}`, JSON.stringify(next));
+      } catch {
+        // ignore storage errors
+      }
+    }
+  }
+
   const [structureOpen, setStructureOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("SUMMARY");
 
@@ -805,12 +893,14 @@ export default function ProjectDetailPage({
     };
   }, [project, activeTab]);
 
-  // Load organization-related metadata (company members, tags, participants, actor roles) when SUMMARY tab is active
+  // Load organization-related metadata (company members, tags, participants, actor roles)
+  // when SUMMARY or DAILY_LOGS tab is active.
   useEffect(() => {
     if (!project) return;
     const token = localStorage.getItem("accessToken");
     if (!token) return;
-    if (activeTab !== "SUMMARY") return;
+    if (activeTab !== "SUMMARY" && activeTab !== "DAILY_LOGS") return;
+    if (activeTab !== "SUMMARY" && activeTab !== "DAILY_LOGS") return;
 
     let cancelled = false;
 
@@ -1303,6 +1393,9 @@ export default function ProjectDetailPage({
         roomParticleId: undefined,
         sowItemId: undefined,
       }));
+      setPersonOnsiteList([]);
+      setPersonOnsiteDraft("");
+      setSelectedPersonOnsiteGroupId("");
 
       setPudlContext({
         open: false,
@@ -4421,44 +4514,282 @@ export default function ProjectDetailPage({
                     />
                   </div>
 
-                  <div style={{ marginBottom: 6 }}>
-                    <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>
-                      Manpower onsite DL
-                    </label>
-                    <input
-                      type="text"
-                      value={newDailyLog.manpowerOnsite}
-                      onChange={e =>
-                        setNewDailyLog(prev => ({ ...prev, manpowerOnsite: e.target.value }))
-                      }
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 12,
-                      }}
-                    />
-                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      marginBottom: 6,
+                      alignItems: "flex-start",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div style={{ flex: 2, minWidth: 0 }}>
+                      <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>
+                        Person/s onsite
+                      </label>
+                      {(() => {
+                        const availableOptions = personOnsiteOptions.filter(opt =>
+                          !personOnsiteList.some(
+                            name => name.toLowerCase() === opt.value.toLowerCase(),
+                          ),
+                        );
+                        return (
+                          <>
+                            {availableOptions.length > 0 && (
+                              <div style={{ marginBottom: 4 }}>
+                                <select
+                                  value=""
+                                  onChange={e => {
+                                    const value = e.target.value;
+                                    if (!value) return;
+                                    updatePersonOnsiteList(prev =>
+                                      prev.some(
+                                        name =>
+                                          name.toLowerCase() === value.toLowerCase(),
+                                      )
+                                        ? prev
+                                        : [...prev, value],
+                                    );
+                                  }}
+                                  style={{
+                                    width: "100%",
+                                    padding: "4px 6px",
+                                    borderRadius: 4,
+                                    border: "1px solid #d1d5db",
+                                    fontSize: 12,
+                                    marginBottom: 4,
+                                  }}
+                                >
+                                  <option value="">Add from project roster…</option>
+                                  {availableOptions.map(opt => (
+                                    <option key={opt.value} value={opt.value}>
+                                      {opt.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
 
-                  <div style={{ marginBottom: 6 }}>
-                    <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>
-                      Person Onsite
-                    </label>
-                    <input
-                      type="text"
-                      value={newDailyLog.personOnsite}
-                      onChange={e =>
-                        setNewDailyLog(prev => ({ ...prev, personOnsite: e.target.value }))
-                      }
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 12,
-                      }}
-                    />
+                            <div
+                              style={{
+                                minHeight: 34,
+                                padding: "4px 6px",
+                                borderRadius: 4,
+                                border: "1px solid #d1d5db",
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: 4,
+                                cursor: "text",
+                              }}
+                              onClick={() => {
+                                const inputEl = document.getElementById(
+                                  "person-onsite-draft-input",
+                                ) as HTMLInputElement | null;
+                                inputEl?.focus();
+                              }}
+                            >
+                              {personOnsiteList.map(name => (
+                                <span
+                                  key={name}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    padding: "2px 6px",
+                                    borderRadius: 999,
+                                    backgroundColor: "#eff6ff",
+                                    border: "1px solid #bfdbfe",
+                                    fontSize: 11,
+                                    color: "#1d4ed8",
+                                  }}
+                                >
+                                  <span>{name}</span>
+                                  <button
+                                    type="button"
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      updatePersonOnsiteList(prev =>
+                                        prev.filter(n => n !== name),
+                                      );
+                                    }}
+                                    style={{
+                                      border: "none",
+                                      background: "transparent",
+                                      cursor: "pointer",
+                                      fontSize: 11,
+                                      color: "#1d4ed8",
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                              <input
+                                id="person-onsite-draft-input"
+                                type="text"
+                                value={personOnsiteDraft}
+                                onChange={e => setPersonOnsiteDraft(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === "Enter" || e.key === ",") {
+                                    e.preventDefault();
+                                    const raw = personOnsiteDraft.trim();
+                                    if (!raw) return;
+                                    updatePersonOnsiteList(prev =>
+                                      prev.some(
+                                        name =>
+                                          name.toLowerCase() === raw.toLowerCase(),
+                                      )
+                                        ? prev
+                                        : [...prev, raw],
+                                    );
+                                    setPersonOnsiteDraft("");
+                                  }
+                                }}
+                                onBlur={e => {
+                                  const raw = e.target.value.trim();
+                                  if (!raw) {
+                                    setPersonOnsiteDraft("");
+                                    return;
+                                  }
+                                  updatePersonOnsiteList(prev =>
+                                    prev.some(
+                                      name =>
+                                        name.toLowerCase() === raw.toLowerCase(),
+                                    )
+                                      ? prev
+                                      : [...prev, raw],
+                                  );
+                                  setPersonOnsiteDraft("");
+                                }}
+                                placeholder={
+                                  personOnsiteList.length === 0
+                                    ? "Type a person onsite and press Enter…"
+                                    : "Type another name and press Enter…"
+                                }
+                                style={{
+                                  flex: 1,
+                                  minWidth: 120,
+                                  border: "none",
+                                  outline: "none",
+                                  fontSize: 12,
+                                  padding: 0,
+                                }}
+                              />
+                            </div>
+
+                            <div style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
+                              If a person isn&apos;t in the roster dropdown, type their name
+                              above. We&apos;ll create a workflow item for tenant admin to add
+                              them to this project.
+                            </div>
+
+                            <div
+                              style={{
+                                marginTop: 6,
+                                fontSize: 11,
+                                color: "#4b5563",
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: 6,
+                                alignItems: "center",
+                              }}
+                            >
+                              <button
+                                type="button"
+                                disabled={personOnsiteList.length === 0}
+                                onClick={() => {
+                                  if (!personOnsiteList.length) return;
+                                  const name = window.prompt(
+                                    "Name this person/s onsite group (favorites)",
+                                  );
+                                  if (!name) return;
+                                  const trimmed = name.trim();
+                                  if (!trimmed) return;
+                                  const id = `grp-${Date.now().toString(36)}-${Math.random()
+                                    .toString(36)
+                                    .slice(2, 8)}`;
+                                  const group = {
+                                    id,
+                                    name: trimmed,
+                                    members: [...personOnsiteList],
+                                  };
+                                  persistPersonOnsiteGroups([
+                                    ...personOnsiteGroups,
+                                    group,
+                                  ]);
+                                  setSelectedPersonOnsiteGroupId(id);
+                                }}
+                                style={{
+                                  padding: "3px 8px",
+                                  borderRadius: 999,
+                                  border: "1px solid #d1d5db",
+                                  backgroundColor:
+                                    personOnsiteList.length === 0
+                                      ? "#f9fafb"
+                                      : "#ffffff",
+                                  fontSize: 11,
+                                  cursor:
+                                    personOnsiteList.length === 0
+                                      ? "default"
+                                      : "pointer",
+                                }}
+                              >
+                                Save group as favorite
+                              </button>
+                              {personOnsiteGroups.length > 0 && (
+                                <>
+                                  <span>Favorites:</span>
+                                  <select
+                                    value={selectedPersonOnsiteGroupId}
+                                    onChange={e => {
+                                      const id = e.target.value;
+                                      setSelectedPersonOnsiteGroupId(id);
+                                      const group = personOnsiteGroups.find(g => g.id === id);
+                                      if (group) {
+                                        updatePersonOnsiteList(() => [...group.members]);
+                                      }
+                                    }}
+                                    style={{
+                                      padding: "3px 6px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      fontSize: 11,
+                                    }}
+                                  >
+                                    <option value="">Select group…</option>
+                                    {personOnsiteGroups.map(g => (
+                                      <option key={g.id} value={g.id}>
+                                        {g.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>
+                        Manpower onsite DL
+                      </label>
+                      <input
+                        type="text"
+                        value={personOnsiteList.length ? String(personOnsiteList.length) : ""}
+                        readOnly
+                        style={{
+                          width: "100%",
+                          padding: "4px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 12,
+                          backgroundColor: "#f9fafb",
+                          color: "#4b5563",
+                        }}
+                      />
+                    </div>
                   </div>
 
                   <div style={{ marginBottom: 6 }}>

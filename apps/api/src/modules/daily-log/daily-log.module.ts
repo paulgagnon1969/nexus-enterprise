@@ -5,10 +5,11 @@ import { DailyLogAttachmentsController } from "./daily-log-attachments.controlle
 import { PrismaModule } from "../../infra/prisma/prisma.module";
 import { AuditService } from "../../common/audit.service";
 import { NotificationsModule } from "../notifications/notifications.module";
+import { TaskService } from "../task/task.service";
 
 @Module({
   imports: [PrismaModule, NotificationsModule],
-  providers: [DailyLogService, AuditService],
+  providers: [DailyLogService, AuditService, TaskService],
   controllers: [DailyLogController, DailyLogAttachmentsController]
 })
 export class DailyLogModule {}
