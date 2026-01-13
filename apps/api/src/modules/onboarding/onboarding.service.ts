@@ -251,25 +251,47 @@ export class OnboardingService {
   async setSessionDetailStatus(
     id: string,
     actor: AuthenticatedUser,
-    input: { detailStatusCode: string | null }
+    input: { detailStatusCode: string | null },
   ) {
-    const session = await this.prisma.onboardingSession.findFirst({
-      where: { id, companyId: actor.companyId },
+    const session = await this.prisma.onboardingSession.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        companyId: true,
+      },
     });
 
     if (!session) {
       throw new NotFoundException("Onboarding session not found");
     }
 
-    if (
-      actor.role !== "OWNER" &&
-      actor.role !== "ADMIN" &&
-      actor.profileCode !== "HIRING_MANAGER"
-    ) {
-      throw new ForbiddenException("Not allowed to update candidate status for this company");
+    const sameCompany = session.companyId === actor.companyId;
+
+    if (sameCompany) {
+      if (
+        actor.role !== "OWNER" &&
+        actor.role !== "ADMIN" &&
+        actor.profileCode !== "HIRING_MANAGER"
+      ) {
+        throw new ForbiddenException("Not allowed to update candidate status for this company");
+      }
+    } else {
+      // Cross-tenant path: allow Nexus Fortified Structures admins to update
+      // candidate status for shared pool candidates. We rely on
+      // listProspectsForCompany to decide which sessions they can see; once they
+      // have a session id, we treat Fortified OWNER/ADMIN as allowed editors.
+      const isFortifiedTenant = actor.companyId === this.fortifiedCompanyId;
+      const isFortifiedAdmin = actor.role === "OWNER" || actor.role === "ADMIN";
+      if (!isFortifiedTenant || !isFortifiedAdmin) {
+        throw new ForbiddenException("Not allowed to update candidate status for this company");
+      }
     }
 
     const code = (input.detailStatusCode || "").trim();
+
+    // Determine which company owns the candidate status definitions we should
+    // validate against: the owning company for the session.
+    const statusCompanyId = session.companyId;
 
     if (code) {
       // Ensure the code exists for this company (or globally) and is active.
@@ -279,7 +301,7 @@ export class OnboardingService {
           code: code.toUpperCase(),
           OR: [
             { companyId: null },
-            { companyId: actor.companyId },
+            { companyId: statusCompanyId },
           ],
         },
       });
