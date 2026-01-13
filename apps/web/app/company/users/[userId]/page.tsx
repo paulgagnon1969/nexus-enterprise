@@ -28,10 +28,13 @@ interface SkillRow {
 interface UserProfileDto {
   id: string;
   email: string;
+  firstName?: string | null;
+  lastName?: string | null;
   globalRole: string;
   userType: string;
   company: { id: string; name: string };
   companyRole: string;
+  canEditHr?: boolean;
   reputation: {
     avg: number;
     count: number;
@@ -85,6 +88,7 @@ export default function CompanyUserProfilePage() {
   const [canRate, setCanRate] = useState(false);
   const [canClientRate, setCanClientRate] = useState(false);
   const [isAdminOrAbove, setIsAdminOrAbove] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
   // Skills matrix style: category groups start collapsed by default.
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
@@ -120,6 +124,14 @@ export default function CompanyUserProfilePage() {
   const [detailsLoadingBySkillId, setDetailsLoadingBySkillId] = useState<Record<string, boolean>>({});
   const [detailsErrorBySkillId, setDetailsErrorBySkillId] = useState<Record<string, string | null>>({});
 
+  // Identity editing (admin+)
+  const [identityFirstName, setIdentityFirstName] = useState("");
+  const [identityLastName, setIdentityLastName] = useState("");
+  const [identityUserType, setIdentityUserType] = useState<string>("");
+  const [identityGlobalRole, setIdentityGlobalRole] = useState<string>("");
+  const [identitySaving, setIdentitySaving] = useState(false);
+  const [identityError, setIdentityError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!userId) return;
 
@@ -149,6 +161,12 @@ export default function CompanyUserProfilePage() {
         const profileJson = await profileRes.json();
         setProfile(profileJson);
 
+        // Initialize editable identity fields from loaded profile.
+        setIdentityFirstName(profileJson.firstName ?? "");
+        setIdentityLastName(profileJson.lastName ?? "");
+        setIdentityUserType(profileJson.userType ?? "");
+        setIdentityGlobalRole(profileJson.globalRole ?? "");
+
         // Default selection to the first skill so the right panel has context.
         if (Array.isArray(profileJson?.skills) && profileJson.skills[0]?.id) {
           setSelectedSkillId(prev => prev ?? profileJson.skills[0].id);
@@ -158,6 +176,7 @@ export default function CompanyUserProfilePage() {
           const me = await meRes.json();
 
           const isSuperAdmin = me.globalRole === "SUPER_ADMIN";
+          setIsSuperAdmin(!!isSuperAdmin);
           const actorMemberships = Array.isArray(me.memberships) ? me.memberships : [];
           const targetCompanyId = profileJson?.company?.id;
 
@@ -253,6 +272,7 @@ export default function CompanyUserProfilePage() {
 
   const displayedReputation = profile.reputation.override ?? profile.reputation.avg;
   const canViewHr = profile.canViewHr ?? !!profile.hr;
+  const canEditHrFields = profile.canEditHr ?? false;
   const hasWorker = !!profile.worker;
   const hr = profile.hr || {};
 
@@ -260,6 +280,122 @@ export default function CompanyUserProfilePage() {
     profile.worker && profile.worker.id
       ? `/workers/${profile.worker.id}/weeks`
       : null;
+
+  const displayName =
+    profile.firstName || profile.lastName
+      ? `${profile.firstName ?? ""} ${profile.lastName ?? ""}`.trim()
+      : profile.worker?.fullName || profile.email;
+
+  const canEditNames = isAdminOrAbove;
+  const canEditUserType = isAdminOrAbove;
+  const canEditGlobalRole = isSuperAdmin;
+
+  async function handleSaveIdentity(e?: FormEvent) {
+    if (e) e.preventDefault();
+    setIdentityError(null);
+
+    if (!profile) {
+      setIdentityError("Profile not loaded.");
+      return;
+    }
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setIdentityError("Missing access token. Please log in again.");
+      return;
+    }
+
+    const promises: Promise<any>[] = [];
+
+    const nextFirst = identityFirstName.trim();
+    const nextLast = identityLastName.trim();
+    const nextUserType = identityUserType as string;
+    const nextGlobalRole = identityGlobalRole as string;
+
+    const hasNameChange =
+      canEditNames &&
+      (nextFirst !== (profile.firstName ?? "") || nextLast !== (profile.lastName ?? ""));
+    const hasUserTypeChange =
+      canEditUserType && nextUserType && nextUserType !== (profile.userType ?? "");
+    const hasGlobalRoleChange =
+      canEditGlobalRole && nextGlobalRole && nextGlobalRole !== (profile.globalRole ?? "");
+
+    if (!hasNameChange && !hasUserTypeChange && !hasGlobalRoleChange) {
+      setIdentityError("No changes to save.");
+      return;
+    }
+
+    try {
+      setIdentitySaving(true);
+
+      if (hasNameChange) {
+        promises.push(
+          fetch(`${API_BASE}/users/${profile.id}/profile`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              firstName: nextFirst,
+              lastName: nextLast,
+            }),
+          }),
+        );
+      }
+
+      if (hasUserTypeChange) {
+        promises.push(
+          fetch(`${API_BASE}/users/${profile.id}/user-type`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ userType: nextUserType }),
+          }),
+        );
+      }
+
+      if (hasGlobalRoleChange) {
+        promises.push(
+          fetch(`${API_BASE}/users/${profile.id}/global-role`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ globalRole: nextGlobalRole }),
+          }),
+        );
+      }
+
+      const results = await Promise.all(promises);
+
+      for (const res of results) {
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(text || `Failed to save identity changes (${res.status}).`);
+        }
+      }
+
+      setProfile(prev =>
+        prev
+          ? {
+              ...prev,
+              firstName: hasNameChange ? nextFirst || null : prev.firstName ?? null,
+              lastName: hasNameChange ? nextLast || null : prev.lastName ?? null,
+              userType: hasUserTypeChange ? nextUserType : prev.userType,
+              globalRole: hasGlobalRoleChange ? nextGlobalRole : prev.globalRole,
+            }
+          : prev,
+      );
+    } catch (err: any) {
+      setIdentityError(err?.message ?? "Failed to save identity changes.");
+    } finally {
+      setIdentitySaving(false);
+    }
+  }
 
   async function handleAddEmployerRating(e: FormEvent) {
     e.preventDefault();
@@ -571,7 +707,9 @@ export default function CompanyUserProfilePage() {
             <span>Return to Company users list</span>
           </a>
         </div>
-        <h1 style={{ marginTop: 0, fontSize: 20 }}>Worker profile</h1>
+        <h1 style={{ marginTop: 0, fontSize: 20 }}>
+          Worker profile{displayName ? `  ${displayName}` : ""}
+        </h1>
         <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
           {profile.company.name} · {profile.companyRole}
         </p>
@@ -588,6 +726,49 @@ export default function CompanyUserProfilePage() {
           <div style={{ flex: "1 1 0", minWidth: 320 }}>
             <section>
               <h2 style={{ fontSize: 16, marginBottom: 4 }}>Identity</h2>
+
+              {canEditNames ? (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                  <label style={{ fontSize: 12, flex: "0 0 160px" }}>
+                    <div style={{ color: "#6b7280", marginBottom: 2 }}>First name</div>
+                    <input
+                      type="text"
+                      value={identityFirstName}
+                      onChange={e => setIdentityFirstName(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "4px 6px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                  </label>
+                  <label style={{ fontSize: 12, flex: "0 0 160px" }}>
+                    <div style={{ color: "#6b7280", marginBottom: 2 }}>Last name</div>
+                    <input
+                      type="text"
+                      value={identityLastName}
+                      onChange={e => setIdentityLastName(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "4px 6px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <p style={{ fontSize: 13 }}>
+                  <strong>Name:</strong>{" "}
+                  {profile.firstName || profile.lastName
+                    ? `${profile.firstName ?? ""} ${profile.lastName ?? ""}`.trim()
+                    : "—"}
+                </p>
+              )}
+
               <p style={{ fontSize: 13 }}>
                 <strong>Email:</strong>{" "}
                 <a
@@ -597,12 +778,75 @@ export default function CompanyUserProfilePage() {
                   {profile.email}
                 </a>
               </p>
+
               <p style={{ fontSize: 13 }}>
-                <strong>User type:</strong> {profile.userType}
+                <strong>User type:</strong>{" "}
+                {canEditUserType ? (
+                  <select
+                    value={identityUserType}
+                    onChange={e => setIdentityUserType(e.target.value)}
+                    style={{
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  >
+                    <option value="INTERNAL">INTERNAL</option>
+                    <option value="CLIENT">CLIENT</option>
+                    <option value="APPLICANT">APPLICANT</option>
+                  </select>
+                ) : (
+                  profile.userType
+                )}
               </p>
               <p style={{ fontSize: 13 }}>
-                <strong>Global role:</strong> {profile.globalRole}
+                <strong>Global role:</strong>{" "}
+                {canEditGlobalRole ? (
+                  <select
+                    value={identityGlobalRole}
+                    onChange={e => setIdentityGlobalRole(e.target.value)}
+                    style={{
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  >
+                    <option value="NONE">NONE</option>
+                    <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+                    <option value="SUPPORT">SUPPORT</option>
+                  </select>
+                ) : (
+                  profile.globalRole
+                )}
               </p>
+
+              {(canEditNames || canEditUserType || canEditGlobalRole) && (
+                <form
+                  onSubmit={handleSaveIdentity}
+                  style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}
+                >
+                  <button
+                    type="submit"
+                    disabled={identitySaving}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #0f172a",
+                      backgroundColor: identitySaving ? "#e5e7eb" : "#0f172a",
+                      color: identitySaving ? "#4b5563" : "#f9fafb",
+                      fontSize: 12,
+                      cursor: identitySaving ? "default" : "pointer",
+                    }}
+                  >
+                    {identitySaving ? "Saving…" : "Save identity"}
+                  </button>
+                  {identityError && (
+                    <span style={{ fontSize: 12, color: "#b91c1c" }}>{identityError}</span>
+                  )}
+                </form>
+              )}
             </section>
 
             {hasWorker && profile.worker && (
@@ -829,6 +1073,11 @@ export default function CompanyUserProfilePage() {
                       Editable HR contact snapshot for this worker. Changes here update
                       the worker's HR portfolio for this company only.
                     </div>
+                    {!canEditHrFields && (
+                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                        You can view HR contact details for this worker but do not have permission to edit them.
+                      </div>
+                    )}
 
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                       <label style={{ flex: "1 1 220px" }}>
@@ -837,18 +1086,21 @@ export default function CompanyUserProfilePage() {
                           type="email"
                           value={hr.displayEmail ?? ""}
                           onChange={e =>
-                            setProfile(prev =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    hr: {
-                                      ...(prev.hr || {}),
-                                      displayEmail: e.target.value,
-                                    },
-                                  }
-                                : prev,
-                            )
+                            canEditHrFields
+                              ? setProfile(prev =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        hr: {
+                                          ...(prev.hr || {}),
+                                          displayEmail: e.target.value,
+                                        },
+                                      }
+                                    : prev,
+                                )
+                              : undefined
                           }
+                          disabled={!canEditHrFields}
                           placeholder={profile.email}
                           style={{
                             width: "100%",
@@ -865,18 +1117,21 @@ export default function CompanyUserProfilePage() {
                           type="tel"
                           value={hr.phone ?? ""}
                           onChange={e =>
-                            setProfile(prev =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    hr: {
-                                      ...(prev.hr || {}),
-                                      phone: e.target.value,
-                                    },
-                                  }
-                                : prev,
-                            )
+                            canEditHrFields
+                              ? setProfile(prev =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        hr: {
+                                          ...(prev.hr || {}),
+                                          phone: e.target.value,
+                                        },
+                                      }
+                                    : prev,
+                                )
+                              : undefined
                           }
+                          disabled={!canEditHrFields}
                           placeholder="(555) 555-5555"
                           style={{
                             width: "100%",
@@ -896,18 +1151,21 @@ export default function CompanyUserProfilePage() {
                           type="text"
                           value={hr.addressLine1 ?? ""}
                           onChange={e =>
-                            setProfile(prev =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    hr: {
-                                      ...(prev.hr || {}),
-                                      addressLine1: e.target.value,
-                                    },
-                                  }
-                                : prev,
-                            )
+                            canEditHrFields
+                              ? setProfile(prev =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        hr: {
+                                          ...(prev.hr || {}),
+                                          addressLine1: e.target.value,
+                                        },
+                                      }
+                                    : prev,
+                                )
+                              : undefined
                           }
+                          disabled={!canEditHrFields}
                           style={{
                             width: "100%",
                             padding: "6px 8px",
@@ -923,18 +1181,21 @@ export default function CompanyUserProfilePage() {
                           type="text"
                           value={hr.addressLine2 ?? ""}
                           onChange={e =>
-                            setProfile(prev =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    hr: {
-                                      ...(prev.hr || {}),
-                                      addressLine2: e.target.value,
-                                    },
-                                  }
-                                : prev,
-                            )
+                            canEditHrFields
+                              ? setProfile(prev =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        hr: {
+                                          ...(prev.hr || {}),
+                                          addressLine2: e.target.value,
+                                        },
+                                      }
+                                    : prev,
+                                )
+                              : undefined
                           }
+                          disabled={!canEditHrFields}
                           style={{
                             width: "100%",
                             padding: "6px 8px",
@@ -953,18 +1214,21 @@ export default function CompanyUserProfilePage() {
                           type="text"
                           value={hr.city ?? ""}
                           onChange={e =>
-                            setProfile(prev =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    hr: {
-                                      ...(prev.hr || {}),
-                                      city: e.target.value,
-                                    },
-                                  }
-                                : prev,
-                            )
+                            canEditHrFields
+                              ? setProfile(prev =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        hr: {
+                                          ...(prev.hr || {}),
+                                          city: e.target.value,
+                                        },
+                                      }
+                                    : prev,
+                                )
+                              : undefined
                           }
+                          disabled={!canEditHrFields}
                           style={{
                             width: "100%",
                             padding: "6px 8px",
@@ -980,18 +1244,21 @@ export default function CompanyUserProfilePage() {
                           type="text"
                           value={hr.state ?? ""}
                           onChange={e =>
-                            setProfile(prev =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    hr: {
-                                      ...(prev.hr || {}),
-                                      state: e.target.value,
-                                    },
-                                  }
-                                : prev,
-                            )
+                            canEditHrFields
+                              ? setProfile(prev =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        hr: {
+                                          ...(prev.hr || {}),
+                                          state: e.target.value,
+                                        },
+                                      }
+                                    : prev,
+                                )
+                              : undefined
                           }
+                          disabled={!canEditHrFields}
                           style={{
                             width: "100%",
                             padding: "6px 8px",
@@ -1007,18 +1274,21 @@ export default function CompanyUserProfilePage() {
                           type="text"
                           value={hr.postalCode ?? ""}
                           onChange={e =>
-                            setProfile(prev =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    hr: {
-                                      ...(prev.hr || {}),
-                                      postalCode: e.target.value,
-                                    },
-                                  }
-                                : prev,
-                            )
+                            canEditHrFields
+                              ? setProfile(prev =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        hr: {
+                                          ...(prev.hr || {}),
+                                          postalCode: e.target.value,
+                                        },
+                                      }
+                                    : prev,
+                                )
+                              : undefined
                           }
+                          disabled={!canEditHrFields}
                           style={{
                             width: "100%",
                             padding: "6px 8px",
@@ -1034,18 +1304,21 @@ export default function CompanyUserProfilePage() {
                           type="text"
                           value={hr.country ?? ""}
                           onChange={e =>
-                            setProfile(prev =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    hr: {
-                                      ...(prev.hr || {}),
-                                      country: e.target.value,
-                                    },
-                                  }
-                                : prev,
-                            )
+                            canEditHrFields
+                              ? setProfile(prev =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        hr: {
+                                          ...(prev.hr || {}),
+                                          country: e.target.value,
+                                        },
+                                      }
+                                    : prev,
+                                )
+                              : undefined
                           }
+                          disabled={!canEditHrFields}
                           style={{
                             width: "100%",
                             padding: "6px 8px",
@@ -1057,19 +1330,20 @@ export default function CompanyUserProfilePage() {
                       </label>
                     </div>
 
-                    <div
-                      style={{
-                        marginTop: 6,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <button
-                        type="button"
-                        disabled={savingHr}
-                        onClick={async () => {
+                    {canEditHrFields && (
+                      <div
+                        style={{
+                          marginTop: 6,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          disabled={savingHr}
+                          onClick={async () => {
                           if (!profile) return;
                           const token = localStorage.getItem("accessToken");
                           if (!token) {
@@ -1125,12 +1399,13 @@ export default function CompanyUserProfilePage() {
                           cursor: savingHr ? "default" : "pointer",
                         }}
                       >
-                        {savingHr ? "Saving…" : "Save HR contact"}
-                      </button>
-                      {hrError && (
-                        <span style={{ fontSize: 11, color: "#b91c1c" }}>{hrError}</span>
-                      )}
-                    </div>
+                        {savingHr ? "Saving" : "Save HR contact"}
+                        </button>
+                        {hrError && (
+                          <span style={{ fontSize: 11, color: "#b91c1c" }}>{hrError}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
