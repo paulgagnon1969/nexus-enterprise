@@ -102,7 +102,10 @@ export class UserService {
     return user;
   }
 
-  async updateMe(userId: string, dto: { firstName?: string; lastName?: string }) {
+  private async updateUserNamesAndProfileCompletion(
+    userId: string,
+    dto: { firstName?: string; lastName?: string },
+  ) {
     const firstName = dto.firstName != null ? dto.firstName.trim() : undefined;
     const lastName = dto.lastName != null ? dto.lastName.trim() : undefined;
 
@@ -147,6 +150,10 @@ export class UserService {
         profileCompletionPercent: true,
       },
     });
+  }
+
+  async updateMe(userId: string, dto: { firstName?: string; lastName?: string }) {
+    return this.updateUserNamesAndProfileCompletion(userId, dto);
   }
 
   private canViewHrPortfolio(actor: AuthenticatedUser, targetUserId: string) {
@@ -486,6 +493,47 @@ export class UserService {
     return this.getProfile(targetUserId, actor);
   }
 
+  async updateUserProfileBasics(
+    actor: AuthenticatedUser,
+    targetUserId: string,
+    dto: { firstName?: string; lastName?: string },
+  ) {
+    const companyId = actor.companyId;
+    if (!companyId) {
+      throw new ForbiddenException("Missing company context");
+    }
+
+    const actorMembership = await this.prisma.companyMembership.findUnique({
+      where: {
+        userId_companyId: {
+          userId: actor.userId,
+          companyId,
+        },
+      },
+      select: { role: true },
+    });
+
+    if (!actorMembership || (actorMembership.role !== Role.OWNER && actorMembership.role !== Role.ADMIN)) {
+      throw new ForbiddenException("Only company OWNER/ADMIN can update basic profile fields");
+    }
+
+    const targetMembership = await this.prisma.companyMembership.findUnique({
+      where: {
+        userId_companyId: {
+          userId: targetUserId,
+          companyId,
+        },
+      },
+      select: { userId: true },
+    });
+
+    if (!targetMembership) {
+      throw new ForbiddenException("Target user is not a member of this company");
+    }
+
+    return this.updateUserNamesAndProfileCompletion(targetUserId, dto);
+  }
+
   async updateUserType(
     actor: AuthenticatedUser,
     targetUserId: string,
@@ -591,6 +639,8 @@ export class UserService {
       select: {
         id: true,
         email: true,
+        firstName: true,
+        lastName: true,
         globalRole: true,
         userType: true,
         reputationOverallAvg: true,
@@ -801,6 +851,8 @@ export class UserService {
     return {
       id: user.id,
       email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
       globalRole: user.globalRole,
       userType: user.userType,
       company: membership.company,

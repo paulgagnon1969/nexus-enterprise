@@ -59,6 +59,20 @@ export class UserController {
     return this.users.getProfile(id, actor);
   }
 
+  // Company-level admin can update basic identity fields (first/last name)
+  // for a user in their company.
+  @UseGuards(JwtAuthGuard)
+  @Patch(":id/profile")
+  updateUserProfileBasics(
+    @Param("id") targetUserId: string,
+    @Req() req: any,
+    @Body("firstName") firstName?: string,
+    @Body("lastName") lastName?: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.users.updateUserProfileBasics(actor, targetUserId, { firstName, lastName });
+  }
+
   // Company-level admin can update per-user userType within their company.
   @UseGuards(JwtAuthGuard)
   @Patch(":id/user-type")
