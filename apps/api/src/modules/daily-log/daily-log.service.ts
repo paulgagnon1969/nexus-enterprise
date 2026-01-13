@@ -7,6 +7,8 @@ import { Role, DailyLogStatus, $Enums } from "@prisma/client";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { NotificationsService } from "../notifications/notifications.service";
+import { TaskService } from "../task/task.service";
+import { TaskPriorityEnum } from "../task/dto/task.dto";
 
 @Injectable()
 export class DailyLogService {
@@ -14,6 +16,7 @@ export class DailyLogService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
+    private readonly tasks: TaskService,
   ) {}
 
   private async assertProjectAccess(
@@ -299,7 +302,7 @@ export class DailyLogService {
     actor: AuthenticatedUser,
     dto: CreateDailyLogDto
   ) {
-    await this.assertProjectAccess(projectId, companyId, actor, Role.ADMIN);
+    const project = await this.assertProjectAccess(projectId, companyId, actor, Role.ADMIN);
 
     const tagsJson = dto.tags && dto.tags.length ? JSON.stringify(dto.tags) : null;
     const notifyUserIdsJson =
@@ -381,6 +384,10 @@ export class DailyLogService {
       }
     });
 
+    // If the Person Onsite is not currently a project participant, create a
+    // follow-up Task for tenant admins to add them to the project roster.
+    await this.createPersonOnsiteTaskIfNeeded(dto, actor, projectId, companyId, project);
+
     // Best-effort: notify any explicitly tagged users on this log.
     if (created.notifyUserIdsJson) {
       try {
@@ -427,6 +434,75 @@ export class DailyLogService {
       ...rest,
       createdByUser: createdBy,
     };
+  }
+
+  private async createPersonOnsiteTaskIfNeeded(
+    dto: CreateDailyLogDto,
+    actor: AuthenticatedUser,
+    projectId: string,
+    companyId: string,
+    project: { id: string; name: string },
+  ) {
+    const raw = dto.personOnsite;
+    if (!raw || !raw.trim()) return;
+
+    const names = raw
+      .split(/[;,]/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (!names.length) return;
+
+    // Look at existing project participants to see if these appear to be
+    // known people on the job (by email or full name).
+    const memberships = await this.prisma.projectMembership.findMany({
+      where: { projectId, companyId },
+      include: {
+        user: true,
+      },
+    });
+
+    const isKnownName = (name: string): boolean => {
+      const normalized = name.toLowerCase();
+      return memberships.some((m: any) => {
+        if (!m.user) return false;
+        const email = (m.user.email || "").toLowerCase();
+        if (email && normalized === email) return true;
+        const fullName = [m.user.firstName, m.user.lastName]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (fullName && normalized === fullName) return true;
+        return false;
+      });
+    };
+
+    const unknownNames = names.filter(name => !isKnownName(name));
+    if (!unknownNames.length) return;
+
+    const dateLabel = dto.logDate
+      ? new Date(dto.logDate).toLocaleDateString()
+      : "recent date";
+
+    for (const name of unknownNames) {
+      const title = `Confirm onsite person for ${project.name}: ${name}`;
+      const description =
+        `Daily log for ${dateLabel} on project "${project.name}" lists "${name}" as Person Onsite, ` +
+        "but they are not currently a project participant. Please add them as a project member/user or confirm.";
+
+      try {
+        // Create one medium-priority task per unknown name.
+        // If task creation fails for a given name, continue with others.
+        // eslint-disable-next-line no-await-in-loop
+        await this.tasks.createTask(actor, {
+          projectId,
+          title,
+          description,
+          priority: TaskPriorityEnum.MEDIUM,
+        });
+      } catch {
+        // Best-effort only; do not block log save on task failures.
+      }
+    }
   }
 
   async approveLog(

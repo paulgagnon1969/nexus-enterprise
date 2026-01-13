@@ -2930,7 +2930,7 @@ function ProspectiveCandidatesPanel({
     | "CORR_DESC"
     | "SUBMITTED_ASC"
     | "SUBMITTED_DESC"
-  >("PROFILE_DESC");
+  >("NAME_ASC");
   const [showBulkJournalPanel, setShowBulkJournalPanel] = useState(false);
   const [bulkJournalText, setBulkJournalText] = useState("");
   const [bulkJournalSaving, setBulkJournalSaving] = useState(false);
@@ -3298,9 +3298,9 @@ function ProspectiveCandidatesPanel({
           const diff = aPct - bPct;
           return sortMode === "PROFILE_ASC" ? diff : -diff;
         }
-        // Tie-break by name when profile percent is equal.
-        const cmpName = compareByName(a, b);
-        return sortMode === "PROFILE_ASC" ? cmpName : -cmpName;
+        // Tie-break by candidate name (last, first, then email) in ascending order
+        // so that Profile % DESC + name ASC is the default ordering.
+        return compareByName(a, b);
       }
 
       if (sortMode === "CORR_ASC" || sortMode === "CORR_DESC") {
