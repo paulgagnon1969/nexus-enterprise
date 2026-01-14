@@ -1070,7 +1070,16 @@ function CompanyUsersPageInner() {
       </div>
 
       {activeTab === "candidates" && companyId ? (
-        <ProspectiveCandidatesPanel companyId={companyId} companyName={companyName} />
+        <ProspectiveCandidatesPanel
+          companyId={companyId}
+          companyName={companyName}
+          tenantShareTargets={
+            me?.memberships?.map(m => ({
+              id: m.companyId,
+              name: m.company?.name ?? m.companyId,
+            })) ?? []
+          }
+        />
       ) : (
         <>
           {/* Members section */}
@@ -2832,6 +2841,7 @@ interface CandidateRow {
   email: string;
   status: CandidateStatus;
   createdAt: string;
+  updatedAt?: string;
   profile?: CandidateProfile | null;
   checklist?: CandidateChecklist | null;
   detailStatusCode?: string | null;
@@ -2886,9 +2896,11 @@ function stateToRegion(state: string | null | undefined): string {
 function ProspectiveCandidatesPanel({
   companyId,
   companyName,
+  tenantShareTargets,
 }: {
   companyId: string;
   companyName: string;
+  tenantShareTargets?: { id: string; name: string }[];
 }) {
   const [rows, setRows] = useState<CandidateRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2930,7 +2942,9 @@ function ProspectiveCandidatesPanel({
     | "CORR_DESC"
     | "SUBMITTED_ASC"
     | "SUBMITTED_DESC"
-  >("NAME_ASC");
+    | "MODIFIED_ASC"
+    | "MODIFIED_DESC"
+  >("MODIFIED_DESC");
   const [showBulkJournalPanel, setShowBulkJournalPanel] = useState(false);
   const [bulkJournalText, setBulkJournalText] = useState("");
   const [bulkJournalSaving, setBulkJournalSaving] = useState(false);
@@ -2941,6 +2955,9 @@ function ProspectiveCandidatesPanel({
   const [bulkMessageRecipients, setBulkMessageRecipients] = useState<
     { email: string; userId?: string | null }[] | null
   >(null);
+  const [shareTargetCompanyIds, setShareTargetCompanyIds] = useState<string[]>([]);
+  const [sharingProspects, setSharingProspects] = useState(false);
+  const [shareResult, setShareResult] = useState<string | null>(null);
 
   // Lazy-loaded per-candidate correspondence metadata from messaging
   // threads. Used to populate the "Correspondences" column with
@@ -3284,6 +3301,13 @@ function ProspectiveCandidatesPanel({
         return cmpName;
       };
 
+      if (sortMode === "MODIFIED_ASC" || sortMode === "MODIFIED_DESC") {
+        const aTime = new Date(a.updatedAt || a.createdAt).getTime();
+        const bTime = new Date(b.updatedAt || b.createdAt).getTime();
+        const diff = aTime - bTime;
+        return sortMode === "MODIFIED_ASC" ? diff : -diff;
+      }
+
       if (sortMode === "SUBMITTED_ASC" || sortMode === "SUBMITTED_DESC") {
         const aTime = new Date(a.createdAt).getTime();
         const bTime = new Date(b.createdAt).getTime();
@@ -3375,6 +3399,71 @@ function ProspectiveCandidatesPanel({
 
   function handleClearSelection() {
     setSelectedIds([]);
+  }
+
+  async function handleBulkShareProspects() {
+    if (typeof window === "undefined") return;
+    if (!shareTargetCompanyIds.length) {
+      alert("Select at least one tenant to share with.");
+      return;
+    }
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token. Please log in again.");
+      return;
+    }
+    const selected = filtered.filter(r => selectedIds.includes(r.id));
+    if (!selected.length) {
+      alert("Select at least one candidate to share.");
+      return;
+    }
+
+    const confirmMsg = `Share ${selected.length} candidate${
+      selected.length > 1 ? "s" : ""
+    } with ${shareTargetCompanyIds.length} tenant${
+      shareTargetCompanyIds.length > 1 ? "s" : ""
+    }?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      setSharingProspects(true);
+      setShareResult(null);
+      const res = await fetch(
+        `${API_BASE}/onboarding/company/${companyId}/share-prospects`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            sessionIds: selected.map(r => r.id),
+            targetCompanyIds: shareTargetCompanyIds,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(
+          text || `Failed to share candidates (${res.status})`,
+        );
+      }
+      const json: any = await res.json().catch(() => ({}));
+      const sharedCount = typeof json.candidateCount === "number" ? json.candidateCount : selected.length;
+      const targetCount =
+        typeof json.targetCompanyCount === "number"
+          ? json.targetCompanyCount
+          : shareTargetCompanyIds.length;
+      setShareResult(
+        `Shared ${sharedCount} candidate${sharedCount === 1 ? "" : "s"} with ${targetCount} tenant${
+          targetCount === 1 ? "" : "s"
+        }.`,
+      );
+    } catch (e: any) {
+      alert(e?.message ?? "Failed to share candidates");
+    } finally {
+      setSharingProspects(false);
+    }
   }
 
   async function handleBulkMarkTest() {
@@ -3748,6 +3837,34 @@ function ProspectiveCandidatesPanel({
           />
         </label>
 
+        {tenantShareTargets && tenantShareTargets.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <span>Share with tenants</span>
+            <select
+              multiple
+              value={shareTargetCompanyIds}
+              onChange={e => {
+                const options = Array.from(e.target.selectedOptions || []);
+                setShareTargetCompanyIds(options.map(o => o.value));
+              }}
+              style={{
+                minWidth: 220,
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+              }}
+            >
+              {tenantShareTargets
+                .filter(t => t.id !== companyId)
+                .map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+        )}
+
         <div style={{ marginLeft: "auto", display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
           <div style={{ color: "#6b7280" }}>
             Showing <strong>{filtered.length}</strong> · Selected <strong>{selectedCount}</strong>
@@ -3801,6 +3918,33 @@ function ProspectiveCandidatesPanel({
             >
               Send note / update to selected
             </button>
+            {tenantShareTargets && tenantShareTargets.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void handleBulkShareProspects()}
+                disabled={selectedCount === 0 || shareTargetCompanyIds.length === 0 || sharingProspects}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  border: "1px solid #16a34a",
+                  backgroundColor:
+                    selectedCount === 0 || shareTargetCompanyIds.length === 0 || sharingProspects
+                      ? "#e5e7eb"
+                      : "#16a34a",
+                  color:
+                    selectedCount === 0 || shareTargetCompanyIds.length === 0 || sharingProspects
+                      ? "#4b5563"
+                      : "#f9fafb",
+                  fontSize: 11,
+                  cursor:
+                    selectedCount === 0 || shareTargetCompanyIds.length === 0 || sharingProspects
+                      ? "default"
+                      : "pointer",
+                }}
+              >
+                {sharingProspects ? "Sharing…" : "Share selected with tenants"}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -4035,6 +4179,37 @@ function ProspectiveCandidatesPanel({
                       {sortMode === "CORR_ASC"
                         ? "↑"
                         : sortMode === "CORR_DESC"
+                        ? "↓"
+                        : "↕"}
+                    </span>
+                  </button>
+                </th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSortMode(prev =>
+                        prev === "MODIFIED_ASC" ? "MODIFIED_DESC" : "MODIFIED_ASC",
+                      )
+                    }
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: 0,
+                      margin: 0,
+                      border: "none",
+                      background: "transparent",
+                      fontSize: "inherit",
+                      cursor: "pointer",
+                      color: "#111827",
+                    }}
+                  >
+                    <span>Last modified</span>
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>
+                      {sortMode === "MODIFIED_ASC"
+                        ? "↑"
+                        : sortMode === "MODIFIED_DESC"
                         ? "↓"
                         : "↕"}
                     </span>
@@ -4365,6 +4540,9 @@ function ProspectiveCandidatesPanel({
                           </div>
                         );
                       })()}
+                    </td>
+                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12, color: "#6b7280" }}>
+                      {new Date(r.updatedAt || r.createdAt).toLocaleString()}
                     </td>
                     <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12, color: "#6b7280" }}>
                       {new Date(r.createdAt).toLocaleString()}
@@ -4742,7 +4920,7 @@ function ProspectiveCandidatesPanel({
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ padding: 10, fontSize: 12, color: "#6b7280" }}>
+                  <td colSpan={10} style={{ padding: 10, fontSize: 12, color: "#6b7280" }}>
                     No candidates match your filters.
                   </td>
                 </tr>
@@ -4970,6 +5148,9 @@ function ProspectiveCandidatesPanel({
 
       <div style={{ marginTop: 10, fontSize: 11, color: "#6b7280" }}>
         Next step: well add skill/trade filters and a Solicit workflow (message/invite) once the pool UI stabilizes.
+        {shareResult && (
+          <span style={{ marginLeft: 8, color: "#16a34a" }}>{shareResult}</span>
+        )}
       </div>
     </section>
   );

@@ -137,7 +137,15 @@ export class MessagingController {
     @Body()
     body: {
       body: string;
+      // When true, also share this journal entry with the subject user via a
+      // normal DIRECT message thread.
       shareWithSubject?: boolean;
+      // Optional additional internal recipients (userIds) who should also
+      // receive a DIRECT message copy of this note.
+      shareWithUserIds?: string[];
+      // Optional external email recipients who should receive this note via
+      // email (BCC or To, depending on configuration in the messaging layer).
+      shareWithExternalEmails?: string[];
       attachments?: {
         kind: $Enums.AttachmentKind;
         url: string;
@@ -154,6 +162,11 @@ export class MessagingController {
       userId,
       body.body,
       body.attachments,
+      {
+        shareWithSubject: body.shareWithSubject ?? false,
+        shareWithUserIds: body.shareWithUserIds,
+        shareWithExternalEmails: body.shareWithExternalEmails,
+      },
     );
   }
 

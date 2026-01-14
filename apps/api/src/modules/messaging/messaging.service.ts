@@ -79,6 +79,11 @@ export class MessagingService {
       sizeBytes?: number | null;
       assetId?: string | null;
     }[],
+    distribution?: {
+      shareWithSubject?: boolean;
+      shareWithUserIds?: string[];
+      shareWithExternalEmails?: string[];
+    },
   ) {
     const companyId = this.assertCompanyContext(actor);
 
@@ -121,6 +126,100 @@ export class MessagingService {
       where: { id: thread.id },
       data: { updatedAt: new Date() },
     });
+
+    // Optional distribution: best-effort mirror into a DIRECT message thread so
+    // the note can be shared with the subject and/or others. Any failures here
+    // must NOT block journal writes.
+    const shareWithSubject = !!distribution?.shareWithSubject;
+    const rawShareUserIds = Array.isArray(distribution?.shareWithUserIds)
+      ? distribution!.shareWithUserIds!
+      : [];
+    const rawShareEmails = Array.isArray(distribution?.shareWithExternalEmails)
+      ? distribution!.shareWithExternalEmails!
+      : [];
+
+    const hasDistribution =
+      shareWithSubject || (rawShareUserIds.length > 0 || rawShareEmails.length > 0);
+
+    if (hasDistribution) {
+      try {
+        // Resolve subject user (for display + optional email).
+        const subjectUser = await this.prisma.user.findUnique({
+          where: { id: subjectUserId },
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        });
+
+        // Best-effort guard: if subject user row is missing, we still allow
+        // distribution to other participants.
+        const subjectLabel = subjectUser
+          ? [subjectUser.firstName, subjectUser.lastName].filter(Boolean).join(" ") ||
+            subjectUser.email ||
+            subjectUser.id
+          : subjectUserId;
+
+        // Filter extra internal recipients to users who are actually members of
+        // this company.
+        let shareUserIds: string[] = [];
+        if (rawShareUserIds.length > 0) {
+          const members = await this.prisma.companyMembership.findMany({
+            where: {
+              companyId,
+              userId: { in: rawShareUserIds },
+            },
+            select: { userId: true },
+          });
+          shareUserIds = members.map(m => m.userId);
+        }
+
+        // Normalize external email addresses.
+        const externalEmailSet = new Set<string>();
+        for (const raw of rawShareEmails) {
+          const email = (raw || "").trim();
+          if (email) externalEmailSet.add(email);
+        }
+
+        // Build participant list for the DIRECT thread. createThread will
+        // always include the actor; we add subject + any extra internal users.
+        const participantUserIds = new Set<string>();
+        if (shareWithSubject) {
+          participantUserIds.add(subjectUserId);
+        }
+        for (const uid of shareUserIds) {
+          if (uid && uid !== actor.userId) {
+            participantUserIds.add(uid);
+          }
+        }
+
+        // If nothing to share with (no internal participants and no external
+        // emails), skip distribution entirely.
+        if (participantUserIds.size === 0 && externalEmailSet.size === 0) {
+          return { threadId: thread.id, message };
+        }
+
+        const subject = `Journal note about ${subjectLabel}`;
+
+        await this.createThread(actor, {
+          subject,
+          body,
+          participantUserIds: Array.from(participantUserIds),
+          // For now, treat all external emails as BCC recipients so journal
+          // distribution behaves like a blind-copy.
+          bccExternalEmails: Array.from(externalEmailSet),
+          attachments: attachments && attachments.length ? attachments : undefined,
+        } as any);
+      } catch (err) {
+        this.logger.warn(
+          `appendUserJournalEntry: distribution failed for subjectUserId=${subjectUserId}: ${
+            (err as any)?.message ?? err
+          }`,
+        );
+      }
+    }
 
     return { threadId: thread.id, message };
   }

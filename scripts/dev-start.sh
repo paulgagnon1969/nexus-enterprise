@@ -113,10 +113,10 @@ echo "[dev-start] Using local DATABASE_URL=${SANITIZED_DB_URL}" | tee -a "$LOG_D
 if pgrep -f "apps/api.*ts-node-dev" >/dev/null 2>&1; then
   echo "[dev-start] API dev server already running" | tee -a "$LOG_DIR/dev-start.log"
 else
-  echo "[dev-start] Starting API dev server (local Docker Postgres)..." | tee -a "$LOG_DIR/dev-start.log"
+  echo "[dev-start] Starting API dev server (local Docker Postgres) on API_PORT=8000..." | tee -a "$LOG_DIR/dev-start.log"
   (
     cd "$REPO_ROOT/apps/api"
-    nohup npm run dev \
+    API_PORT=8000 nohup npm run dev \
       > "$LOG_DIR/api-dev.log" 2>&1 &
   )
   echo "[dev-start] Waiting 5 seconds for API dev to boot..." | tee -a "$LOG_DIR/dev-start.log"

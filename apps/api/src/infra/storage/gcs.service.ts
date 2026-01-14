@@ -78,6 +78,48 @@ export class GcsService {
   }
 
   /**
+   * Upload a buffer directly to GCS and return its gs:// URI. This is used for
+   * server-side imports (e.g. Golden PETL) where the API, not the browser,
+   * performs the upload.
+   */
+  async uploadBuffer(options: {
+    bucket?: string;
+    key: string;
+    buffer: Buffer;
+    contentType: string;
+  }): Promise<string> {
+    const { key, buffer, contentType } = options;
+    const bucketName =
+      options.bucket || process.env.XACT_UPLOADS_BUCKET || process.env.GCS_UPLOADS_BUCKET;
+
+    if (!bucketName) {
+      throw new Error("XACT_UPLOADS_BUCKET (or GCS_UPLOADS_BUCKET) is not configured");
+    }
+
+    const bucket = this.storage.bucket(bucketName);
+    const file = bucket.file(key);
+
+    console.log("[gcs] uploadBuffer:start", {
+      bucket: bucketName,
+      key,
+      contentType,
+    });
+
+    await file.save(buffer, { contentType });
+
+    const fileUri = `gs://${bucketName}/${key}`;
+
+    console.log("[gcs] uploadBuffer:done", {
+      bucket: bucketName,
+      key,
+      contentType,
+      fileUri,
+    });
+
+    return fileUri;
+  }
+
+  /**
    * Compute a public HTTP URL for a given gs:// URI. This assumes the
    * underlying bucket/object is readable via this base; callers are
    * responsible for configuring bucket ACLs appropriately.

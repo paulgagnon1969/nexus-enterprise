@@ -3,7 +3,7 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { randomBytes } from "node:crypto";
 import * as argon2 from "argon2";
-import { Role, UserType, NexNetStatus, ReferralStatus, $Enums } from "@prisma/client";
+import { Role, UserType, NexNetStatus, NexNetSource, ReferralStatus, $Enums } from "@prisma/client";
 import { encryptPortfolioHrJson } from "../../common/crypto/portfolio-hr.crypto";
 import { NotificationsService } from "../notifications/notifications.service";
 import { EmailService } from "../../common/email.service";
@@ -1332,6 +1332,204 @@ export class OnboardingService {
       },
       orderBy: { createdAt: "desc" },
     });
+  }
+
+  /**
+   * Multi-tenant sharing: allow privileged users in a company to share one or
+   * more prospective candidates (onboarding sessions) with other tenant
+   * companies via CandidatePoolVisibility. This creates or reuses NexNet
+   * candidate records keyed by user/email, then upserts visibility rows for
+   * the requested target companies.
+   */
+  async shareProspectsWithCompanies(
+    companyId: string,
+    actor: AuthenticatedUser,
+    input: { sessionIds?: string[]; targetCompanyIds?: string[] },
+  ) {
+    const rawSessionIds = Array.isArray(input.sessionIds) ? input.sessionIds : [];
+    const rawTargetIds = Array.isArray(input.targetCompanyIds)
+      ? input.targetCompanyIds
+      : [];
+
+    const sessionIds = Array.from(
+      new Set(
+        rawSessionIds
+          .map(id => (typeof id === "string" ? id.trim() : ""))
+          .filter(id => !!id),
+      ),
+    );
+    const targetCompanyIds = Array.from(
+      new Set(
+        rawTargetIds
+          .map(id => (typeof id === "string" ? id.trim() : ""))
+          .filter(id => !!id),
+      ),
+    ).filter(id => id !== companyId);
+
+    if (!sessionIds.length) {
+      throw new BadRequestException("sessionIds is required and must contain at least one id");
+    }
+    if (!targetCompanyIds.length) {
+      throw new BadRequestException(
+        "targetCompanyIds is required and must contain at least one other tenant id",
+      );
+    }
+
+    if (actor.companyId !== companyId) {
+      throw new ForbiddenException("Cannot share prospects for a different company context");
+    }
+
+    const isSuperAdmin = (actor as any).globalRole === "SUPER_ADMIN";
+    const isOwnerOrAdmin = actor.role === "OWNER" || actor.role === "ADMIN";
+    const isHiringManager = actor.profileCode === "HIRING_MANAGER";
+
+    if (!isSuperAdmin && !isOwnerOrAdmin && !isHiringManager) {
+      throw new ForbiddenException("Not allowed to share prospects for this company");
+    }
+
+    // Ensure all requested sessions belong to this company.
+    const sessions = await this.prisma.onboardingSession.findMany({
+      where: {
+        id: { in: sessionIds },
+        companyId,
+      },
+      include: {
+        profile: true,
+      },
+    });
+
+    if (!sessions.length) {
+      throw new NotFoundException("No onboarding sessions found for this company");
+    }
+
+    // Validate that target companies exist (best-effort); silently drop any
+    // unknown ids to keep the API ergonomic for callers.
+    const companies = await this.prisma.company.findMany({
+      where: { id: { in: targetCompanyIds } },
+      select: { id: true },
+    });
+    const validTargetIds = companies.map(c => c.id).filter(id => id !== companyId);
+
+    if (!validTargetIds.length) {
+      throw new BadRequestException("No valid target companies found for requested ids");
+    }
+
+    const result = await this.prisma.$transaction(async tx => {
+      const seenCandidateIds = new Set<string>();
+      let visibilityRowsCreated = 0;
+
+      for (const session of sessions) {
+        const normalizedEmail = this.normalizeEmail(session.email);
+
+        let candidate = await tx.nexNetCandidate.findFirst({
+          where: {
+            OR: [
+              normalizedEmail ? { email: normalizedEmail } : undefined,
+              session.userId ? { userId: session.userId } : undefined,
+            ].filter(Boolean) as any,
+          },
+        });
+
+        if (!candidate) {
+          // Optionally link to an existing user by email if one exists.
+          let linkedUserId: string | null = session.userId ?? null;
+          if (!linkedUserId && normalizedEmail) {
+            const existingUser = await tx.user.findFirst({
+              where: {
+                email: {
+                  equals: normalizedEmail,
+                  mode: "insensitive",
+                },
+              },
+              select: { id: true },
+            });
+            if (existingUser) {
+              linkedUserId = existingUser.id;
+            }
+          }
+
+          const profile = (session as any).profile as
+            | {
+                firstName?: string | null;
+                lastName?: string | null;
+                phone?: string | null;
+              }
+            | null
+            | undefined;
+
+          // Best-effort mapping from onboarding status to Nex-Net status.
+          let status: NexNetStatus = NexNetStatus.NOT_STARTED;
+          const rawStatus = String(session.status || "").toUpperCase();
+          if (rawStatus === "SUBMITTED") {
+            status = NexNetStatus.SUBMITTED;
+          } else if (rawStatus === "UNDER_REVIEW") {
+            status = NexNetStatus.UNDER_REVIEW;
+          } else if (rawStatus === "APPROVED" || rawStatus === "HIRED") {
+            status = NexNetStatus.HIRED;
+          } else if (rawStatus === "REJECTED") {
+            status = NexNetStatus.REJECTED;
+          } else if (rawStatus === "TEST") {
+            status = NexNetStatus.TEST;
+          } else if (rawStatus === "IN_PROGRESS") {
+            status = NexNetStatus.IN_PROGRESS;
+          }
+
+          candidate = await tx.nexNetCandidate.create({
+            data: {
+              userId: linkedUserId,
+              companyId,
+              firstName: profile?.firstName ?? null,
+              lastName: profile?.lastName ?? null,
+              email: normalizedEmail,
+              phone: profile?.phone ?? null,
+              source: NexNetSource.IMPORTED,
+              status,
+            },
+          });
+        }
+
+        seenCandidateIds.add(candidate.id);
+
+        for (const targetId of validTargetIds) {
+          if (targetId === companyId) continue;
+
+          const existing = await tx.candidatePoolVisibility.findFirst({
+            where: {
+              candidateId: candidate.id,
+              visibleToCompanyId: targetId,
+            },
+          });
+
+          if (existing) {
+            if (!existing.isAllowed) {
+              await tx.candidatePoolVisibility.update({
+                where: { id: existing.id },
+                data: { isAllowed: true },
+              });
+            }
+            continue;
+          }
+
+          await tx.candidatePoolVisibility.create({
+            data: {
+              candidateId: candidate.id,
+              visibleToCompanyId: targetId,
+              isAllowed: true,
+              createdByUserId: actor.userId ?? "system-candidate-share",
+            },
+          });
+          visibilityRowsCreated += 1;
+        }
+      }
+
+      return {
+        candidateCount: seenCandidateIds.size,
+        visibilityRowsCreated,
+        targetCompanyCount: validTargetIds.length,
+      };
+    });
+
+    return result;
   }
 
   // Candidate self-view: latest onboarding session for the current user in the
