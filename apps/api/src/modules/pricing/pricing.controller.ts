@@ -21,14 +21,21 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { importGoldenComponentsFromFile } from "@repo/database";
 import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
 import { getImportQueue } from "../../infra/queue/import-queue";
+import { GcsService } from "../../infra/storage/gcs.service";
 
 @Controller("pricing")
 export class PricingController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly gcs: GcsService,
+  ) {}
 
   // SUPER_ADMINs can always upload. Within a company, OWNER/ADMIN can upload.
   // Additionally, MEMBER profiles with sufficient hierarchy (e.g. EXECUTIVE/FINANCE)
   // may be allowed in the future via profileCode.
+  // Legacy/local CSV upload endpoint for Golden PETL. In cloud environments
+  // we prefer the URI-based flow (see price-list/import-from-uri), but this
+  // remains for localhost/dev where API and worker share a filesystem.
   @UseGuards(JwtAuthGuard)
   @Post("price-list/import")
   async uploadPriceList(@Req() req: FastifyRequest) {
@@ -101,6 +108,40 @@ export class PricingController {
       const companyId = user.companyId;
       const createdByUserId = user.userId;
 
+      // Additionally, upload the Golden PETL CSV to object storage so the
+      // worker can reliably access it even when API and worker do not share a
+      // filesystem (e.g. separate Cloud Run services).
+      let fileUri: string | null = null;
+      try {
+        const safeName = (filePart.filename || fileName).replace(/[^a-zA-Z0-9_.-]/g, "_");
+        const keyParts = [
+          "golden-petl",
+          companyId ?? "system",
+          `${Date.now()}`,
+          safeName,
+        ].filter(Boolean);
+        const key = keyParts.join("/");
+
+        fileUri = await this.gcs.uploadBuffer({
+          key,
+          buffer: fileBuffer,
+          contentType: filePart.mimetype || "text/csv",
+        });
+
+        // eslint-disable-next-line no-console
+        console.log("[pricing] uploadPriceList: uploaded CSV to GCS", {
+          companyId,
+          key,
+          fileUri,
+        });
+      } catch (err) {
+        // If storage upload fails (e.g. bucket not configured in dev), we
+        // continue with filesystem-only csvPath so local workflows keep
+        // working. In cloud, GCS must be configured for reliable Golden PETL.
+        // eslint-disable-next-line no-console
+        console.error("[pricing] uploadPriceList: GCS upload failed", err);
+      }
+
       if (!companyId || !createdByUserId) {
         throw new BadRequestException("Missing company context for price list import");
       }
@@ -117,6 +158,10 @@ export class PricingController {
           progress: 0,
           message: "Queued Golden PETL (Price List) import",
           csvPath: destPath,
+          // If we successfully uploaded to GCS, also record the URI so the
+          // worker can download the CSV even when csvPath is not visible in
+          // its container.
+          fileUri: fileUri,
         },
       });
 
@@ -140,6 +185,82 @@ export class PricingController {
       console.error("[pricing] uploadPriceList: error", err);
       throw err;
     }
+  }
+
+  // URI-based Golden PETL import entrypoint. The client first uploads the CSV
+  // to object storage (e.g. via /uploads), then calls this endpoint with the
+  // resulting gs:// URI. We create a PRICE_LIST ImportJob that the worker will
+  // materialize to a local tmp file and process.
+  @UseGuards(JwtAuthGuard)
+  @Post("price-list/import-from-uri")
+  async uploadPriceListFromUri(@Req() req: FastifyRequest) {
+    const anyReq: any = req as any;
+    const user = anyReq.user as AuthenticatedUser | undefined;
+
+    if (!user) {
+      throw new BadRequestException("Missing user in request context");
+    }
+
+    const level = getEffectiveRoleLevel({
+      globalRole: user.globalRole ?? null,
+      role: user.role ?? null,
+      profileCode: user.profileCode ?? null,
+    });
+
+    // Golden Price List is system-wide: only SUPER_ADMINs can upload from
+    // the Nexus System context. Tenant admins must use the company
+    // cost book (COMPANY_PRICE_LIST) endpoint instead.
+    if (user.globalRole !== GlobalRole.SUPER_ADMIN) {
+      throw new BadRequestException(
+        "Only Nexus System administrators can upload the Golden price list.",
+      );
+    }
+
+    const anyFastReq: any = req as any;
+    const body: any = anyFastReq.body || {};
+    const rawFileUri: unknown = body.fileUri;
+    const fileUri =
+      typeof rawFileUri === "string" && rawFileUri.trim().length > 0
+        ? rawFileUri.trim()
+        : null;
+
+    if (!fileUri) {
+      throw new BadRequestException("fileUri is required");
+    }
+
+    const companyId = user.companyId;
+    const createdByUserId = user.userId;
+
+    if (!companyId || !createdByUserId) {
+      throw new BadRequestException("Missing company context for price list import");
+    }
+
+    const job = await this.prisma.importJob.create({
+      data: {
+        companyId,
+        projectId: null,
+        createdByUserId,
+        type: "PRICE_LIST",
+        status: "QUEUED",
+        progress: 0,
+        message: "Queued Golden PETL (Price List) import from URI",
+        csvPath: null,
+        fileUri,
+      },
+    });
+
+    const queue = getImportQueue();
+    await queue.add(
+      "process",
+      { importJobId: job.id },
+      {
+        attempts: 1,
+        removeOnComplete: 1000,
+        removeOnFail: 1000,
+      },
+    );
+
+    return { jobId: job.id };
   }
 
   // Anyone authenticated can see which Golden price list is active; RBAC is enforced on upload.

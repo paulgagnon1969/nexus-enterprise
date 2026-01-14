@@ -848,58 +848,161 @@ export default function FinancialPage() {
       return;
     }
 
-    const formData = new FormData();
-    formData.append("file", file);
-
     setUploading(true);
     try {
-      const res = await fetch(`${API_BASE}/pricing/price-list/import`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      });
+      const isLocalApi = /localhost|127\.0\.0\.1/.test(API_BASE);
 
-      if (!res.ok) {
-        if (res.status === 401) {
+      if (isLocalApi) {
+        // Local/dev path: use the legacy multipart upload directly to the API,
+        // which writes to a shared filesystem visible to the worker.
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const res = await fetch(`${API_BASE}/pricing/price-list/import`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+
+        if (!res.ok) {
+          if (res.status === 401) {
+            throw new Error(
+              "Your session has expired or is not authorized for Golden uploads. Please log out, log back in, and try again.",
+            );
+          }
+          const text = await res.text().catch(() => "");
+          throw new Error(`Upload failed (${res.status}) ${text}`);
+        }
+
+        const json: any = await res.json();
+
+        if (json.jobId) {
+          setPriceListUploadMessage(
+            `Golden Price List (PETL) import started as job ${json.jobId}. You can go about your business; this may take a few minutes. Refresh this page later to see the updated Golden list.`,
+          );
+          // Start tracking this job so we can show status.
+          setPriceListJob({
+            id: json.jobId,
+            companyId: "",
+            projectId: null,
+            createdByUserId: "",
+            type: "PRICE_LIST",
+            status: "QUEUED",
+            progress: 0,
+            message: null,
+            createdAt: new Date().toISOString(),
+          });
+        } else {
+          const todayLabel = new Date().toLocaleDateString();
+          setPriceListUploadMessage(
+            `Golden Price List (PETL) upload complete. Revision ${json.revision} is now active as of ${todayLabel}.`,
+          );
+          setPriceListEta(null);
+          setPriceListJob(null);
+          await refreshGoldenPriceListViews();
+        }
+      } else {
+        // Cloud/remote API path: upload the PETL CSV to storage via a signed
+        // URL, then ask the API to create a PRICE_LIST ImportJob from the
+        // resulting fileUri.
+        // 1) Request a signed upload URL from the generic /uploads endpoint.
+        const uploadMetaRes = await fetch(`${API_BASE}/uploads`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            contentType: file.type || "text/csv",
+            fileName: file.name,
+            scope: "OTHER",
+          }),
+        });
+
+        const uploadMeta = await uploadMetaRes.json().catch(() => ({} as any));
+
+        if (!uploadMetaRes.ok) {
           throw new Error(
-            "Your session has expired or is not authorized for Golden uploads. Please log out, log back in, and try again.",
+            `Failed to create Golden PETL upload URL (${uploadMetaRes.status}) ${
+              uploadMeta?.error || ""
+            }`,
           );
         }
-        const text = await res.text().catch(() => "");
-        throw new Error(`Upload failed (${res.status}) ${text}`);
-      }
 
-      const json: any = await res.json();
+        const { uploadUrl, fileUri } = uploadMeta as {
+          uploadUrl?: string;
+          fileUri?: string;
+        };
 
-      if (json.jobId) {
-        setPriceListUploadMessage(
-          `Golden Price List (PETL) import started as job ${json.jobId}. You can go about your business; this may take a few minutes. Refresh this page later to see the updated Golden list.`,
-        );
-        // Start tracking this job so we can show status.
-        setPriceListJob({
-          id: json.jobId,
-          companyId: "",
-          projectId: null,
-          createdByUserId: "",
-          type: "PRICE_LIST",
-          status: "QUEUED",
-          progress: 0,
-          message: null,
-          createdAt: new Date().toISOString(),
+        if (!uploadUrl || !fileUri) {
+          throw new Error("Golden PETL upload URL response missing uploadUrl or fileUri");
+        }
+
+        // 2) Upload the CSV directly from the browser to storage.
+        const arrayBuffer = await file.arrayBuffer();
+        const uploadRes = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Type": file.type || "text/csv",
+          },
+          body: arrayBuffer,
         });
-      } else {
-        const todayLabel = new Date().toLocaleDateString();
-        setPriceListUploadMessage(
-          `Golden Price List (PETL) upload complete. Revision ${json.revision} is now active as of ${todayLabel}.`,
-        );
-        // Clear any previous ETA/job tracking and immediately refresh the
-        // Golden views so the new revision/row counts appear without a
-        // full page reload.
-        setPriceListEta(null);
-        setPriceListJob(null);
-        await refreshGoldenPriceListViews();
+
+        if (!uploadRes.ok) {
+          const text = await uploadRes.text().catch(() => "");
+          throw new Error(
+            `Golden PETL upload to storage failed (${uploadRes.status}) ${text || ""}`,
+          );
+        }
+
+        // 3) Ask the API to create a PRICE_LIST ImportJob from the storage URI.
+        const importRes = await fetch(`${API_BASE}/pricing/price-list/import-from-uri`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ fileUri }),
+        });
+
+        const importJson: any = await importRes.json().catch(() => ({}));
+
+        if (!importRes.ok) {
+          throw new Error(
+            `Golden PETL import enqueue failed (${importRes.status}) ${
+              importJson?.error || ""
+            }`,
+          );
+        }
+
+        if (importJson.jobId) {
+          setPriceListUploadMessage(
+            `Golden Price List (PETL) import started as job ${importJson.jobId}. You can go about your business; this may take a few minutes. Refresh this page later to see the updated Golden list.`,
+          );
+          setPriceListJob({
+            id: importJson.jobId,
+            companyId: "",
+            projectId: null,
+            createdByUserId: "",
+            type: "PRICE_LIST",
+            status: "QUEUED",
+            progress: 0,
+            message: null,
+            createdAt: new Date().toISOString(),
+          });
+        } else {
+          const todayLabel = new Date().toLocaleDateString();
+          setPriceListUploadMessage(
+            `Golden Price List (PETL) upload complete. Revision ${
+              importJson.revision
+            } is now active as of ${todayLabel}.`,
+          );
+          setPriceListEta(null);
+          setPriceListJob(null);
+          await refreshGoldenPriceListViews();
+        }
       }
 
       form.reset();

@@ -409,7 +409,11 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
     throw new Error("Import job has no csvPath or fileUri to read from");
   }
 
-  if (csvPath && !fs.existsSync(csvPath)) {
+  // For legacy/local csvPath-based jobs, fail fast if the file truly does not
+  // exist and there is no fileUri fallback. When a fileUri is present, the
+  // type-specific handler (e.g. XACT_RAW, PRICE_LIST) is responsible for
+  // downloading the object from GCS into a local tmp path.
+  if (csvPath && !fs.existsSync(csvPath) && !fileUri) {
     throw new Error(`CSV not found at ${csvPath}`);
   }
 
@@ -531,10 +535,33 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       },
     });
 
-    const nonNullCsvPath = csvPath as string;
+    let effectiveCsvPath = csvPath;
+
+    // If we do not have a usable local csvPath but a fileUri is present, fetch
+    // the Golden PETL CSV from GCS into a local tmp path. This mirrors the
+    // XACT_RAW pattern so Golden imports work reliably in multi-pod/remote
+    // deployments where API and worker do not share a filesystem.
+    if ((!effectiveCsvPath || !fs.existsSync(effectiveCsvPath)) && fileUri) {
+      console.log("[worker] PRICE_LIST using fileUri, downloading from GCS", {
+        importJobId,
+        fileUri,
+      });
+      effectiveCsvPath = await downloadGcsToTmp(fileUri);
+      console.log("[worker] PRICE_LIST downloaded GCS file", {
+        importJobId,
+        fileUri,
+        effectiveCsvPath,
+      });
+    }
+
+    if (!effectiveCsvPath || !fs.existsSync(effectiveCsvPath)) {
+      throw new Error(
+        "PRICE_LIST import job has no usable csvPath or fileUri to read from.",
+      );
+    }
 
     const startedAt = Date.now();
-    const result = await importPriceListFromFile(nonNullCsvPath);
+    const result = await importPriceListFromFile(effectiveCsvPath);
     const durationMs = Date.now() - startedAt;
 
     await prisma.importJob.update({

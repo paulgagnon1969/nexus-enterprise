@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import StarRating from "../../../../components/star-rating";
 import { formatPhone } from "../../../../lib/phone";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -82,6 +83,8 @@ export default function CandidateDetailPage() {
   const [skills, setSkills] = useState<OnboardingSkillRow[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillsError, setSkillsError] = useState<string | null>(null);
+  const [skillsSaving, setSkillsSaving] = useState(false);
+  const [skillsSaveMessage, setSkillsSaveMessage] = useState<string | null>(null);
  
   const [canViewHr, setCanViewHr] = useState(false);
   const [detailStatusOptions, setDetailStatusOptions] = useState<
@@ -103,6 +106,9 @@ export default function CandidateDetailPage() {
   const [journalAttachments, setJournalAttachments] = useState<
     { url: string; label?: string }[]
   >([]);
+  // Optional distribution for journal entries: when true, we also share the
+  // note with the candidate via a normal DIRECT message thread.
+  const [shareJournalWithCandidate, setShareJournalWithCandidate] = useState(false);
 
   // HR/admin-only editing of onboarding profile snapshot
   const [savingProfile, setSavingProfile] = useState(false);
@@ -268,14 +274,19 @@ export default function CandidateDetailPage() {
         if (!res.ok) return;
         const json = await res.json();
         if (!Array.isArray(json)) return;
-        setDetailStatusOptions(
-          json.map((d: any) => ({
-            id: d.id,
-            code: d.code,
-            label: d.label,
-            color: d.color ?? null,
-          })),
-        );
+        const options = json.map((d: any) => ({
+          id: d.id,
+          code: d.code,
+          label: d.label,
+          color: d.color ?? null,
+        }));
+        setDetailStatusOptions(options);
+        // If the actor is allowed to read candidate status definitions for this
+        // company, we can safely treat them as HR-level for candidate review
+        // purposes even if they are not OWNER/ADMIN (e.g. HIRING_MANAGER).
+        if (options.length > 0) {
+          setCanViewHr(true);
+        }
       } catch {
         // non-fatal
       }
@@ -354,6 +365,37 @@ export default function CandidateDetailPage() {
 
     void loadJournal();
   }, [canViewHr, session?.userId]);
+
+  async function handleSaveSkills() {
+    if (!session?.token) return;
+    setSkillsError(null);
+    setSkillsSaveMessage(null);
+    try {
+      setSkillsSaving(true);
+      const ratings = skills
+        .filter(s => typeof s.level === "number" && s.level != null && s.level >= 1 && s.level <= 5)
+        .map(s => ({ skillId: s.id, level: s.level }));
+
+      const res = await fetch(`${API_BASE}/onboarding/${session.token}/skills`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ratings }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Failed to save self-assessment (${res.status})`);
+      }
+
+      setSkillsSaveMessage("Self-assessment saved.");
+    } catch (e: any) {
+      setSkillsError(e?.message ?? "Failed to save self-assessment.");
+    } finally {
+      setSkillsSaving(false);
+    }
+  }
 
   // Best-effort detection of missing onboarding document files. Some legacy
   // records may reference files that are no longer present on disk; instead of
@@ -1191,7 +1233,35 @@ export default function CandidateDetailPage() {
       />
 
       <section style={{ marginTop: 0 }}>
-        <h2 style={{ fontSize: 16, marginBottom: 4 }}>Self-assessed skills</h2>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 8,
+            marginBottom: 4,
+          }}
+        >
+          <h2 style={{ fontSize: 16, margin: 0 }}>Self-assessed skills</h2>
+          {canViewHr && (
+            <button
+              type="button"
+              onClick={() => void handleSaveSkills()}
+              disabled={skillsSaving || !session?.token}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 4,
+                border: "1px solid #0f172a",
+                backgroundColor: skillsSaving ? "#e5e7eb" : "#0f172a",
+                color: skillsSaving ? "#4b5563" : "#f9fafb",
+                fontSize: 12,
+                cursor: skillsSaving || !session?.token ? "default" : "pointer",
+              }}
+            >
+              {skillsSaving ? "Saving…" : "Save self-assessment"}
+            </button>
+          )}
+        </div>
         {skillsLoading ? (
           <p style={{ fontSize: 12, color: "#6b7280" }}>Loading skills…</p>
         ) : skillsError ? (
@@ -1218,16 +1288,11 @@ export default function CandidateDetailPage() {
               </thead>
               <tbody>
                 {categoryGroups.map(group => {
-                  const ratedSkills = group.skills.filter(s => s.level != null);
-                  if (!ratedSkills.length) {
-                    return null;
-                  }
-
                   const expanded = !!expandedCategories[group.categoryLabel];
 
                   return (
-                    <>
-                      <tr key={group.categoryLabel} style={{ backgroundColor: "#f3f4f6" }}>
+                    <Fragment key={group.categoryLabel}>
+                      <tr style={{ backgroundColor: "#f3f4f6" }}>
                         <td
                           colSpan={4}
                           onClick={() =>
@@ -1261,7 +1326,8 @@ export default function CandidateDetailPage() {
                         </td>
                       </tr>
                       {expanded &&
-                        ratedSkills
+                        group.skills
+                          .slice()
                           .sort((a, b) => (b.level ?? 0) - (a.level ?? 0))
                           .map(skill => (
                             <tr key={skill.id}>
@@ -1283,23 +1349,48 @@ export default function CandidateDetailPage() {
                                   fontSize: 12,
                                 }}
                               >
-                                {skill.level != null ? (
+                                {canViewHr ? (
+                                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                    <StarRating
+                                      value={skill.level}
+                                      onChange={(next: 1 | 2 | 3 | 4 | 5) => {
+                                        setSkills(prev =>
+                                          prev.map(s =>
+                                            s.id === skill.id
+                                              ? { ...s, level: next }
+                                              : s,
+                                          ),
+                                        );
+                                      }}
+                                      size={14}
+                                      ariaLabel={`Self-assessed level for ${skill.label}`}
+                                    />
+                                    {skill.level != null && (
+                                      <span style={{ fontSize: 11, color: "#4b5563" }}>
+                                        {skill.level}/5
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : skill.level != null ? (
                                   <span>
                                     {renderStars(skill.level, 12)}{" "}
                                     <span style={{ marginLeft: 4 }}>{skill.level}/5</span>
                                   </span>
                                 ) : (
-                                  "—"
+                                  <span style={{ color: "#6b7280", fontSize: 11 }}>Not yet rated</span>
                                 )}
                               </td>
                             </tr>
                           ))}
-                    </>
+                    </Fragment>
                   );
                 })}
               </tbody>
             </table>
           </div>
+        )}
+        {skillsSaveMessage && (
+          <p style={{ fontSize: 11, color: "#16a34a", marginTop: 4 }}>{skillsSaveMessage}</p>
         )}
       </section>
 
@@ -1739,8 +1830,9 @@ export default function CandidateDetailPage() {
                         },
                         body: JSON.stringify({
                           body: journalDraft.trim(),
-                          // Default: internal-only; toggle UI could set this true
-                          shareWithSubject: false,
+                          // When true, also share this note with the candidate
+                          // via a normal DIRECT message thread.
+                          shareWithSubject: shareJournalWithCandidate,
                           attachments:
                             journalAttachments.length > 0
                               ? journalAttachments.map(att => ({
@@ -1777,6 +1869,7 @@ export default function CandidateDetailPage() {
                     ]);
                     setJournalDraft("");
                     setJournalAttachments([]);
+                    setShareJournalWithCandidate(false);
                   } catch (err: any) {
                     alert(err?.message ?? "Failed to add journal entry.");
                   } finally {
@@ -1912,7 +2005,24 @@ export default function CandidateDetailPage() {
                     </div>
                   </div>
                 )}
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <div
+                  style={{
+                    marginTop: 6,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 11,
+                  }}
+                >
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <input
+                      type="checkbox"
+                      checked={shareJournalWithCandidate}
+                      onChange={e => setShareJournalWithCandidate(e.target.checked)}
+                    />
+                    <span>Share this note with the candidate via Messages</span>
+                  </label>
                   <button
                     type="submit"
                     disabled={savingJournal || !journalDraft.trim()}

@@ -206,6 +206,25 @@ export class OnboardingController {
     return this.onboarding.listProspectsForCompany(companyId, actor, statuses, detailCodes);
   }
 
+  // Multi-tenant sharing: allow OWNER / ADMIN / HIRING_MANAGER (or SUPER_ADMIN)
+  // in a company to share one or more prospective candidates with other tenant
+  // companies. This wires up CandidatePoolVisibility so those tenants can see
+  // the shared candidates in their own Prospective Candidates views.
+  @UseGuards(JwtAuthGuard)
+  @Post("company/:companyId/share-prospects")
+  async shareProspectsForCompany(
+    @Param("companyId") companyId: string,
+    @Req() req: any,
+    @Body()
+    body: {
+      sessionIds?: string[];
+      targetCompanyIds?: string[];
+    },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.onboarding.shareProspectsWithCompanies(companyId, actor, body ?? {});
+  }
+
   // Authenticated candidate self-view: return the latest onboarding session for the
   // current user in the current company context. This powers the /candidate portal
   // so applicants can see what they have completed vs what is still pending.

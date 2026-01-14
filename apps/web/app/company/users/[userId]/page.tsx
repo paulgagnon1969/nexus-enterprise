@@ -25,6 +25,50 @@ interface SkillRow {
   clientRatingCount: number | null;
 }
 
+interface HrDto {
+  displayEmail?: string | null;
+  phone?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  country?: string | null;
+  bankName?: string | null;
+  bankAddress?: string | null;
+  hipaaNotes?: string | null;
+  ssnLast4?: string | null;
+  itinLast4?: string | null;
+  bankAccountLast4?: string | null;
+  bankRoutingLast4?: string | null;
+  hasSsn?: boolean;
+  hasItin?: boolean;
+  hasBankAccount?: boolean;
+  hasBankRouting?: boolean;
+}
+
+interface WorkerDto {
+  id: string;
+  fullName: string | null;
+  status: string | null;
+  defaultProjectCode: string | null;
+  primaryClassCode: string | null;
+  phone: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  unionLocal: string | null;
+  dateHired: string | null;
+  totalHoursCbs: number | null;
+  totalHoursCct: number | null;
+  defaultPayRate: number | null;
+  billRate: number | null;
+  cpRate: number | null;
+  cpRole: string | null;
+}
+
 interface UserProfileDto {
   id: string;
   email: string;
@@ -35,6 +79,9 @@ interface UserProfileDto {
   company: { id: string; name: string };
   companyRole: string;
   canEditHr?: boolean;
+  canViewHr?: boolean;
+  hr?: HrDto | null;
+  worker?: WorkerDto | null;
   reputation: {
     avg: number;
     count: number;
@@ -45,34 +92,6 @@ interface UserProfileDto {
     bio: string | null;
     photoUrl: string | null;
     updatedAt?: string;
-  } | null;
-  hr?: {
-    displayEmail?: string | null;
-    phone?: string | null;
-    addressLine1?: string | null;
-    addressLine2?: string | null;
-    city?: string | null;
-    state?: string | null;
-    postalCode?: string | null;
-    country?: string | null;
-  } | null;
-  canViewHr?: boolean;
-  worker?: {
-    id: string;
-    fullName: string | null;
-    status: string | null;
-    defaultProjectCode: string | null;
-    primaryClassCode: string | null;
-    phone: string | null;
-    addressLine1: string | null;
-    addressLine2: string | null;
-    city: string | null;
-    state: string | null;
-    postalCode: string | null;
-    unionLocal: string | null;
-    dateHired: string | null;
-    totalHoursCbs: number | null;
-    totalHoursCct: number | null;
   } | null;
   skills: SkillRow[];
 }
@@ -119,6 +138,25 @@ export default function CompanyUserProfilePage() {
   const [savingHr, setSavingHr] = useState(false);
   const [hrError, setHrError] = useState<string | null>(null);
 
+  // HR journal: internal case log for this worker/user.
+  const [journalLoading, setJournalLoading] = useState(false);
+  const [journalError, setJournalError] = useState<string | null>(null);
+  const [journalEntries, setJournalEntries] = useState<
+    {
+      id: string;
+      body: string;
+      createdAt: string;
+      senderEmail?: string | null;
+      attachments?: { id: string; url: string; filename?: string | null }[];
+    }[]
+  >([]);
+  const [journalDraft, setJournalDraft] = useState("");
+  const [savingJournal, setSavingJournal] = useState(false);
+  const [journalAttachments, setJournalAttachments] = useState<
+    { url: string; label?: string }[]
+  >([]);
+  const [shareJournalWithWorker, setShareJournalWithWorker] = useState(false);
+
   // Admin-only: per-skill rating details (including comments)
   const [detailsBySkillId, setDetailsBySkillId] = useState<Record<string, any>>({});
   const [detailsLoadingBySkillId, setDetailsLoadingBySkillId] = useState<Record<string, boolean>>({});
@@ -131,6 +169,15 @@ export default function CompanyUserProfilePage() {
   const [identityGlobalRole, setIdentityGlobalRole] = useState<string>("");
   const [identitySaving, setIdentitySaving] = useState(false);
   const [identityError, setIdentityError] = useState<string | null>(null);
+
+  // Worker comp editing (SUPER_ADMIN only for now)
+  const [workerPhone, setWorkerPhone] = useState<string>("");
+  const [workerPayRate, setWorkerPayRate] = useState<string>("");
+  const [workerBillRate, setWorkerBillRate] = useState<string>("");
+  const [workerCpRate, setWorkerCpRate] = useState<string>("");
+  const [workerCpRole, setWorkerCpRole] = useState<string>("");
+  const [workerSaving, setWorkerSaving] = useState(false);
+  const [workerError, setWorkerError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -166,6 +213,22 @@ export default function CompanyUserProfilePage() {
         setIdentityLastName(profileJson.lastName ?? "");
         setIdentityUserType(profileJson.userType ?? "");
         setIdentityGlobalRole(profileJson.globalRole ?? "");
+
+        if (profileJson.worker) {
+          setWorkerPhone(profileJson.worker.phone ?? "");
+          setWorkerPayRate(
+            profileJson.worker.defaultPayRate != null
+              ? String(profileJson.worker.defaultPayRate)
+              : "",
+          );
+          setWorkerBillRate(
+            profileJson.worker.billRate != null ? String(profileJson.worker.billRate) : "",
+          );
+          setWorkerCpRate(
+            profileJson.worker.cpRate != null ? String(profileJson.worker.cpRate) : "",
+          );
+          setWorkerCpRole(profileJson.worker.cpRole ?? "");
+        }
 
         // Default selection to the first skill so the right panel has context.
         if (Array.isArray(profileJson?.skills) && profileJson.skills[0]?.id) {
@@ -253,6 +316,62 @@ export default function CompanyUserProfilePage() {
     void loadDetails();
   }, [profile, isAdminOrAbove, selectedSkillId, detailsBySkillId]);
 
+  // Load HR journal entries when HR can view this worker.
+  useEffect(() => {
+    if (!profile) return;
+    if (!profile.id) return;
+    if (!profile.canViewHr && !profile.hr) return;
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    async function loadJournal() {
+      if (!profile) return;
+      try {
+        setJournalLoading(true);
+        setJournalError(null);
+        const userIdForJournal = profile.id;
+        const res = await fetch(`${API_BASE}/messages/journal/user/${userIdForJournal}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Failed to load journal (${res.status}) ${text}`);
+        }
+        const json = await res.json();
+        const msgs = Array.isArray(json?.messages) ? json.messages : [];
+        if (cancelled) return;
+        setJournalEntries(
+          msgs.map((m: any) => ({
+            id: m.id,
+            body: m.body ?? "",
+            createdAt: m.createdAt,
+            senderEmail: m.senderEmail ?? null,
+            attachments: Array.isArray(m.attachments)
+              ? m.attachments.map((att: any) => ({
+                  id: att.id,
+                  url: att.url,
+                  filename: att.filename ?? null,
+                }))
+              : [],
+          })),
+        );
+      } catch (e: any) {
+        if (!cancelled) setJournalError(e?.message ?? "Failed to load journal entries.");
+      } finally {
+        if (!cancelled) setJournalLoading(false);
+      }
+    }
+
+    void loadJournal();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profile]);
+
   if (loading) {
     return (
       <div className="app-card">
@@ -274,7 +393,7 @@ export default function CompanyUserProfilePage() {
   const canViewHr = profile.canViewHr ?? !!profile.hr;
   const canEditHrFields = profile.canEditHr ?? false;
   const hasWorker = !!profile.worker;
-  const hr = profile.hr || {};
+  const hr = (profile.hr as HrDto | null) || {};
 
   const workerLink =
     profile.worker && profile.worker.id
@@ -289,6 +408,7 @@ export default function CompanyUserProfilePage() {
   const canEditNames = isAdminOrAbove;
   const canEditUserType = isAdminOrAbove;
   const canEditGlobalRole = isSuperAdmin;
+  const canEditWorkerComp = isSuperAdmin && !!profile.worker;
 
   async function handleSaveIdentity(e?: FormEvent) {
     if (e) e.preventDefault();
@@ -394,6 +514,92 @@ export default function CompanyUserProfilePage() {
       setIdentityError(err?.message ?? "Failed to save identity changes.");
     } finally {
       setIdentitySaving(false);
+    }
+  }
+
+  async function handleSaveWorkerComp(e?: FormEvent) {
+    if (e) e.preventDefault();
+    setWorkerError(null);
+
+    if (!profile?.worker || !canEditWorkerComp) {
+      setWorkerError("Worker record not available.");
+      return;
+    }
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setWorkerError("Missing access token. Please log in again.");
+      return;
+    }
+
+    const parseRate = (value: string): number | null | undefined => {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      const n = Number(trimmed);
+      if (Number.isNaN(n)) return undefined;
+      return n;
+    };
+
+    const nextPay = parseRate(workerPayRate);
+    const nextBill = parseRate(workerBillRate);
+    const nextCp = parseRate(workerCpRate);
+
+    if (nextPay === undefined || nextBill === undefined || nextCp === undefined) {
+      setWorkerError("Rates must be numeric when provided.");
+      return;
+    }
+
+    try {
+      setWorkerSaving(true);
+      const body: any = {
+        phone: workerPhone.trim() || null,
+      };
+      if (nextPay !== undefined) body.defaultPayRate = nextPay;
+      if (nextBill !== undefined) body.billRate = nextBill;
+      if (nextCp !== undefined) body.cpRate = nextCp;
+      body.cpRole = workerCpRole.trim() || null;
+
+      const res = await fetch(`${API_BASE}/workers/${profile.worker.id}/comp`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Failed to save worker compensation (${res.status}).`);
+      }
+
+      const updated = await res.json();
+
+      setProfile(prev =>
+        prev
+          ? {
+              ...prev,
+              worker: prev.worker
+                ? {
+                    ...prev.worker,
+                    phone: updated.phone ?? prev.worker.phone,
+                    defaultPayRate:
+                      updated.defaultPayRate != null
+                        ? updated.defaultPayRate
+                        : prev.worker.defaultPayRate,
+                    billRate:
+                      updated.billRate != null ? updated.billRate : prev.worker.billRate,
+                    cpRate: updated.cpRate != null ? updated.cpRate : prev.worker.cpRate,
+                    cpRole: updated.cpRole ?? prev.worker.cpRole,
+                  }
+                : prev.worker,
+            }
+          : prev,
+      );
+    } catch (err: any) {
+      setWorkerError(err?.message ?? "Failed to save worker compensation.");
+    } finally {
+      setWorkerSaving(false);
     }
   }
 
@@ -724,7 +930,7 @@ export default function CompanyUserProfilePage() {
           }}
         >
           <div style={{ flex: "1 1 0", minWidth: 320 }}>
-            <section>
+          <section>
               <h2 style={{ fontSize: 16, marginBottom: 4 }}>Identity</h2>
 
               {canEditNames ? (
@@ -868,10 +1074,23 @@ export default function CompanyUserProfilePage() {
                       </>
                     )}
                   </div>
-                  {profile.worker.phone && (
-                    <div>
-                      <strong>Worker phone:</strong>{" "}
-                      {(() => {
+                  <div>
+                    <strong>Worker phone:</strong>{" "}
+                    {canEditWorkerComp ? (
+                      <input
+                        type="tel"
+                        value={workerPhone}
+                        onChange={e => setWorkerPhone(e.target.value)}
+                        style={{
+                          fontSize: 12,
+                          padding: "2px 4px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          minWidth: 160,
+                        }}
+                      />
+                    ) : profile.worker.phone ? (
+                      (() => {
                         const formatted = formatPhone(
                           profile.worker?.phone ?? null,
                           profile.hr?.country ?? "US",
@@ -885,14 +1104,105 @@ export default function CompanyUserProfilePage() {
                             {formatted.display}
                           </a>
                         );
-                      })()}
-                    </div>
-                  )}
+                      })()
+                    ) : (
+                      <span>—</span>
+                    )}
+                  </div>
                   {profile.worker.city && (
                     <div style={{ fontSize: 12, color: "#6b7280" }}>
                       {profile.worker.city}
                       {profile.worker.state ? `, ${profile.worker.state}` : ""}
                       {profile.worker.postalCode ? ` ${profile.worker.postalCode}` : ""}
+                    </div>
+                  )}
+                  {canEditWorkerComp && (
+                    <div style={{ marginTop: 8, fontSize: 12 }}>
+                      <div style={{ marginBottom: 4 }}>
+                        <strong>Pay rate (hr):</strong>{" "}
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={workerPayRate}
+                          onChange={e => setWorkerPayRate(e.target.value)}
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            minWidth: 100,
+                          }}
+                        />
+                      </div>
+                      <div style={{ marginBottom: 4 }}>
+                        <strong>Bill rate:</strong>{" "}
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={workerBillRate}
+                          onChange={e => setWorkerBillRate(e.target.value)}
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            minWidth: 100,
+                          }}
+                        />
+                      </div>
+                      <div style={{ marginBottom: 4 }}>
+                        <strong>CP rate:</strong>{" "}
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={workerCpRate}
+                          onChange={e => setWorkerCpRate(e.target.value)}
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            minWidth: 100,
+                          }}
+                        />
+                      </div>
+                      <div style={{ marginBottom: 4 }}>
+                        <strong>CP role:</strong>{" "}
+                        <input
+                          type="text"
+                          value={workerCpRole}
+                          onChange={e => setWorkerCpRole(e.target.value)}
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            minWidth: 140,
+                          }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={workerSaving}
+                        onClick={handleSaveWorkerComp}
+                        style={{
+                          marginTop: 4,
+                          padding: "4px 8px",
+                          borderRadius: 4,
+                          border: "1px solid #0f172a",
+                          backgroundColor: workerSaving ? "#e5e7eb" : "#0f172a",
+                          color: workerSaving ? "#4b5563" : "#f9fafb",
+                          fontSize: 12,
+                          cursor: workerSaving ? "default" : "pointer",
+                        }}
+                      >
+                        {workerSaving ? "Saving…" : "Save worker rates"}
+                      </button>
+                      {workerError && (
+                        <div style={{ marginTop: 2, fontSize: 11, color: "#b91c1c" }}>
+                          {workerError}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1073,6 +1383,34 @@ export default function CompanyUserProfilePage() {
                       Editable HR contact snapshot for this worker. Changes here update
                       the worker's HR portfolio for this company only.
                     </div>
+                    {hr && (hr.hasSsn || hr.hasBankAccount || hr.hasBankRouting) && (
+                      <div style={{ fontSize: 11, color: "#4b5563", marginTop: 4 }}>
+                        <div>
+                          <strong>Identifiers on file:</strong>{" "}
+                          {hr.hasSsn ? (
+                            <span>SSN ending in {hr.ssnLast4 ?? "••••"}</span>
+                          ) : (
+                            <span>No SSN on file</span>
+                          )}
+                        </div>
+                        <div>
+                          <strong>Bank account:</strong>{" "}
+                          {hr.hasBankAccount ? (
+                            <span>Acct ending in {hr.bankAccountLast4 ?? "••••"}</span>
+                          ) : (
+                            <span>No account on file</span>
+                          )}
+                        </div>
+                        <div>
+                          <strong>Routing:</strong>{" "}
+                          {hr.hasBankRouting ? (
+                            <span>Routing ending in {hr.bankRoutingLast4 ?? "••••"}</span>
+                          ) : (
+                            <span>No routing on file</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     {!canEditHrFields && (
                       <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
                         You can view HR contact details for this worker but do not have permission to edit them.
@@ -1406,6 +1744,314 @@ export default function CompanyUserProfilePage() {
                         )}
                       </div>
                     )}
+
+                    {/* HR Journal (internal log) */}
+                    <div
+                      id="journal"
+                      style={{
+                        marginTop: 10,
+                        paddingTop: 10,
+                        borderTop: "1px dashed #e5e7eb",
+                      }}
+                    >
+                      <h3 style={{ fontSize: 14, marginBottom: 4 }}>Journal</h3>
+                      <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
+                        Internal notes and message history related to this worker. Workers may
+                        see high-level message history on their own journal board, but HR-only
+                        notes remain internal unless explicitly shared.
+                      </p>
+
+                      {journalLoading ? (
+                        <p style={{ fontSize: 12, color: "#6b7280" }}>Loading journal…</p>
+                      ) : journalError ? (
+                        <p style={{ fontSize: 12, color: "#b91c1c" }}>{journalError}</p>
+                      ) : journalEntries.length === 0 ? (
+                        <p style={{ fontSize: 12, color: "#6b7280" }}>No journal entries yet.</p>
+                      ) : (
+                        <div
+                          style={{
+                            maxHeight: 220,
+                            overflowY: "auto",
+                            borderRadius: 6,
+                            border: "1px solid #e5e7eb",
+                            background: "#ffffff",
+                            padding: 8,
+                          }}
+                        >
+                          <ul style={{ listStyle: "none", margin: 0, padding: 0, fontSize: 12 }}>
+                            {journalEntries.map(entry => (
+                              <li
+                                key={entry.id}
+                                style={{
+                                  padding: "6px 4px",
+                                  borderBottom: "1px solid #f3f4f6",
+                                }}
+                              >
+                                <div style={{ color: "#6b7280", fontSize: 11 }}>
+                                  {new Date(entry.createdAt).toLocaleString()}
+                                  {entry.senderEmail && (
+                                    <>
+                                      {" "}· <span>{entry.senderEmail}</span>
+                                    </>
+                                  )}
+                                </div>
+                                <div style={{ whiteSpace: "pre-wrap", color: "#111827" }}>
+                                  {entry.body}
+                                </div>
+                                {entry.attachments && entry.attachments.length > 0 && (
+                                  <div style={{ marginTop: 4, fontSize: 11 }}>
+                                    {entry.attachments.map(att => {
+                                      const name = (att.filename || att.url || "").toLowerCase();
+                                      const isImage = /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name);
+                                      if (isImage) {
+                                        return (
+                                          <div
+                                            key={att.id}
+                                            style={{
+                                              display: "flex",
+                                              alignItems: "center",
+                                              gap: 8,
+                                              marginBottom: 4,
+                                            }}
+                                          >
+                                            <a
+                                              href={att.url}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              style={{
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                gap: 8,
+                                              }}
+                                            >
+                                              <img
+                                                src={att.url}
+                                                alt={att.filename || "Screenshot"}
+                                                style={{
+                                                  width: 72,
+                                                  height: 72,
+                                                  objectFit: "cover",
+                                                  borderRadius: 6,
+                                                  border: "1px solid #e5e7eb",
+                                                  backgroundColor: "#f9fafb",
+                                                }}
+                                              />
+                                              <span
+                                                style={{
+                                                  color: "#2563eb",
+                                                  textDecoration: "underline",
+                                                }}
+                                              >
+                                                {att.filename || att.url}
+                                              </span>
+                                            </a>
+                                          </div>
+                                        );
+                                      }
+                                      return (
+                                        <div key={att.id}>
+                                          <a
+                                            href={att.url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            style={{
+                                              color: "#2563eb",
+                                              textDecoration: "underline",
+                                            }}
+                                          >
+                                            {att.filename || att.url}
+                                          </a>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Simple inline add-entry box for HR */}
+                      <form
+                        onSubmit={async e => {
+                          e.preventDefault();
+                          if (!journalDraft.trim() || !profile?.id) return;
+                          const token = window.localStorage.getItem("accessToken");
+                          if (!token) {
+                            alert("Missing access token. Please log in again.");
+                            return;
+                          }
+                          try {
+                            setSavingJournal(true);
+                            const res = await fetch(
+                              `${API_BASE}/messages/journal/user/${profile.id}/entries`,
+                              {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  Authorization: `Bearer ${token}`,
+                                },
+                                body: JSON.stringify({
+                                  body: journalDraft.trim(),
+                                  shareWithSubject: shareJournalWithWorker,
+                                  attachments:
+                                    journalAttachments.length > 0
+                                      ? journalAttachments.map(att => ({
+                                          kind: "UPLOADED_FILE",
+                                          url: att.url,
+                                          filename: att.label || null,
+                                        }))
+                                      : undefined,
+                                }),
+                              },
+                            );
+                            if (!res.ok) {
+                              const text = await res.text().catch(() => "");
+                              throw new Error(
+                                `Failed to add journal entry (${res.status}) ${text}`,
+                              );
+                            }
+                            const json = await res.json();
+                            const created = json?.message ?? json;
+                            setJournalEntries(prev => [
+                              {
+                                id: created.id,
+                                body: created.body ?? journalDraft.trim(),
+                                createdAt: created.createdAt ?? new Date().toISOString(),
+                                senderEmail: created.senderEmail ?? null,
+                                attachments:
+                                  journalAttachments.length > 0
+                                    ? journalAttachments.map((att, idx) => ({
+                                        id: `${created.id}-att-${idx}`,
+                                        url: att.url,
+                                        filename: att.label || null,
+                                      }))
+                                    : [],
+                              },
+                              ...prev,
+                            ]);
+                            setJournalDraft("");
+                            setJournalAttachments([]);
+                            setShareJournalWithWorker(false);
+                          } catch (err: any) {
+                            alert(err?.message ?? "Failed to add journal entry.");
+                          } finally {
+                            setSavingJournal(false);
+                          }
+                        }}
+                        style={{
+                          marginTop: 10,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 6,
+                        }}
+                      >
+                        <label style={{ fontSize: 12, color: "#4b5563" }}>
+                          Add HR-only journal note
+                          <textarea
+                            value={journalDraft}
+                            onChange={e => setJournalDraft(e.target.value)}
+                            rows={3}
+                            style={{
+                              marginTop: 4,
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 6,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                              fontFamily:
+                                "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                            }}
+                          />
+                        </label>
+                        {journalAttachments.length > 0 && (
+                          <div style={{ marginTop: 6, fontSize: 11 }}>
+                            <div style={{ marginBottom: 2 }}>Attached images</div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                              {journalAttachments.map(att => (
+                                <span
+                                  key={att.url}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    padding: "2px 6px",
+                                    borderRadius: 999,
+                                    border: "1px solid #d1d5db",
+                                    backgroundColor: "#eef2ff",
+                                  }}
+                                >
+                                  <span>{att.label || att.url}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setJournalAttachments(prev =>
+                                        prev.filter(x => x.url !== att.url),
+                                      )
+                                    }
+                                    style={{
+                                      border: "none",
+                                      background: "transparent",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <div
+                          style={{
+                            marginTop: 6,
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 8,
+                            fontSize: 11,
+                          }}
+                        >
+                          <label
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={shareJournalWithWorker}
+                              onChange={e => setShareJournalWithWorker(e.target.checked)}
+                            />
+                            <span>Share this note with the worker via Messages</span>
+                          </label>
+                          <button
+                            type="submit"
+                            disabled={savingJournal || !journalDraft.trim()}
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: 4,
+                              border: "1px solid #0f172a",
+                              backgroundColor:
+                                savingJournal || !journalDraft.trim()
+                                  ? "#e5e7eb"
+                                  : "#0f172a",
+                              color:
+                                savingJournal || !journalDraft.trim()
+                                  ? "#4b5563"
+                                  : "#f9fafb",
+                              fontSize: 12,
+                              cursor:
+                                savingJournal || !journalDraft.trim() ? "default" : "pointer",
+                            }}
+                          >
+                            {savingJournal ? "Saving…" : "Add journal entry"}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
                   </div>
                 )}
               </div>

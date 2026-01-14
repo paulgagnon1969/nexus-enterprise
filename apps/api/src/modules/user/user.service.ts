@@ -234,30 +234,36 @@ export class UserService {
 
     let hrPublic: any = null;
     if (hr && canViewHr) {
-      const payload = decryptPortfolioHrJson(Buffer.from(hr.encryptedJson)) as PortfolioHrPayload;
-      hrPublic = {
-        displayEmail: payload.displayEmail ?? null,
-        phone: payload.phone ?? null,
-        addressLine1: payload.addressLine1 ?? null,
-        addressLine2: payload.addressLine2 ?? null,
-        city: payload.city ?? null,
-        state: payload.state ?? null,
-        postalCode: payload.postalCode ?? null,
-        country: payload.country ?? null,
-        bankName: payload.bankName ?? null,
-        bankAddress: payload.bankAddress ?? null,
-        hipaaNotes: payload.hipaaNotes ?? null,
+      try {
+        const payload = decryptPortfolioHrJson(Buffer.from(hr.encryptedJson)) as PortfolioHrPayload;
+        hrPublic = {
+          displayEmail: payload.displayEmail ?? null,
+          phone: payload.phone ?? null,
+          addressLine1: payload.addressLine1 ?? null,
+          addressLine2: payload.addressLine2 ?? null,
+          city: payload.city ?? null,
+          state: payload.state ?? null,
+          postalCode: payload.postalCode ?? null,
+          country: payload.country ?? null,
+          bankName: payload.bankName ?? null,
+          bankAddress: payload.bankAddress ?? null,
+          hipaaNotes: payload.hipaaNotes ?? null,
 
-        // Masked / derived
-        ssnLast4: hr.ssnLast4 ?? null,
-        itinLast4: hr.itinLast4 ?? null,
-        bankAccountLast4: hr.bankAccountLast4 ?? null,
-        bankRoutingLast4: hr.bankRoutingLast4 ?? null,
-        hasSsn: this.hasValue(payload.ssn ?? null),
-        hasItin: this.hasValue(payload.itin ?? null),
-        hasBankAccount: this.hasValue(payload.bankAccountNumber ?? null),
-        hasBankRouting: this.hasValue(payload.bankRoutingNumber ?? null),
-      };
+          // Masked / derived
+          ssnLast4: hr.ssnLast4 ?? null,
+          itinLast4: hr.itinLast4 ?? null,
+          bankAccountLast4: hr.bankAccountLast4 ?? null,
+          bankRoutingLast4: hr.bankRoutingLast4 ?? null,
+          hasSsn: this.hasValue(payload.ssn ?? null),
+          hasItin: this.hasValue(payload.itin ?? null),
+          hasBankAccount: this.hasValue(payload.bankAccountNumber ?? null),
+          hasBankRouting: this.hasValue(payload.bankRoutingNumber ?? null),
+        };
+      } catch {
+        // If HR payload is malformed or cannot be decrypted, fail soft and
+        // continue without exposing HR details instead of returning 500.
+        hrPublic = null;
+      }
     }
 
     return {
@@ -775,29 +781,35 @@ export class UserService {
       });
 
       if (hr) {
-        const payload = decryptPortfolioHrJson(Buffer.from(hr.encryptedJson)) as PortfolioHrPayload;
-        hrPublic = {
-          displayEmail: payload.displayEmail ?? null,
-          phone: payload.phone ?? null,
-          addressLine1: payload.addressLine1 ?? null,
-          addressLine2: payload.addressLine2 ?? null,
-          city: payload.city ?? null,
-          state: payload.state ?? null,
-          postalCode: payload.postalCode ?? null,
-          country: payload.country ?? null,
-          bankName: payload.bankName ?? null,
-          bankAddress: payload.bankAddress ?? null,
-          hipaaNotes: payload.hipaaNotes ?? null,
+        try {
+          const payload = decryptPortfolioHrJson(Buffer.from(hr.encryptedJson)) as PortfolioHrPayload;
+          hrPublic = {
+            displayEmail: payload.displayEmail ?? null,
+            phone: payload.phone ?? null,
+            addressLine1: payload.addressLine1 ?? null,
+            addressLine2: payload.addressLine2 ?? null,
+            city: payload.city ?? null,
+            state: payload.state ?? null,
+            postalCode: payload.postalCode ?? null,
+            country: payload.country ?? null,
+            bankName: payload.bankName ?? null,
+            bankAddress: payload.bankAddress ?? null,
+            hipaaNotes: payload.hipaaNotes ?? null,
 
-          ssnLast4: hr.ssnLast4 ?? null,
-          itinLast4: hr.itinLast4 ?? null,
-          bankAccountLast4: hr.bankAccountLast4 ?? null,
-          bankRoutingLast4: hr.bankRoutingLast4 ?? null,
-          hasSsn: this.hasValue(payload.ssn ?? null),
-          hasItin: this.hasValue(payload.itin ?? null),
-          hasBankAccount: this.hasValue(payload.bankAccountNumber ?? null),
-          hasBankRouting: this.hasValue(payload.bankRoutingNumber ?? null),
-        };
+            ssnLast4: hr.ssnLast4 ?? null,
+            itinLast4: hr.itinLast4 ?? null,
+            bankAccountLast4: hr.bankAccountLast4 ?? null,
+            bankRoutingLast4: hr.bankRoutingLast4 ?? null,
+            hasSsn: this.hasValue(payload.ssn ?? null),
+            hasItin: this.hasValue(payload.itin ?? null),
+            hasBankAccount: this.hasValue(payload.bankAccountNumber ?? null),
+            hasBankRouting: this.hasValue(payload.bankRoutingNumber ?? null),
+          };
+        } catch {
+          // Same as getMyPortfolio: if decryption fails, do not blow up the
+          // entire profile – just omit HR details.
+          hrPublic = null;
+        }
       }
     }
 
@@ -827,6 +839,10 @@ export class UserService {
           dateHired: true,
           totalHoursCbs: true,
           totalHoursCct: true,
+          defaultPayRate: true,
+          billRate: true,
+          cpRate: true,
+          cpRole: true,
         },
       });
     }

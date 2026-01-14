@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://ncc-nexus-contractor-connect.com"],
+    "method": ["GET", "HEAD", "PUT", "OPTIONS"],
+    "responseHeader": ["Content-Type", "x-goog-resumable", "x-goog-meta-*"],
+    "maxAgeSeconds": 3600
+  }
+]

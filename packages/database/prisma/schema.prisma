@@ -462,6 +462,9 @@ model Worker {
   status             String? // e.g. ACTIVE / INACTIVE
   isForeman          Boolean      @default(false)
   defaultPayRate     Float? // hourly pay rate
+  billRate           Float? // hourly bill rate
+  cpRate             Float? // hourly CP rate
+  cpRole             String? // CP role / designation
   unionLocal         String?
   firstSeenWeekEnd   DateTime?
   lastSeenWeekEnd    DateTime?
