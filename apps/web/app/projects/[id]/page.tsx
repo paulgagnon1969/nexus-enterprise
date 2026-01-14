@@ -6200,6 +6200,45 @@ export default function ProjectDetailPage({
                                                   res.status,
                                                 );
                                               }
+
+                                              // After a single-line edit, refresh PETL and room groups from
+                                              // the server so the Rooms/Zones summary and selection
+                                              // percentages stay in sync with persisted values.
+                                              try {
+                                                const petlRes = await fetch(
+                                                  `${API_BASE}/projects/${id}/petl`,
+                                                  {
+                                                    headers: { Authorization: `Bearer ${token}` },
+                                                  },
+                                                );
+                                                if (petlRes.ok) {
+                                                  const petl: any = await petlRes.json();
+                                                  const items: PetlItem[] = Array.isArray(petl.items)
+                                                    ? petl.items
+                                                    : [];
+                                                  setPetlItems(items);
+                                                }
+                                              } catch {
+                                                // non-fatal
+                                              }
+
+                                              try {
+                                                setGroupLoading(true);
+                                                const groupsRes = await fetch(
+                                                  `${API_BASE}/projects/${id}/petl-groups`,
+                                                  {
+                                                    headers: { Authorization: `Bearer ${token}` },
+                                                  },
+                                                );
+                                                if (groupsRes.ok) {
+                                                  const json: any = await groupsRes.json();
+                                                  setGroups(Array.isArray(json.groups) ? json.groups : []);
+                                                }
+                                              } catch {
+                                                // non-fatal
+                                              } finally {
+                                                setGroupLoading(false);
+                                              }
                                             } catch (err) {
                                               console.error(err);
                                             }
@@ -6624,6 +6663,45 @@ export default function ProjectDetailPage({
                             );
                             if (!res.ok) {
                               console.error("Per-line update failed", res.status);
+                            }
+
+                            // After a single-line edit in the flat PETL table,
+                            // also refresh the server-backed PETL + groups so the
+                            // Rooms/Zones summary reflects the current values.
+                            try {
+                              const petlRes = await fetch(
+                                `${API_BASE}/projects/${id}/petl`,
+                                {
+                                  headers: { Authorization: `Bearer ${token}` },
+                                },
+                              );
+                              if (petlRes.ok) {
+                                const petl: any = await petlRes.json();
+                                const items: PetlItem[] = Array.isArray(petl.items)
+                                  ? petl.items
+                                  : [];
+                                setPetlItems(items);
+                              }
+                            } catch {
+                              // non-fatal
+                            }
+
+                            try {
+                              setGroupLoading(true);
+                              const groupsRes = await fetch(
+                                `${API_BASE}/projects/${id}/petl-groups`,
+                                {
+                                  headers: { Authorization: `Bearer ${token}` },
+                                },
+                              );
+                              if (groupsRes.ok) {
+                                const json: any = await groupsRes.json();
+                                setGroups(Array.isArray(json.groups) ? json.groups : []);
+                              }
+                            } catch {
+                              // non-fatal
+                            } finally {
+                              setGroupLoading(false);
                             }
                           } catch (err) {
                             console.error(err);
