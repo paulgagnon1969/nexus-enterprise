@@ -15,7 +15,7 @@ export class WorkerService {
       orderBy: [{ fullName: "asc" }],
     });
 
-    return workers.map((w) => ({
+    return workers.map(w => ({
       id: w.id,
       firstName: w.firstName,
       lastName: w.lastName,
@@ -24,6 +24,14 @@ export class WorkerService {
       phone: w.phone,
       defaultProjectCode: w.defaultProjectCode,
       status: w.status,
+      primaryClassCode: w.primaryClassCode,
+      addressLine1: w.addressLine1,
+      addressLine2: w.addressLine2,
+      city: w.city,
+      state: w.state,
+      postalCode: w.postalCode,
+      unionLocal: w.unionLocal,
+      dateHired: w.dateHired,
       defaultPayRate: w.defaultPayRate,
       billRate: w.billRate,
       cpRate: w.cpRate,
@@ -36,6 +44,16 @@ export class WorkerService {
     workerId: string,
     input: {
       phone?: string | null;
+      status?: string | null;
+      defaultProjectCode?: string | null;
+      primaryClassCode?: string | null;
+      addressLine1?: string | null;
+      addressLine2?: string | null;
+      city?: string | null;
+      state?: string | null;
+      postalCode?: string | null;
+      unionLocal?: string | null;
+      dateHired?: string | null;
       defaultPayRate?: number | null;
       billRate?: number | null;
       cpRate?: number | null;
@@ -70,6 +88,39 @@ export class WorkerService {
       data.phone = raw || null;
     }
 
+    const normalizeString = (value: string | null | undefined): string | null | undefined => {
+      if (value === undefined) return undefined;
+      const raw = (value ?? "").toString().trim();
+      return raw || null;
+    };
+
+    const setString = (key: string, value: string | null | undefined) => {
+      const v = normalizeString(value);
+      if (v === undefined) return;
+      data[key] = v;
+    };
+
+    setString("status", input.status);
+    setString("defaultProjectCode", input.defaultProjectCode);
+    setString("primaryClassCode", input.primaryClassCode);
+    setString("addressLine1", input.addressLine1);
+    setString("addressLine2", input.addressLine2);
+    setString("city", input.city);
+    setString("state", input.state);
+    setString("postalCode", input.postalCode);
+    setString("unionLocal", input.unionLocal);
+
+    if (input.dateHired !== undefined) {
+      if (input.dateHired === null || input.dateHired === "") {
+        data.dateHired = null;
+      } else {
+        const parsed = new Date(input.dateHired as string);
+        if (!Number.isNaN(parsed.getTime())) {
+          data.dateHired = parsed;
+        }
+      }
+    }
+
     if (input.defaultPayRate !== undefined) {
       data.defaultPayRate = input.defaultPayRate === null ? null : input.defaultPayRate;
     }
@@ -97,6 +148,16 @@ export class WorkerService {
         fullName: true,
         email: true,
         phone: true,
+        status: true,
+        defaultProjectCode: true,
+        primaryClassCode: true,
+        addressLine1: true,
+        addressLine2: true,
+        city: true,
+        state: true,
+        postalCode: true,
+        unionLocal: true,
+        dateHired: true,
         defaultPayRate: true,
         billRate: true,
         cpRate: true,

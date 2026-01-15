@@ -171,8 +171,18 @@ export default function CompanyUserProfilePage() {
   const [identitySaving, setIdentitySaving] = useState(false);
   const [identityError, setIdentityError] = useState<string | null>(null);
 
-  // Worker comp editing (SUPER_ADMIN only for now)
+  // Worker editing (contact + compensation), gated by canEditWorkerComp
   const [workerPhone, setWorkerPhone] = useState<string>("");
+  const [workerStatus, setWorkerStatus] = useState<string>("");
+  const [workerDefaultProjectCode, setWorkerDefaultProjectCode] = useState<string>("");
+  const [workerPrimaryClassCode, setWorkerPrimaryClassCode] = useState<string>("");
+  const [workerAddressLine1, setWorkerAddressLine1] = useState<string>("");
+  const [workerAddressLine2, setWorkerAddressLine2] = useState<string>("");
+  const [workerCity, setWorkerCity] = useState<string>("");
+  const [workerState, setWorkerState] = useState<string>("");
+  const [workerPostalCode, setWorkerPostalCode] = useState<string>("");
+  const [workerUnionLocal, setWorkerUnionLocal] = useState<string>("");
+  const [workerDateHired, setWorkerDateHired] = useState<string>("");
   const [workerPayRate, setWorkerPayRate] = useState<string>("");
   const [workerBillRate, setWorkerBillRate] = useState<string>("");
   const [workerCpRate, setWorkerCpRate] = useState<string>("");
@@ -217,6 +227,20 @@ export default function CompanyUserProfilePage() {
 
         if (profileJson.worker) {
           setWorkerPhone(profileJson.worker.phone ?? "");
+          setWorkerStatus(profileJson.worker.status ?? "");
+          setWorkerDefaultProjectCode(profileJson.worker.defaultProjectCode ?? "");
+          setWorkerPrimaryClassCode(profileJson.worker.primaryClassCode ?? "");
+          setWorkerAddressLine1(profileJson.worker.addressLine1 ?? "");
+          setWorkerAddressLine2(profileJson.worker.addressLine2 ?? "");
+          setWorkerCity(profileJson.worker.city ?? "");
+          setWorkerState(profileJson.worker.state ?? "");
+          setWorkerPostalCode(profileJson.worker.postalCode ?? "");
+          setWorkerUnionLocal(profileJson.worker.unionLocal ?? "");
+          setWorkerDateHired(
+            profileJson.worker.dateHired
+              ? profileJson.worker.dateHired.substring(0, 10)
+              : "",
+          );
           setWorkerPayRate(
             profileJson.worker.defaultPayRate != null
               ? String(profileJson.worker.defaultPayRate)
@@ -555,6 +579,16 @@ export default function CompanyUserProfilePage() {
       setWorkerSaving(true);
       const body: any = {
         phone: workerPhone.trim() || null,
+        status: workerStatus.trim() || null,
+        defaultProjectCode: workerDefaultProjectCode.trim() || null,
+        primaryClassCode: workerPrimaryClassCode.trim() || null,
+        addressLine1: workerAddressLine1.trim() || null,
+        addressLine2: workerAddressLine2.trim() || null,
+        city: workerCity.trim() || null,
+        state: workerState.trim() || null,
+        postalCode: workerPostalCode.trim() || null,
+        unionLocal: workerUnionLocal.trim() || null,
+        dateHired: workerDateHired.trim() || null,
       };
       if (nextPay !== undefined) body.defaultPayRate = nextPay;
       if (nextBill !== undefined) body.billRate = nextBill;
@@ -585,6 +619,18 @@ export default function CompanyUserProfilePage() {
                 ? {
                     ...prev.worker,
                     phone: updated.phone ?? prev.worker.phone,
+                    status: updated.status ?? prev.worker.status,
+                    defaultProjectCode:
+                      updated.defaultProjectCode ?? prev.worker.defaultProjectCode,
+                    primaryClassCode:
+                      updated.primaryClassCode ?? prev.worker.primaryClassCode,
+                    addressLine1: updated.addressLine1 ?? prev.worker.addressLine1,
+                    addressLine2: updated.addressLine2 ?? prev.worker.addressLine2,
+                    city: updated.city ?? prev.worker.city,
+                    state: updated.state ?? prev.worker.state,
+                    postalCode: updated.postalCode ?? prev.worker.postalCode,
+                    unionLocal: updated.unionLocal ?? prev.worker.unionLocal,
+                    dateHired: updated.dateHired ?? prev.worker.dateHired,
                     defaultPayRate:
                       updated.defaultPayRate != null
                         ? updated.defaultPayRate
@@ -1081,6 +1127,25 @@ export default function CompanyUserProfilePage() {
                     )}
                   </div>
                   <div>
+                    <strong>Status:</strong>{" "}
+                    {canEditWorkerComp ? (
+                      <input
+                        type="text"
+                        value={workerStatus}
+                        onChange={e => setWorkerStatus(e.target.value)}
+                        style={{
+                          fontSize: 12,
+                          padding: "2px 4px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          minWidth: 120,
+                        }}
+                      />
+                    ) : (
+                      <span>{profile.worker.status || "—"}</span>
+                    )}
+                  </div>
+                  <div>
                     <strong>Worker phone:</strong>{" "}
                     {canEditWorkerComp ? (
                       <input
@@ -1115,13 +1180,154 @@ export default function CompanyUserProfilePage() {
                       <span>—</span>
                     )}
                   </div>
-                  {profile.worker.city && (
+                  {canEditWorkerComp ? (
+                    <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+                      <div>
+                        <strong>Default project code:</strong>{" "}
+                        <input
+                          type="text"
+                          value={workerDefaultProjectCode}
+                          onChange={e => setWorkerDefaultProjectCode(e.target.value)}
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            minWidth: 80,
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <strong>Primary class code:</strong>{" "}
+                        <input
+                          type="text"
+                          value={workerPrimaryClassCode}
+                          onChange={e => setWorkerPrimaryClassCode(e.target.value)}
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            minWidth: 100,
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <strong>Union local:</strong>{" "}
+                        <input
+                          type="text"
+                          value={workerUnionLocal}
+                          onChange={e => setWorkerUnionLocal(e.target.value)}
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            minWidth: 100,
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <strong>Date hired:</strong>{" "}
+                        <input
+                          type="date"
+                          value={workerDateHired}
+                          onChange={e => setWorkerDateHired(e.target.value)}
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            minWidth: 140,
+                          }}
+                        />
+                      </div>
+                      <div style={{ marginTop: 4 }}>
+                        <strong>Address:</strong>{" "}
+                        <div>
+                          <input
+                            type="text"
+                            placeholder="Address line 1"
+                            value={workerAddressLine1}
+                            onChange={e => setWorkerAddressLine1(e.target.value)}
+                            style={{
+                              fontSize: 12,
+                              padding: "2px 4px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              minWidth: 220,
+                              marginBottom: 2,
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <input
+                            type="text"
+                            placeholder="Address line 2"
+                            value={workerAddressLine2}
+                            onChange={e => setWorkerAddressLine2(e.target.value)}
+                            style={{
+                              fontSize: 12,
+                              padding: "2px 4px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              minWidth: 220,
+                              marginBottom: 2,
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <input
+                            type="text"
+                            placeholder="City"
+                            value={workerCity}
+                            onChange={e => setWorkerCity(e.target.value)}
+                            style={{
+                              fontSize: 12,
+                              padding: "2px 4px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              minWidth: 120,
+                              marginRight: 4,
+                            }}
+                          />
+                          <input
+                            type="text"
+                            placeholder="State"
+                            value={workerState}
+                            onChange={e => setWorkerState(e.target.value)}
+                            style={{
+                              fontSize: 12,
+                              padding: "2px 4px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              width: 60,
+                              marginRight: 4,
+                            }}
+                          />
+                          <input
+                            type="text"
+                            placeholder="Postal code"
+                            value={workerPostalCode}
+                            onChange={e => setWorkerPostalCode(e.target.value)}
+                            style={{
+                              fontSize: 12,
+                              padding: "2px 4px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              width: 90,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : profile.worker.city ? (
                     <div style={{ fontSize: 12, color: "#6b7280" }}>
                       {profile.worker.city}
                       {profile.worker.state ? `, ${profile.worker.state}` : ""}
                       {profile.worker.postalCode ? ` ${profile.worker.postalCode}` : ""}
                     </div>
-                  )}
+                  ) : null}
                   {canEditWorkerComp && (
                     <div style={{ marginTop: 8, fontSize: 12 }}>
                       <div style={{ marginBottom: 4 }}>
