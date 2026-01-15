@@ -8,12 +8,68 @@ export class WorkerService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listWorkersForCompany(companyId: string) {
-    // Simple list of workers. For now we order by fullName since some
-    // historical Worker tables in prod may not have firstName/lastName
-    // columns, and ordering by those fields can cause runtime errors.
-    const workers = await this.prisma.worker.findMany({
-      orderBy: [{ fullName: "asc" }],
-    });
+    // Simple list of workers. In some legacy mirrors of the Worker table,
+    // certain name columns (fullName vs firstName/lastName) may be missing,
+    // and ordering by a non-existent column can cause runtime errors in
+    // production even when the Prisma client type-checks locally.
+    //
+    // To make this robust across environments, we try a preferred ordering
+    // first and gracefully fall back if the database schema does not support
+    // that column, ultimately returning an unordered list instead of
+    // throwing a 500.
+
+    const select = {
+      id: true,
+      firstName: true,
+      lastName: true,
+      fullName: true,
+      email: true,
+      phone: true,
+      defaultProjectCode: true,
+      status: true,
+      primaryClassCode: true,
+      addressLine1: true,
+      addressLine2: true,
+      city: true,
+      state: true,
+      postalCode: true,
+      unionLocal: true,
+      dateHired: true,
+      defaultPayRate: true,
+      billRate: true,
+      cpRate: true,
+      cpRole: true,
+    } as const;
+
+    let workers;
+    try {
+      // Preferred: sort by fullName when available.
+      workers = await this.prisma.worker.findMany({
+        select,
+        orderBy: [{ fullName: "asc" }],
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("listWorkersForCompany: fullName ordering failed, falling back", {
+        error: String(err),
+      });
+
+      try {
+        // Fallback: sort by firstName/lastName.
+        workers = await this.prisma.worker.findMany({
+          select,
+          orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+        });
+      } catch (err2) {
+        // eslint-disable-next-line no-console
+        console.error("listWorkersForCompany: firstName/lastName ordering failed, returning unordered", {
+          error: String(err2),
+        });
+
+        // Final fallback: no explicit ordering; better than a 500.
+        workers = await this.prisma.worker.findMany({ select });
+      }
+    }
 
     return workers.map(w => ({
       id: w.id,
