@@ -8,91 +8,121 @@ export class WorkerService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listWorkersForCompany(companyId: string) {
-    // Simple list of workers. In some legacy mirrors of the Worker table,
-    // certain name columns (fullName vs firstName/lastName) may be missing,
-    // and ordering by a non-existent column can cause runtime errors in
-    // production even when the Prisma client type-checks locally.
+    // NOTE: In production we may be talking to a legacy mirror of the Worker
+    // table whose physical columns do not exactly match the Prisma schema
+    // (e.g. some columns may be missing or named differently). Direct
+    // `prisma.worker.findMany` calls can therefore throw runtime errors like
+    // "The column (not available) does not exist" even though the table and
+    // data are present.
     //
-    // To make this robust across environments, we try a preferred ordering
-    // first and gracefully fall back if the database schema does not support
-    // that column, ultimately returning an unordered list instead of
-    // throwing a 500.
+    // To make /workers robust across environments, we:
+    //   1) Introspect information_schema.columns for the "Worker" table.
+    //   2) Dynamically construct a minimal SELECT that only references
+    //      columns that actually exist (id + some form of name).
+    //   3) Return a lightweight DTO suitable for dropdowns and lookups.
+    //
+    // We intentionally do not depend on any specific set of columns beyond
+    // "id" and at least one of (fullName, firstName, lastName).
 
-    const select = {
-      id: true,
-      firstName: true,
-      lastName: true,
-      fullName: true,
-      email: true,
-      phone: true,
-      defaultProjectCode: true,
-      status: true,
-      primaryClassCode: true,
-      addressLine1: true,
-      addressLine2: true,
-      city: true,
-      state: true,
-      postalCode: true,
-      unionLocal: true,
-      dateHired: true,
-      defaultPayRate: true,
-      billRate: true,
-      cpRate: true,
-      cpRole: true,
-    } as const;
+    type ColumnRow = { column_name: string };
 
-    let workers;
+    let columns: ColumnRow[] = [];
     try {
-      // Preferred: sort by fullName when available.
-      workers = await this.prisma.worker.findMany({
-        select,
-        orderBy: [{ fullName: "asc" }],
-      });
+      columns = await this.prisma.$queryRaw<ColumnRow[]>`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'Worker'
+      `;
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error("listWorkersForCompany: fullName ordering failed, falling back", {
+      console.error("listWorkersForCompany: failed to introspect Worker columns", {
         error: String(err),
       });
+      return [];
+    }
 
-      try {
-        // Fallback: sort by firstName/lastName.
-        workers = await this.prisma.worker.findMany({
-          select,
-          orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
-        });
-      } catch (err2) {
-        // eslint-disable-next-line no-console
-        console.error("listWorkersForCompany: firstName/lastName ordering failed, returning unordered", {
-          error: String(err2),
-        });
+    if (!columns.length) {
+      // eslint-disable-next-line no-console
+      console.error("listWorkersForCompany: no columns found for Worker table");
+      return [];
+    }
 
-        // Final fallback: no explicit ordering; better than a 500.
-        workers = await this.prisma.worker.findMany({ select });
+    const colNames = new Set(columns.map(c => c.column_name));
+    const findCol = (name: string): string | null => {
+      if (colNames.has(name)) return name;
+      const lower = name.toLowerCase();
+      const match = columns.find(c => c.column_name.toLowerCase() === lower);
+      return match?.column_name ?? null;
+    };
+
+    const idCol = findCol("id");
+    if (!idCol) {
+      // eslint-disable-next-line no-console
+      console.error("listWorkersForCompany: Worker table is missing id column");
+      return [];
+    }
+
+    const fullNameCol = findCol("fullName");
+    const firstNameCol = findCol("firstName");
+    const lastNameCol = findCol("lastName");
+
+    // Build a best-effort expression for the display name.
+    const nameExprParts: string[] = [];
+    if (fullNameCol) {
+      nameExprParts.push(`"${fullNameCol}"`);
+    } else {
+      if (firstNameCol) {
+        nameExprParts.push(`COALESCE("${firstNameCol}", '')`);
+      }
+      if (lastNameCol) {
+        nameExprParts.push(`COALESCE("${lastNameCol}", '')`);
       }
     }
 
-    return workers.map(w => ({
-      id: w.id,
-      firstName: w.firstName,
-      lastName: w.lastName,
-      fullName: w.fullName,
-      email: w.email,
-      phone: w.phone,
-      defaultProjectCode: w.defaultProjectCode,
-      status: w.status,
-      primaryClassCode: w.primaryClassCode,
-      addressLine1: w.addressLine1,
-      addressLine2: w.addressLine2,
-      city: w.city,
-      state: w.state,
-      postalCode: w.postalCode,
-      unionLocal: w.unionLocal,
-      dateHired: w.dateHired,
-      defaultPayRate: w.defaultPayRate,
-      billRate: w.billRate,
-      cpRate: w.cpRate,
-      cpRole: w.cpRole,
-    }));
+    const nameExpr = nameExprParts.length
+      ? nameExprParts.join(` || ' ' || `)
+      : `''`;
+
+    const sql = `SELECT "${idCol}" AS "id", ${nameExpr} AS "fullName" FROM "Worker" ORDER BY ${nameExpr} ASC`;
+
+    type Row = { id: string; fullName: string | null };
+    let rows: Row[] = [];
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rows = await this.prisma.$queryRawUnsafe<Row[]>(sql as any);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("listWorkersForCompany: raw Worker query failed", {
+        error: String(err),
+      });
+      return [];
+    }
+
+    return rows.map(r => {
+      const fullName = (r.fullName ?? "").trim() || r.id;
+      return {
+        id: r.id,
+        firstName: null,
+        lastName: null,
+        fullName,
+        email: null,
+        phone: null,
+        defaultProjectCode: null,
+        status: null,
+        primaryClassCode: null,
+        addressLine1: null,
+        addressLine2: null,
+        city: null,
+        state: null,
+        postalCode: null,
+        unionLocal: null,
+        dateHired: null,
+        defaultPayRate: null,
+        billRate: null,
+        cpRate: null,
+        cpRole: null,
+      };
+    });
   }
 
   async updateWorkerComp(
