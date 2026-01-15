@@ -870,12 +870,11 @@ export class UserService {
       const isNexusSystemCompany = companyName === "nexus system";
 
       const canEditHr =
-        !!portfolio &&
-        (isSuperAdmin ||
-          // Nexus System HR/Admin can edit any user's Nexus System portfolio.
-          (isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile)) ||
-          // Tenant OWNER/ADMIN/HR can edit HR portfolio for their own company membership.
-          (!isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile)));
+        isSuperAdmin ||
+        // Nexus System HR/Admin can edit any user's Nexus System portfolio.
+        (isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile)) ||
+        // Tenant OWNER/ADMIN/HR can edit HR portfolio for their own company membership.
+        (!isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile));
 
       const canEditWorkerComp =
         isSuperAdmin ||
@@ -965,6 +964,11 @@ export class UserService {
       const isOwnerOrAdmin = actor.role === Role.OWNER || actor.role === Role.ADMIN;
       const isHrProfile = actor.profileCode === "HR";
 
+      const canEditHr =
+        isSuperAdmin ||
+        (isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile)) ||
+        (!isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile));
+
       const canEditWorkerComp =
         isSuperAdmin || (isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile));
 
@@ -988,7 +992,7 @@ export class UserService {
         // failed to load the full HR payload. This lets the UI show a clear
         // "no data" placeholder instead of hiding the section entirely.
         canViewHr: this.canViewHrPortfolio(actor, targetUserId),
-        canEditHr: false,
+        canEditHr,
         canEditWorkerComp,
         worker: null,
         skills: [],
