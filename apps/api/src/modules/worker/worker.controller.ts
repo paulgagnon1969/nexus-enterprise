@@ -14,8 +14,24 @@ export class WorkerController {
     // For now, companyId is not used to filter Worker, since Worker is a
     // global table imported from BIA/LCP. We still require auth so only
     // logged-in users can see the list.
-    const workers = await this.workerService.listWorkersForCompany(companyId);
-    return { workers };
+    try {
+      const workers = await this.workerService.listWorkersForCompany(companyId);
+      return { workers };
+    } catch (err: any) {
+      // Fail soft: log the error server-side but return an empty list so
+      // frontends (e.g. weekly timecards) can continue working instead of
+      // surfacing a 500. We also include a lightweight error string for
+      // debugging via browser devtools.
+      // eslint-disable-next-line no-console
+      console.error("/workers failed", {
+        companyId,
+        error: String(err),
+      });
+      return {
+        workers: [],
+        error: err?.message ?? String(err ?? "Unknown /workers error"),
+      };
+    }
   }
 
   // Update core worker contact + compensation fields. This is primarily used
