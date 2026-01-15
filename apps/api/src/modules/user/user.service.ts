@@ -877,6 +877,12 @@ export class UserService {
           // Tenant OWNER/ADMIN/HR can edit HR portfolio for their own company membership.
           (!isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile)));
 
+      const canEditWorkerComp =
+        isSuperAdmin ||
+        // Nexus System HR/Admin can curate worker compensation records for any
+        // worker while in the Nexus System company context.
+        (isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile));
+
       return {
         id: user.id,
         email: user.email,
@@ -953,6 +959,15 @@ export class UserService {
         throw new ForbiddenException("User is not a member of your company");
       }
 
+      const companyName = membership.company?.name?.toLowerCase() ?? "";
+      const isNexusSystemCompany = companyName === "nexus system";
+      const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
+      const isOwnerOrAdmin = actor.role === Role.OWNER || actor.role === Role.ADMIN;
+      const isHrProfile = actor.profileCode === "HR";
+
+      const canEditWorkerComp =
+        isSuperAdmin || (isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile));
+
       return {
         id: user.id,
         email: user.email,
@@ -974,6 +989,7 @@ export class UserService {
         // "no data" placeholder instead of hiding the section entirely.
         canViewHr: this.canViewHrPortfolio(actor, targetUserId),
         canEditHr: false,
+        canEditWorkerComp,
         worker: null,
         skills: [],
       };

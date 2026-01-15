@@ -80,6 +80,7 @@ interface UserProfileDto {
   companyRole: string;
   canEditHr?: boolean;
   canViewHr?: boolean;
+  canEditWorkerComp?: boolean;
   hr?: HrDto | null;
   worker?: WorkerDto | null;
   reputation: {
@@ -409,7 +410,7 @@ export default function CompanyUserProfilePage() {
   const canEditNames = isAdminOrAbove;
   const canEditUserType = isAdminOrAbove;
   const canEditGlobalRole = isSuperAdmin;
-  const canEditWorkerComp = isSuperAdmin && !!profile.worker;
+  const canEditWorkerComp = !!profile.canEditWorkerComp && !!profile.worker;
 
   async function handleSaveIdentity(e?: FormEvent) {
     if (e) e.preventDefault();

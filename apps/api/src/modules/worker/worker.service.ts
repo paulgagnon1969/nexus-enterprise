@@ -1,5 +1,7 @@
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
+import { AuthenticatedUser } from "../auth/jwt.strategy";
+import { GlobalRole, Role } from "../auth/auth.guards";
 
 @Injectable()
 export class WorkerService {
@@ -30,6 +32,7 @@ export class WorkerService {
   }
 
   async updateWorkerComp(
+    actor: AuthenticatedUser,
     workerId: string,
     input: {
       phone?: string | null;
@@ -39,6 +42,27 @@ export class WorkerService {
       cpRole?: string | null;
     },
   ) {
+    // Authorization: SUPER_ADMIN anywhere, or Nexus System HR/OWNER/ADMIN in
+    // the Nexus System company context.
+    const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
+
+    let isNexusSystemCompany = false;
+    if (actor.companyId) {
+      const company = await this.prisma.company.findUnique({
+        where: { id: actor.companyId },
+        select: { name: true },
+      });
+      const name = company?.name?.toLowerCase() ?? "";
+      isNexusSystemCompany = name === "nexus system";
+    }
+
+    const isOwnerOrAdmin = actor.role === Role.OWNER || actor.role === Role.ADMIN;
+    const isHrProfile = actor.profileCode === "HR";
+
+    if (!isSuperAdmin && !(isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile))) {
+      throw new ForbiddenException("Not allowed to edit worker compensation");
+    }
+
     const data: any = {};
 
     if (input.phone !== undefined) {
