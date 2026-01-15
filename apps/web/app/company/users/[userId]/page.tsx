@@ -394,6 +394,7 @@ export default function CompanyUserProfilePage() {
   const canEditHrFields = profile.canEditHr ?? false;
   const hasWorker = !!profile.worker;
   const hr = (profile.hr as HrDto | null) || {};
+  const hasHrData = !!profile.hr;
 
   const workerLink =
     profile.worker && profile.worker.id
@@ -1055,9 +1056,13 @@ export default function CompanyUserProfilePage() {
               )}
             </section>
 
-            {hasWorker && profile.worker && (
-              <section style={{ marginTop: 16 }}>
-                <h2 style={{ fontSize: 16, marginBottom: 4 }}>Worker record</h2>
+            <section style={{ marginTop: 16 }}>
+              <h2 style={{ fontSize: 16, marginBottom: 4 }}>Worker record</h2>
+              {!hasWorker || !profile.worker ? (
+                <p style={{ fontSize: 13, color: "#6b7280" }}>
+                  No Data in records – personnel records incomplete.
+                </p>
+              ) : (
                 <div style={{ fontSize: 13 }}>
                   <div>
                     <strong>Worker:</strong>{" "}
@@ -1206,8 +1211,8 @@ export default function CompanyUserProfilePage() {
                     </div>
                   )}
                 </div>
-              </section>
-            )}
+              )}
+            </section>
 
             <section style={{ marginTop: 16 }}>
               <h2 style={{ fontSize: 16, marginBottom: 4 }}>Reputation (overall)</h2>
@@ -1383,6 +1388,11 @@ export default function CompanyUserProfilePage() {
                       Editable HR contact snapshot for this worker. Changes here update
                       the worker's HR portfolio for this company only.
                     </div>
+                    {!hasHrData && (
+                      <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>
+                        No Data in records – personnel records incomplete.
+                      </div>
+                    )}
                     {hr && (hr.hasSsn || hr.hasBankAccount || hr.hasBankRouting) && (
                       <div style={{ fontSize: 11, color: "#4b5563", marginTop: 4 }}>
                         <div>
@@ -2344,8 +2354,11 @@ export default function CompanyUserProfilePage() {
 
                   {profile.skills.length === 0 && (
                     <tr>
-                      <td colSpan={isAdminOrAbove ? 4 : 2} style={{ padding: "8px", fontSize: 12, color: "#6b7280" }}>
-                        No skills recorded yet.
+                      <td
+                        colSpan={isAdminOrAbove ? 4 : 2}
+                        style={{ padding: "8px", fontSize: 12, color: "#6b7280" }}
+                      >
+                        No Data in records – personnel records incomplete.
                       </td>
                     </tr>
                   )}

@@ -969,7 +969,10 @@ export class UserService {
         },
         portfolio: null,
         hr: null,
-        canViewHr: false,
+        // Preserve HR view capability based on actor + target, even if we
+        // failed to load the full HR payload. This lets the UI show a clear
+        // "no data" placeholder instead of hiding the section entirely.
+        canViewHr: this.canViewHrPortfolio(actor, targetUserId),
         canEditHr: false,
         worker: null,
         skills: [],
