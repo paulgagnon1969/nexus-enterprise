@@ -881,7 +881,7 @@ export class UserService {
         // Nexus System HR/Admin can curate worker compensation records for any
         // worker while in the Nexus System company context.
         (isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile));
-
+ 
       return {
         id: user.id,
         email: user.email,
@@ -907,6 +907,7 @@ export class UserService {
         hr: hrPublic,
         canViewHr,
         canEditHr,
+        canEditWorkerComp,
         worker,
         skills,
       };
