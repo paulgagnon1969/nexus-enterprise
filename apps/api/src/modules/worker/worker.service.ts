@@ -8,11 +8,11 @@ export class WorkerService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listWorkersForCompany(companyId: string) {
-    // Simple list of workers associated with this tenant via any PayrollWeekRecord
-    // or DailyTimeEntry participation. This keeps the dropdown focused on
-    // people who have actually shown up in timecards/payroll for this company.
+    // Simple list of workers. For now we order by fullName since some
+    // historical Worker tables in prod may not have firstName/lastName
+    // columns, and ordering by those fields can cause runtime errors.
     const workers = await this.prisma.worker.findMany({
-      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+      orderBy: [{ fullName: "asc" }],
     });
 
     return workers.map((w) => ({
