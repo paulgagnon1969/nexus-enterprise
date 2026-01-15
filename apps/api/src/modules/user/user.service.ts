@@ -625,135 +625,119 @@ export class UserService {
   }
 
   async getProfile(targetUserId: string, actor: AuthenticatedUser) {
-    // Ensure target user is a member of the actor's company
-    const membership = await this.prisma.companyMembership.findFirst({
-      where: { userId: targetUserId, companyId: actor.companyId },
-      select: {
-        role: true,
-        company: {
-          select: { id: true, name: true },
+    try {
+      // Ensure target user is a member of the actor's company
+      const membership = await this.prisma.companyMembership.findFirst({
+        where: { userId: targetUserId, companyId: actor.companyId },
+        select: {
+          role: true,
+          company: {
+            select: { id: true, name: true },
+          },
         },
-      },
-    });
+      });
 
-    if (!membership) {
-      throw new ForbiddenException("User is not a member of your company");
-    }
+      if (!membership) {
+        throw new ForbiddenException("User is not a member of your company");
+      }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: targetUserId },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        globalRole: true,
-        userType: true,
-        reputationOverallAvg: true,
-        reputationOverallCount: true,
-        reputationOverallOverride: true,
-      },
-    });
-
-    if (!user) {
-      throw new NotFoundException("User not found");
-    }
-
-    // Load per-skill ratings (self + aggregates)
-    const userSkillRatings = await this.prisma.userSkillRating.findMany({
-      where: { userId: targetUserId },
-    });
-
-    // Load the full active skill catalog so the UI can show the complete matrix
-    // (including unrated skills with empty stars).
-    const skillDefs = await this.prisma.skillDefinition.findMany({
-      where: { active: true },
-      select: {
-        id: true,
-        code: true,
-        label: true,
-        tradeLabel: true,
-        categoryId: true,
-        sortOrder: true,
-      },
-      orderBy: [{ categoryId: "asc" }, { sortOrder: "asc" }, { label: "asc" }],
-    });
-
-    const categories = await this.prisma.skillCategory.findMany({
-      where: { active: true },
-      select: { id: true, label: true, sortOrder: true },
-      orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
-    });
-
-    const ratingBySkillId = new Map(userSkillRatings.map(r => [r.skillId, r]));
-    const catById = new Map(categories.map(c => [c.id, c]));
-
-    const isAdminOrAbove =
-      actor.globalRole === GlobalRole.SUPER_ADMIN || actor.role === Role.OWNER || actor.role === Role.ADMIN;
-
-    const skills = skillDefs.map(def => {
-      const r = ratingBySkillId.get(def.id);
-      const cat = catById.get(def.categoryId) ?? null;
-
-      const selfLevel = r?.selfLevel != null && r.selfLevel > 0 ? r.selfLevel : null;
-
-      const employerCount = r?.employerRatingCount ?? 0;
-      const clientCount = r?.clientRatingCount ?? 0;
-      const totalCount = employerCount + clientCount;
-
-      const sum =
-        (r?.employerAvgLevel != null ? r.employerAvgLevel * employerCount : 0) +
-        (r?.clientAvgLevel != null ? r.clientAvgLevel * clientCount : 0);
-
-      const aggregateAvgLevel = totalCount > 0 ? sum / totalCount : null;
-
-      return {
-        id: def.id,
-        code: def.code,
-        label: def.label,
-        tradeLabel: def.tradeLabel ?? null,
-        categoryLabel: cat?.label ?? null,
-
-        // Everyone can see the single aggregate rating for the skill.
-        aggregateAvgLevel,
-        aggregateRatingCount: totalCount,
-
-        // Only admins and above can see the breakdown.
-        selfLevel: isAdminOrAbove ? selfLevel : null,
-        employerAvgLevel: isAdminOrAbove ? r?.employerAvgLevel ?? null : null,
-        employerRatingCount: isAdminOrAbove ? r?.employerRatingCount ?? null : null,
-        clientAvgLevel: isAdminOrAbove ? r?.clientAvgLevel ?? null : null,
-        clientRatingCount: isAdminOrAbove ? r?.clientRatingCount ?? null : null,
-      };
-    });
-
-    // Optional portfolio for this user in the actor's company.
-    const canViewHr = this.canViewHrPortfolio(actor, targetUserId);
-
-    let portfolio = await this.prisma.userPortfolio.findUnique({
-      where: {
-        UserPortfolio_company_user_key: {
-          companyId: actor.companyId,
-          userId: targetUserId,
+      const user = await this.prisma.user.findUnique({
+        where: { id: targetUserId },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          globalRole: true,
+          userType: true,
+          reputationOverallAvg: true,
+          reputationOverallCount: true,
+          reputationOverallOverride: true,
         },
-      },
-      select: {
-        id: true,
-        companyId: true,
-        headline: true,
-        bio: true,
-        photoUrl: true,
-        updatedAt: true,
-      },
-    });
+      });
 
-    // SUPER_ADMINs may be looking at a user in a company that does not own the
-    // canonical HR portfolio (e.g. Nexis recruiting pool lives in "Nexus System").
-    // In that case, fall back to any portfolio for this user so we can still
-    // surface HR contact details.
-    if (!portfolio && actor.globalRole === GlobalRole.SUPER_ADMIN) {
-      portfolio = await this.prisma.userPortfolio.findFirst({
+      if (!user) {
+        throw new NotFoundException("User not found");
+      }
+
+      // Load per-skill ratings (self + aggregates)
+      const userSkillRatings = await this.prisma.userSkillRating.findMany({
         where: { userId: targetUserId },
+      });
+
+      // Load the full active skill catalog so the UI can show the complete matrix
+      // (including unrated skills with empty stars).
+      const skillDefs = await this.prisma.skillDefinition.findMany({
+        where: { active: true },
+        select: {
+          id: true,
+          code: true,
+          label: true,
+          tradeLabel: true,
+          categoryId: true,
+          sortOrder: true,
+        },
+        orderBy: [{ categoryId: "asc" }, { sortOrder: "asc" }, { label: "asc" }],
+      });
+
+      const categories = await this.prisma.skillCategory.findMany({
+        where: { active: true },
+        select: { id: true, label: true, sortOrder: true },
+        orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+      });
+
+      const ratingBySkillId = new Map(userSkillRatings.map(r => [r.skillId, r]));
+      const catById = new Map(categories.map(c => [c.id, c]));
+
+      const isAdminOrAbove =
+        actor.globalRole === GlobalRole.SUPER_ADMIN || actor.role === Role.OWNER || actor.role === Role.ADMIN;
+
+      const skills = skillDefs.map(def => {
+        const r = ratingBySkillId.get(def.id);
+        const cat = catById.get(def.categoryId) ?? null;
+
+        const selfLevel = r?.selfLevel != null && r.selfLevel > 0 ? r.selfLevel : null;
+
+        const employerCount = r?.employerRatingCount ?? 0;
+        const clientCount = r?.clientRatingCount ?? 0;
+        const totalCount = employerCount + clientCount;
+
+        const sum =
+          (r?.employerAvgLevel != null ? r.employerAvgLevel * employerCount : 0) +
+          (r?.clientAvgLevel != null ? r.clientAvgLevel * clientCount : 0);
+
+        const aggregateAvgLevel = totalCount > 0 ? sum / totalCount : null;
+
+        return {
+          id: def.id,
+          code: def.code,
+          label: def.label,
+          tradeLabel: def.tradeLabel ?? null,
+          categoryLabel: cat?.label ?? null,
+
+          // Everyone can see the single aggregate rating for the skill.
+          aggregateAvgLevel,
+          aggregateRatingCount: totalCount,
+
+          // Only admins and above can see the breakdown.
+          selfLevel: isAdminOrAbove ? selfLevel : null,
+          employerAvgLevel: isAdminOrAbove ? r?.employerAvgLevel ?? null : null,
+          employerRatingCount: isAdminOrAbove ? r?.employerRatingCount ?? null : null,
+          clientAvgLevel: isAdminOrAbove ? r?.clientAvgLevel ?? null : null,
+          clientRatingCount: isAdminOrAbove ? r?.clientRatingCount ?? null : null,
+        };
+      });
+
+      // Optional portfolio for this user in the actor's company.
+      const canViewHr = this.canViewHrPortfolio(actor, targetUserId);
+
+      let portfolio = await this.prisma.userPortfolio.findUnique({
+        where: {
+          UserPortfolio_company_user_key: {
+            companyId: actor.companyId,
+            userId: targetUserId,
+          },
+        },
         select: {
           id: true,
           companyId: true,
@@ -762,147 +746,234 @@ export class UserService {
           photoUrl: true,
           updatedAt: true,
         },
-        orderBy: { createdAt: "desc" },
       });
-    }
 
-    let hrPublic: any = null;
-    if (portfolio && canViewHr) {
-      const hr = await this.prisma.userPortfolioHr.findUnique({
-        where: { portfolioId: portfolio.id },
+      // SUPER_ADMINs may be looking at a user in a company that does not own the
+      // canonical HR portfolio (e.g. Nexis recruiting pool lives in "Nexus System").
+      // In that case, fall back to any portfolio for this user so we can still
+      // surface HR contact details.
+      if (!portfolio && actor.globalRole === GlobalRole.SUPER_ADMIN) {
+        portfolio = await this.prisma.userPortfolio.findFirst({
+          where: { userId: targetUserId },
+          select: {
+            id: true,
+            companyId: true,
+            headline: true,
+            bio: true,
+            photoUrl: true,
+            updatedAt: true,
+          },
+          orderBy: { createdAt: "desc" },
+        });
+      }
+
+      let hrPublic: any = null;
+      if (portfolio && canViewHr) {
+        const hr = await this.prisma.userPortfolioHr.findUnique({
+          where: { portfolioId: portfolio.id },
+          select: {
+            encryptedJson: true,
+            ssnLast4: true,
+            itinLast4: true,
+            bankAccountLast4: true,
+            bankRoutingLast4: true,
+            updatedAt: true,
+          },
+        });
+
+        if (hr) {
+          try {
+            const payload = decryptPortfolioHrJson(Buffer.from(hr.encryptedJson)) as PortfolioHrPayload;
+            hrPublic = {
+              displayEmail: payload.displayEmail ?? null,
+              phone: payload.phone ?? null,
+              addressLine1: payload.addressLine1 ?? null,
+              addressLine2: payload.addressLine2 ?? null,
+              city: payload.city ?? null,
+              state: payload.state ?? null,
+              postalCode: payload.postalCode ?? null,
+              country: payload.country ?? null,
+              bankName: payload.bankName ?? null,
+              bankAddress: payload.bankAddress ?? null,
+              hipaaNotes: payload.hipaaNotes ?? null,
+
+              ssnLast4: hr.ssnLast4 ?? null,
+              itinLast4: hr.itinLast4 ?? null,
+              bankAccountLast4: hr.bankAccountLast4 ?? null,
+              bankRoutingLast4: hr.bankRoutingLast4 ?? null,
+              hasSsn: this.hasValue(payload.ssn ?? null),
+              hasItin: this.hasValue(payload.itin ?? null),
+              hasBankAccount: this.hasValue(payload.bankAccountNumber ?? null),
+              hasBankRouting: this.hasValue(payload.bankRoutingNumber ?? null),
+            };
+          } catch {
+            // Same as getMyPortfolio: if decryption fails, do not blow up the
+            // entire profile – just omit HR details.
+            hrPublic = null;
+          }
+        }
+      }
+
+      // Optional Worker record (BIA/LCP) matched by email, if any.
+      let worker: any = null;
+      if (user.email) {
+        try {
+          worker = await this.prisma.worker.findFirst({
+            where: {
+              email: {
+                equals: user.email,
+                mode: "insensitive",
+              } as any,
+            },
+            select: {
+              id: true,
+              fullName: true,
+              status: true,
+              defaultProjectCode: true,
+              primaryClassCode: true,
+              phone: true,
+              addressLine1: true,
+              addressLine2: true,
+              city: true,
+              state: true,
+              postalCode: true,
+              unionLocal: true,
+              dateHired: true,
+              totalHoursCbs: true,
+              totalHoursCct: true,
+              defaultPayRate: true,
+              billRate: true,
+              cpRate: true,
+              cpRole: true,
+            },
+          });
+        } catch (err) {
+          // If the Worker lookup fails (e.g., schema drift in legacy BIA/LCP
+          // mirror), fail soft and continue without blocking the profile.
+          // eslint-disable-next-line no-console
+          console.error("getProfile worker lookup failed", {
+            userId: user.id,
+            email: user.email,
+            error: String(err),
+          });
+          worker = null;
+        }
+      }
+
+      // Decide HR edit capability.
+      const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
+      const isOwnerOrAdmin = actor.role === Role.OWNER || actor.role === Role.ADMIN;
+      const isHrProfile = actor.profileCode === "HR";
+
+      // Nexus System detection by company name (matches onboarding service logic).
+      const companyName = membership.company?.name?.toLowerCase() ?? "";
+      const isNexusSystemCompany = companyName === "nexus system";
+
+      const canEditHr =
+        !!portfolio &&
+        (isSuperAdmin ||
+          // Nexus System HR/Admin can edit any user's Nexus System portfolio.
+          (isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile)) ||
+          // Tenant OWNER/ADMIN/HR can edit HR portfolio for their own company membership.
+          (!isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile)));
+
+      return {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        globalRole: user.globalRole,
+        userType: user.userType,
+        company: membership.company,
+        companyRole: membership.role,
+        reputation: {
+          avg: user.reputationOverallAvg,
+          count: user.reputationOverallCount,
+          override: user.reputationOverallOverride,
+        },
+        portfolio: portfolio
+          ? {
+              headline: portfolio.headline ?? null,
+              bio: portfolio.bio ?? null,
+              photoUrl: portfolio.photoUrl ?? null,
+              updatedAt: portfolio.updatedAt,
+            }
+          : null,
+        hr: hrPublic,
+        canViewHr,
+        canEditHr,
+        worker,
+        skills,
+      };
+    } catch (err) {
+      // Preserve explicit 403/404 semantics.
+      if (err instanceof ForbiddenException || err instanceof NotFoundException) {
+        throw err;
+      }
+
+      // eslint-disable-next-line no-console
+      console.error("getProfile failed; returning minimal profile", {
+        targetUserId,
+        actorUserId: actor.userId,
+        error: String(err),
+      });
+
+      // Best-effort minimal profile so the UI can still render something.
+      const user = await this.prisma.user.findUnique({
+        where: { id: targetUserId },
         select: {
-          encryptedJson: true,
-          ssnLast4: true,
-          itinLast4: true,
-          bankAccountLast4: true,
-          bankRoutingLast4: true,
-          updatedAt: true,
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          globalRole: true,
+          userType: true,
+          reputationOverallAvg: true,
+          reputationOverallCount: true,
+          reputationOverallOverride: true,
         },
       });
 
-      if (hr) {
-        try {
-          const payload = decryptPortfolioHrJson(Buffer.from(hr.encryptedJson)) as PortfolioHrPayload;
-          hrPublic = {
-            displayEmail: payload.displayEmail ?? null,
-            phone: payload.phone ?? null,
-            addressLine1: payload.addressLine1 ?? null,
-            addressLine2: payload.addressLine2 ?? null,
-            city: payload.city ?? null,
-            state: payload.state ?? null,
-            postalCode: payload.postalCode ?? null,
-            country: payload.country ?? null,
-            bankName: payload.bankName ?? null,
-            bankAddress: payload.bankAddress ?? null,
-            hipaaNotes: payload.hipaaNotes ?? null,
-
-            ssnLast4: hr.ssnLast4 ?? null,
-            itinLast4: hr.itinLast4 ?? null,
-            bankAccountLast4: hr.bankAccountLast4 ?? null,
-            bankRoutingLast4: hr.bankRoutingLast4 ?? null,
-            hasSsn: this.hasValue(payload.ssn ?? null),
-            hasItin: this.hasValue(payload.itin ?? null),
-            hasBankAccount: this.hasValue(payload.bankAccountNumber ?? null),
-            hasBankRouting: this.hasValue(payload.bankRoutingNumber ?? null),
-          };
-        } catch {
-          // Same as getMyPortfolio: if decryption fails, do not blow up the
-          // entire profile – just omit HR details.
-          hrPublic = null;
-        }
+      if (!user) {
+        // Fall back to original error if the user truly does not exist.
+        throw err;
       }
-    }
 
-    // Optional Worker record (BIA/LCP) matched by email, if any.
-    let worker: any = null;
-    if (user.email) {
-      try {
-        worker = await this.prisma.worker.findFirst({
-          where: {
-            email: {
-              equals: user.email,
-              mode: "insensitive",
-            } as any,
+      const membership = await this.prisma.companyMembership.findFirst({
+        where: { userId: targetUserId, companyId: actor.companyId },
+        select: {
+          role: true,
+          company: {
+            select: { id: true, name: true },
           },
-          select: {
-            id: true,
-            fullName: true,
-            status: true,
-            defaultProjectCode: true,
-            primaryClassCode: true,
-            phone: true,
-            addressLine1: true,
-            addressLine2: true,
-            city: true,
-            state: true,
-            postalCode: true,
-            unionLocal: true,
-            dateHired: true,
-            totalHoursCbs: true,
-            totalHoursCct: true,
-            defaultPayRate: true,
-            billRate: true,
-            cpRate: true,
-            cpRole: true,
-          },
-        });
-      } catch (err) {
-        // If the Worker lookup fails (e.g., schema drift in legacy BIA/LCP
-        // mirror), fail soft and continue without blocking the profile.
-        // eslint-disable-next-line no-console
-        console.error("getProfile worker lookup failed", {
-          userId: user.id,
-          email: user.email,
-          error: String(err),
-        });
-        worker = null;
+        },
+      });
+
+      if (!membership) {
+        throw new ForbiddenException("User is not a member of your company");
       }
+
+      return {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        globalRole: user.globalRole,
+        userType: user.userType,
+        company: membership.company,
+        companyRole: membership.role,
+        reputation: {
+          avg: user.reputationOverallAvg,
+          count: user.reputationOverallCount,
+          override: user.reputationOverallOverride,
+        },
+        portfolio: null,
+        hr: null,
+        canViewHr: false,
+        canEditHr: false,
+        worker: null,
+        skills: [],
+      };
     }
-
-    // Decide HR edit capability.
-    const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
-    const isOwnerOrAdmin = actor.role === Role.OWNER || actor.role === Role.ADMIN;
-    const isHrProfile = actor.profileCode === "HR";
-
-    // Nexus System detection by company name (matches onboarding service logic).
-    const companyName = membership.company?.name?.toLowerCase() ?? "";
-    const isNexusSystemCompany = companyName === "nexus system";
-
-    const canEditHr =
-      !!portfolio &&
-      (isSuperAdmin ||
-        // Nexus System HR/Admin can edit any user's Nexus System portfolio.
-        (isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile)) ||
-        // Tenant OWNER/ADMIN/HR can edit HR portfolio for their own company membership.
-        (!isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile)));
-
-    return {
-      id: user.id,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      globalRole: user.globalRole,
-      userType: user.userType,
-      company: membership.company,
-      companyRole: membership.role,
-      reputation: {
-        avg: user.reputationOverallAvg,
-        count: user.reputationOverallCount,
-        override: user.reputationOverallOverride,
-      },
-      portfolio: portfolio
-        ? {
-            headline: portfolio.headline ?? null,
-            bio: portfolio.bio ?? null,
-            photoUrl: portfolio.photoUrl ?? null,
-            updatedAt: portfolio.updatedAt,
-          }
-        : null,
-      hr: hrPublic,
-      canViewHr,
-      canEditHr,
-      worker,
-      skills,
-    };
   }
 }
