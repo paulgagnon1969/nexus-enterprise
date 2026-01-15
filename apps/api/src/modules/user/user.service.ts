@@ -816,35 +816,47 @@ export class UserService {
     // Optional Worker record (BIA/LCP) matched by email, if any.
     let worker: any = null;
     if (user.email) {
-      worker = await this.prisma.worker.findFirst({
-        where: {
-          email: {
-            equals: user.email,
-            mode: "insensitive",
-          } as any,
-        },
-        select: {
-          id: true,
-          fullName: true,
-          status: true,
-          defaultProjectCode: true,
-          primaryClassCode: true,
-          phone: true,
-          addressLine1: true,
-          addressLine2: true,
-          city: true,
-          state: true,
-          postalCode: true,
-          unionLocal: true,
-          dateHired: true,
-          totalHoursCbs: true,
-          totalHoursCct: true,
-          defaultPayRate: true,
-          billRate: true,
-          cpRate: true,
-          cpRole: true,
-        },
-      });
+      try {
+        worker = await this.prisma.worker.findFirst({
+          where: {
+            email: {
+              equals: user.email,
+              mode: "insensitive",
+            } as any,
+          },
+          select: {
+            id: true,
+            fullName: true,
+            status: true,
+            defaultProjectCode: true,
+            primaryClassCode: true,
+            phone: true,
+            addressLine1: true,
+            addressLine2: true,
+            city: true,
+            state: true,
+            postalCode: true,
+            unionLocal: true,
+            dateHired: true,
+            totalHoursCbs: true,
+            totalHoursCct: true,
+            defaultPayRate: true,
+            billRate: true,
+            cpRate: true,
+            cpRole: true,
+          },
+        });
+      } catch (err) {
+        // If the Worker lookup fails (e.g., schema drift in legacy BIA/LCP
+        // mirror), fail soft and continue without blocking the profile.
+        // eslint-disable-next-line no-console
+        console.error("getProfile worker lookup failed", {
+          userId: user.id,
+          email: user.email,
+          error: String(err),
+        });
+        worker = null;
+      }
     }
 
     // Decide HR edit capability.
