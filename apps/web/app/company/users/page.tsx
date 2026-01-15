@@ -2836,6 +2836,13 @@ interface CandidateChecklist {
   [key: string]: any;
 }
 
+interface CandidateTag {
+  id: string;
+  code: string;
+  label: string;
+  color: string | null;
+}
+
 interface CandidateRow {
   id: string;
   email: string;
@@ -2925,6 +2932,18 @@ function ProspectiveCandidatesPanel({
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
+
+  // Candidate tags (groups/classes)
+  const [candidateTags, setCandidateTags] = useState<CandidateTag[]>([]);
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [sessionTags, setSessionTags] = useState<Record<string, CandidateTag[]>>({});
+  const [tagsLoading, setTagsLoading] = useState(false);
+  const [tagsError, setTagsError] = useState<string | null>(null);
+  const [showBulkTagModal, setShowBulkTagModal] = useState(false);
+  const [bulkTagSelection, setBulkTagSelection] = useState<string[]>([]);
+  const [newTagLabel, setNewTagLabel] = useState("");
+  const [bulkTagsSaving, setBulkTagsSaving] = useState(false);
+
   const [sortMode, setSortMode] = useState<
     | "NAME_ASC"
     | "NAME_DESC"
@@ -3010,6 +3029,48 @@ function ProspectiveCandidatesPanel({
     void loadStatusDefs();
   }, [companyId]);
 
+  // Load candidate tag dictionary for this company (Groups / Tags for candidates).
+  useEffect(() => {
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setTagsLoading(true);
+        setTagsError(null);
+        const res = await fetch(`${API_BASE}/tags?entityType=candidate`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          return;
+        }
+        const json: any[] = await res.json();
+        if (cancelled) return;
+        const mapped: CandidateTag[] = (json || []).map(t => ({
+          id: t.id,
+          code: t.code,
+          label: t.label,
+          color: t.color ?? null,
+        }));
+        setCandidateTags(mapped);
+      } catch (e: any) {
+        if (!cancelled) {
+          setTagsError(e?.message ?? "Failed to load candidate tags");
+        }
+      } finally {
+        if (!cancelled) {
+          setTagsLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId]);
+
   // Fortified-only: load shared Nex-Net candidate panel (separate from the
   // main prospective candidates grid).
   useEffect(() => {
@@ -3090,6 +3151,7 @@ function ProspectiveCandidatesPanel({
       try {
         setLoading(true);
         setError(null);
+        setSessionTags({});
 
         let statusesParam = "";
         // For ALL / ALL_WITH_TEST we fetch all statuses and filter TEST locally.
@@ -3132,6 +3194,54 @@ function ProspectiveCandidatesPanel({
 
     void load();
   }, [companyId, statusFilter, detailStatusFilter, isFortifiedCompany]);
+
+  // Load tags for visible candidate sessions (used for filters and display).
+  useEffect(() => {
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+    if (!rows.length) {
+      setSessionTags({});
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const ids = rows.map(r => r.id);
+        const res = await fetch(`${API_BASE}/tags/candidates/batch`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ sessionIds: ids }),
+        });
+        if (!res.ok) return;
+        const json: any[] = await res.json();
+        if (cancelled) return;
+        const next: Record<string, CandidateTag[]> = {};
+        for (const item of json || []) {
+          if (!item || typeof item.sessionId !== "string" || !item.tag) continue;
+          const sid = item.sessionId;
+          if (!next[sid]) next[sid] = [];
+          next[sid].push({
+            id: item.tag.id,
+            code: item.tag.code,
+            label: item.tag.label,
+            color: item.tag.color ?? null,
+          });
+        }
+        setSessionTags(next);
+      } catch {
+        // non-fatal; tags are optional
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rows]);
 
   // Load per-candidate correspondence metadata once we have rows and userIds.
   // This uses the dedicated correspondence summary API so we can distinguish
@@ -3247,6 +3357,14 @@ function ProspectiveCandidatesPanel({
         !r.email.toLowerCase().includes(searchEmail.trim().toLowerCase())
       ) {
         return false;
+      }
+
+      // Tag filter: require at least one matching tag when tags are selected.
+      if (tagFilter.length > 0) {
+        const tagsForSession = sessionTags[r.id] || [];
+        const tagIds = new Set(tagsForSession.map(t => t.id));
+        const hasMatch = tagFilter.some(id => tagIds.has(id));
+        if (!hasMatch) return false;
       }
 
       // Hide TEST sessions only when Status filter is "ALL"; other modes either
@@ -3837,6 +3955,57 @@ function ProspectiveCandidatesPanel({
           />
         </label>
 
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <span>Groups / Tags</span>
+          {tagsLoading && (
+            <span style={{ fontSize: 11, color: "#6b7280" }}>Loading tags…</span>
+          )}
+          {tagsError && (
+            <span style={{ fontSize: 11, color: "#b91c1c" }}>{tagsError}</span>
+          )}
+          {!tagsLoading && candidateTags.length === 0 && !tagsError && (
+            <span style={{ fontSize: 11, color: "#6b7280" }}>No candidate tags yet.</span>
+          )}
+          {candidateTags.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 6,
+                maxWidth: 260,
+              }}
+            >
+              {candidateTags.map(tag => {
+                const checked = tagFilter.includes(tag.id);
+                return (
+                  <label
+                    key={tag.id}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontSize: 11,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        setTagFilter(prev =>
+                          prev.includes(tag.id)
+                            ? prev.filter(id => id !== tag.id)
+                            : [...prev, tag.id],
+                        );
+                      }}
+                    />
+                    <span>{tag.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {tenantShareTargets && tenantShareTargets.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <span>Share with tenants</span>
@@ -4361,6 +4530,33 @@ function ProspectiveCandidatesPanel({
                       >
                         <span>Journal entry</span>
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBulkMenuOpen(false);
+                          setBulkTagSelection([]);
+                          setShowBulkTagModal(true);
+                        }}
+                        disabled={selectedCount === 0}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          width: "100%",
+                          padding: "6px 10px",
+                          borderTop: "1px solid #e5e7eb",
+                          borderBottom: "none",
+                          borderLeft: "none",
+                          borderRight: "none",
+                          background: selectedCount === 0 ? "#f9fafb" : "#ffffff",
+                          color: selectedCount === 0 ? "#9ca3af" : "#111827",
+                          cursor: selectedCount === 0 ? "default" : "pointer",
+                          fontSize: 12,
+                          textAlign: "left",
+                        }}
+                      >
+                        <span>Assign tags / groups</span>
+                      </button>
                     </div>
                   )}
                 </th>
@@ -4409,6 +4605,25 @@ function ProspectiveCandidatesPanel({
                       </div>
                       {r.profile?.phone && (
                         <div style={{ fontSize: 12, color: "#111827" }}>{r.profile.phone}</div>
+                      )}
+                      {sessionTags[r.id] && sessionTags[r.id].length > 0 && (
+                        <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          {sessionTags[r.id].map(tag => (
+                            <span
+                              key={tag.id}
+                              style={{
+                                borderRadius: 999,
+                                border: "1px solid #d1d5db",
+                                padding: "1px 6px",
+                                fontSize: 11,
+                                backgroundColor: "#f9fafb",
+                                color: "#374151",
+                              }}
+                            >
+                              {tag.label}
+                            </span>
+                          ))}
+                        </div>
                       )}
                     </td>
                     <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 12 }}>
@@ -5131,6 +5346,286 @@ function ProspectiveCandidatesPanel({
               }}
             >
               {bulkJournalSaving ? "Saving…" : "Save journal note"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showBulkTagModal && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: 10,
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            backgroundColor: "#ffffff",
+            fontSize: 12,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 6,
+            }}
+          >
+            <div style={{ fontWeight: 600 }}>Assign tags / groups to selected candidates</div>
+            <button
+              type="button"
+              onClick={() => setShowBulkTagModal(false)}
+              style={{
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                fontSize: 14,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          <p style={{ marginTop: 0, marginBottom: 6, color: "#4b5563" }}>
+            Choose one or more tags to apply to all currently selected candidates. Existing
+            tags will be preserved; new selections will be added.
+          </p>
+
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ marginBottom: 4 }}>Existing tags</div>
+            {candidateTags.length === 0 ? (
+              <div style={{ color: "#6b7280" }}>No candidate tags defined yet.</div>
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 6,
+                  maxHeight: 180,
+                  overflowY: "auto",
+                  padding: 4,
+                  borderRadius: 4,
+                  border: "1px solid #d1d5db",
+                }}
+              >
+                {candidateTags.map(tag => {
+                  const checked = bulkTagSelection.includes(tag.id);
+                  return (
+                    <label
+                      key={tag.id}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontSize: 12,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setBulkTagSelection(prev =>
+                            prev.includes(tag.id)
+                              ? prev.filter(id => id !== tag.id)
+                              : [...prev, tag.id],
+                          );
+                        }}
+                      />
+                      <span>{tag.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginTop: 4 }}>
+            <div style={{ marginBottom: 4 }}>Create new tag</div>
+            <input
+              value={newTagLabel}
+              onChange={e => setNewTagLabel(e.target.value)}
+              placeholder="e.g. Team 01"
+              style={{
+                width: "100%",
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            />
+            <button
+              type="button"
+              disabled={bulkTagsSaving || !newTagLabel.trim()}
+              onClick={async () => {
+                const label = newTagLabel.trim();
+                if (!label) return;
+                if (typeof window === "undefined") return;
+                const token = window.localStorage.getItem("accessToken");
+                if (!token) {
+                  alert("Missing access token. Please log in again.");
+                  return;
+                }
+                setBulkTagsSaving(true);
+                try {
+                  const res = await fetch(`${API_BASE}/tags/candidates/create`, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ label }),
+                  });
+                  if (!res.ok) {
+                    const text = await res.text().catch(() => "");
+                    alert(
+                      `Failed to create candidate tag (${res.status}). ${
+                        text || "Check your permissions."
+                      }`,
+                    );
+                    return;
+                  }
+                  const created: CandidateTag = await res.json();
+                  setCandidateTags(prev => [...prev, created]);
+                  setBulkTagSelection(prev => [...prev, created.id]);
+                  setNewTagLabel("");
+                } finally {
+                  setBulkTagsSaving(false);
+                }
+              }}
+              style={{
+                marginTop: 6,
+                padding: "4px 10px",
+                borderRadius: 4,
+                border: "1px solid #0f172a",
+                background: bulkTagsSaving ? "#e5e7eb" : "#0f172a",
+                color: bulkTagsSaving ? "#4b5563" : "#f9fafb",
+                fontSize: 12,
+                cursor: bulkTagsSaving ? "default" : "pointer",
+              }}
+            >
+              {bulkTagsSaving ? "Saving…" : "Create tag"}
+            </button>
+          </div>
+
+          <div
+            style={{
+              marginTop: 10,
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: 8,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowBulkTagModal(false)}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                background: "#ffffff",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={bulkTagsSaving || bulkTagSelection.length === 0 || selectedIds.length === 0}
+              onClick={async () => {
+                if (typeof window === "undefined") return;
+                const token = window.localStorage.getItem("accessToken");
+                if (!token) {
+                  alert("Missing access token. Please log in again.");
+                  return;
+                }
+                const selected = filtered.filter(r => selectedIds.includes(r.id));
+                if (!selected.length) {
+                  alert("Select at least one candidate.");
+                  return;
+                }
+                setBulkTagsSaving(true);
+                try {
+                  await Promise.all(
+                    selected.map(async r => {
+                      const existing = sessionTags[r.id] || [];
+                      const existingIds = new Set(existing.map(t => t.id));
+                      const combinedIds = Array.from(
+                        new Set([
+                          ...Array.from(existingIds),
+                          ...bulkTagSelection,
+                        ]),
+                      );
+                      const res = await fetch(`${API_BASE}/tags/candidates/${r.id}`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ tagIds: combinedIds }),
+                      });
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        console.error(
+                          `Failed to set tags for candidate ${r.id}:`,
+                          res.status,
+                          text,
+                        );
+                      }
+                    }),
+                  );
+
+                  // Refresh tags after bulk update
+                  const ids = filtered.map(r => r.id);
+                  const res = await fetch(`${API_BASE}/tags/candidates/batch`, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ sessionIds: ids }),
+                  });
+                  if (res.ok) {
+                    const json: any[] = await res.json();
+                    const next: Record<string, CandidateTag[]> = {};
+                    for (const item of json || []) {
+                      if (!item || typeof item.sessionId !== "string" || !item.tag) continue;
+                      const sid = item.sessionId;
+                      if (!next[sid]) next[sid] = [];
+                      next[sid].push({
+                        id: item.tag.id,
+                        code: item.tag.code,
+                        label: item.tag.label,
+                        color: item.tag.color ?? null,
+                      });
+                    }
+                    setSessionTags(next);
+                  }
+
+                  setShowBulkTagModal(false);
+                } finally {
+                  setBulkTagsSaving(false);
+                }
+              }}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 4,
+                border: "1px solid #16a34a",
+                background:
+                  bulkTagsSaving || bulkTagSelection.length === 0 || selectedIds.length === 0
+                    ? "#e5e7eb"
+                    : "#16a34a",
+                color:
+                  bulkTagsSaving || bulkTagSelection.length === 0 || selectedIds.length === 0
+                    ? "#4b5563"
+                    : "#f9fafb",
+                fontSize: 12,
+                cursor:
+                  bulkTagsSaving || bulkTagSelection.length === 0 || selectedIds.length === 0
+                    ? "default"
+                    : "pointer",
+              }}
+            >
+              {bulkTagsSaving ? "Saving…" : "Apply to selected"}
             </button>
           </div>
         </div>

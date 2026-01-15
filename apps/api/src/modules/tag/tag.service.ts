@@ -64,6 +64,19 @@ export class TagService {
     });
   }
 
+  async listTagsForEntities(entityType: string, entityIds: string[]) {
+    if (!entityIds.length) return [];
+
+    return this.prisma.tagAssignment.findMany({
+      where: {
+        entityType,
+        entityId: { in: entityIds },
+      },
+      include: { tag: true },
+      orderBy: [{ tag: { sortOrder: "asc" } }, { tag: { label: "asc" } }],
+    });
+  }
+
   async setTagsForEntity(companyId: string, entityType: string, entityId: string, tagIds: string[], userId?: string) {
     // Remove existing assignments
     await this.prisma.tagAssignment.deleteMany({ where: { companyId, entityType, entityId } });
