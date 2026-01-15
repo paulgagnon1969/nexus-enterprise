@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Req, UseGuards } from "@nestjs/common";
-import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles, GlobalRole } from "../auth/auth.guards";
+import { JwtAuthGuard } from "../auth/auth.guards";
+import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { WorkerService } from "./worker.service";
 
 @Controller("workers")
@@ -17,14 +18,17 @@ export class WorkerController {
     return { workers };
   }
 
-  // SUPER_ADMIN-only: update core worker contact + compensation fields. This
-  // is primarily used from the Company user profile page when editing worker
-  // phone + rates.
-  @UseGuards(JwtAuthGuard, GlobalRolesGuard)
-  @GlobalRoles(GlobalRole.SUPER_ADMIN)
+  // Update core worker contact + compensation fields. This is primarily used
+  // from the Company user profile page when editing worker phone + rates.
+  //
+  // Authorization is enforced in the service layer:
+  // - SUPER_ADMIN anywhere in the system; or
+  // - Nexus System HR / OWNER / ADMIN in the Nexus System company context.
+  @UseGuards(JwtAuthGuard)
   @Patch(":id/comp")
   async updateWorkerComp(
     @Param("id") workerId: string,
+    @Req() req: any,
     @Body()
     body: {
       phone?: string | null;
@@ -34,6 +38,7 @@ export class WorkerController {
       cpRole?: string | null;
     },
   ) {
-    return this.workerService.updateWorkerComp(workerId, body ?? {});
+    const actor = req.user as AuthenticatedUser;
+    return this.workerService.updateWorkerComp(actor, workerId, body ?? {});
   }
 }
