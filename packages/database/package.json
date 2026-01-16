@@ -13,13 +13,15 @@
     "import:xact": "ts-node src/run-import-xact.ts",
     "import:xact-components": "ts-node src/run-import-xact-components.ts",
     "allocate:xact-components": "ts-node src/run-allocate-xact-components.ts",
-    "import:pricelist": "ts-node src/run-import-price-list.ts",
+    "import:pricelist": "ts-node src/run-import-pricelist.ts",
     "import:pricelist-components": "ts-node src/run-import-pricelist-components.ts",
     "archive:company-offices": "ts-node src/archive-company-office.ts",
     "import:bia-workers": "ts-node src/run-import-bia-workers.ts",
     "import:fortified:payroll-admin": "ts-node src/scripts/import-fortified-payroll-admin.ts",
     "import:fortified:ww02-time": "ts-node src/scripts/import-ww02-time.ts",
     "report:fortified:ww02-time": "ts-node src/scripts/report-ww02-time.ts",
+    "import:fortified:ww03-time": "ts-node src/scripts/import-ww03-time.ts",
+    "report:fortified:ww03-time": "ts-node src/scripts/report-ww03-time.ts",
     "import:timecards": "ts-node src/scripts/import-timecards-from-csv.ts"
   },
   "dependencies": {
