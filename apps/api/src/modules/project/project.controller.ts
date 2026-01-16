@@ -507,6 +507,19 @@ export class ProjectController {
     );
   }
 
+  // Field PETL (scope-only) view for PUDL / Daily Logs.
+  // Returns PETL rows without pricing so crew/foremen can see scope/quantities.
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/petl-field")
+  getFieldPetl(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getFieldPetlForProject(
+      projectId,
+      user.companyId,
+      user,
+    );
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post(":id/petl/:sowItemId/percent")
   updateSinglePetlPercent(
@@ -714,6 +727,47 @@ export class ProjectController {
       user.companyId,
       user,
       body
+    );
+  }
+
+  // Accept quantity flags from Field PETL (PUDL) UI.
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl-field/qty-flags")
+  applyFieldPetlQuantityFlags(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body()
+    body: {
+      items: { sowItemId: string; qtyFlaggedIncorrect: boolean; qtyFieldReported?: number | null; notes?: string | null }[];
+    },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.applyFieldPetlQuantityFlags(
+      projectId,
+      user.companyId,
+      user,
+      body,
+    );
+  }
+
+  // PM/Estimator review of Field PETL quantity flags.
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post(":id/petl-field/review-qty")
+  reviewFieldPetlQuantityFlags(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body()
+    body: {
+      items: { sowItemId: string; action: "ACCEPT" | "REJECT"; coSupTag?: string | null }[];
+    },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.reviewFieldPetlQuantityFlags(
+      projectId,
+      user.companyId,
+      user,
+      body,
     );
   }
 }

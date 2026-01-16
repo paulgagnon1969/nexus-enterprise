@@ -46,6 +46,7 @@ model Company {
   invites            CompanyInvite[]
   memberships        CompanyMembership[]
   goldenPriceUpdates GoldenPriceUpdateLog[]
+  tenantPriceUpdates TenantPriceUpdateLog[]
   importJobs         ImportJob[]
   moduleOverrides    OrganizationModuleOverride[]
   parcels            Parcel[]
@@ -769,6 +770,7 @@ model Project {
   dailyLogs            DailyLog[]
   estimateVersions     EstimateVersion[]
   goldenPriceUpdates   GoldenPriceUpdateLog[]
+  tenantPriceUpdates   TenantPriceUpdateLog[]
   importJobs           ImportJob[]
   parcels              Parcel[]
   petlEditSessions     PetlEditSession[]
@@ -1057,6 +1059,33 @@ model GoldenPriceUpdateLog {
   @@index([projectId, createdAt], map: "GoldenPriceUpdateLog_project_created_idx")
 }
 
+/// Per-tenant log of price updates applied to CompanyPriceListItem rows.
+/// Used for audit trails and for driving UI price history ("hot link" on Unit Price).
+model TenantPriceUpdateLog {
+  id                     String   @id @default(cuid())
+  companyId              String
+  companyPriceListId     String
+  companyPriceListItemId String
+  canonicalKeyHash       String?
+  oldUnitPrice           Float?
+  newUnitPrice           Float?
+  source                 String   // e.g. "PROJECT_PETL_IMPORT", "PROJECT_MPETL_MANUAL"
+  sourceImportJobId      String?
+  projectId              String?
+  estimateVersionId      String?
+  changedByUserId        String?
+  changedAt              DateTime @default(now())
+
+  company             Company            @relation(fields: [companyId], references: [id])
+  companyPriceList    CompanyPriceList   @relation(fields: [companyPriceListId], references: [id])
+  companyPriceListItem CompanyPriceListItem @relation(fields: [companyPriceListItemId], references: [id])
+  estimateVersion     EstimateVersion?   @relation(fields: [estimateVersionId], references: [id])
+  project             Project?           @relation(fields: [projectId], references: [id])
+
+  @@index([companyId, changedAt], map: "TenantPriceUpdateLog_company_changed_idx")
+  @@index([companyPriceListItemId, changedAt], map: "TenantPriceUpdateLog_item_changed_idx")
+}
+
 model Task {
   id                String           @id @default(cuid())
   title             String
@@ -1106,6 +1135,7 @@ model EstimateVersion {
   componentSummaries   ComponentSummary[]
   project              Project                   @relation(fields: [projectId], references: [id])
   goldenPriceUpdates   GoldenPriceUpdateLog[]
+  tenantPriceUpdates   TenantPriceUpdateLog[]
   rawComponentRows     RawComponentRow[]
   rawRows              RawXactRow[]
   sows                 Sow[]
@@ -1278,7 +1308,12 @@ model SowItem {
   projectParticleId    String
   lineNo               Int
   description          String
+
+  /// Quantities
   qty                  Float?
+  /// Original quantity from the initial PETL import (Xact or MPETL).
+  originalQty          Float?
+
   unit                 String?
   unitCost             Float?
   itemAmount           Float?
@@ -1299,6 +1334,15 @@ model SowItem {
   createdAt            DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
   isAcvOnly            Boolean                  @default(false)
+
+  /// Field reconciliation (PUDL / Daily Log) – quantity audits
+  qtyFlaggedIncorrect  Boolean                  @default(false)
+  qtyFieldReported     Float?
+  qtyFieldReportedByUserId String?
+  qtyFieldReportedAt   DateTime?
+  qtyFieldNotes        String?
+  qtyReviewStatus      String?
+
   petlEditChanges      PetlEditChange[]
   componentAllocations SowComponentAllocation[]
   estimateVersion      EstimateVersion          @relation(fields: [estimateVersionId], references: [id])
@@ -1792,6 +1836,7 @@ model CompanyPriceList {
   company         Company                @relation(fields: [companyId], references: [id])
   basePriceList   PriceList?             @relation(fields: [basePriceListId], references: [id])
   items           CompanyPriceListItem[]
+  priceUpdates    TenantPriceUpdateLog[]
 
   @@index([companyId, isActive, revision])
 }
@@ -1821,8 +1866,15 @@ model CompanyPriceListItem {
   updatedAt          DateTime          @updatedAt
   lastKnownUnitPrice Float?
 
+  /// Metadata for UI freshness and price history
+  lastPriceChangedAt              DateTime?
+  lastPriceChangedByUserId        String?
+  lastPriceChangedSourceImportJobId String?
+  lastPriceChangedSource          String?
+
   companyPriceList   CompanyPriceList  @relation(fields: [companyPriceListId], references: [id])
   priceListItem      PriceListItem?    @relation(fields: [priceListItemId], references: [id])
+  priceUpdates       TenantPriceUpdateLog[]
 
   @@index([companyPriceListId, canonicalKeyHash])
   @@index([companyPriceListId, cat, sel])
