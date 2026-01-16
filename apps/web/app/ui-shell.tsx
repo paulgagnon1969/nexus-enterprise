@@ -378,7 +378,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const noMainScroll =
     // Pages that manage their own internal scroll panes
-    path.startsWith("/company/users/") ||
+    // NOTE: Previously this disabled scroll for all /company/users/* routes,
+    // which caused detail views (e.g. candidate detail) to be clipped when
+    // zoomed. We now only disable main scroll on the specific skills matrix
+    // page, which manages its own scroll regions.
     path === "/settings/skills";
 
   // Hide the main app navigation on auth routes like /login so the global menu
