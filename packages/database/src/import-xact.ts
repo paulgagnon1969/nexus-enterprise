@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parse } from "csv-parse/sync";
 import crypto from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "./index";
 
 function toNumber(value: string | null | undefined): number | null {
@@ -304,6 +305,223 @@ async function updateGoldenFromEstimate(estimateVersionId: string) {
     avgDelta,
     avgPercentDelta,
   };
+}
+
+// Update the active tenant CompanyPriceList (Tenant Golden PETL) based on
+// observed unit costs in a project's PETL (SOW items). This is the primary
+// hook that lets Xact/MPETL estimates continuously refine tenant cost books.
+export async function updateTenantGoldenFromPetl(options: {
+  companyId: string;
+  projectId: string;
+  estimateVersionId: string;
+  sowItems: { categoryCode: string | null; selectionCode: string | null; unitCost: number | null }[];
+  changedByUserId?: string;
+  source: string; // e.g. "PROJECT_PETL_IMPORT" | "PROJECT_MPETL_MANUAL"
+}) {
+  const { companyId, projectId, estimateVersionId, sowItems, changedByUserId, source } = options;
+
+  if (!sowItems.length) {
+    return { updatedCount: 0 };
+  }
+
+  // Find an active CompanyPriceList for this tenant.
+  const companyPriceList = await prisma.companyPriceList.findFirst({
+    where: { companyId, isActive: true },
+    orderBy: { revision: "desc" },
+  });
+
+  if (!companyPriceList) {
+    // Tenant has no cost book yet; nothing to update.
+    return { updatedCount: 0 };
+  }
+
+  type Agg = {
+    cat: string;
+    sel: string | null;
+    totalUnitCost: number;
+    count: number;
+  };
+
+  const byKey = new Map<string, Agg>();
+
+  for (const item of sowItems) {
+    if (!item.categoryCode || item.unitCost == null) continue;
+    const cat = item.categoryCode.trim().toUpperCase();
+    if (!cat) continue;
+    const sel = item.selectionCode ? item.selectionCode.trim().toUpperCase() : null;
+    const key = `${cat}::${sel ?? ""}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.totalUnitCost += item.unitCost ?? 0;
+      existing.count += 1;
+    } else {
+      byKey.set(key, {
+        cat,
+        sel,
+        totalUnitCost: item.unitCost ?? 0,
+        count: 1,
+      });
+    }
+  }
+
+  if (byKey.size === 0) {
+    return { updatedCount: 0 };
+  }
+
+  // Load existing tenant items for these Cats.
+  const cats = Array.from(new Set(Array.from(byKey.values()).map(a => a.cat)));
+
+  const tenantItems = await prisma.companyPriceListItem.findMany({
+    where: {
+      companyPriceListId: companyPriceList.id,
+      cat: { in: cats },
+    },
+    select: {
+      id: true,
+      cat: true,
+      sel: true,
+      unitPrice: true,
+      lastKnownUnitPrice: true,
+      canonicalKeyHash: true,
+    },
+  });
+
+  const itemByKey = new Map<
+    string,
+    { id: string; unitPrice: number | null; lastKnownUnitPrice: number | null; canonicalKeyHash: string | null }
+  >();
+
+  for (const item of tenantItems) {
+    const cat = (item.cat ?? "").trim().toUpperCase();
+    if (!cat) continue;
+    const sel = item.sel ? item.sel.trim().toUpperCase() : null;
+    const key = `${cat}::${sel ?? ""}`;
+    if (!itemByKey.has(key)) {
+      itemByKey.set(key, {
+        id: item.id,
+        unitPrice: item.unitPrice,
+        lastKnownUnitPrice: item.lastKnownUnitPrice,
+        canonicalKeyHash: item.canonicalKeyHash ?? null,
+      });
+    }
+  }
+
+  const updates: {
+    id: string;
+    oldPrice: number | null;
+    newPrice: number;
+    cat: string;
+    sel: string | null;
+    canonicalKeyHash: string | null;
+  }[] = [];
+
+  for (const [key, agg] of byKey.entries()) {
+    const avgUnitCost = agg.totalUnitCost / (agg.count || 1);
+    if (!Number.isFinite(avgUnitCost)) continue;
+
+    const existing = itemByKey.get(key);
+    const oldPrice = existing?.unitPrice ?? null;
+    const newPrice = avgUnitCost;
+
+    if (oldPrice != null && Math.abs(newPrice - oldPrice) < 0.005) {
+      continue; // effectively unchanged
+    }
+
+    updates.push({
+      id: existing?.id ?? "",
+      oldPrice,
+      newPrice,
+      cat: agg.cat,
+      sel: agg.sel,
+      canonicalKeyHash: existing?.canonicalKeyHash ?? null,
+    });
+  }
+
+  if (updates.length === 0) {
+    return { updatedCount: 0 };
+  }
+
+  const now = new Date();
+  const updatedItems: { id: string; oldPrice: number | null; newPrice: number; cat: string; sel: string | null; canonicalKeyHash: string | null }[] = [];
+
+  // Apply updates/creates in batches.
+  const chunkSize = 100;
+  for (let i = 0; i < updates.length; i += chunkSize) {
+    const chunk = updates.slice(i, i + chunkSize);
+
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      for (const u of chunk) {
+        if (u.id) {
+          // Existing item – update price fields and freshness metadata.
+          const updated = await tx.companyPriceListItem.update({
+            where: { id: u.id },
+            data: {
+              lastKnownUnitPrice: u.oldPrice ?? undefined,
+              unitPrice: u.newPrice,
+              lastPriceChangedAt: now,
+              lastPriceChangedByUserId: changedByUserId,
+              lastPriceChangedSourceImportJobId: null,
+              lastPriceChangedSource: source,
+            },
+          });
+
+          updatedItems.push({
+            id: updated.id,
+            oldPrice: u.oldPrice,
+            newPrice: u.newPrice,
+            cat: u.cat,
+            sel: u.sel,
+            canonicalKeyHash: updated.canonicalKeyHash ?? null,
+          });
+        } else {
+          // No existing tenant item for this Cat/Sel – create a new one.
+          const created = await tx.companyPriceListItem.create({
+            data: {
+              companyPriceListId: companyPriceList.id,
+              cat: u.cat,
+              sel: u.sel,
+              unitPrice: u.newPrice,
+              lastKnownUnitPrice: null,
+              lastPriceChangedAt: now,
+              lastPriceChangedByUserId: changedByUserId,
+              lastPriceChangedSourceImportJobId: null,
+              lastPriceChangedSource: source,
+            },
+          });
+
+          updatedItems.push({
+            id: created.id,
+            oldPrice: null,
+            newPrice: u.newPrice,
+            cat: u.cat,
+            sel: u.sel,
+            canonicalKeyHash: created.canonicalKeyHash ?? null,
+          });
+        }
+      }
+    });
+  }
+
+  // Write TenantPriceUpdateLog rows for all changes.
+  const logsData = updatedItems.map((u) => ({
+    companyId,
+    companyPriceListId: companyPriceList.id,
+    companyPriceListItemId: u.id,
+    canonicalKeyHash: u.canonicalKeyHash,
+    oldUnitPrice: u.oldPrice,
+    newUnitPrice: u.newPrice,
+    source,
+    sourceImportJobId: null,
+    projectId,
+    estimateVersionId,
+    changedByUserId,
+  }));
+
+  if (logsData.length > 0) {
+    await prisma.tenantPriceUpdateLog.createMany({ data: logsData });
+  }
+
+  return { updatedCount: updatedItems.length };
 }
 
 export async function importXactCsvForProject(options: {
@@ -657,6 +875,26 @@ export async function importXactCsvForProject(options: {
       data: { totalAmount },
     }),
   ]);
+
+  // Load SOW items from the database so we can update the tenant cost book
+  // (Tenant Golden PETL) based on observed unit costs in this estimate.
+  const sowItems = await prisma.sowItem.findMany({
+    where: { sowId: sow.id },
+    select: {
+      categoryCode: true,
+      selectionCode: true,
+      unitCost: true,
+    },
+  });
+
+  await updateTenantGoldenFromPetl({
+    companyId: project.companyId,
+    projectId,
+    estimateVersionId: estimateVersion.id,
+    sowItems,
+    changedByUserId: importedByUserId,
+    source: "PROJECT_PETL_IMPORT",
+  });
 
   const goldenUpdate = await updateGoldenFromEstimate(estimateVersion.id);
 
