@@ -1278,18 +1278,138 @@ export class OnboardingService {
       typeof company.name === "string" &&
       company.name.toLowerCase().startsWith("nexus fortified structures");
 
-    // For non-Fortified tenants, reuse the existing company-scoped behavior.
+    // For non-Fortified tenants, reuse the existing company-scoped behavior but
+    // also include any candidates explicitly shared with this tenant via
+    // CandidatePoolVisibility.
     if (!isFortifiedCompany) {
-      return this.listSessionsForCompany(companyId, actor, statuses, detailStatusCodes);
+      // Local onboarding sessions for this company (same auth and filtering
+      // rules as listSessionsForCompany).
+      const localSessions = await this.listSessionsForCompany(
+        companyId,
+        actor,
+        statuses,
+        detailStatusCodes,
+      );
+
+      // Shared Nex-Net candidates that have been made visible to this tenant.
+      const visibilityRows = await this.prisma.candidatePoolVisibility.findMany({
+        where: {
+          visibleToCompanyId: companyId,
+          isAllowed: true,
+        },
+        select: {
+          candidateId: true,
+        },
+      });
+
+      if (!visibilityRows.length) {
+        return localSessions;
+      }
+
+      const candidateIds = Array.from(
+        new Set(visibilityRows.map(v => v.candidateId).filter(id => !!id)),
+      );
+
+      if (!candidateIds.length) {
+        return localSessions;
+      }
+
+      const candidates = await this.prisma.nexNetCandidate.findMany({
+        where: {
+          id: { in: candidateIds },
+          isDeletedSoft: false,
+        },
+        select: {
+          id: true,
+          userId: true,
+          email: true,
+          companyId: true,
+        },
+      });
+
+      if (!candidates.length) {
+        return localSessions;
+      }
+
+      // Resolve the latest onboarding session for each candidate in their
+      // owning company (if any), then fetch those sessions with the same
+      // filters we apply to local sessions.
+      const sharedSessionIdSet = new Set<string>();
+
+      for (const cand of candidates) {
+        if (!cand.companyId) continue;
+
+        const normalizedEmail = this.normalizeEmail(cand.email ?? "");
+        const or: any[] = [];
+        if (cand.userId) {
+          or.push({ userId: cand.userId });
+        }
+        if (normalizedEmail) {
+          or.push({
+            email: {
+              equals: normalizedEmail,
+              mode: "insensitive",
+            } as any,
+          });
+        }
+        if (!or.length) continue;
+
+        const session = await this.prisma.onboardingSession.findFirst({
+          where: {
+            companyId: cand.companyId,
+            OR: or,
+          },
+          select: {
+            id: true,
+          },
+          orderBy: { createdAt: "desc" },
+        });
+
+        if (session) {
+          sharedSessionIdSet.add(session.id);
+        }
+      }
+
+      // Exclude any sessions that are already part of the localSessions list to
+      // avoid duplicates.
+      const existingLocalIds = new Set(localSessions.map(s => s.id));
+      const sharedSessionIds = Array.from(sharedSessionIdSet).filter(
+        id => !existingLocalIds.has(id),
+      );
+
+      if (!sharedSessionIds.length) {
+        return localSessions;
+      }
+
+      const sharedSessions = await this.prisma.onboardingSession.findMany({
+        where: {
+          id: { in: sharedSessionIds },
+          status: statuses && statuses.length ? { in: statuses as any } : undefined,
+          detailStatusCode:
+            detailStatusCodes && detailStatusCodes.length
+              ? { in: detailStatusCodes.map(c => c.toUpperCase()) }
+              : undefined,
+        },
+        include: {
+          profile: true,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      return [...localSessions, ...sharedSessions];
     }
 
     // Fortified-specific view: only OWNER / ADMIN at the active Fortified
     // company can access the shared Nex-Net prospective candidates pool.
     if (actor.companyId !== companyId) {
-      throw new ForbiddenException("Only Nexus Fortified admins can view shared prospects for this company.");
+      throw new ForbiddenException(
+        "Only Nexus Fortified admins can view shared prospects for this company.",
+      );
     }
     if (actor.role !== "OWNER" && actor.role !== "ADMIN") {
-      throw new ForbiddenException("Only Nexus Fortified admins can view shared prospects.");
+      throw new ForbiddenException(
+        "Only Nexus Fortified admins can view shared prospects.",
+      );
     }
 
     // Resolve the canonical Nexus System recruiting company id so we always
