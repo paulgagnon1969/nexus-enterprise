@@ -3167,10 +3167,7 @@ function ProspectiveCandidatesPanel({
           params.set("detailStatusCode", detailStatusFilter.trim());
         }
 
-        const basePath =
-          isFortifiedCompany
-            ? `${API_BASE}/onboarding/company/${companyId}/prospects`
-            : `${API_BASE}/onboarding/company/${companyId}/sessions`;
+        const basePath = `${API_BASE}/onboarding/company/${companyId}/prospects`;
 
         const url = basePath + (params.toString() ? `?${params.toString()}` : "");
 
