@@ -43,6 +43,34 @@ interface WeeklyRow {
   days: { st: number; ot: number; dt: number }[]; // one entry per day in week
 }
 
+// Simple week-code helper: treat WW## as a 1-based week index from Jan 1
+function getWeekCodeFromDate(dateIso: string): string {
+  const d = new Date(dateIso + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return "";
+  const yearStart = new Date(d.getFullYear(), 0, 1);
+  const diffMs = d.getTime() - yearStart.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const weekIndex = Math.floor(diffDays / 7) + 1; // 1-based
+  const padded = String(Math.max(1, Math.min(weekIndex, 53))).padStart(2, "0");
+  return `WW${padded}`;
+}
+
+function getDateFromWeekCode(weekCode: string, referenceDateIso: string): string {
+  const match = /^WW(\d{1,2})$/i.exec(weekCode.trim());
+  if (!match) return referenceDateIso;
+  const n = Number(match[1]);
+  if (!Number.isFinite(n) || n <= 0) return referenceDateIso;
+
+  const ref = new Date(referenceDateIso + "T00:00:00");
+  if (Number.isNaN(ref.getTime())) return referenceDateIso;
+  const year = ref.getFullYear();
+
+  const clampedWeek = Math.max(1, Math.min(n, 53));
+  const yearStart = new Date(year, 0, 1);
+  const target = new Date(yearStart.getTime() + (clampedWeek - 1) * 7 * 24 * 60 * 60 * 1000);
+  return toIsoDate(target);
+}
+
 interface TimecardEditLogDto {
   id: string;
   date: string; // YYYY-MM-DD
@@ -200,6 +228,7 @@ export default function ProjectTimecardPage({
   const [workers, setWorkers] = useState<WorkerOption[]>([]);
   const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
   const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+  const [weekCode, setWeekCode] = useState<string>(() => getWeekCodeFromDate(initialDate));
   // Tracks whether the user has manually interacted with the worker filter.
   // If we ever introduce a default worker selection, we will only apply it
   // before the user has touched the filter.
@@ -323,7 +352,16 @@ export default function ProjectTimecardPage({
 
   const handleChangeDate = (next: string) => {
     setDate(next);
+    setWeekCode(getWeekCodeFromDate(next));
     router.replace(`/projects/${projectId}/timecards/${next}`);
+  };
+
+  const handleChangeWeekCode = (nextCode: string) => {
+    setWeekCode(nextCode);
+    const nextDate = getDateFromWeekCode(nextCode, date);
+    if (nextDate !== date) {
+      handleChangeDate(nextDate);
+    }
   };
 
   const handleCopyFromPreviousWeek = async () => {
@@ -705,7 +743,7 @@ export default function ProjectTimecardPage({
           <h1 className="text-lg font-semibold">Weekly Time Accounting</h1>
           <span className="text-sm text-gray-500">Project: {projectId}</span>
         </div>
-        <div className="flex items-center" style={{ gap: "100px" }}>
+        <div className="flex items-center" style={{ gap: "50px" }}>
           <div className="flex flex-col text-xs text-gray-500">
             {weekDays.length > 0 && (
               <div className="flex items-center gap-2">
@@ -731,6 +769,22 @@ export default function ProjectTimecardPage({
               onChange={(e) => handleChangeDate(e.target.value)}
               className="border rounded px-2 py-1 text-sm"
             />
+            <div style={{ width: "50px" }} />
+            <select
+              value={weekCode}
+              onChange={(e) => handleChangeWeekCode(e.target.value)}
+              className="border rounded px-2 py-1 text-sm min-w-[90px]"
+            >
+              {/* Allow blank / auto-computed option */}
+              <option value="">WW (auto)</option>
+              {Array.from({ length: 52 }, (_, i) => `WW${String(i + 1).padStart(2, "0")}`).map(
+                (code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ),
+              )}
+            </select>
           </div>
         </div>
       </div>
