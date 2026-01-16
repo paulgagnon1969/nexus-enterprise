@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, HttpException, Injectable, Not
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuditService } from "../../common/audit.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
+import type { Prisma } from "@prisma/client";
 import { GlobalRole, Role, ProjectRole, ProjectParticleType, ProjectParticipantScope, ProjectVisibilityLevel } from "@prisma/client";
 import { CreateProjectDto, UpdateProjectDto } from "./dto/project.dto";
 import { importXactCsvForProject, importXactComponentsCsvForEstimate, allocateComponentsForEstimate } from "@repo/database";
@@ -1584,6 +1585,315 @@ export class ProjectService {
       completedAmount,
       percentComplete
     };
+  }
+
+  /**
+   * Field PETL view for PUDL / Daily Logs.
+   * Returns PETL (SOW) rows without any pricing information so that
+   * crew/foremen can see scope and quantities but not dollars.
+   */
+  async getFieldPetlForProject(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+  ) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, companyId },
+    });
+
+    if (!project) {
+      throw new NotFoundException("Project not found in this company");
+    }
+
+    // Any user who can see the project can see Field PETL, but we still
+    // enforce project membership for non-owners/admins.
+    if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+      const membership = await this.prisma.projectMembership.findUnique({
+        where: {
+          userId_projectId: {
+            userId: actor.userId,
+            projectId,
+          },
+        },
+      });
+      if (!membership) {
+        throw new ForbiddenException("You do not have access to this project's PETL");
+      }
+    }
+
+    // Use the same estimateVersion selection logic as the main PETL grid.
+    let latestVersion = await this.prisma.estimateVersion.findFirst({
+      where: {
+        projectId,
+        sows: {
+          some: {
+            items: {
+              some: {},
+            },
+          },
+        },
+      },
+      orderBy: [
+        { sequenceNo: "desc" },
+        { importedAt: "desc" },
+        { createdAt: "desc" },
+      ],
+    });
+
+    if (!latestVersion) {
+      latestVersion = await this.prisma.estimateVersion.findFirst({
+        where: { projectId },
+        orderBy: [
+          { sequenceNo: "desc" },
+          { importedAt: "desc" },
+          { createdAt: "desc" },
+        ],
+      });
+    }
+
+    if (!latestVersion) {
+      return {
+        projectId,
+        estimateVersionId: null,
+        items: [],
+      };
+    }
+
+    const items = await this.prisma.sowItem.findMany({
+      where: { estimateVersionId: latestVersion.id },
+      include: {
+        projectParticle: true,
+      },
+      orderBy: [{ lineNo: "asc" }],
+    });
+
+    const mapped = items.map((item) => ({
+      id: item.id,
+      lineNo: item.lineNo,
+      roomParticleId: item.projectParticleId,
+      roomName: item.projectParticle?.fullLabel ?? item.projectParticle?.name ?? null,
+      categoryCode: item.categoryCode ?? null,
+      selectionCode: item.selectionCode ?? null,
+      activity: item.activity ?? null,
+      description: item.description,
+      unit: item.unit ?? null,
+      originalQty: item.originalQty ?? item.qty ?? null,
+      qty: item.qty ?? null,
+      qtyFlaggedIncorrect: item.qtyFlaggedIncorrect,
+      qtyFieldReported: item.qtyFieldReported ?? null,
+      qtyReviewStatus: item.qtyReviewStatus ?? null,
+    }));
+
+    return {
+      projectId,
+      estimateVersionId: latestVersion.id,
+      items: mapped,
+    };
+  }
+
+  /**
+   * Apply quantity flags from the Field PETL (PUDL) UI.
+   * This does NOT change official quantities immediately; it records
+   * field-reported discrepancies for PM/estimators to review.
+   */
+  async applyFieldPetlQuantityFlags(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    payload: {
+      items: { sowItemId: string; qtyFlaggedIncorrect: boolean; qtyFieldReported?: number | null; notes?: string | null }[];
+    },
+  ) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, companyId },
+    });
+
+    if (!project) {
+      throw new NotFoundException("Project not found in this company");
+    }
+
+    // Any project member can submit flags; enforce membership for non-owner/admin.
+    if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+      const membership = await this.prisma.projectMembership.findUnique({
+        where: {
+          userId_projectId: {
+            userId: actor.userId,
+            projectId,
+          },
+        },
+      });
+      if (!membership) {
+        throw new ForbiddenException("You do not have access to this project's PETL");
+      }
+    }
+
+    const { items } = payload;
+    if (!Array.isArray(items) || items.length === 0) {
+      return { updatedCount: 0 };
+    }
+
+    const now = new Date();
+    let updatedCount = 0;
+
+    for (const entry of items) {
+      const { sowItemId, qtyFlaggedIncorrect, qtyFieldReported, notes } = entry;
+
+      await this.prisma.sowItem.updateMany({
+        where: {
+          id: sowItemId,
+          sow: { projectId },
+        },
+        data: {
+          qtyFlaggedIncorrect,
+          qtyFieldReported: qtyFlaggedIncorrect ? (qtyFieldReported ?? null) : null,
+          qtyFieldReportedByUserId: qtyFlaggedIncorrect ? actor.userId : null,
+          qtyFieldReportedAt: qtyFlaggedIncorrect ? now : null,
+          qtyFieldNotes: qtyFlaggedIncorrect ? (notes ?? null) : null,
+          qtyReviewStatus: qtyFlaggedIncorrect ? "PENDING" : null,
+        },
+      });
+
+      updatedCount += 1;
+    }
+
+    return { updatedCount };
+  }
+
+  /**
+   * PM/Estimator review endpoint for Field PETL quantity flags.
+   * Allows accepting or rejecting field-reported quantities. On ACCEPT,
+   * we update the official qty and log a PetlEditChange; on REJECT we
+   * mark the flag as rejected without changing qty.
+   */
+  async reviewFieldPetlQuantityFlags(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    payload: {
+      items: { sowItemId: string; action: "ACCEPT" | "REJECT"; coSupTag?: string | null }[];
+    },
+  ) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, companyId },
+    });
+
+    if (!project) {
+      throw new NotFoundException("Project not found in this company");
+    }
+
+    // Restrict review to OWNER / ADMIN roles.
+    if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+      throw new ForbiddenException("Only project owners/admins can review PETL quantities");
+    }
+
+    const { items } = payload;
+    if (!Array.isArray(items) || items.length === 0) {
+      return { reviewedCount: 0 };
+    }
+
+    const now = new Date();
+    let reviewedCount = 0;
+
+    for (const entry of items) {
+      const { sowItemId, action } = entry;
+
+      const sowItem = await this.prisma.sowItem.findFirst({
+        where: {
+          id: sowItemId,
+          sow: { projectId },
+        },
+      });
+
+      if (!sowItem) {
+        continue;
+      }
+
+      if (action === "ACCEPT") {
+        // If there is a field-reported qty, use it; otherwise leave as-is.
+        const newQty = sowItem.qtyFieldReported ?? sowItem.qty ?? null;
+        const oldQty = sowItem.qty ?? null;
+
+        // Initialize originalQty the first time we accept a change.
+        const originalQty = sowItem.originalQty ?? sowItem.qty ?? null;
+
+        await this.prisma.$transaction(async (tx) => {
+          await tx.sowItem.update({
+            where: { id: sowItem.id },
+            data: {
+              originalQty,
+              qty: newQty,
+              qtyFlaggedIncorrect: false,
+              qtyReviewStatus: "ACCEPTED",
+            },
+          });
+
+          if (oldQty !== newQty) {
+            await tx.petlEditChange.create({
+              data: {
+                sessionId: await this.ensurePetlEditSessionId(tx, projectId, actor.userId),
+                sowItemId: sowItem.id,
+                field: "qty",
+                oldValue: oldQty,
+                newValue: newQty,
+                effectiveAt: now,
+              },
+            });
+          }
+        });
+
+        reviewedCount += 1;
+      } else if (action === "REJECT") {
+        await this.prisma.sowItem.update({
+          where: { id: sowItem.id },
+          data: {
+            qtyFlaggedIncorrect: false,
+            qtyReviewStatus: "REJECTED",
+          },
+        });
+        reviewedCount += 1;
+      }
+    }
+
+    return { reviewedCount };
+  }
+
+  /**
+   * Internal helper to ensure there is a PetlEditSession to attach qty
+   * changes to. We keep this simple: one session per project/user/day
+   * for now.
+   */
+  private async ensurePetlEditSessionId(
+    tx: Prisma.TransactionClient,
+    projectId: string,
+    userId?: string | null,
+  ): Promise<string> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const existing = await tx.petlEditSession.findFirst({
+      where: {
+        projectId,
+        userId: userId ?? undefined,
+        startedAt: {
+          gte: today,
+        },
+      },
+      orderBy: { startedAt: "desc" },
+    });
+
+    if (existing) return existing.id;
+
+    const created = await tx.petlEditSession.create({
+      data: {
+        projectId,
+        userId: userId ?? null,
+        source: "petl-field-review",
+        startedAt: new Date(),
+        endedAt: new Date(),
+      },
+    });
+
+    return created.id;
   }
 
   async getPetlComponentsForItem(
