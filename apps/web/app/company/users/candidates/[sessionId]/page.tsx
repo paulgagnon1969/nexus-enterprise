@@ -190,6 +190,14 @@ export default function CandidateDetailPage() {
 
         if (!res.ok) {
           const text = await res.text().catch(() => "");
+          // Surface a cleaner message for common authorization failures while
+          // still preserving the raw response text for debugging.
+          if (res.status === 403) {
+            throw new Error(
+              "You do not have permission to review this candidate in the current company context. " +
+                text,
+            );
+          }
           throw new Error(`Failed to load candidate (${res.status}) ${text}`);
         }
 

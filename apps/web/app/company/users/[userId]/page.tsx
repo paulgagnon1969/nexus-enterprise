@@ -64,9 +64,10 @@ interface WorkerDto {
   totalHoursCbs: number | null;
   totalHoursCct: number | null;
   defaultPayRate: number | null;
-  billRate: number | null;
-  cpRate: number | null;
-  cpRole: string | null;
+      billRate: number | null;
+      cpRate: number | null;
+      cpRole: string | null;
+      cpFringeRate: number | null;
 }
 
 interface UserProfileDto {
@@ -184,11 +185,20 @@ export default function CompanyUserProfilePage() {
   const [workerUnionLocal, setWorkerUnionLocal] = useState<string>("");
   const [workerDateHired, setWorkerDateHired] = useState<string>("");
   const [workerPayRate, setWorkerPayRate] = useState<string>("");
+  // Day rate is derived from hourly (10-hour day) but kept as its own state so
+  // edits in either field keep the other in sync.
+  const [workerDayRate, setWorkerDayRate] = useState<string>("");
   const [workerBillRate, setWorkerBillRate] = useState<string>("");
   const [workerCpRate, setWorkerCpRate] = useState<string>("");
   const [workerCpRole, setWorkerCpRole] = useState<string>("");
+  const [workerCpFringe, setWorkerCpFringe] = useState<string>("");
   const [workerSaving, setWorkerSaving] = useState(false);
   const [workerError, setWorkerError] = useState<string | null>(null);
+
+  // Worker market comparison (state occupational wages)
+  const [workerMarketComp, setWorkerMarketComp] = useState<any | null>(null);
+  const [workerMarketLoading, setWorkerMarketLoading] = useState(false);
+  const [workerMarketError, setWorkerMarketError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -246,6 +256,13 @@ export default function CompanyUserProfilePage() {
               ? String(profileJson.worker.defaultPayRate)
               : "",
           );
+          // Initialize derived day rate as 10x hourly when we have a numeric
+          // default pay rate.
+          if (profileJson.worker.defaultPayRate != null) {
+            setWorkerDayRate(String(profileJson.worker.defaultPayRate * 10));
+          } else {
+            setWorkerDayRate("");
+          }
           setWorkerBillRate(
             profileJson.worker.billRate != null ? String(profileJson.worker.billRate) : "",
           );
@@ -253,6 +270,11 @@ export default function CompanyUserProfilePage() {
             profileJson.worker.cpRate != null ? String(profileJson.worker.cpRate) : "",
           );
           setWorkerCpRole(profileJson.worker.cpRole ?? "");
+          setWorkerCpFringe(
+            profileJson.worker.cpFringeRate != null
+              ? String(profileJson.worker.cpFringeRate)
+              : "",
+          );
         }
 
         // Default selection to the first skill so the right panel has context.
@@ -296,6 +318,52 @@ export default function CompanyUserProfilePage() {
 
     void load();
   }, [userId]);
+
+  useEffect(() => {
+    // Load worker market comparison once we have a worker and token.
+    const workerId = profile?.worker?.id;
+    if (!workerId) return;
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    async function loadMarket() {
+      try {
+        setWorkerMarketLoading(true);
+        setWorkerMarketError(null);
+
+        const res = await fetch(`${API_BASE}/workers/${workerId}/market-comp`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(text || `Failed to load market comparison (${res.status})`);
+        }
+
+        const json = await res.json();
+        if (!cancelled) {
+          setWorkerMarketComp(json);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setWorkerMarketError(e?.message ?? "Failed to load market comparison.");
+        }
+      } finally {
+        if (!cancelled) {
+          setWorkerMarketLoading(false);
+        }
+      }
+    }
+
+    void loadMarket();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.worker?.id]);
 
   useEffect(() => {
     // Keep hooks above conditional returns to avoid "Rendered more hooks than during the previous render".
@@ -569,8 +637,14 @@ export default function CompanyUserProfilePage() {
     const nextPay = parseRate(workerPayRate);
     const nextBill = parseRate(workerBillRate);
     const nextCp = parseRate(workerCpRate);
+    const nextCpFringe = parseRate(workerCpFringe);
 
-    if (nextPay === undefined || nextBill === undefined || nextCp === undefined) {
+    if (
+      nextPay === undefined ||
+      nextBill === undefined ||
+      nextCp === undefined ||
+      nextCpFringe === undefined
+    ) {
       setWorkerError("Rates must be numeric when provided.");
       return;
     }
@@ -593,6 +667,7 @@ export default function CompanyUserProfilePage() {
       if (nextPay !== undefined) body.defaultPayRate = nextPay;
       if (nextBill !== undefined) body.billRate = nextBill;
       if (nextCp !== undefined) body.cpRate = nextCp;
+      if (nextCpFringe !== undefined) body.cpFringeRate = nextCpFringe;
       body.cpRole = workerCpRole.trim() || null;
 
       const res = await fetch(`${API_BASE}/workers/${profile.worker.id}/comp`, {
@@ -817,6 +892,9 @@ export default function CompanyUserProfilePage() {
 
   const NEXUS_DARK_BLUE = "#0f172a";
   const NEXUS_GOLD = "#facc15";
+
+  const fmtCurrency = (value: number | null | undefined) =>
+    typeof value === "number" ? value.toFixed(2) : "—";
 
   const renderStars = (value: number | null, size: number) => {
     const filledCount = value == null ? 0 : Math.round(value);
@@ -1182,6 +1260,7 @@ export default function CompanyUserProfilePage() {
                   </div>
                   {canEditWorkerComp ? (
                     <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+                      <div style={{ fontWeight: 600, marginBottom: 2 }}>Assignment & classification</div>
                       <div>
                         <strong>Default project code:</strong>{" "}
                         <input
@@ -1330,24 +1409,65 @@ export default function CompanyUserProfilePage() {
                   ) : null}
                   {canEditWorkerComp && (
                     <div style={{ marginTop: 8, fontSize: 12 }}>
-                      <div style={{ marginBottom: 4 }}>
-                        <strong>Pay rate (hr):</strong>{" "}
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={workerPayRate}
-                          onChange={e => setWorkerPayRate(e.target.value)}
-                          style={{
-                            fontSize: 12,
-                            padding: "2px 4px",
-                            borderRadius: 4,
-                            border: "1px solid #d1d5db",
-                            minWidth: 100,
-                          }}
-                        />
+                      <div style={{ fontWeight: 600, marginBottom: 2 }}>Compensation</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
+                        <label style={{ flex: "0 0 140px" }}>
+                          <span>
+                            <strong>Base pay (hourly)</strong>
+                          </span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={workerPayRate}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setWorkerPayRate(val);
+                              const n = Number(val);
+                              if (!Number.isNaN(n)) {
+                                setWorkerDayRate(String(n * 10));
+                              } else if (!val.trim()) {
+                                setWorkerDayRate("");
+                              }
+                            }}
+                            style={{
+                              fontSize: 12,
+                              padding: "2px 4px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              width: "100%",
+                            }}
+                          />
+                        </label>
+                        <label style={{ flex: "0 0 160px" }}>
+                          <span>
+                            <strong>Base pay (day, 10 hrs)</strong>
+                          </span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={workerDayRate}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setWorkerDayRate(val);
+                              const n = Number(val);
+                              if (!Number.isNaN(n)) {
+                                setWorkerPayRate(String(n / 10));
+                              } else if (!val.trim()) {
+                                setWorkerPayRate("");
+                              }
+                            }}
+                            style={{
+                              fontSize: 12,
+                              padding: "2px 4px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              width: "100%",
+                            }}
+                          />
+                        </label>
                       </div>
                       <div style={{ marginBottom: 4 }}>
-                        <strong>Bill rate:</strong>{" "}
+                        <strong>Bill rate (hourly):</strong>{" "}
                         <input
                           type="number"
                           step="0.01"
@@ -1363,7 +1483,7 @@ export default function CompanyUserProfilePage() {
                         />
                       </div>
                       <div style={{ marginBottom: 4 }}>
-                        <strong>CP rate:</strong>{" "}
+                        <strong>CP hourly rate:</strong>{" "}
                         <input
                           type="number"
                           step="0.01"
@@ -1379,7 +1499,23 @@ export default function CompanyUserProfilePage() {
                         />
                       </div>
                       <div style={{ marginBottom: 4 }}>
-                        <strong>CP role:</strong>{" "}
+                        <strong>CP estimated fringe ($/hr):</strong>{" "}
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={workerCpFringe}
+                          onChange={e => setWorkerCpFringe(e.target.value)}
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            minWidth: 100,
+                          }}
+                        />
+                      </div>
+                      <div style={{ marginBottom: 4 }}>
+                        <strong>CP wage code / classification:</strong>{" "}
                         <input
                           type="text"
                           value={workerCpRole}
@@ -1415,6 +1551,80 @@ export default function CompanyUserProfilePage() {
                           {workerError}
                         </div>
                       )}
+
+                      <div
+                        style={{
+                          marginTop: 12,
+                          padding: 8,
+                          borderRadius: 6,
+                          border: "1px solid #e5e7eb",
+                          backgroundColor: "#f9fafb",
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
+                          Market comparison (state benchmark)
+                        </div>
+                        {workerMarketLoading && (
+                          <p style={{ fontSize: 12, color: "#6b7280", margin: 0 }}>
+                            Loading market comparison…
+                          </p>
+                        )}
+                        {workerMarketError && (
+                          <p style={{ fontSize: 12, color: "#b91c1c", margin: 0 }}>
+                            {workerMarketError}
+                          </p>
+                        )}
+                        {!workerMarketLoading && !workerMarketError && workerMarketComp && (
+                          <div style={{ fontSize: 12 }}>
+                            {workerMarketComp.message && (
+                              <p
+                                style={{
+                                  margin: 0,
+                                  marginBottom: 4,
+                                  color: "#6b7280",
+                                }}
+                              >
+                                {workerMarketComp.message}
+                              </p>
+                            )}
+                            {workerMarketComp.market && (
+                              <>
+                                <p style={{ margin: 0, marginBottom: 4 }}>
+                                  <strong>
+                                    {workerMarketComp.market.stateCode} ·{" "}
+                                    {workerMarketComp.market.socCode}
+                                  </strong>{" "}
+                                  – {workerMarketComp.market.occupationName}
+                                </p>
+                                <ul style={{ paddingLeft: 16, margin: 0 }}>
+                                  <li>
+                                    Worker base hourly: $
+                                    {fmtCurrency(workerMarketComp.worker?.baseHourly)} (median: $
+                                    {fmtCurrency(workerMarketComp.market.hourlyMedian)})
+                                  </li>
+                                  <li>
+                                    CP total (base + fringe): $
+                                    {fmtCurrency(workerMarketComp.worker?.cpTotalHourly)}
+                                  </li>
+                                  <li>
+                                    Market P25 / P75: $
+                                    {fmtCurrency(workerMarketComp.market.hourlyP25)} / $
+                                    {fmtCurrency(workerMarketComp.market.hourlyP75)}
+                                  </li>
+                                  {workerMarketComp.comparisons && (
+                                    <li>
+                                      Base vs median: $
+                                      {fmtCurrency(
+                                        workerMarketComp.comparisons.baseVsMedian,
+                                      )}
+                                    </li>
+                                  )}
+                                </ul>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1534,9 +1744,12 @@ export default function CompanyUserProfilePage() {
           {canViewHr && (
             <section
               style={{
-                flex: "0 0 340px",
-                maxWidth: 380,
+                flex: "0 0 420px",
+                maxWidth: 460,
                 fontSize: 13,
+                alignSelf: "stretch",
+                maxHeight: 520,
+                overflowY: "auto",
               }}
             >
               {canViewHr && (

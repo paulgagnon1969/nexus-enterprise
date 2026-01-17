@@ -1,7 +1,8 @@
-import { ForbiddenException, Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { GlobalRole, Role } from "../auth/auth.guards";
+import { getMarketWageBandsForWorker } from "@repo/database";
 
 @Injectable()
 export class WorkerService {
@@ -144,6 +145,7 @@ export class WorkerService {
       billRate?: number | null;
       cpRate?: number | null;
       cpRole?: string | null;
+      cpFringeRate?: number | null;
     },
   ) {
     // Authorization: SUPER_ADMIN anywhere, or Nexus System HR/OWNER/ADMIN in
@@ -219,6 +221,11 @@ export class WorkerService {
       data.cpRate = input.cpRate === null ? null : input.cpRate;
     }
 
+    if (input.cpFringeRate !== undefined) {
+      data.cpFringeRate =
+        input.cpFringeRate === null ? null : input.cpFringeRate;
+    }
+
     if (input.cpRole !== undefined) {
       const rawRole = (input.cpRole ?? "").toString().trim();
       data.cpRole = rawRole || null;
@@ -248,9 +255,143 @@ export class WorkerService {
         billRate: true,
         cpRate: true,
         cpRole: true,
+        cpFringeRate: true,
       },
     });
 
     return updated;
+  }
+
+  async getWorkerMarketComp(actor: AuthenticatedUser, workerId: string) {
+    // Reuse the same authorization semantics as updateWorkerComp: SUPER_ADMIN
+    // anywhere, or Nexus System HR/OWNER/ADMIN in the Nexus System context.
+    const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
+
+    let isNexusSystemCompany = false;
+    if (actor.companyId) {
+      const company = await this.prisma.company.findUnique({
+        where: { id: actor.companyId },
+        select: { name: true },
+      });
+      const name = company?.name?.toLowerCase() ?? "";
+      isNexusSystemCompany = name === "nexus system";
+    }
+
+    const isOwnerOrAdmin = actor.role === Role.OWNER || actor.role === Role.ADMIN;
+    const isHrProfile = actor.profileCode === "HR";
+
+    if (!isSuperAdmin && !(isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile))) {
+      throw new ForbiddenException("Not allowed to view worker market compensation");
+    }
+
+    const worker = await this.prisma.worker.findUnique({
+      where: { id: workerId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        fullName: true,
+        state: true,
+        primaryClassCode: true,
+        cpRole: true,
+        defaultPayRate: true,
+        cpRate: true,
+        cpFringeRate: true,
+      },
+    });
+
+    if (!worker) {
+      throw new NotFoundException("Worker not found");
+    }
+
+    const stateCode = (worker.state ?? "").trim();
+    if (!stateCode) {
+      return {
+        worker: {
+          id: worker.id,
+          name:
+            worker.fullName ??
+            [worker.firstName, worker.lastName].filter(Boolean).join(" ") || null,
+          state: worker.state,
+          primaryClassCode: worker.primaryClassCode,
+          cpRole: worker.cpRole,
+          baseHourly: worker.defaultPayRate ?? null,
+          cpHourly: worker.cpRate ?? null,
+          cpFringeHourly: worker.cpFringeRate ?? null,
+          cpTotalHourly:
+            worker.cpRate != null || worker.cpFringeRate != null
+              ? (worker.cpRate ?? 0) + (worker.cpFringeRate ?? 0)
+              : null,
+        },
+        market: null,
+        comparisons: null,
+        message: "Worker state is not set; cannot compute market comparison",
+      };
+    }
+
+    const market = await getMarketWageBandsForWorker({
+      stateCode,
+      cpRole: worker.cpRole,
+      workerClassCode: worker.primaryClassCode,
+    });
+
+    if (!market) {
+      return {
+        worker: {
+          id: worker.id,
+          name:
+            worker.fullName ??
+            [worker.firstName, worker.lastName].filter(Boolean).join(" ") || null,
+          state: worker.state,
+          primaryClassCode: worker.primaryClassCode,
+          cpRole: worker.cpRole,
+          baseHourly: worker.defaultPayRate ?? null,
+          cpHourly: worker.cpRate ?? null,
+          cpFringeHourly: worker.cpFringeRate ?? null,
+          cpTotalHourly:
+            worker.cpRate != null || worker.cpFringeRate != null
+              ? (worker.cpRate ?? 0) + (worker.cpFringeRate ?? 0)
+              : null,
+        },
+        market: null,
+        comparisons: null,
+        message:
+          "No state occupational wage data found for this worker's classification",
+      };
+    }
+
+    const workerBase = worker.defaultPayRate ?? null;
+    const workerCpTotal =
+      worker.cpRate != null || worker.cpFringeRate != null
+        ? (worker.cpRate ?? 0) + (worker.cpFringeRate ?? 0)
+        : null;
+
+    const delta = (val: number | null, ref: number | null): number | null => {
+      if (val == null || ref == null) return null;
+      return val - ref;
+    };
+
+    return {
+      worker: {
+        id: worker.id,
+        name:
+          worker.fullName ??
+          [worker.firstName, worker.lastName].filter(Boolean).join(" ") || null,
+        state: worker.state,
+        primaryClassCode: worker.primaryClassCode,
+        cpRole: worker.cpRole,
+        baseHourly: workerBase,
+        cpHourly: worker.cpRate ?? null,
+        cpFringeHourly: worker.cpFringeRate ?? null,
+        cpTotalHourly: workerCpTotal,
+      },
+      market,
+      comparisons: {
+        baseVsMedian: delta(workerBase, market.hourlyMedian),
+        baseVsP25: delta(workerBase, market.hourlyP25),
+        baseVsP75: delta(workerBase, market.hourlyP75),
+        cpTotalVsMedian: delta(workerCpTotal, market.hourlyMedian),
+      },
+    };
   }
 }
