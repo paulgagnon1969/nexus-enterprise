@@ -100,7 +100,8 @@ export class WorkerService {
     }
 
     return rows.map(r => {
-      const fullName = (r.fullName ?? "").trim() || r.id;
+      const nameFromRow = (r.fullName ?? "").trim();
+      const fullName = nameFromRow || r.id;
       return {
         id: r.id,
         firstName: null,
@@ -309,9 +310,13 @@ export class WorkerService {
       return {
         worker: {
           id: worker.id,
-          name:
-            worker.fullName ??
-            [worker.firstName, worker.lastName].filter(Boolean).join(" ") || null,
+          name: (() => {
+            const fallback = [worker.firstName, worker.lastName]
+              .filter(Boolean)
+              .join(" ");
+            const rawName = worker.fullName ?? fallback;
+            return rawName || null;
+          })(),
           state: worker.state,
           primaryClassCode: worker.primaryClassCode,
           cpRole: worker.cpRole,
@@ -339,9 +344,13 @@ export class WorkerService {
       return {
         worker: {
           id: worker.id,
-          name:
-            worker.fullName ??
-            [worker.firstName, worker.lastName].filter(Boolean).join(" ") || null,
+          name: (() => {
+            const fallback = [worker.firstName, worker.lastName]
+              .filter(Boolean)
+              .join(" ");
+            const rawName = worker.fullName ?? fallback;
+            return rawName || null;
+          })(),
           state: worker.state,
           primaryClassCode: worker.primaryClassCode,
           cpRole: worker.cpRole,
@@ -374,9 +383,13 @@ export class WorkerService {
     return {
       worker: {
         id: worker.id,
-        name:
-          worker.fullName ??
-          [worker.firstName, worker.lastName].filter(Boolean).join(" ") || null,
+        name: (() => {
+          const fallback = [worker.firstName, worker.lastName]
+            .filter(Boolean)
+            .join(" ");
+          const rawName = worker.fullName ?? fallback;
+          return rawName || null;
+        })(),
         state: worker.state,
         primaryClassCode: worker.primaryClassCode,
         cpRole: worker.cpRole,
