@@ -769,7 +769,7 @@ export default function ProjectTimecardPage({
               onChange={(e) => handleChangeDate(e.target.value)}
               className="border rounded px-2 py-1 text-sm"
             />
-            <div style={{ width: "50px" }} />
+            <div style={{ width: "25px" }} />
             <select
               value={weekCode}
               onChange={(e) => handleChangeWeekCode(e.target.value)}
