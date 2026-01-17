@@ -2029,7 +2029,7 @@ export class OnboardingService {
   async getSessionForReview(id: string, actor: AuthenticatedUser) {
     // First, resolve the session by id only so we can support cross-tenant
     // views in tightly controlled cases (e.g. Nexus Fortified viewing Nexus
-    // System pool candidates).
+    // System pool candidates, or tenants viewing shared Nex-Net candidates).
     const session = await this.prisma.onboardingSession.findUnique({
       where: { id },
       include: {
@@ -2044,11 +2044,14 @@ export class OnboardingService {
     }
 
     const sameCompany = session.companyId === actor.companyId;
+    const isSuperAdmin = (actor as any).globalRole === "SUPER_ADMIN";
 
     // Normal path: actor is in the same company that owns the onboarding
-    // session. Enforce the existing OWNER / ADMIN / HIRING_MANAGER check.
+    // session. Enforce the existing OWNER / ADMIN / HIRING_MANAGER check,
+    // but always allow SUPER_ADMINs.
     if (sameCompany) {
       if (
+        !isSuperAdmin &&
         actor.role !== "OWNER" &&
         actor.role !== "ADMIN" &&
         actor.profileCode !== "HIRING_MANAGER"
@@ -2059,10 +2062,61 @@ export class OnboardingService {
       return session;
     }
 
-    // Cross-tenant path: allow Nexus Fortified Structures admins to review
-    // Nexus System pool candidates. We rely on listProspectsForCompany to
-    // decide which sessions they can see; once they have a session id, we do
-    // not apply additional candidate visibility gating here.
+    // SUPER_ADMINs can review any onboarding session across tenants.
+    if (isSuperAdmin) {
+      return session;
+    }
+
+    // Cross-tenant path A: generic tenants who have been granted explicit
+    // visibility to this candidate via CandidatePoolVisibility. This is the
+    // same visibility model used by listProspectsForCompany for non-Fortified
+    // tenants.
+    const normalizedEmail = this.normalizeEmail(session.email ?? "");
+
+    const candidates = await this.prisma.nexNetCandidate.findMany({
+      where: {
+        OR: [
+          session.userId ? { userId: session.userId } : undefined,
+          normalizedEmail
+            ? {
+                email: {
+                  equals: normalizedEmail,
+                  mode: "insensitive",
+                } as any,
+              }
+            : undefined,
+        ].filter(Boolean) as any,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (candidates.length > 0) {
+      const candidateIds = candidates.map(c => c.id);
+
+      const visibility = await this.prisma.candidatePoolVisibility.findFirst({
+        where: {
+          candidateId: { in: candidateIds },
+          visibleToCompanyId: actor.companyId,
+          isAllowed: true,
+        },
+      });
+
+      if (visibility) {
+        const isOwnerOrAdmin = actor.role === "OWNER" || actor.role === "ADMIN";
+        const isHiringManager = actor.profileCode === "HIRING_MANAGER";
+
+        if (isOwnerOrAdmin || isHiringManager) {
+          return session;
+        }
+      }
+    }
+
+    // Cross-tenant path B: Nexus Fortified Structures admins reviewing Nexus
+    // System pool candidates. We rely on listProspectsForCompany to decide
+    // which sessions they can see; once they have a session id, we do not
+    // apply additional candidate visibility gating here.
     const isFortifiedTenant = actor.companyId === this.fortifiedCompanyId;
     const isFortifiedAdmin = actor.role === "OWNER" || actor.role === "ADMIN";
 

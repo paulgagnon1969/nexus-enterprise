@@ -1,0 +1,295 @@
+"General Decision Number: AZ20260040 01/02/2026
+
+Superseded General Decision Number: AZ20250040
+
+State: Arizona
+
+Construction Type: Building
+
+County: Pima County in Arizona.
+
+BUILDING CONSTRUCTION PROJECTS (does not include single family
+homes or apartments up to and including 4 stories).
+
+
+Modification Number     Publication Date
+          0             01/02/2026
+
+ BRAZ0003-001 07/01/2024
+
+                                  Rates          Fringes
+
+BRICKLAYER.......................$ 32.29             9.97
+----------------------------------------------------------------
+ CARP1912-001 07/01/2025
+
+                                  Rates          Fringes
+
+CARPENTER........................$ 33.19            19.20
+----------------------------------------------------------------
+ ELEC0570-001 06/01/2025
+
+                                  Rates          Fringes
+
+ELECTRICIAN (Excludes Low   
+Voltage Wiring)..................$ 33.00      21.33%+6.00
+----------------------------------------------------------------
+ ENGI0428-016 06/01/2023
+
+                                  Rates          Fringes
+
+POWER EQUIPMENT OPERATOR  
+     Bulldozer...................$ 31.69            13.52
+     Crane.......................$ 36.04            13.52
+----------------------------------------------------------------
+ IRON0075-007 08/01/2025
+
+                                  Rates          Fringes
+
+IRONWORKER, STRUCTURAL...........$ 33.00            19.91
+----------------------------------------------------------------
+ PLUM0469-009 07/01/2025
+
+                                  Rates          Fringes
+
+PIPEFITTER.......................$ 51.15            21.00
+----------------------------------------------------------------
+ SHEE0359-001 07/01/2025
+
+                                  Rates          Fringes
+
+SHEET METAL WORKER...............$ 49.39            19.86
+----------------------------------------------------------------
+  SUAZ2019-003 06/12/2023
+
+                                  Rates          Fringes
+
+CEMENT MASON/CONCRETE FINISHER...$ 21.00             0.00
+  
+DRYWALL FINISHER/TAPER...........$ 22.47             0.00
+  
+ELECTRICIAN (Low Voltage   
+Wiring)..........................$ 26.16             9.91
+  
+IRONWORKER, REINFORCING..........$ 22.04             0.00
+  
+LABORER:  Common or General......$ 17.46             0.00
+  
+LABORER:  Mason Tender -   
+Cement/Concrete..................$ 19.79             0.00
+  
+LABORER:  Pipelayer..............$ 16.77             1.05
+  
+OPERATOR:    
+Backhoe/Excavator/Trackhoe.......$ 19.58             3.79
+  
+OPERATOR:  Loader................$ 15.00             4.15
+  
+OPERATOR:  Roller................$ 23.62             6.44
+  
+PAINTER..........................$ 15.00             0.00
+  
+PLUMBER..........................$ 28.51             0.00
+  
+TILE SETTER......................$ 21.50             0.00
+----------------------------------------------------------------
+
+WELDERS - Receive rate prescribed for craft performing
+operation to which welding is incidental.
+
+================================================================
+
+Note: Executive Order (EO) 13706, Establishing Paid Sick Leave
+for Federal Contractors applies to all contracts subject to the
+Davis-Bacon Act for which the contract is awarded (and any
+solicitation was issued) on or after January 1, 2017.  If this
+contract is covered by the EO, the contractor must provide
+employees with 1 hour of paid sick leave for every 30 hours
+they work, up to 56 hours of paid sick leave each year.
+Employees must be permitted to use paid sick leave for their
+own illness, injury or other health-related needs, including
+preventive care; to assist a family member (or person who is
+like family to the employee) who is ill, injured, or has other
+health-related needs, including preventive care; or for reasons
+resulting from, or to assist a family member (or person who is
+like family to the employee) who is a victim of, domestic
+violence, sexual assault, or stalking.  Additional information
+on contractor requirements and worker protections under the EO
+is available at
+https://www.dol.gov/agencies/whd/government-contracts.
+
+Note: Executive Order 13658 generally applies to contracts
+subject to the Davis-Bacon Act that were awarded on or between
+January 1, 2015 and January 29, 2022, and that have not been
+renewed or extended on or after January 30, 2022. Executive
+Order 13658 does not apply to contracts subject only to the
+Davis-Bacon Related Acts regardless of when they were awarded.
+If a contract is subject to Executive Order 13658, the
+contractor must pay all covered workers at least $13.30 per
+hour (or the applicable wage rate listed on this wage
+determination, if it is higher) for all hours spent performing
+on the contract in 2025.  The applicable Executive Order
+minimum wage rate will be adjusted annually.   Additional
+information on contractor requirements and worker protections
+under Executive Order 13658 is available at
+www.dol.gov/whd/govcontracts.
+
+Unlisted classifications needed for work not included within
+the scope of the classifications listed may be added after
+award only as provided in the labor standards contract clauses
+(29CFR 5.5 (a) (1) (iii)).
+
+
+----------------------------------------------------------------
+
+The body of each wage determination lists the classifications
+and wage rates that have been found to be prevailing for the
+type(s) of construction and geographic area covered by the wage
+determination. The classifications are listed in alphabetical
+order under rate identifiers indicating whether the particular
+rate is a union rate (current union negotiated rate), a survey
+rate, a weighted union average rate, a state adopted rate, or a
+supplemental classification rate.
+
+Union Rate Identifiers
+
+A four-letter identifier beginning with characters other than
+""SU"", ""UAVG"", ?SA?, or ?SC? denotes that a union rate was
+prevailing for that classification in the survey. Example:
+PLUM0198-005 07/01/2024. PLUM is an identifier of the union
+whose collectively bargained rate prevailed in the survey for
+this classification, which in this example would be Plumbers.
+0198 indicates the local union number or district council
+number where applicable, i.e., Plumbers Local 0198. The next
+number, 005 in the example, is an internal number used in
+processing the wage determination. The date, 07/01/2024 in the
+example, is the effective date of the most current negotiated
+rate.
+
+Union prevailing wage rates are updated to reflect all changes
+over time that are reported to WHD in the rates
+in the collective bargaining agreement (CBA) governing the
+classification.
+
+Union Average Rate Identifiers
+
+The UAVG identifier indicates that no single rate prevailed for
+those classifications, but that 100% of the data reported for
+the classifications reflected union rates. EXAMPLE:
+UAVG-OH-0010 01/01/2024. UAVG indicates that the rate is a
+weighted union average rate. OH indicates the State of Ohio.
+The next number, 0010 in the example, is an internal number
+used in producing the wage determination. The date, 01/01/2024
+in the example, indicates the date the wage determination was
+updated to reflect the most current union average rate.
+
+A UAVG rate will be updated once a year, usually in January, to
+reflect a weighted average of the current rates in the
+collective bargaining agreements on which the rate is based.
+
+Survey Rate Identifiers
+
+The ""SU"" identifier indicates that either a single non-union
+rate prevailed (as defined in 29 CFR 1.2) for this
+classification in the survey or that the rate was derived by
+computing a weighted average rate based on all the rates
+reported in the survey for that classification. As a weighted
+average rate includes all rates reported in the survey, it may
+include both union and non-union rates. Example: SUFL2022-007
+6/27/2024. SU indicates the rate is a single non-union
+prevailing rate or a weighted average of survey data for that
+classification. FL indicates the State of Florida. 2022 is the
+year of the survey on which these classifications and rates are
+based. The next number, 007 in the example, is an internal
+number used in producing the wage determination. The date,
+6/27/2024 in the example, indicates the survey completion date
+for the classifications and rates under that identifier.
+
+?SU? wage rates typically remain in effect until a new survey
+is conducted. However, the Wage and Hour Division (WHD) has the
+discretion to update such rates under 29 CFR 1.6(c)(1).
+
+State Adopted Rate Identifiers
+
+The ""SA"" identifier indicates that the classifications and
+prevailing wage rates set by a state (or local) government were
+adopted under 29 C.F.R 1.3(g)-(h).  Example: SAME2023-007
+01/03/2024. SA reflects that the rates are state adopted. ME
+refers to the State of Maine. 2023 is the year during which the
+state completed the survey on which the listed classifications
+and rates are based. The next number, 007 in the example, is an
+internal number used in producing the wage determination.
+The date, 01/03/2024 in the example, reflects the date on which
+the classifications and rates under the ?SA? identifier took
+effect under state law in the state from which the rates were
+adopted.
+
+-----------------------------------------------------------
+
+WAGE DETERMINATION APPEALS PROCESS
+
+1) Has there been an initial decision in the matter? This can
+be:
+
+           a) a survey underlying a wage determination
+           b) an existing published wage determination
+c) an initial WHD letter setting forth a position on
+a wage determination matter
+d) an initial conformance (additional classification
+and rate) determination
+
+On survey related matters, initial contact, including requests
+for summaries of surveys, should be directed to the WHD Branch
+of Wage Surveys. Requests can be submitted via email to
+davisbaconinfo@dol.gov or by mail to:
+
+            Branch of Wage Surveys
+            Wage and Hour Division
+            U.S. Department of Labor
+            200 Constitution Avenue, N.W.
+            Washington, DC 20210
+
+Regarding any other wage determination matter such as
+conformance decisions, requests for initial decisions should be
+directed to the WHD Branch of Construction Wage Determinations.
+Requests can be submitted via email to BCWD-Office@dol.gov or
+by mail to:
+
+            Branch of Construction Wage Determinations
+            Wage and Hour Division
+            U.S. Department of Labor
+            200 Constitution Avenue, N.W.
+            Washington, DC 20210
+
+2) If an initial decision has been issued, then any interested
+party (those affected by the action) that disagrees with the
+decision can request review and reconsideration from the Wage
+and Hour Administrator (See 29 CFR Part 1.8 and 29 CFR Part 7).
+Requests for review and reconsideration can be submitted via
+email to dba.reconsideration@dol.gov or by mail to:
+
+            Wage and Hour Administrator
+            U.S. Department of Labor
+            200 Constitution Avenue, N.W.
+            Washington, DC 20210
+
+The request should be accompanied by a full statement of the
+interested party's position and any information (wage payment
+data, project description, area practice material, etc.) that
+the requestor considers relevant to the issue.
+
+3) If the decision of the Administrator is not favorable, an
+interested party may appeal directly to the Administrative
+Review Board (formerly the Wage Appeals Board).  Write to:
+
+            Administrative Review Board
+            U.S. Department of Labor
+            200 Constitution Avenue, N.W.
+            Washington, DC 20210.
+
+
+
+================================================================
+
+          END OF GENERAL DECISION
+"

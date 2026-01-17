@@ -465,7 +465,8 @@ model Worker {
   defaultPayRate     Float? // hourly pay rate
   billRate           Float? // hourly bill rate
   cpRate             Float? // hourly CP rate
-  cpRole             String? // CP role / designation
+  cpRole             String? // CP role / designation (e.g. wage determination code)
+  cpFringeRate       Float? // estimated fringe value for CP ($/hr)
   unionLocal         String?
   firstSeenWeekEnd   DateTime?
   lastSeenWeekEnd    DateTime?
@@ -2357,6 +2358,67 @@ model DevMigrationTest {
   id        String   @id @default(cuid())
   note      String?
   createdAt DateTime @default(now())
+}
+
+/// Snapshot of a state-level occupational wage table (e.g. BLS OES export)
+/// for a given state, year, and source. Used as the Golden "comp by state"
+/// reference for market wages.
+model StateOccupationalWageSnapshot {
+  id        String   @id @default(cuid())
+  stateCode String   // e.g. "AZ", "NM"
+  year      Int      // e.g. 2024
+  source    String   @default("BLS_OES")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  wages StateOccupationalWage[]
+
+  @@unique([stateCode, year, source], name: "StateOccWageSnapshot_state_year_source_key")
+}
+
+/// Single occupational wage record within a state snapshot (SOC code row).
+model StateOccupationalWage {
+  id                     String   @id @default(cuid())
+  snapshotId             String
+  socCode                String   // e.g. "47-2031"
+  occupationName         String   // e.g. "Carpenters"
+  employment             Int?
+  hourlyMean             Float?
+  annualMean             Float?
+  hourlyP10              Float?
+  hourlyP25              Float?
+  hourlyMedian           Float?
+  hourlyP75              Float?
+  hourlyP90              Float?
+  annualP10              Float?
+  annualP25              Float?
+  annualMedian           Float?
+  annualP75              Float?
+  annualP90              Float?
+  employmentPerThousand  Float?
+  locationQuotient       Float?
+
+  snapshot StateOccupationalWageSnapshot @relation(fields: [snapshotId], references: [id])
+
+  @@index([snapshotId, socCode], map: "StateOccWage_snapshot_soc_idx")
+}
+
+/// Mapping from Nexus/CP classifications (cpRole, workerClassCode) to SOC
+/// occupation codes, so we can compare internal & CP comp against state
+/// occupational wage tables.
+model CompensationClassificationMapping {
+  id              String   @id @default(cuid())
+  cpRole          String?
+  workerClassCode String?
+  socCode         String
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([cpRole], map: "CompClass_cpRole_idx")
+  @@index([workerClassCode], map: "CompClass_workerClass_idx")
+  @@index([socCode], map: "CompClass_socCode_idx")
+  @@unique([cpRole, workerClassCode, socCode], name: "CompClass_unique_triplet")
 }
 
 model NexNetCandidate {

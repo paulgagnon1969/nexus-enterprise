@@ -52,9 +52,19 @@ export class WorkerController {
       billRate?: number | null;
       cpRate?: number | null;
       cpRole?: string | null;
+      cpFringeRate?: number | null;
     },
   ) {
     const actor = req.user as AuthenticatedUser;
     return this.workerService.updateWorkerComp(actor, workerId, body ?? {});
+  }
+
+  // Return comparative market compensation bands for a worker based on their
+  // state, CP role, and/or primary classification code.
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/market-comp")
+  async getWorkerMarketComp(@Param("id") workerId: string, @Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.workerService.getWorkerMarketComp(actor, workerId);
   }
 }
