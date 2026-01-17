@@ -199,6 +199,7 @@ export default function CompanyUserProfilePage() {
   const [workerMarketComp, setWorkerMarketComp] = useState<any | null>(null);
   const [workerMarketLoading, setWorkerMarketLoading] = useState(false);
   const [workerMarketError, setWorkerMarketError] = useState<string | null>(null);
+  const [showMarketDetails, setShowMarketDetails] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -895,6 +896,13 @@ export default function CompanyUserProfilePage() {
 
   const fmtCurrency = (value: number | null | undefined) =>
     typeof value === "number" ? value.toFixed(2) : "—";
+
+  const fmtSignedCurrency = (value: number | null | undefined) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return "—";
+    const fixed = value.toFixed(2);
+    if (value > 0) return `+${fixed}`;
+    return fixed;
+  };
 
   const renderStars = (value: number | null, size: number) => {
     const filledCount = value == null ? 0 : Math.round(value);
@@ -1611,15 +1619,73 @@ export default function CompanyUserProfilePage() {
                                     {fmtCurrency(workerMarketComp.market.hourlyP25)} / $
                                     {fmtCurrency(workerMarketComp.market.hourlyP75)}
                                   </li>
-                                  {workerMarketComp.comparisons && (
-                                    <li>
-                                      Base vs median: $
-                                      {fmtCurrency(
+                                </ul>
+                                {workerMarketComp.comparisons && (
+                                  <p style={{ margin: 0, marginTop: 4 }}>
+                                    <span style={{ fontWeight: 600 }}>Base vs median: </span>
+                                    <span
+                                      style={{
+                                        color:
+                                          typeof workerMarketComp.comparisons
+                                            .baseVsMedian === "number"
+                                            ? workerMarketComp.comparisons
+                                                .baseVsMedian > 0
+                                              ? "#16a34a"
+                                              : workerMarketComp.comparisons
+                                                  .baseVsMedian < 0
+                                              ? "#b91c1c"
+                                              : "#374151"
+                                            : "#374151",
+                                      }}
+                                    >
+                                      {fmtSignedCurrency(
                                         workerMarketComp.comparisons.baseVsMedian,
                                       )}
+                                    </span>
+                                  </p>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setShowMarketDetails(prev => !prev)}
+                                  style={{
+                                    marginTop: 6,
+                                    padding: "2px 6px",
+                                    borderRadius: 999,
+                                    border: "1px solid #d1d5db",
+                                    backgroundColor: "#f3f4f6",
+                                    fontSize: 11,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  {showMarketDetails ? "Hide percentile details" : "Show percentile details"}
+                                </button>
+                                {showMarketDetails && (
+                                  <ul
+                                    style={{
+                                      paddingLeft: 16,
+                                      margin: 0,
+                                      marginTop: 4,
+                                      color: "#4b5563",
+                                    }}
+                                  >
+                                    <li>
+                                      P10: ${fmtCurrency(workerMarketComp.market.hourlyP10)}
                                     </li>
-                                  )}
-                                </ul>
+                                    <li>
+                                      P25: ${fmtCurrency(workerMarketComp.market.hourlyP25)}
+                                    </li>
+                                    <li>
+                                      Median (P50): $
+                                      {fmtCurrency(workerMarketComp.market.hourlyMedian)}
+                                    </li>
+                                    <li>
+                                      P75: ${fmtCurrency(workerMarketComp.market.hourlyP75)}
+                                    </li>
+                                    <li>
+                                      P90: ${fmtCurrency(workerMarketComp.market.hourlyP90)}
+                                    </li>
+                                  </ul>
+                                )}
                               </>
                             )}
                           </div>
