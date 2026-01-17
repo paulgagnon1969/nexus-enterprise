@@ -301,48 +301,13 @@ export default function WorkersPage() {
                         )}
                       </td>
                     )}
-                        <div>
-                          <div>
-                            Base: ${fmtCurrency(market.worker?.baseHourly)}
-                          </div>
-                          <div>
-                            Median: ${fmtCurrency(market.market?.hourlyMedian)}
-                          </div>
-                          {market.comparisons && (
-                            <div>
-                              Δ: {fmtSignedCurrency(market.comparisons.baseVsMedian)}
-                            </div>
-                          )}
-                        </div>
-                      ) : marketErr ? (
-                        <span className="text-red-600">{marketErr}</span>
-                      ) : (
-                        <span className="text-gray-400">Loading…</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      <span
-                        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
-                        style={{
-                          border: `1px solid ${badge.color}`,
-                          color: badge.color,
-                          backgroundColor: "#f9fafb",
-                        }}
-                      >
-                        {badge.label}
-                      </span>
-                      {market?.market && (
-                        <div className="mt-0.5 text-[11px] text-gray-500">
-                          {market.market.stateCode} · {market.market.socCode}
-                        </div>
-                      )}
-                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
     </main>
   );
