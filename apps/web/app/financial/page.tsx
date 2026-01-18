@@ -12,8 +12,10 @@ import {
   fetchRootLocations as fetchAssetLocationsRoots,
   fetchChildLocations as fetchAssetLocationChildren,
   fetchLocationHoldings as fetchAssetLocationHoldings,
+  fetchLocationHistory as fetchAssetLocationHistory,
   type Location as AssetLocation,
   type Holdings as AssetHoldings,
+  type LocationMovement as AssetLocationMovement,
 } from "../../lib/api/locations";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -217,6 +219,23 @@ export default function FinancialPage() {
   const [assetLogisticsLoadingTree, setAssetLogisticsLoadingTree] = useState(false);
   const [assetLogisticsLoadingHoldings, setAssetLogisticsLoadingHoldings] = useState(false);
   const [assetLogisticsError, setAssetLogisticsError] = useState<string | null>(null);
+  const [assetLogisticsHistory, setAssetLogisticsHistory] = useState<AssetLocationMovement[] | null>(null);
+  const [assetLogisticsLoadingHistory, setAssetLogisticsLoadingHistory] = useState(false);
+
+  type CompanyMemberSummary = {
+    userId: string;
+    name: string | null;
+    email: string | null;
+    role: string | null;
+  };
+
+  const [assetPeoplePickerOpen, setAssetPeoplePickerOpen] = useState(false);
+  const [assetPeoplePickerLoading, setAssetPeoplePickerLoading] = useState(false);
+  const [assetCompanyMembers, setAssetCompanyMembers] = useState<CompanyMemberSummary[] | null>(null);
+  const [assetSelectedUserIds, setAssetSelectedUserIds] = useState<string[]>([]);
+  const [assetPeopleSearch, setAssetPeopleSearch] = useState<string>('');
+
+  const [assetPendingMoveAssetId, setAssetPendingMoveAssetId] = useState<string | null>(null);
 
   // Helper: refresh Golden price list-related views after a job completes.
   async function refreshGoldenPriceListViews() {
@@ -1950,19 +1969,66 @@ export default function FinancialPage() {
                         <button
                           type="button"
                           onClick={async () => {
+                            setAssetLogisticsError(null);
+                            if (assetPendingMoveAssetId) {
+                              try {
+                                setAssetLogisticsLoadingHoldings(true);
+                                const res = await fetch(
+                                  `/api/inventory/holdings/location/${node.id}/move-asset`,
+                                  {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ assetId: assetPendingMoveAssetId }),
+                                  },
+                                );
+                                const json = await res.json();
+                                if (!res.ok) {
+                                  throw new Error(json?.message || "Failed to move asset");
+                                }
+                                setAssetLogisticsSelected(node);
+                                setAssetLogisticsHoldings(json);
+                                setAssetPendingMoveAssetId(null);
+                                // Refresh recent movement history for this location
+                                try {
+                                  setAssetLogisticsLoadingHistory(true);
+                                  const hist = await fetchAssetLocationHistory(node.id).catch(
+                                    () => [] as AssetLocationMovement[],
+                                  );
+                                  setAssetLogisticsHistory(hist);
+                                } finally {
+                                  setAssetLogisticsLoadingHistory(false);
+                                }
+                              } catch (e: any) {
+                                setAssetLogisticsError(
+                                  e?.message ?? "Failed to move asset to new location.",
+                                );
+                              } finally {
+                                setAssetLogisticsLoadingHoldings(false);
+                              }
+                              return;
+                            }
+
                             setAssetLogisticsSelected(node);
                             setAssetLogisticsLoadingHoldings(true);
-                            setAssetLogisticsError(null);
+                            setAssetLogisticsLoadingHistory(true);
                             try {
-                              const h = await fetchAssetLocationHoldings(node.id);
+                              const [h, hist] = await Promise.all([
+                                fetchAssetLocationHoldings(node.id),
+                                fetchAssetLocationHistory(node.id).catch(
+                                  () => [] as AssetLocationMovement[],
+                                ),
+                              ]);
                               setAssetLogisticsHoldings(h);
+                              setAssetLogisticsHistory(hist);
                             } catch (e: any) {
                               setAssetLogisticsError(
                                 e?.message ?? "Failed to load holdings for location.",
                               );
                               setAssetLogisticsHoldings(null);
+                              setAssetLogisticsHistory(null);
                             } finally {
                               setAssetLogisticsLoadingHoldings(false);
+                              setAssetLogisticsLoadingHistory(false);
                             }
                           }}
                           style={{
@@ -1990,19 +2056,65 @@ export default function FinancialPage() {
                                 key={child.id}
                                 type="button"
                                 onClick={async () => {
+                                  setAssetLogisticsError(null);
+                                  if (assetPendingMoveAssetId) {
+                                    try {
+                                      setAssetLogisticsLoadingHoldings(true);
+                                      const res = await fetch(
+                                        `/api/inventory/holdings/location/${child.id}/move-asset`,
+                                        {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ assetId: assetPendingMoveAssetId }),
+                                        },
+                                      );
+                                      const json = await res.json();
+                                      if (!res.ok) {
+                                        throw new Error(json?.message || "Failed to move asset");
+                                      }
+                                      setAssetLogisticsSelected(child);
+                                      setAssetLogisticsHoldings(json);
+                                      setAssetPendingMoveAssetId(null);
+                                      try {
+                                        setAssetLogisticsLoadingHistory(true);
+                                        const hist = await fetchAssetLocationHistory(child.id).catch(
+                                          () => [] as AssetLocationMovement[],
+                                        );
+                                        setAssetLogisticsHistory(hist);
+                                      } finally {
+                                        setAssetLogisticsLoadingHistory(false);
+                                      }
+                                    } catch (e: any) {
+                                      setAssetLogisticsError(
+                                        e?.message ?? "Failed to move asset to new location.",
+                                      );
+                                    } finally {
+                                      setAssetLogisticsLoadingHoldings(false);
+                                    }
+                                    return;
+                                  }
+
                                   setAssetLogisticsSelected(child);
                                   setAssetLogisticsLoadingHoldings(true);
-                                  setAssetLogisticsError(null);
+                                  setAssetLogisticsLoadingHistory(true);
                                   try {
-                                    const h = await fetchAssetLocationHoldings(child.id);
+                                    const [h, hist] = await Promise.all([
+                                      fetchAssetLocationHoldings(child.id),
+                                      fetchAssetLocationHistory(child.id).catch(
+                                        () => [] as AssetLocationMovement[],
+                                      ),
+                                    ]);
                                     setAssetLogisticsHoldings(h);
+                                    setAssetLogisticsHistory(hist);
                                   } catch (e: any) {
                                     setAssetLogisticsError(
                                       e?.message ?? "Failed to load holdings for location.",
                                     );
                                     setAssetLogisticsHoldings(null);
+                                    setAssetLogisticsHistory(null);
                                   } finally {
                                     setAssetLogisticsLoadingHoldings(false);
+                                    setAssetLogisticsLoadingHistory(false);
                                   }
                                 }}
                                 style={{
@@ -2072,39 +2184,48 @@ export default function FinancialPage() {
                       }}
                       onClick={async () => {
                         if (!assetLogisticsSelected) return;
-                        if (typeof window === "undefined") return;
-                        const raw = window.prompt(
-                          "Enter comma-separated user IDs to assign to this location:",
-                          "",
+                        setAssetLogisticsError(null);
+                        setAssetPeoplePickerOpen(true);
+                        setAssetSelectedUserIds(
+                          assetLogisticsHoldings?.people?.map((p) => p.userId) ?? [],
                         );
-                        if (!raw) return;
-                        const userIds = raw
-                          .split(",")
-                          .map((s) => s.trim())
-                          .filter(Boolean);
-                        if (!userIds.length) return;
-                        try {
-                          setAssetLogisticsLoadingHoldings(true);
-                          setAssetLogisticsError(null);
-                          const res = await fetch(
-                            `/api/locations/${assetLogisticsSelected.id}/assign-people`,
-                            {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ userIds }),
-                            },
-                          );
-                          const json = await res.json();
-                          if (!res.ok) {
-                            throw new Error(json?.message || "Failed to assign people");
+                        if (!assetCompanyMembers && !assetPeoplePickerLoading) {
+                          try {
+                            setAssetPeoplePickerLoading(true);
+                            const res = await fetch("/api/company/members");
+                            const json = await res.json();
+                            if (!res.ok) {
+                              throw new Error(json?.message || "Failed to load company members");
+                            }
+                            const rawMembers = Array.isArray(json)
+                              ? json
+                              : Array.isArray(json?.members)
+                              ? json.members
+                              : [];
+                            const mapped: CompanyMemberSummary[] = rawMembers
+                              .map((m: any) => {
+                                const userId = m.userId ?? m.id ?? null;
+                                if (!userId) return null;
+                                const nameFromFields = [m.firstName, m.lastName]
+                                  .filter(Boolean)
+                                  .join(" ") || null;
+                                const name = m.name ?? nameFromFields;
+                                return {
+                                  userId,
+                                  name,
+                                  email: m.email ?? null,
+                                  role: m.role ?? null,
+                                } as CompanyMemberSummary;
+                              })
+                              .filter((m: CompanyMemberSummary | null): m is CompanyMemberSummary => !!m);
+                            setAssetCompanyMembers(mapped);
+                          } catch (e: any) {
+                            setAssetLogisticsError(
+                              e?.message ?? "Failed to load company members for assignment.",
+                            );
+                          } finally {
+                            setAssetPeoplePickerLoading(false);
                           }
-                          setAssetLogisticsHoldings(json);
-                        } catch (e: any) {
-                          setAssetLogisticsError(
-                            e?.message ?? "Failed to assign people to this location.",
-                          );
-                        } finally {
-                          setAssetLogisticsLoadingHoldings(false);
                         }
                       }}
                     >
@@ -2119,6 +2240,219 @@ export default function FinancialPage() {
               {assetLogisticsError && (
                 <div style={{ fontSize: 11, color: "#b91c1c" }}>{assetLogisticsError}</div>
               )}
+              {assetPendingMoveAssetId && assetLogisticsHoldings && (
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: "#064e3b",
+                    background: "#d1fae5",
+                    border: "1px solid #6ee7b7",
+                    borderRadius: 4,
+                    padding: 4,
+                    marginBottom: 6,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <span>
+                    Move mode: select a destination in the Locations tree for{" "}
+                    <strong>
+                      {
+                        assetLogisticsHoldings.assets.find(
+                          (a) => a.id === assetPendingMoveAssetId,
+                        )?.name ?? "selected asset"
+                      }
+                    </strong>
+                    .
+                  </span>
+                  <button
+                    type="button"
+                    style={{
+                      fontSize: 10,
+                      padding: "2px 6px",
+                      borderRadius: 999,
+                      border: "1px solid #059669",
+                      background: "#ecfdf5",
+                      color: "#065f46",
+                      cursor: "pointer",
+                    }}
+                    onClick={() => setAssetPendingMoveAssetId(null)}
+                  >
+                    Cancel move
+                  </button>
+                </div>
+              )}
+              {assetPeoplePickerOpen && assetLogisticsSelected && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    padding: 8,
+                    borderRadius: 6,
+                    border: "1px solid #e5e7eb",
+                    background: "#f9fafb",
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>
+                    Assign people to {assetLogisticsSelected.name}
+                  </div>
+                  {assetPeoplePickerLoading && (
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>Loading company members…</div>
+                  )}
+                  {!assetPeoplePickerLoading && (!assetCompanyMembers || assetCompanyMembers.length === 0) && (
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>
+                      No members found for this company.
+                    </div>
+                  )}
+                  {!assetPeoplePickerLoading && assetCompanyMembers && assetCompanyMembers.length > 0 && (
+                    <>
+                      <div style={{ marginBottom: 4, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                        <input
+                          type="text"
+                          placeholder="Search by name or email…"
+                          value={assetPeopleSearch}
+                          onChange={(e) => setAssetPeopleSearch(e.target.value)}
+                          style={{
+                            flex: 1,
+                            fontSize: 11,
+                            padding: "4px 6px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                          }}
+                        />
+                        <span style={{ fontSize: 10, color: "#6b7280" }}>
+                          {assetCompanyMembers.length} total
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          maxHeight: 160,
+                          overflowY: "auto",
+                          border: "1px solid #e5e7eb",
+                          borderRadius: 4,
+                          padding: 4,
+                          marginBottom: 6,
+                        }}
+                      >
+                        {assetCompanyMembers
+                          .filter((m) => {
+                            if (!assetPeopleSearch.trim()) return true;
+                            const q = assetPeopleSearch.toLowerCase();
+                            const name = (m.name || '').toLowerCase();
+                            const email = (m.email || '').toLowerCase();
+                            return name.includes(q) || email.includes(q);
+                          })
+                          .map((m) => {
+                            const checked = assetSelectedUserIds.includes(m.userId);
+                            const label =
+                              m.name || m.email || `User ${m.userId.slice(0, 6)}…`;
+                            return (
+                              <label
+                                key={m.userId}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  fontSize: 11,
+                                  padding: "2px 0",
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    setAssetSelectedUserIds((prev) => {
+                                      if (e.target.checked) {
+                                        return prev.includes(m.userId)
+                                          ? prev
+                                          : [...prev, m.userId];
+                                      }
+                                      return prev.filter((id) => id !== m.userId);
+                                    });
+                                  }}
+                                  style={{ margin: 0 }}
+                                />
+                                <span>
+                                  {label}
+                                  {m.role && (
+                                    <span style={{ color: "#6b7280", marginLeft: 4 }}>
+                                      ({m.role})
+                                    </span>
+                                  )}
+                                  {m.email && !m.name && (
+                                    <span style={{ color: "#6b7280", marginLeft: 4 }}>
+                                      {m.email}
+                                    </span>
+                                  )}
+                                </span>
+                              </label>
+                            );
+                          })}
+                      </div>
+                    </>
+                  )}
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                    <button
+                      type="button"
+                      style={{
+                        fontSize: 11,
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #e5e7eb",
+                        background: "#ffffff",
+                        cursor: "pointer",
+                      }}
+                      onClick={() => {
+                        setAssetPeoplePickerOpen(false);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      style={{
+                        fontSize: 11,
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #0f172a",
+                        background: "#0f172a",
+                        color: "#f9fafb",
+                        cursor: "pointer",
+                      }}
+                      onClick={async () => {
+                        if (!assetLogisticsSelected) return;
+                        try {
+                          setAssetLogisticsLoadingHoldings(true);
+                          setAssetLogisticsError(null);
+                          const res = await fetch(
+                            `/api/locations/${assetLogisticsSelected.id}/assign-people`,
+                            {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ userIds: assetSelectedUserIds }),
+                            },
+                          );
+                          const json = await res.json();
+                          if (!res.ok) {
+                            throw new Error(json?.message || "Failed to assign people");
+                          }
+                          setAssetLogisticsHoldings(json);
+                          setAssetPeoplePickerOpen(false);
+                        } catch (e: any) {
+                          setAssetLogisticsError(
+                            e?.message ?? "Failed to assign people to this location.",
+                          );
+                        } finally {
+                          setAssetLogisticsLoadingHoldings(false);
+                        }
+                      }}
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              )}
               {!assetLogisticsLoadingHoldings && !assetLogisticsError && !assetLogisticsHoldings && (
                 <div style={{ fontSize: 11, color: "#6b7280" }}>
                   Select a location in the tree to view people, equipment, and
@@ -2126,118 +2460,157 @@ export default function FinancialPage() {
                 </div>
               )}
               {assetLogisticsHoldings && !assetLogisticsLoadingHoldings && !assetLogisticsError && (
-                <div style={{ fontSize: 11, color: "#374151" }}>
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ fontWeight: 600 }}>
-                      People ({assetLogisticsHoldings.people.length})
-                    </div>
-                    {assetLogisticsHoldings.people.length === 0 ? (
-                      <div style={{ color: "#6b7280" }}>None</div>
-                    ) : (
-                      <ul style={{ margin: 0, paddingLeft: 16 }}>
-                        {assetLogisticsHoldings.people.map((p) => (
-                          <li key={p.userId}>
-                            {p.name ?? "Unnamed user"}
-                            {p.email && <span style={{ color: "#6b7280" }}> [{p.email}]</span>}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ fontWeight: 600 }}>
-                      Equipment & Other Assets ({assetLogisticsHoldings.assets.length})
-                    </div>
-                    {assetLogisticsHoldings.assets.length === 0 ? (
-                      <div style={{ color: "#6b7280" }}>None</div>
-                    ) : (
-                      <ul style={{ margin: 0, paddingLeft: 16 }}>
-                        {assetLogisticsHoldings.assets.map((a) => (
-                          <li key={a.id}>
-                            {a.name} ({a.assetType})
-                            {a.code && <span style={{ color: "#6b7280" }}> [{a.code}]</span>}
-                            {assetLogisticsSelected && (
-                              <button
-                                type="button"
-                                style={{
-                                  marginLeft: 6,
-                                  fontSize: 10,
-                                  padding: "1px 4px",
-                                  borderRadius: 999,
-                                  border: "1px solid #d1d5db",
-                                  background: "#f9fafb",
-                                  cursor: "pointer",
-                                }}
-                                onClick={async () => {
-                                  if (typeof window === "undefined") return;
-                                  const destinationId = window.prompt(
-                                    "Move asset to which location ID?",
-                                    "",
-                                  );
-                                  if (!destinationId) return;
-                                  try {
-                                    setAssetLogisticsLoadingHoldings(true);
-                                    setAssetLogisticsError(null);
-                                    const res = await fetch(
-                                      `/api/inventory/holdings/location/${destinationId}/move-asset`,
-                                      {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ assetId: a.id }),
-                                      },
-                                    );
-                                    const json = await res.json();
-                                    if (!res.ok) {
-                                      throw new Error(json?.message || "Failed to move asset");
-                                    }
-                                    setAssetLogisticsHoldings(json);
-                                  } catch (e: any) {
-                                    setAssetLogisticsError(
-                                      e?.message ?? "Failed to move asset to new location.",
-                                    );
-                                  } finally {
-                                    setAssetLogisticsLoadingHoldings(false);
-                                  }
-                                }}
-                              >
-                                Move…
-                              </button>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ fontWeight: 600 }}>
-                      Material Lots ({assetLogisticsHoldings.materialLots.length})
-                    </div>
-                    {assetLogisticsHoldings.materialLots.length === 0 ? (
-                      <div style={{ color: "#6b7280" }}>None</div>
-                    ) : (
-                      <ul style={{ margin: 0, paddingLeft: 16 }}>
-                        {assetLogisticsHoldings.materialLots.map((m) => (
-                          <li key={m.id}>
-                            {m.sku} – {m.name} ({m.quantity} {m.uom})
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: "#374151",
+                    marginTop: 4,
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1fr)",
+                    gap: 8,
+                    alignItems: "flex-start",
+                  }}
+                >
                   <div>
-                    <div style={{ fontWeight: 600 }}>
-                      Particles ({assetLogisticsHoldings.particles.length})
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontWeight: 600 }}>
+                        People ({assetLogisticsHoldings.people.length})
+                      </div>
+                      {assetLogisticsHoldings.people.length === 0 ? (
+                        <div style={{ color: "#6b7280" }}>None</div>
+                      ) : (
+                        <ul style={{ margin: 0, paddingLeft: 16 }}>
+                          {assetLogisticsHoldings.people.map((p) => (
+                            <li key={p.userId}>
+                              {p.name ?? "Unnamed user"}
+                              {p.email && <span style={{ color: "#6b7280" }}> [{p.email}]</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
-                    {assetLogisticsHoldings.particles.length === 0 ? (
-                      <div style={{ color: "#6b7280" }}>None</div>
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontWeight: 600 }}>
+                        Equipment & Other Assets ({assetLogisticsHoldings.assets.length})
+                      </div>
+                      {assetLogisticsHoldings.assets.length === 0 ? (
+                        <div style={{ color: "#6b7280" }}>None</div>
+                      ) : (
+                        <ul style={{ margin: 0, paddingLeft: 16 }}>
+                          {assetLogisticsHoldings.assets.map((a) => (
+                            <li key={a.id}>
+                              {a.name} ({a.assetType})
+                              {a.code && <span style={{ color: "#6b7280" }}> [{a.code}]</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontWeight: 600 }}>
+                        Material Lots ({assetLogisticsHoldings.materialLots.length})
+                      </div>
+                      {assetLogisticsHoldings.materialLots.length === 0 ? (
+                        <div style={{ color: "#6b7280" }}>None</div>
+                      ) : (
+                        <ul style={{ margin: 0, paddingLeft: 16 }}>
+                          {assetLogisticsHoldings.materialLots.map((m) => (
+                            <li key={m.id}>
+                              {m.sku} – {m.name} ({m.quantity} {m.uom})
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 600 }}>
+                        Particles ({assetLogisticsHoldings.particles.length})
+                      </div>
+                      {assetLogisticsHoldings.particles.length === 0 ? (
+                        <div style={{ color: "#6b7280" }}>None</div>
+                      ) : (
+                        <ul style={{ margin: 0, paddingLeft: 16 }}>
+                          {assetLogisticsHoldings.particles.map((p) => (
+                            <li key={p.id}>
+                              {p.parentEntityType} {p.parentEntityId} – {p.quantity} {p.uom}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 6,
+                      background: "#ffffff",
+                      padding: 6,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: 4,
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 600 }}>Recent movements</div>
+                      {assetLogisticsLoadingHistory && (
+                        <span style={{ fontSize: 9, color: "#9ca3af" }}>Loading…</span>
+                      )}
+                    </div>
+                    {!assetLogisticsHistory || assetLogisticsHistory.length === 0 ? (
+                      <div style={{ fontSize: 11, color: "#6b7280" }}>
+                        No recent inventory movements for this location.
+                      </div>
                     ) : (
-                      <ul style={{ margin: 0, paddingLeft: 16 }}>
-                        {assetLogisticsHoldings.particles.map((p) => (
-                          <li key={p.id}>
-                            {p.parentEntityType} {p.parentEntityId} – {p.quantity} {p.uom}
-                          </li>
-                        ))}
-                      </ul>
+                      <>
+                        <ul
+                          style={{
+                            listStyle: "none",
+                            padding: 0,
+                            margin: 0,
+                          }}
+                        >
+                          {assetLogisticsHistory.map((m) => {
+                            const when = new Date(m.movedAt).toLocaleString();
+                            const locId = assetLogisticsHoldings.location?.id;
+                            const dir =
+                              m.toLocationId === locId
+                                ? "in"
+                                : m.fromLocationId === locId
+                                ? "out"
+                                : "";
+                            const dirLabel =
+                              dir === "in" ? "In" : dir === "out" ? "Out" : "Move";
+                            return (
+                              <li key={m.id} style={{ marginBottom: 4 }}>
+                                <div>
+                                  <span style={{ fontWeight: 600 }}>{dirLabel}</span>{" "}
+                                  <span style={{ color: "#4b5563" }}>
+                                    {m.quantity} {m.itemType.toLowerCase()} to{" "}
+                                    {m.toLocation?.name ?? m.toLocationId ?? "unknown"}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: 9, color: "#9ca3af" }}>{when}</div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                        <div style={{ marginTop: 6 }}>
+                          <a
+                            href="/locations"
+                            style={{
+                              fontSize: 10,
+                              color: "#2563eb",
+                              textDecoration: "none",
+                            }}
+                          >
+                            View full history in Locations
+                          </a>
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>

@@ -7,7 +7,7 @@ steps:
       "-f",
       "apps/api/Dockerfile",
       "-t",
-      "gcr.io/$PROJECT_ID/nexus-api:$COMMIT_SHA",
+      "gcr.io/$PROJECT_ID/nexus-api:$BUILD_ID",
       ".",
     ]
 
@@ -16,26 +16,10 @@ steps:
     id: push-api-image
     args: [
       "push",
-      "gcr.io/$PROJECT_ID/nexus-api:$COMMIT_SHA",
+      "gcr.io/$PROJECT_ID/nexus-api:$BUILD_ID",
     ]
 
-  # 3) Run Prisma migrate deploy inside the built image (in GCP)
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    id: migrate-prod-db
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        set -euo pipefail
-        echo "=== Fetching DATABASE_URL from Secret Manager ==="
-        export DATABASE_URL="$(gcloud secrets versions access latest --secret=prod-database-url)"
-        echo "=== Running prisma migrate deploy ==="
-        docker run --rm \
-          -e DATABASE_URL="$DATABASE_URL" \
-          gcr.io/$PROJECT_ID/nexus-api:$COMMIT_SHA \
-          npx prisma migrate deploy --schema=packages/database/prisma/schema.prisma
-
-  # 4) Deploy the new image to Cloud Run
+  # 3) Deploy the new image to Cloud Run (service env vars are managed separately)
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     id: deploy-cloud-run
     entrypoint: gcloud
@@ -44,14 +28,12 @@ steps:
       "deploy",
       "nexus-api",                # Cloud Run service name
       "--image",
-      "gcr.io/$PROJECT_ID/nexus-api:$COMMIT_SHA",
+      "gcr.io/$PROJECT_ID/nexus-api:$BUILD_ID",
       "--region",
       "us-central1",              # adjust if needed
       "--platform",
       "managed",
-      "--set-env-vars",
-      "DATABASE_URL=secret:prod-database-url,NODE_ENV=production",
     ]
 
 images:
-  - "gcr.io/$PROJECT_ID/nexus-api:$COMMIT_SHA"
+  - "gcr.io/$PROJECT_ID/nexus-api:$BUILD_ID"

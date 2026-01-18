@@ -1,41 +1,8 @@
-export type Location = {
-  id: string;
-  companyId: string;
-  type: string;
-  name: string;
-  code?: string | null;
-  parentLocationId?: string | null;
-  metadata?: Record<string, unknown> | null;
-};
-
-export type Holdings = {
-  location: Location | null;
-  people: Array<{
-    userId: string;
-    name: string | null;
-    email: string | null;
-  }>;
-  assets: Array<{
-    id: string;
-    name: string;
-    code?: string | null;
-    assetType: string;
-  }>;
-  materialLots: Array<{
-    id: string;
-    sku: string;
-    name: string;
-    quantity: string;
-    uom: string;
-  }>;
-  particles: Array<{
-    id: string;
-    parentEntityType: string;
-    parentEntityId: string;
-    quantity: string;
-    uom: string;
-  }>;
-};
+import type {
+  LocationDto as Location,
+  LocationHoldingsDto as Holdings,
+  LocationMovementDto as LocationMovement,
+} from '@repo/types/locations';
 
 async function localApiFetch<T>(path: string): Promise<T> {
   const res = await fetch(path, {
@@ -71,3 +38,9 @@ export function fetchLocationHoldings(locationId: string): Promise<Holdings> {
 export function fetchMyHoldings(): Promise<Holdings> {
   return localApiFetch<Holdings>('/api/inventory/holdings/me');
 }
+
+export function fetchLocationHistory(locationId: string): Promise<LocationMovement[]> {
+  return localApiFetch<LocationMovement[]>(`/api/inventory/holdings/location/${locationId}/history`);
+}
+
+export type { Location, Holdings, LocationMovement };
