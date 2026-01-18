@@ -694,8 +694,33 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       },
     });
 
-    const nonNullCsvPath = csvPath as string;
-    const result = await importGoldenComponentsFromFile(nonNullCsvPath);
+    let effectiveCsvPath = csvPath;
+
+    // If we do not have a usable local csvPath but a fileUri is present, fetch
+    // the Golden components CSV from GCS into a local tmp path. This mirrors
+    // the PRICE_LIST pattern so components imports work reliably in
+    // multi-pod/remote deployments where API and worker do not share a
+    // filesystem.
+    if ((!effectiveCsvPath || !fs.existsSync(effectiveCsvPath)) && fileUri) {
+      console.log("[worker] PRICE_LIST_COMPONENTS using fileUri, downloading from GCS", {
+        importJobId,
+        fileUri,
+      });
+      effectiveCsvPath = await downloadGcsToTmp(fileUri);
+      console.log("[worker] PRICE_LIST_COMPONENTS downloaded GCS file", {
+        importJobId,
+        fileUri,
+        effectiveCsvPath,
+      });
+    }
+
+    if (!effectiveCsvPath || !fs.existsSync(effectiveCsvPath)) {
+      throw new Error(
+        "PRICE_LIST_COMPONENTS import job has no usable csvPath or fileUri to read from.",
+      );
+    }
+
+    const result = await importGoldenComponentsFromFile(effectiveCsvPath);
 
     await prisma.importJob.update({
       where: { id: importJobId },
