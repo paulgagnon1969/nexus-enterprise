@@ -12,3 +12,4 @@ export * from "./payroll-types";
 export * from "./certified-payroll";
 export * from "./payroll-from-timecards";
 export * from "./state-wages";
+export * from "./inventory";

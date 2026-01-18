@@ -82,6 +82,7 @@ model Company {
   materialLots       MaterialLot[]
   inventoryParticles InventoryParticle[]
   inventoryMovements InventoryMovement[]
+  inventoryPositions InventoryPosition[]
   personLocations    PersonLocation[]
 }
 
@@ -1891,6 +1892,10 @@ enum LocationType {
   BIN
   PERSON
   VIRTUAL
+  SUPPLIER
+  VENDOR
+  TRANSIT
+  LOGICAL
 }
 
 enum InventoryItemType {
@@ -2249,6 +2254,8 @@ model Location {
   movementsFrom InventoryMovement[] @relation("InventoryMovementFromLocation")
   movementsTo   InventoryMovement[] @relation("InventoryMovementToLocation")
 
+  inventoryPositions InventoryPosition[]
+
   // People assigned to this physical/virtual location.
   personLocations PersonLocation[]
 
@@ -2337,6 +2344,10 @@ model InventoryMovement {
 
   quantity Decimal? @db.Decimal(18, 4)
 
+  // Optional costing information associated with this movement
+  transportCost    Decimal? @db.Decimal(14, 2)
+  internalLaborCost Decimal? @db.Decimal(14, 2)
+
   movedByUserId String
   movedAt       DateTime @default(now())
 
@@ -2350,6 +2361,167 @@ model InventoryMovement {
 
   @@index([companyId, itemType, itemId])
   @@index([companyId, toLocationId, movedAt])
+}
+
+model InventoryPosition {
+  id        String   @id @default(cuid())
+  companyId String
+
+  itemType InventoryItemType
+  itemId   String
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+
+  quantity  Decimal   @db.Decimal(18, 4)
+  totalCost Decimal   @db.Decimal(14, 2)
+
+  metadata Json?
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, itemType, itemId, locationId], name: "InventoryPosition_company_item_location_key")
+  @@index([companyId, locationId])
+}
+
+/// v1 material planning & procurement models
+
+enum MaterialRequirementStatus {
+  PLANNED
+  DUE_SOON
+  LATE
+  ORDERED
+  RECEIVED
+  CANCELED
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  SENT
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELED
+}
+
+model SupplierItem {
+  id                String   @id @default(cuid())
+  companyId         String
+  supplierCompanyId String
+  assetId           String
+
+  /// Lead time assumptions in calendar or working days (interpreted by app logic).
+  avgLeadTimeDays Int?
+  p80LeadTimeDays Int?
+  p95LeadTimeDays Int?
+  shippingDays    Int?
+  internalBufferDays Int?
+
+  minOrderQty Decimal? @db.Decimal(18, 4)
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company         Company @relation("SupplierItemTenantCompany", fields: [companyId], references: [id])
+  supplierCompany Company @relation("SupplierItemSupplierCompany", fields: [supplierCompanyId], references: [id])
+  asset           Asset   @relation(fields: [assetId], references: [id])
+
+  materialRequirements MaterialRequirement[]
+
+  @@unique([companyId, supplierCompanyId, assetId], name: "SupplierItem_company_supplier_asset_key")
+  @@index([companyId, supplierCompanyId], map: "SupplierItem_company_supplier_idx")
+}
+
+model MaterialRequirement {
+  id        String   @id @default(cuid())
+  companyId String
+  projectId String
+  sowItemId String?
+  assetId   String
+  supplierItemId String?
+
+  plannedQty     Decimal @db.Decimal(18, 4)
+  netQtyToOrder  Decimal @db.Decimal(18, 4)
+  requiredOnSiteDate DateTime?
+  dateToOrder        DateTime?
+
+  leadTimeDays  Int?
+  totalLeadDays Int?
+
+  status   MaterialRequirementStatus @default(PLANNED)
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+  project Project @relation(fields: [projectId], references: [id])
+  sowItem SowItem? @relation(fields: [sowItemId], references: [id])
+  asset   Asset   @relation(fields: [assetId], references: [id])
+  supplierItem SupplierItem? @relation(fields: [supplierItemId], references: [id])
+
+  purchaseOrderLines PurchaseOrderLine[]
+
+  @@index([companyId, projectId], map: "MaterialRequirement_company_project_idx")
+  @@index([projectId, requiredOnSiteDate], map: "MaterialRequirement_project_required_date_idx")
+  @@index([projectId, dateToOrder], map: "MaterialRequirement_project_order_date_idx")
+}
+
+model PurchaseOrder {
+  id        String   @id @default(cuid())
+  companyId String
+  projectId String?
+
+  supplierCompanyId String
+
+  status PurchaseOrderStatus @default(DRAFT)
+
+  orderDate            DateTime?
+  expectedDeliveryDate DateTime?
+
+  notes          String?
+  createdByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company         Company @relation(fields: [companyId], references: [id])
+  project         Project? @relation(fields: [projectId], references: [id])
+  supplierCompany Company  @relation("PurchaseOrderSupplierCompany", fields: [supplierCompanyId], references: [id])
+  createdBy       User?    @relation(fields: [createdByUserId], references: [id])
+
+  lines PurchaseOrderLine[]
+
+  @@index([companyId, projectId], map: "PurchaseOrder_company_project_idx")
+  @@index([companyId, supplierCompanyId], map: "PurchaseOrder_company_supplier_idx")
+}
+
+model PurchaseOrderLine {
+  id              String   @id @default(cuid())
+  purchaseOrderId String
+  materialRequirementId String?
+  assetId         String
+
+  quantity  Decimal @db.Decimal(18, 4)
+  unitPrice Decimal @db.Decimal(14, 2)
+
+  requiredOnSiteDate DateTime?
+  notes              String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchaseOrder      PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id])
+  materialRequirement MaterialRequirement? @relation(fields: [materialRequirementId], references: [id])
+  asset              Asset              @relation(fields: [assetId], references: [id])
+
+  @@index([purchaseOrderId], map: "PurchaseOrderLine_po_idx")
+  @@index([materialRequirementId], map: "PurchaseOrderLine_requirement_idx")
 }
 
 /// Simple test model used to validate migration pipelines.
