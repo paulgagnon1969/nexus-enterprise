@@ -2045,10 +2045,73 @@ export default function FinancialPage() {
                 minHeight: 120,
               }}
             >
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                {assetLogisticsSelected
-                  ? `Holdings at ${assetLogisticsSelected.name}`
-                  : "Holdings"}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: 4,
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>
+                  {assetLogisticsSelected
+                    ? `Holdings at ${assetLogisticsSelected.name}`
+                    : "Holdings"}
+                </div>
+                {assetLogisticsSelected && (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      style={{
+                        fontSize: 10,
+                        padding: "2px 6px",
+                        borderRadius: 999,
+                        border: "1px solid #d1d5db",
+                        background: "#f9fafb",
+                        cursor: "pointer",
+                      }}
+                      onClick={async () => {
+                        if (!assetLogisticsSelected) return;
+                        if (typeof window === "undefined") return;
+                        const raw = window.prompt(
+                          "Enter comma-separated user IDs to assign to this location:",
+                          "",
+                        );
+                        if (!raw) return;
+                        const userIds = raw
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean);
+                        if (!userIds.length) return;
+                        try {
+                          setAssetLogisticsLoadingHoldings(true);
+                          setAssetLogisticsError(null);
+                          const res = await fetch(
+                            `/api/locations/${assetLogisticsSelected.id}/assign-people`,
+                            {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ userIds }),
+                            },
+                          );
+                          const json = await res.json();
+                          if (!res.ok) {
+                            throw new Error(json?.message || "Failed to assign people");
+                          }
+                          setAssetLogisticsHoldings(json);
+                        } catch (e: any) {
+                          setAssetLogisticsError(
+                            e?.message ?? "Failed to assign people to this location.",
+                          );
+                        } finally {
+                          setAssetLogisticsLoadingHoldings(false);
+                        }
+                      }}
+                    >
+                      Assign people…
+                    </button>
+                  </div>
+                )}
               </div>
               {assetLogisticsLoadingHoldings && (
                 <div style={{ fontSize: 11, color: "#6b7280" }}>Loading holdings…</div>
@@ -2066,9 +2129,9 @@ export default function FinancialPage() {
                 <div style={{ fontSize: 11, color: "#374151" }}>
                   <div style={{ marginBottom: 8 }}>
                     <div style={{ fontWeight: 600 }}>
-                      People ({assetLogisticsHoldings.people?.length ?? 0})
+                      People ({assetLogisticsHoldings.people.length})
                     </div>
-                    {!assetLogisticsHoldings.people || assetLogisticsHoldings.people.length === 0 ? (
+                    {assetLogisticsHoldings.people.length === 0 ? (
                       <div style={{ color: "#6b7280" }}>None</div>
                     ) : (
                       <ul style={{ margin: 0, paddingLeft: 16 }}>
@@ -2093,6 +2156,53 @@ export default function FinancialPage() {
                           <li key={a.id}>
                             {a.name} ({a.assetType})
                             {a.code && <span style={{ color: "#6b7280" }}> [{a.code}]</span>}
+                            {assetLogisticsSelected && (
+                              <button
+                                type="button"
+                                style={{
+                                  marginLeft: 6,
+                                  fontSize: 10,
+                                  padding: "1px 4px",
+                                  borderRadius: 999,
+                                  border: "1px solid #d1d5db",
+                                  background: "#f9fafb",
+                                  cursor: "pointer",
+                                }}
+                                onClick={async () => {
+                                  if (typeof window === "undefined") return;
+                                  const destinationId = window.prompt(
+                                    "Move asset to which location ID?",
+                                    "",
+                                  );
+                                  if (!destinationId) return;
+                                  try {
+                                    setAssetLogisticsLoadingHoldings(true);
+                                    setAssetLogisticsError(null);
+                                    const res = await fetch(
+                                      `/api/inventory/holdings/location/${destinationId}/move-asset`,
+                                      {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ assetId: a.id }),
+                                      },
+                                    );
+                                    const json = await res.json();
+                                    if (!res.ok) {
+                                      throw new Error(json?.message || "Failed to move asset");
+                                    }
+                                    setAssetLogisticsHoldings(json);
+                                  } catch (e: any) {
+                                    setAssetLogisticsError(
+                                      e?.message ?? "Failed to move asset to new location.",
+                                    );
+                                  } finally {
+                                    setAssetLogisticsLoadingHoldings(false);
+                                  }
+                                }}
+                              >
+                                Move…
+                              </button>
+                            )}
                           </li>
                         ))}
                       </ul>

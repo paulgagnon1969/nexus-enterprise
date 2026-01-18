@@ -10,6 +10,11 @@ export type Location = {
 
 export type Holdings = {
   location: Location | null;
+  people: Array<{
+    userId: string;
+    name: string | null;
+    email: string | null;
+  }>;
   assets: Array<{
     id: string;
     name: string;
