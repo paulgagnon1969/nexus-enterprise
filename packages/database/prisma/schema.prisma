@@ -1216,6 +1216,60 @@ model RawComponentRow {
   @@index([estimateVersionId], map: "RawComponentRow_estimate_idx")
 }
 
+// BEGIN WIP: Project scheduling models temporarily disabled for production build
+// model ProjectScheduleTask {
+//   id                String   @id @default(cuid())
+//   projectId         String
+//   estimateVersionId String
+//   syntheticId       String   // matches ScheduledTaskPreview.id (e.g. "wp-3", "mitigation-<estimateId>")
+//   kind              String   // "MITIGATION" | "WORK" for now
+//   room              String?
+//   trade             String
+//   phaseCode         Int
+//   phaseLabel        String
+//   startDate         DateTime
+//   endDate           DateTime
+//   durationDays      Float
+//   totalLaborHours   Float?
+//   crewSize          Int?
+//   predecessorIds    Json?
+//   createdAt         DateTime @default(now())
+//   updatedAt         DateTime @updatedAt
+//
+//   project         Project         @relation(fields: [projectId], references: [id])
+//   estimateVersion EstimateVersion @relation(fields: [estimateVersionId], references: [id])
+//   changeLogs      ProjectScheduleChangeLog[]
+//
+//   @@unique([projectId, estimateVersionId, syntheticId], map: "ProjectScheduleTask_project_estimate_synth_idx")
+//   @@index([projectId, estimateVersionId], map: "ProjectScheduleTask_project_estimate_idx")
+// }
+//
+// model ProjectScheduleChangeLog {
+//   id                String   @id @default(cuid())
+//   projectId         String
+//   estimateVersionId String
+//   scheduleTaskId    String
+//   taskSyntheticId   String
+//   changeType        String   // e.g. "TASK_CREATED", "TASK_UPDATED"
+//   previousStartDate DateTime?
+//   previousEndDate   DateTime?
+//   previousDurationDays Float?
+//   newStartDate      DateTime?
+//   newEndDate        DateTime?
+//   newDurationDays   Float?
+//   actorUserId       String
+//   createdAt         DateTime @default(now())
+//   updatedAt         DateTime @updatedAt
+//
+//   project         Project            @relation(fields: [projectId], references: [id])
+//   estimateVersion EstimateVersion    @relation(fields: [estimateVersionId], references: [id])
+//   scheduleTask    ProjectScheduleTask @relation(fields: [scheduleTaskId], references: [id])
+//   actor           User               @relation(fields: [actorUserId], references: [id])
+//
+//   @@index([projectId, estimateVersionId, createdAt], map: "ProjectScheduleChangeLog_project_estimate_created_idx")
+//   @@index([scheduleTaskId, createdAt], map: "ProjectScheduleChangeLog_task_created_idx")
+// }
+// END WIP: Project scheduling models
 model ComponentSummary {
   id                       String                   @id @default(cuid())
   projectId                String
@@ -1822,7 +1876,24 @@ model CatDivision {
   @@index([divisionCode], map: "CatDivision_division_code_idx")
 }
 
-/// Per-company cost book seeded from the system-wide Golden Price List.
+// BEGIN WIP: Trade capacity model temporarily disabled for production build
+// model TradeCapacityConfig {
+//   id           String   @id @default(cuid())
+//   companyId    String
+//   projectId    String?
+//   trade        String
+//   maxConcurrent Int
+//   createdAt    DateTime @default(now())
+//   updatedAt    DateTime @updatedAt
+//
+//   company Company @relation(fields: [companyId], references: [id])
+//   project Project? @relation(fields: [projectId], references: [id])
+//
+//   @@index([companyId, trade], map: "TradeCapacity_company_trade_idx")
+//   @@index([projectId, trade], map: "TradeCapacity_project_trade_idx")
+// }
+// END WIP: Trade capacity model
+
 model CompanyPriceList {
   id              String                 @id @default(cuid())
   companyId       String
@@ -2408,121 +2479,123 @@ enum PurchaseOrderStatus {
   CANCELED
 }
 
-model SupplierItem {
-  id                String   @id @default(cuid())
-  companyId         String
-  supplierCompanyId String
-  assetId           String
-
-  /// Lead time assumptions in calendar or working days (interpreted by app logic).
-  avgLeadTimeDays Int?
-  p80LeadTimeDays Int?
-  p95LeadTimeDays Int?
-  shippingDays    Int?
-  internalBufferDays Int?
-
-  minOrderQty Decimal? @db.Decimal(18, 4)
-  notes       String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  company         Company @relation("SupplierItemTenantCompany", fields: [companyId], references: [id])
-  supplierCompany Company @relation("SupplierItemSupplierCompany", fields: [supplierCompanyId], references: [id])
-  asset           Asset   @relation(fields: [assetId], references: [id])
-
-  materialRequirements MaterialRequirement[]
-
-  @@unique([companyId, supplierCompanyId, assetId], name: "SupplierItem_company_supplier_asset_key")
-  @@index([companyId, supplierCompanyId], map: "SupplierItem_company_supplier_idx")
-}
-
-model MaterialRequirement {
-  id        String   @id @default(cuid())
-  companyId String
-  projectId String
-  sowItemId String?
-  assetId   String
-  supplierItemId String?
-
-  plannedQty     Decimal @db.Decimal(18, 4)
-  netQtyToOrder  Decimal @db.Decimal(18, 4)
-  requiredOnSiteDate DateTime?
-  dateToOrder        DateTime?
-
-  leadTimeDays  Int?
-  totalLeadDays Int?
-
-  status   MaterialRequirementStatus @default(PLANNED)
-  metadata Json?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id])
-  project Project @relation(fields: [projectId], references: [id])
-  sowItem SowItem? @relation(fields: [sowItemId], references: [id])
-  asset   Asset   @relation(fields: [assetId], references: [id])
-  supplierItem SupplierItem? @relation(fields: [supplierItemId], references: [id])
-
-  purchaseOrderLines PurchaseOrderLine[]
-
-  @@index([companyId, projectId], map: "MaterialRequirement_company_project_idx")
-  @@index([projectId, requiredOnSiteDate], map: "MaterialRequirement_project_required_date_idx")
-  @@index([projectId, dateToOrder], map: "MaterialRequirement_project_order_date_idx")
-}
-
-model PurchaseOrder {
-  id        String   @id @default(cuid())
-  companyId String
-  projectId String?
-
-  supplierCompanyId String
-
-  status PurchaseOrderStatus @default(DRAFT)
-
-  orderDate            DateTime?
-  expectedDeliveryDate DateTime?
-
-  notes          String?
-  createdByUserId String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  company         Company @relation(fields: [companyId], references: [id])
-  project         Project? @relation(fields: [projectId], references: [id])
-  supplierCompany Company  @relation("PurchaseOrderSupplierCompany", fields: [supplierCompanyId], references: [id])
-  createdBy       User?    @relation(fields: [createdByUserId], references: [id])
-
-  lines PurchaseOrderLine[]
-
-  @@index([companyId, projectId], map: "PurchaseOrder_company_project_idx")
-  @@index([companyId, supplierCompanyId], map: "PurchaseOrder_company_supplier_idx")
-}
-
-model PurchaseOrderLine {
-  id              String   @id @default(cuid())
-  purchaseOrderId String
-  materialRequirementId String?
-  assetId         String
-
-  quantity  Decimal @db.Decimal(18, 4)
-  unitPrice Decimal @db.Decimal(14, 2)
-
-  requiredOnSiteDate DateTime?
-  notes              String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  purchaseOrder      PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id])
-  materialRequirement MaterialRequirement? @relation(fields: [materialRequirementId], references: [id])
-  asset              Asset              @relation(fields: [assetId], references: [id])
-
-  @@index([purchaseOrderId], map: "PurchaseOrderLine_po_idx")
-  @@index([materialRequirementId], map: "PurchaseOrderLine_requirement_idx")
-}
+// BEGIN WIP: Procurement models temporarily disabled for production build
+// model SupplierItem {
+//   id                String   @id @default(cuid())
+//   companyId         String
+//   supplierCompanyId String
+//   assetId           String
+//
+//   /// Lead time assumptions in calendar or working days (interpreted by app logic).
+//   avgLeadTimeDays Int?
+//   p80LeadTimeDays Int?
+//   p95LeadTimeDays Int?
+//   shippingDays    Int?
+//   internalBufferDays Int?
+//
+//   minOrderQty Decimal? @db.Decimal(18, 4)
+//   notes       String?
+//
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//
+//   company         Company @relation("SupplierItemTenantCompany", fields: [companyId], references: [id])
+//   supplierCompany Company @relation("SupplierItemSupplierCompany", fields: [supplierCompanyId], references: [id])
+//   asset           Asset   @relation(fields: [assetId], references: [id])
+//
+//   materialRequirements MaterialRequirement[]
+//
+//   @@unique([companyId, supplierCompanyId, assetId], name: "SupplierItem_company_supplier_asset_key")
+//   @@index([companyId, supplierCompanyId], map: "SupplierItem_company_supplier_idx")
+// }
+//
+// model MaterialRequirement {
+//   id        String   @id @default(cuid())
+//   companyId String
+//   projectId String
+//   sowItemId String?
+//   assetId   String
+//   supplierItemId String?
+//
+//   plannedQty     Decimal @db.Decimal(18, 4)
+//   netQtyToOrder  Decimal @db.Decimal(18, 4)
+//   requiredOnSiteDate DateTime?
+//   dateToOrder        DateTime?
+//
+//   leadTimeDays  Int?
+//   totalLeadDays Int?
+//
+//   status   MaterialRequirementStatus @default(PLANNED)
+//   metadata Json?
+//
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//
+//   company Company @relation(fields: [companyId], references: [id])
+//   project Project @relation(fields: [projectId], references: [id])
+//   sowItem SowItem? @relation(fields: [sowItemId], references: [id])
+//   asset   Asset   @relation(fields: [assetId], references: [id])
+//   supplierItem SupplierItem? @relation(fields: [supplierItemId], references: [id])
+//
+//   purchaseOrderLines PurchaseOrderLine[]
+//
+//   @@index([companyId, projectId], map: "MaterialRequirement_company_project_idx")
+//   @@index([projectId, requiredOnSiteDate], map: "MaterialRequirement_project_required_date_idx")
+//   @@index([projectId, dateToOrder], map: "MaterialRequirement_project_order_date_idx")
+// }
+//
+// model PurchaseOrder {
+//   id        String   @id @default(cuid())
+//   companyId String
+//   projectId String?
+//
+//   supplierCompanyId String
+//
+//   status PurchaseOrderStatus @default(DRAFT)
+//
+//   orderDate            DateTime?
+//   expectedDeliveryDate DateTime?
+//
+//   notes          String?
+//   createdByUserId String?
+//
+//   createdAt DateTime @default(now())
+//   updatedAt DateTime @updatedAt
+//
+//   company         Company @relation(fields: [companyId], references: [id])
+//   project         Project? @relation(fields: [projectId], references: [id])
+//   supplierCompany Company  @relation("PurchaseOrderSupplierCompany", fields: [supplierCompanyId], references: [id])
+//   createdBy       User?    @relation(fields: [createdByUserId], references: [id])
+//
+//   lines PurchaseOrderLine[]
+//
+//   @@index([companyId, projectId], map: "PurchaseOrder_company_project_idx")
+//   @@index([companyId, supplierCompanyId], map: "PurchaseOrder_company_supplier_idx")
+// }
+//
+// model PurchaseOrderLine {
+//   id              String   @id @default(cuid())
+//   purchaseOrderId String
+//   materialRequirementId String?
+//   assetId         String
+//
+//   quantity  Decimal @db.Decimal(18, 4)
+//   unitPrice Decimal @db.Decimal(14, 2)
+//
+//   requiredOnSiteDate DateTime?
+//   notes              String?
+//
+//   createdAt DateTime @default(now)
+//   updatedAt DateTime @updatedAt
+//
+//   purchaseOrder      PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id])
+//   materialRequirement MaterialRequirement? @relation(fields: [materialRequirementId], references: [id])
+//   asset              Asset              @relation(fields: [assetId], references: [id])
+//
+//   @@index([purchaseOrderId], map: "PurchaseOrderLine_po_idx")
+//   @@index([materialRequirementId], map: "PurchaseOrderLine_requirement_idx")
+// }
+// END WIP: Procurement models
 
 /// Simple test model used to validate migration pipelines.
 /// Safe to keep or drop; not referenced by application code.

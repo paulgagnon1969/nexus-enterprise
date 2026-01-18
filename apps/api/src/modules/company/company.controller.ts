@@ -45,6 +45,14 @@ export class CompanyController {
 
   @UseGuards(JwtAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN)
+  @Get("me/members")
+  listMyMembers(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.listMembers(actor.companyId, actor);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
   @Get(":id/invites")
   listInvites(@Param("id") companyId: string, @Req() req: any) {
     const actor = req.user as AuthenticatedUser;
