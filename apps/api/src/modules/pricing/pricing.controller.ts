@@ -507,6 +507,41 @@ export class PricingController {
       );
     }
 
+    // Additionally, upload the Golden components CSV to object storage so the
+    // worker can access it even when API and worker do not share a filesystem
+    // (e.g. separate Cloud Run services).
+    let fileUri: string | null = null;
+    try {
+      const safeName = (filePart.filename || fileName).replace(/[^a-zA-Z0-9_.-]/g, "_");
+      const keyParts = [
+        "golden-components",
+        companyId ?? "system",
+        `${Date.now()}`,
+        safeName,
+      ].filter(Boolean);
+      const key = keyParts.join("/");
+
+      fileUri = await this.gcs.uploadBuffer({
+        key,
+        buffer: fileBuffer,
+        contentType: filePart.mimetype || "text/csv",
+      });
+
+      // eslint-disable-next-line no-console
+      console.log("[pricing] uploadPriceListComponents: uploaded CSV to GCS", {
+        companyId,
+        key,
+        fileUri,
+      });
+    } catch (err) {
+      // If storage upload fails (e.g. bucket not configured in dev), we
+      // continue with filesystem-only csvPath so local workflows keep
+      // working. In cloud, GCS must be configured for reliable Golden
+      // components imports.
+      // eslint-disable-next-line no-console
+      console.error("[pricing] uploadPriceListComponents: GCS upload failed", err);
+    }
+
     // Create an async ImportJob that the background worker will process,
     // following the same PETL pattern as price-list/import.
     const job = await this.prisma.importJob.create({
@@ -519,6 +554,7 @@ export class PricingController {
         progress: 0,
         message: "Queued Golden components import",
         csvPath: destPath,
+        fileUri,
       },
     });
 

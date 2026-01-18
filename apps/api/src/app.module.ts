@@ -29,7 +29,6 @@ import { NotificationsModule } from "./modules/notifications/notifications.modul
 import { MessagingModule } from "./modules/messaging/messaging.module";
 import { SystemDocsModule } from "./modules/system-docs/system-docs.module";
 import { TimecardModule } from "./modules/timecard/timecard.module";
-import { WorkerModule } from "./modules/worker/worker.module";
 import { NttModule } from "./modules/ntt/ntt.module";
 import { UploadsModule } from "./modules/uploads/uploads.module";
 
@@ -69,7 +68,6 @@ import { UploadsModule } from "./modules/uploads/uploads.module";
     MessagingModule,
     SystemDocsModule,
     TimecardModule,
-    WorkerModule,
     NttModule,
     UploadsModule,
   ],
