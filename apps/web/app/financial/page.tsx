@@ -8,6 +8,13 @@ import {
   GoldenPriceListHistory,
   GoldenComponentsTable,
 } from "./financial-components";
+import {
+  fetchRootLocations as fetchAssetLocationsRoots,
+  fetchChildLocations as fetchAssetLocationChildren,
+  fetchLocationHoldings as fetchAssetLocationHoldings,
+  type Location as AssetLocation,
+  type Holdings as AssetHoldings,
+} from "../../lib/api/locations";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -15,6 +22,7 @@ type FinancialSection =
   | "PRICELIST_TREE"
   | "GOLDEN_COMPONENTS"
   | "ESTIMATES"
+  | "ASSET_LOGISTICS"
   | "ORIGINAL_CONTRACT"
   | "CHANGES"
   | "CURRENT_CONTRACT_TOTAL"
@@ -195,6 +203,20 @@ export default function FinancialPage() {
   // Last Golden-related import jobs (so we can poll status after enqueue).
   const [priceListJob, setPriceListJob] = useState<ImportJobDto | null>(null);
   const [componentsJob, setComponentsJob] = useState<ImportJobDto | null>(null);
+
+  // Asset Logistics state (shared tree + holdings view)
+  type AssetLogisticsTreeNode = AssetLocation & {
+    children?: AssetLogisticsTreeNode[];
+    isExpanded?: boolean;
+    isLoaded?: boolean;
+  };
+
+  const [assetLogisticsRoots, setAssetLogisticsRoots] = useState<AssetLogisticsTreeNode[]>([]);
+  const [assetLogisticsSelected, setAssetLogisticsSelected] = useState<AssetLocation | null>(null);
+  const [assetLogisticsHoldings, setAssetLogisticsHoldings] = useState<AssetHoldings | null>(null);
+  const [assetLogisticsLoadingTree, setAssetLogisticsLoadingTree] = useState(false);
+  const [assetLogisticsLoadingHoldings, setAssetLogisticsLoadingHoldings] = useState(false);
+  const [assetLogisticsError, setAssetLogisticsError] = useState<string | null>(null);
 
   // Helper: refresh Golden price list-related views after a job completes.
   async function refreshGoldenPriceListViews() {
@@ -418,7 +440,7 @@ export default function FinancialPage() {
         0,
       );
       setComponentsSummary({ itemsWithComponents, totalComponents });
-      setComponentsError(null);
+      setComponentsLoaded(true);
       setComponentsError(null);
     } catch (err: any) {
       setComponentsError(err?.message ?? "Failed to load Golden components.");
@@ -426,6 +448,32 @@ export default function FinancialPage() {
       setLoadingComponents(false);
     }
   }
+
+  // Lazy-load Asset Logistics tree when that tab is first opened.
+  useEffect(() => {
+    if (activeSection !== "ASSET_LOGISTICS") return;
+    if (assetLogisticsRoots.length > 0 || assetLogisticsLoadingTree) return;
+
+    (async () => {
+      setAssetLogisticsLoadingTree(true);
+      setAssetLogisticsError(null);
+      try {
+        const roots = await fetchAssetLocationsRoots();
+        setAssetLogisticsRoots(
+          roots.map((loc) => ({
+            ...loc,
+            children: [],
+            isLoaded: false,
+            isExpanded: false,
+          })),
+        );
+      } catch (e: any) {
+        setAssetLogisticsError(e?.message ?? "Failed to load locations for Asset Logistics.");
+      } finally {
+        setAssetLogisticsLoadingTree(false);
+      }
+    })();
+  }, [activeSection, assetLogisticsRoots.length, assetLogisticsLoadingTree]);
 
   // Global 1-second tick that decrements any active ETAs.
   useEffect(() => {
@@ -1155,6 +1203,7 @@ export default function FinancialPage() {
           { id: "PRICELIST_TREE", label: "Pricelist Tree" },
           { id: "GOLDEN_COMPONENTS", label: "Golden Components" },
           { id: "ESTIMATES", label: "Estimates / Quotations" },
+          { id: "ASSET_LOGISTICS", label: "Asset Logistics" },
           { id: "ORIGINAL_CONTRACT", label: "Original Contract" },
           { id: "CHANGES", label: "Changes" },
           { id: "CURRENT_CONTRACT_TOTAL", label: "Current Contract Total" },
@@ -1739,7 +1788,7 @@ export default function FinancialPage() {
           {componentsError && (
             <p style={{ fontSize: 12, color: "#b91c1c" }}>{componentsError}</p>
           )}
-          {!loadingComponents && !componentsError && (
+          {!loadingComponents && !componentsError && componentsLoaded && (
             <GoldenComponentsTable componentsItems={componentsItems} />
           )}
         </section>
@@ -1755,6 +1804,345 @@ export default function FinancialPage() {
             Placeholder for a consolidated view of estimates and quotations across
             projects. This will eventually integrate with the Golden price list and
             simple CSV imports for non-Xactimate small businesses.
+          </p>
+        </section>
+      )}
+
+      {/* Asset Logistics (people, equipment, materials as inventory) */}
+      {activeSection === "ASSET_LOGISTICS" && (
+        <section style={{ marginBottom: 24 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: "8px 0" }}>
+            Asset Logistics
+          </h3>
+          <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 8 }}>
+            High-level hub for tracking where key assets are across the portfolio:
+            people (crews), equipment, and materials. Backed by shared asset and
+            inventory models so you can see who and what is at each location
+            (hotel rooms, laydown yards, floors, rooms, supplier yards, and more).
+          </p>
+          <ul style={{ fontSize: 13, color: "#4b5563", paddingLeft: 18 }}>
+            <li>
+              <strong>People as assets:</strong> use locations like hotel &gt; room to
+              keep an up-to-date assignment of which individuals are where.
+            </li>
+            <li>
+              <strong>Equipment as inventory:</strong> treat major tools and rented
+              equipment as trackable assets with a current location and movement
+              history.
+            </li>
+            <li>
+              <strong>Materials as inventory:</strong> reuse the same inventory
+              positions and movements used for job materials so all logistics live
+              in one place.
+            </li>
+          </ul>
+
+          <div
+            style={{
+              marginTop: 12,
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 0.9fr) minmax(0, 1.1fr)",
+              gap: 12,
+              alignItems: "flex-start",
+            }}
+          >
+            {/* Compact location tree (shared with /locations) */}
+            <div
+              style={{
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                padding: 8,
+                background: "#f9fafb",
+                fontSize: 12,
+                maxHeight: 360,
+                overflowY: "auto",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 4,
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>Locations (tree)</div>
+                <a
+                  href="/locations"
+                  style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}
+                >
+                  Open full view
+                </a>
+              </div>
+              {assetLogisticsLoadingTree && (
+                <div style={{ fontSize: 11, color: "#6b7280" }}>Loading locations…</div>
+              )}
+              {assetLogisticsError && (
+                <div style={{ fontSize: 11, color: "#b91c1c" }}>{assetLogisticsError}</div>
+              )}
+              {!assetLogisticsLoadingTree && !assetLogisticsError && assetLogisticsRoots.length === 0 && (
+                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                  No locations found yet. Once you define warehouses, yards, hotels,
+                  and project locations, they will appear here.
+                </div>
+              )}
+              <div style={{ marginTop: 4 }}>
+                {assetLogisticsRoots.map((node) => {
+                  const hasChildrenPotential = node.type !== "BIN" && node.type !== "PERSON";
+                  const isSelected = assetLogisticsSelected?.id === node.id;
+                  return (
+                    <div key={node.id} style={{ marginBottom: 2 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        {hasChildrenPotential && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setAssetLogisticsError(null);
+                              if (!node.isLoaded) {
+                                try {
+                                  setAssetLogisticsLoadingTree(true);
+                                  const children = await fetchAssetLocationChildren(node.id);
+                                  setAssetLogisticsRoots((prev) =>
+                                    prev.map((n) =>
+                                      n.id === node.id
+                                        ? {
+                                            ...n,
+                                            isLoaded: true,
+                                            isExpanded: true,
+                                            children: children.map((c) => ({
+                                              ...c,
+                                              children: [],
+                                              isLoaded: false,
+                                              isExpanded: false,
+                                            })),
+                                          }
+                                        : n,
+                                    ),
+                                  );
+                                } catch (e: any) {
+                                  setAssetLogisticsError(
+                                    e?.message ?? "Failed to load child locations.",
+                                  );
+                                } finally {
+                                  setAssetLogisticsLoadingTree(false);
+                                }
+                              } else {
+                                setAssetLogisticsRoots((prev) =>
+                                  prev.map((n) =>
+                                    n.id === node.id
+                                      ? { ...n, isExpanded: !n.isExpanded }
+                                      : n,
+                                  ),
+                                );
+                              }
+                            }}
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              fontSize: 11,
+                              cursor: "pointer",
+                              width: 16,
+                            }}
+                          >
+                            {node.isExpanded ? "-" : "+"}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setAssetLogisticsSelected(node);
+                            setAssetLogisticsLoadingHoldings(true);
+                            setAssetLogisticsError(null);
+                            try {
+                              const h = await fetchAssetLocationHoldings(node.id);
+                              setAssetLogisticsHoldings(h);
+                            } catch (e: any) {
+                              setAssetLogisticsError(
+                                e?.message ?? "Failed to load holdings for location.",
+                              );
+                              setAssetLogisticsHoldings(null);
+                            } finally {
+                              setAssetLogisticsLoadingHoldings(false);
+                            }
+                          }}
+                          style={{
+                            flex: 1,
+                            textAlign: "left",
+                            fontSize: 11,
+                            padding: 2,
+                            borderRadius: 4,
+                            border: "none",
+                            background: isSelected ? "#e0f2fe" : "transparent",
+                            color: isSelected ? "#0f172a" : "#374151",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {node.name}{" "}
+                          <span style={{ fontSize: 10, color: "#6b7280" }}>({node.type})</span>
+                        </button>
+                      </div>
+                      {node.isExpanded && node.children && node.children.length > 0 && (
+                        <div style={{ marginLeft: 16, marginTop: 2 }}>
+                          {node.children.map((child) => {
+                            const childSelected = assetLogisticsSelected?.id === child.id;
+                            return (
+                              <button
+                                key={child.id}
+                                type="button"
+                                onClick={async () => {
+                                  setAssetLogisticsSelected(child);
+                                  setAssetLogisticsLoadingHoldings(true);
+                                  setAssetLogisticsError(null);
+                                  try {
+                                    const h = await fetchAssetLocationHoldings(child.id);
+                                    setAssetLogisticsHoldings(h);
+                                  } catch (e: any) {
+                                    setAssetLogisticsError(
+                                      e?.message ?? "Failed to load holdings for location.",
+                                    );
+                                    setAssetLogisticsHoldings(null);
+                                  } finally {
+                                    setAssetLogisticsLoadingHoldings(false);
+                                  }
+                                }}
+                                style={{
+                                  display: "block",
+                                  width: "100%",
+                                  textAlign: "left",
+                                  fontSize: 11,
+                                  padding: 2,
+                                  borderRadius: 4,
+                                  border: "none",
+                                  background: childSelected ? "#e0f2fe" : "transparent",
+                                  color: childSelected ? "#0f172a" : "#374151",
+                                  cursor: "pointer",
+                                  marginBottom: 1,
+                                }}
+                              >
+                                {child.name}{" "}
+                                <span style={{ fontSize: 10, color: "#6b7280" }}>
+                                  ({child.type})
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Holdings summary for selected location */}
+            <div
+              style={{
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                padding: 10,
+                background: "#ffffff",
+                fontSize: 12,
+                minHeight: 120,
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                {assetLogisticsSelected
+                  ? `Holdings at ${assetLogisticsSelected.name}`
+                  : "Holdings"}
+              </div>
+              {assetLogisticsLoadingHoldings && (
+                <div style={{ fontSize: 11, color: "#6b7280" }}>Loading holdings…</div>
+              )}
+              {assetLogisticsError && (
+                <div style={{ fontSize: 11, color: "#b91c1c" }}>{assetLogisticsError}</div>
+              )}
+              {!assetLogisticsLoadingHoldings && !assetLogisticsError && !assetLogisticsHoldings && (
+                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                  Select a location in the tree to view people, equipment, and
+                  materials assigned there.
+                </div>
+              )}
+              {assetLogisticsHoldings && !assetLogisticsLoadingHoldings && !assetLogisticsError && (
+                <div style={{ fontSize: 11, color: "#374151" }}>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontWeight: 600 }}>
+                      People ({assetLogisticsHoldings.people?.length ?? 0})
+                    </div>
+                    {!assetLogisticsHoldings.people || assetLogisticsHoldings.people.length === 0 ? (
+                      <div style={{ color: "#6b7280" }}>None</div>
+                    ) : (
+                      <ul style={{ margin: 0, paddingLeft: 16 }}>
+                        {assetLogisticsHoldings.people.map((p) => (
+                          <li key={p.userId}>
+                            {p.name ?? "Unnamed user"}
+                            {p.email && <span style={{ color: "#6b7280" }}> [{p.email}]</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontWeight: 600 }}>
+                      Equipment & Other Assets ({assetLogisticsHoldings.assets.length})
+                    </div>
+                    {assetLogisticsHoldings.assets.length === 0 ? (
+                      <div style={{ color: "#6b7280" }}>None</div>
+                    ) : (
+                      <ul style={{ margin: 0, paddingLeft: 16 }}>
+                        {assetLogisticsHoldings.assets.map((a) => (
+                          <li key={a.id}>
+                            {a.name} ({a.assetType})
+                            {a.code && <span style={{ color: "#6b7280" }}> [{a.code}]</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontWeight: 600 }}>
+                      Material Lots ({assetLogisticsHoldings.materialLots.length})
+                    </div>
+                    {assetLogisticsHoldings.materialLots.length === 0 ? (
+                      <div style={{ color: "#6b7280" }}>None</div>
+                    ) : (
+                      <ul style={{ margin: 0, paddingLeft: 16 }}>
+                        {assetLogisticsHoldings.materialLots.map((m) => (
+                          <li key={m.id}>
+                            {m.sku} – {m.name} ({m.quantity} {m.uom})
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>
+                      Particles ({assetLogisticsHoldings.particles.length})
+                    </div>
+                    {assetLogisticsHoldings.particles.length === 0 ? (
+                      <div style={{ color: "#6b7280" }}>None</div>
+                    ) : (
+                      <ul style={{ margin: 0, paddingLeft: 16 }}>
+                        {assetLogisticsHoldings.particles.map((p) => (
+                          <li key={p.id}>
+                            {p.parentEntityType} {p.parentEntityId} – {p.quantity} {p.uom}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <p style={{ fontSize: 11, color: "#6b7280", marginTop: 8 }}>
+            For a deeper dive into logistics history and optimization, use the full
+            <a href="/locations" style={{ color: "#2563eb", marginLeft: 4 }}>
+              Locations
+            </a>
+            {" "}
+            view, where every movement and assignment becomes a breadcrumb for
+            forecasting and control.
           </p>
         </section>
       )}
