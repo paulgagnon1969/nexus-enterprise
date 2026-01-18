@@ -405,6 +405,8 @@ export class XactScheduleService {
         workPackages: [],
         missingPriceItems: [],
         mitigationWindow,
+        scheduledTasks: [],
+        conflicts: [],
       };
     }
 
@@ -419,10 +421,10 @@ export class XactScheduleService {
     }
 
     // Load trade capacity configuration (company-wide and project-specific).
-    const companyId = estimate.project.companyId;
-    const tradeCapacityRows = await this.prisma.tradeCapacityConfig.findMany({
+    const estimateCompanyId = estimate.project.companyId;
+    const tradeCapacityRows = await (this.prisma as any).tradeCapacityConfig.findMany({
       where: {
-        companyId,
+        companyId: estimateCompanyId,
         OR: [
           { projectId: null },
           { projectId: estimate.projectId },
@@ -1076,7 +1078,7 @@ export class XactScheduleService {
 
     const rangeEndExclusive = addDays(toDate, 1);
 
-    const tasks = await this.prisma.projectScheduleTask.findMany({
+    const tasks = await (this.prisma as any).projectScheduleTask.findMany({
       where: {
         projectId,
         startDate: { lt: rangeEndExclusive },
