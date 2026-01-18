@@ -128,7 +128,12 @@ export default function LocationsPage() {
         {error && <div className="text-sm text-red-600">{error}</div>}
         {holdings && (
           <div className="space-y-4 text-sm">
-            <HoldingsSection title="Assets" items={holdings.assets} type="asset" />
+            <HoldingsSection title="People" items={holdings.people} type="people" />
+            <HoldingsSection
+              title="Equipment & Other Assets"
+              items={holdings.assets}
+              type="asset"
+            />
             <HoldingsSection title="Material Lots" items={holdings.materialLots} type="material" />
             <HoldingsSection title="Particles" items={holdings.particles} type="particle" />
           </div>
@@ -202,6 +207,7 @@ function LocationTreeNode({ node, depth, onToggle, onSelect, selectedId }: Locat
 }
 
 type HoldingsSectionProps =
+  | { title: string; type: 'people'; items: Holdings['people'] }
   | { title: string; type: 'asset'; items: Holdings['assets'] }
   | { title: string; type: 'material'; items: Holdings['materialLots'] }
   | { title: string; type: 'particle'; items: Holdings['particles'] };
@@ -223,6 +229,13 @@ function HoldingsSection({ title, type, items }: HoldingsSectionProps) {
         <span className="text-xs text-gray-500">({items.length})</span>
       </h3>
       <ul className="mt-1 space-y-1 text-xs">
+        {type === 'people' &&
+          (items as Holdings['people']).map((p) => (
+            <li key={p.userId}>
+              {p.name ?? 'Unnamed user'}{' '}
+              {p.email && <span className="text-gray-500">[{p.email}]</span>}
+            </li>
+          ))}
         {type === 'asset' &&
           (items as Holdings['assets']).map((a) => (
             <li key={a.id}>
