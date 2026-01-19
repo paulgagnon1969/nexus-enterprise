@@ -61,7 +61,10 @@ async function main() {
           // cpRole + workerClassCode + socCode unique constraint
           CompClass_unique_triplet: {
             cpRole: row.cpRole,
-            workerClassCode: row.workerClassCode,
+            // Prisma's compound unique input does not accept null; normalize
+            // null workerClassCode to an empty string for the purpose of this
+            // seed key, and keep the stored column nullable.
+            workerClassCode: row.workerClassCode ?? "",
             socCode: row.socCode,
           },
         },

@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/common";
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
-import { InventoryItemType, moveInventoryWithCost } from "@repo/database";
+import { InventoryItemType, AssetType, moveInventoryWithCost } from "@repo/database";
 
 @Injectable()
 export class LocationsService {
@@ -241,6 +241,51 @@ export class LocationsService {
     });
 
     return this.getHoldingsForLocation(companyId, toLocationId);
+  }
+
+  async addAssetAtLocation(params: {
+    companyId: string;
+    actorUserId: string;
+    locationId: string;
+    name: string;
+    assetType: string;
+    code?: string | null;
+    description?: string | null;
+    isTrackable?: boolean;
+    isConsumable?: boolean;
+  }) {
+    const { companyId, locationId, name, assetType, code, description, isTrackable, isConsumable } = params;
+
+    if (!name?.trim()) {
+      throw new BadRequestException("name is required");
+    }
+
+    const location = await this.prisma.location.findFirst({
+      where: { id: locationId, companyId },
+    });
+    if (!location) {
+      throw new NotFoundException("Location not found in this company");
+    }
+
+    const typeKey = assetType?.toUpperCase() as keyof typeof AssetType;
+    if (!typeKey || !(typeKey in AssetType)) {
+      throw new BadRequestException(`Invalid assetType '${assetType}'`);
+    }
+
+    await this.prisma.asset.create({
+      data: {
+        companyId,
+        name: name.trim(),
+        code: code?.trim() || null,
+        description: description?.trim() || null,
+        assetType: AssetType[typeKey],
+        isTrackable: isTrackable ?? true,
+        isConsumable: isConsumable ?? false,
+        currentLocationId: locationId,
+      },
+    });
+
+    return this.getHoldingsForLocation(companyId, locationId);
   }
 
   /**

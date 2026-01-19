@@ -34,7 +34,7 @@ async function importStateOesCsv(opts: {
 
   const snapshot = await prisma.stateOccupationalWageSnapshot.upsert({
     where: {
-      stateCode_year_source: {
+      StateOccWageSnapshot_state_year_source_key: {
         stateCode: opts.stateCode,
         year: opts.year,
         source: "BLS_OES",
@@ -56,7 +56,17 @@ async function importStateOesCsv(opts: {
     where: { snapshotId: snapshot.id },
   });
 
-  const rows = records.map((r) => {
+  // Normalize header keys to be more robust to non-breaking spaces etc.
+  const rows = records.map((raw) => {
+    const r: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      const normKey = k
+        .replace(/\u00a0/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      r[normKey] = v;
+    }
+
     const occStr = String(r["Occupation (SOC code)"] || "").trim();
     let socCode = "";
     let name = occStr;
@@ -70,19 +80,19 @@ async function importStateOesCsv(opts: {
       snapshotId: snapshot.id,
       socCode,
       occupationName: name,
-      employment: parseIntOrNull(r["Employment\u00a0(1)"]),
+      employment: parseIntOrNull(r["Employment (1)"]),
       hourlyMean: parseMoney(r["Hourly mean wage"]),
-      annualMean: parseMoney(r["Annual mean wage\u00a0(2)"]),
+      annualMean: parseMoney(r["Annual mean wage (2)"]),
       hourlyP10: parseMoney(r["Hourly 10th percentile wage"]),
       hourlyP25: parseMoney(r["Hourly 25th percentile wage"]),
       hourlyMedian: parseMoney(r["Hourly median wage"]),
       hourlyP75: parseMoney(r["Hourly 75th percentile wage"]),
       hourlyP90: parseMoney(r["Hourly 90th percentile wage"]),
-      annualP10: parseMoney(r["Annual 10th percentile wage\u00a0(2)"]),
-      annualP25: parseMoney(r["Annual 25th percentile wage\u00a0(2)"]),
-      annualMedian: parseMoney(r["Annual median wage\u00a0(2)"]),
-      annualP75: parseMoney(r["Annual 75th percentile wage\u00a0(2)"]),
-      annualP90: parseMoney(r["Annual 90th percentile wage\u00a0(2)"]),
+      annualP10: parseMoney(r["Annual 10th percentile wage (2)"]),
+      annualP25: parseMoney(r["Annual 25th percentile wage (2)"]),
+      annualMedian: parseMoney(r["Annual median wage (2)"]),
+      annualP75: parseMoney(r["Annual 75th percentile wage (2)"]),
+      annualP90: parseMoney(r["Annual 90th percentile wage (2)"]),
       employmentPerThousand: parseMoney(r["Employment per 1,000 jobs"]),
       locationQuotient: parseMoney(r["Location Quotient"]),
     };

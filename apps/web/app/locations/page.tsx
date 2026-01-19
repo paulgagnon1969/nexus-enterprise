@@ -74,6 +74,15 @@ export default function LocationsPage() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [showingMyHoldings, setShowingMyHoldings] = useState(false);
 
+  const [addAssetOpen, setAddAssetOpen] = useState(false);
+  const [addingAsset, setAddingAsset] = useState(false);
+  const [newAssetName, setNewAssetName] = useState('');
+  const [newAssetType, setNewAssetType] = useState('EQUIPMENT');
+  const [newAssetCode, setNewAssetCode] = useState('');
+  const [newAssetDescription, setNewAssetDescription] = useState('');
+  const [newAssetTrackable, setNewAssetTrackable] = useState(true);
+  const [newAssetConsumable, setNewAssetConsumable] = useState(false);
+
   useEffect(() => {
     const loadRoots = async () => {
       setLoadingTree(true);
@@ -162,6 +171,7 @@ export default function LocationsPage() {
   const handleSelectLocation = async (loc: Location) => {
     setError(null);
     setShowingMyHoldings(false);
+    setAddAssetOpen(false);
     if (pendingMoveAssetId) {
       // Move asset into this location
       try {
@@ -307,6 +317,130 @@ export default function LocationsPage() {
         )}
         {loadingHoldings && <div className="text-sm text-gray-500">Loading holdings…</div>}
         {error && <div className="text-sm text-red-600">{error}</div>}
+        {selectedLocation && (
+          <div className="mb-2 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => {
+                setAddAssetOpen((prev) => !prev);
+                setError(null);
+              }}
+              className="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700"
+            >
+              {addAssetOpen ? 'Cancel add asset' : 'Add asset'}
+            </button>
+          </div>
+        )}
+        {addAssetOpen && selectedLocation && (
+          <div className="mb-2 rounded border border-gray-200 bg-white p-2 text-xs">
+            <div className="mb-1 font-semibold">Add asset at {selectedLocation.name}</div>
+            <div className="mb-1 flex flex-wrap gap-2">
+              <input
+                className="w-40 rounded border border-gray-300 px-1 py-0.5 text-xs"
+                placeholder="Name (required)"
+                value={newAssetName}
+                onChange={(e) => setNewAssetName(e.target.value)}
+              />
+              <input
+                className="w-28 rounded border border-gray-300 px-1 py-0.5 text-xs"
+                placeholder="Code (optional)"
+                value={newAssetCode}
+                onChange={(e) => setNewAssetCode(e.target.value)}
+              />
+              <select
+                className="w-32 rounded border border-gray-300 px-1 py-0.5 text-xs"
+                value={newAssetType}
+                onChange={(e) => setNewAssetType(e.target.value)}
+              >
+                <option value="EQUIPMENT">Equipment</option>
+                <option value="TOOL">Tool</option>
+                <option value="RENTAL">Rental</option>
+                <option value="MATERIAL">Material</option>
+                <option value="LABOR">Labor</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+            <div className="mb-1">
+              <input
+                className="w-full rounded border border-gray-300 px-1 py-0.5 text-xs"
+                placeholder="Description (optional)"
+                value={newAssetDescription}
+                onChange={(e) => setNewAssetDescription(e.target.value)}
+              />
+            </div>
+            <div className="mb-2 flex items-center gap-4">
+              <label className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  className="h-3 w-3"
+                  checked={newAssetTrackable}
+                  onChange={(e) => setNewAssetTrackable(e.target.checked)}
+                />
+                <span>Trackable</span>
+              </label>
+              <label className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  className="h-3 w-3"
+                  checked={newAssetConsumable}
+                  onChange={(e) => setNewAssetConsumable(e.target.checked)}
+                />
+                <span>Consumable</span>
+              </label>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={addingAsset || !newAssetName.trim()}
+                className="rounded border border-blue-600 bg-blue-600 px-2 py-1 text-xs text-white disabled:cursor-not-allowed disabled:bg-blue-300"
+                onClick={async () => {
+                  if (!selectedLocation) return;
+                  if (!newAssetName.trim()) {
+                    setError('Asset name is required');
+                    return;
+                  }
+                  setError(null);
+                  setAddingAsset(true);
+                  try {
+                    const res = await fetch(
+                      `/api/inventory/holdings/location/${selectedLocation.id}/add-asset`,
+                      {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          name: newAssetName.trim(),
+                          assetType: newAssetType,
+                          code: newAssetCode.trim() || null,
+                          description: newAssetDescription.trim() || null,
+                          isTrackable: newAssetTrackable,
+                          isConsumable: newAssetConsumable,
+                        }),
+                      },
+                    );
+                    const json = await res.json();
+                    if (!res.ok) {
+                      throw new Error(json?.message || 'Failed to add asset');
+                    }
+                    setHoldings(json);
+                    setNewAssetName('');
+                    setNewAssetCode('');
+                    setNewAssetDescription('');
+                    setNewAssetType('EQUIPMENT');
+                    setNewAssetTrackable(true);
+                    setNewAssetConsumable(false);
+                    setAddAssetOpen(false);
+                  } catch (e: any) {
+                    setError(e?.message ?? 'Failed to add asset at this location');
+                  } finally {
+                    setAddingAsset(false);
+                  }
+                }}
+              >
+                {addingAsset ? 'Adding…' : 'Save asset'}
+              </button>
+            </div>
+          </div>
+        )}
         {pendingMoveAssetId && (
           <div className="mb-2 flex items-center justify-between rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs text-emerald-900">
             <span>

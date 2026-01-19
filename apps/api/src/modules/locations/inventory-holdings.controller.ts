@@ -59,6 +59,41 @@ export class InventoryHoldingsController {
     });
   }
 
+  @Post("location/:locationId/add-asset")
+  async addAsset(
+    @Req() req: any,
+    @Param("locationId") locationId: string,
+    @Body()
+    body: {
+      name: string;
+      assetType: string;
+      code?: string | null;
+      description?: string | null;
+      isTrackable?: boolean;
+      isConsumable?: boolean;
+    },
+  ) {
+    const user = req.user as AuthenticatedUser | undefined;
+    if (!user?.companyId || !user?.userId) {
+      throw new Error("Missing company context");
+    }
+    if (!body?.name) {
+      throw new Error("name is required");
+    }
+
+    return this.locations.addAssetAtLocation({
+      companyId: user.companyId,
+      actorUserId: user.userId,
+      locationId,
+      name: body.name,
+      assetType: body.assetType,
+      code: body.code,
+      description: body.description,
+      isTrackable: body.isTrackable,
+      isConsumable: body.isConsumable,
+    });
+  }
+
   @Get("location/:locationId/history")
   async getLocationHistory(@Req() req: any, @Param("locationId") locationId: string) {
     const user = req.user as AuthenticatedUser | undefined;
