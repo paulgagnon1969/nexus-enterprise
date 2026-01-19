@@ -1,0 +1,6 @@
+company_code,asset_code,asset_name,asset_type,description,base_unit,base_rate,is_trackable,is_consumable,initial_location_code
+ACME,TRUCK-001,F350 Service Truck,EQUIPMENT,Primary service truck,DAY,0,false,false,EQUIPMENT_POOL
+ACME,GEN-25KW-01,25kW Towable Generator,RENTAL,Towable diesel generator,DAY,0,true,false,EQUIPMENT_POOL
+ACME,DEHUM-XL-01,XL Desiccant Dehumidifier,EQUIPMENT,Large desiccant dehu,DAY,0,true,false,EQUIPMENT_POOL
+ACME,SHEETROCK-1_2-UL,1/2" Type X Drywall,MATERIAL,Fire-rated gypsum board,SHEET,0,false,true,MATERIALS_POOL
+ACME,CREW-LABOR-GC,Generic Labor Crew,LABOR,Internal GC crew,HOUR,0,false,false,PEOPLE_POOL
