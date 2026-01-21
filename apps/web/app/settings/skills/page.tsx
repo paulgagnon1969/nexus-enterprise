@@ -1073,8 +1073,8 @@ export default function SkillsSettingsPage() {
               }}
             >
               <img
-                src="/pg-pic-20250410-2.jpg"
-                alt="Profile photo of Paul"
+                src="/people-icon-users.jpg"
+                alt="Profile avatar placeholder"
                 style={{ width: "100%", height: "100%", objectFit: "cover" }}
               />
             </div>
