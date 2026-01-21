@@ -1207,7 +1207,7 @@ function PortfolioEn() {
 
       <p style={{ margin: "4px 0" }}>
         <span style={{ color: "#000080", fontWeight: 700 }}>
-          Come and Joint the Nexus Contractor Connect network:
+          Come and join the Nexus Contractor Connect network:
         </span>
       </p>
       <hr
