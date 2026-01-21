@@ -25,8 +25,10 @@
     "import:timecards": "ts-node src/scripts/import-timecards-from-csv.ts",
     "import:state-oes": "ts-node src/scripts/import-state-oes.ts",
     "seed:comp-mapping": "ts-node src/scripts/seed-compensation-mapping.ts",
-    "import:assets": "ts-node src/scripts/import-assets-from-csv.ts",
-    "seed:base-locations": "ts-node src/scripts/seed-base-locations.ts"
+    "inspect:state-oes": "ts-node src/scripts/inspect-state-oes.ts",
+    "seed:base-locations": "ts-node src/scripts/seed-base-locations.ts",
+    "seed:maintenance-templates": "ts-node src/scripts/seed-maintenance-templates.ts",
+    "maintenance:scheduler": "ts-node src/scripts/run-maintenance-scheduler.ts"
   },
   "dependencies": {
     "@prisma/client": "^7.0.0",

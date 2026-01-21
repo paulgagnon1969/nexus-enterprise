@@ -45,6 +45,13 @@ interface HrDto {
   hasItin?: boolean;
   hasBankAccount?: boolean;
   hasBankRouting?: boolean;
+  documents?: {
+    id: string;
+    type: string;
+    fileUrl: string;
+    fileName?: string | null;
+    mimeType?: string | null;
+  }[];
 }
 
 interface WorkerDto {
@@ -499,6 +506,12 @@ export default function CompanyUserProfilePage() {
     profile.firstName || profile.lastName
       ? `${profile.firstName ?? ""} ${profile.lastName ?? ""}`.trim()
       : profile.worker?.fullName || profile.email;
+
+  // Worker avatar: prefer portfolio photo synced from onboarding; fall back to
+  // a neutral silhouette so the layout stays consistent even when no photo is
+  // on file yet.
+  const workerPhotoUrl = profile.portfolio?.photoUrl || "/people-icon-users.jpg";
+  const hasPortfolioPhoto = !!profile.portfolio?.photoUrl;
 
   const canEditNames = isAdminOrAbove;
   const canEditUserType = isAdminOrAbove;
@@ -1054,44 +1067,46 @@ export default function CompanyUserProfilePage() {
           {profile.company.name} \u00b7 {profile.companyRole}
         </p>
 
-        {profile.portfolio?.photoUrl && (
-          <section
+        <section
+          style={{
+            marginTop: 12,
+            padding: 10,
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            backgroundColor: "#f9fafb",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <img
+            src={workerPhotoUrl}
+            alt={displayName || "Worker profile photo"}
             style={{
-              marginTop: 12,
-              padding: 10,
+              width: 72,
+              height: 72,
               borderRadius: 8,
+              objectFit: "cover",
               border: "1px solid #e5e7eb",
-              backgroundColor: "#f9fafb",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 12,
+              backgroundColor: "#ffffff",
             }}
-          >
-            <img
-              src={profile.portfolio.photoUrl}
-              alt={displayName || "Worker profile photo"}
-              style={{
-                width: 72,
-                height: 72,
-                borderRadius: 8,
-                objectFit: "cover",
-                border: "1px solid #e5e7eb",
-                backgroundColor: "#ffffff",
-              }}
-            />
-            <div style={{ fontSize: 12, color: "#111827" }}>
-              <div style={{ fontWeight: 600, marginBottom: 2 }}>Photo on file</div>
+          />
+          <div style={{ fontSize: 12, color: "#111827" }}>
+            <div style={{ fontWeight: 600, marginBottom: 2 }}>Photo on file</div>
+            {hasPortfolioPhoto ? (
               <a
-                href={profile.portfolio.photoUrl}
+                href={workerPhotoUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ color: "#2563eb", textDecoration: "none", fontSize: 11 }}
               >
                 View full-size
               </a>
-            </div>
-          </section>
-        )}
+            ) : (
+              <span style={{ fontSize: 11, color: "#6b7280" }}>No uploaded photo yet</span>
+            )}
+          </div>
+        </section>
 
         <div
           style={{
@@ -1853,8 +1868,7 @@ export default function CompanyUserProfilePage() {
                 maxWidth: 460,
                 fontSize: 13,
                 alignSelf: "stretch",
-                maxHeight: 520,
-                overflowY: "auto",
+                minHeight: 0,
               }}
             >
               {canViewHr && (
@@ -1944,6 +1958,61 @@ export default function CompanyUserProfilePage() {
                             <span>No routing on file</span>
                           )}
                         </div>
+                      </div>
+                    )}
+
+                    {Array.isArray(hr?.documents) && hr.documents.length > 0 && (
+                      <div style={{ fontSize: 11, color: "#4b5563", marginTop: 8 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 4 }}>Attachments on file</div>
+                        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                          {hr.documents.map(doc => {
+                            const type = (doc.type || "").toUpperCase();
+                            if (!doc.fileUrl) return null;
+                            if (type === "PHOTO") {
+                              return (
+                                <li key={doc.id} style={{ marginBottom: 4 }}>
+                                  <strong>Photo:</strong>{" "}
+                                  <a
+                                    href={doc.fileUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ color: "#2563eb", textDecoration: "none" }}
+                                  >
+                                    View photo
+                                  </a>
+                                </li>
+                              );
+                            }
+                            if (type === "GOV_ID") {
+                              return (
+                                <li key={doc.id} style={{ marginBottom: 4 }}>
+                                  <strong>Government ID:</strong>{" "}
+                                  <a
+                                    href={doc.fileUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ color: "#2563eb", textDecoration: "none" }}
+                                  >
+                                    View ID {doc.fileName ? `(${doc.fileName})` : ""}
+                                  </a>
+                                </li>
+                              );
+                            }
+                            return (
+                              <li key={doc.id} style={{ marginBottom: 4 }}>
+                                <strong>Attachment:</strong>{" "}
+                                <a
+                                  href={doc.fileUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{ color: "#2563eb", textDecoration: "none" }}
+                                >
+                                  {doc.fileName || doc.type || "View attachment"}
+                                </a>
+                              </li>
+                            );
+                          })}
+                        </ul>
                       </div>
                     )}
                     {!canEditHrFields && (

@@ -4,7 +4,7 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { randomBytes } from "node:crypto";
 import * as argon2 from "argon2";
 import { Role, UserType, NexNetStatus, NexNetSource, ReferralStatus, $Enums } from "@prisma/client";
-import { encryptPortfolioHrJson } from "../../common/crypto/portfolio-hr.crypto";
+import { encryptPortfolioHrJson, decryptPortfolioHrJson } from "../../common/crypto/portfolio-hr.crypto";
 import { NotificationsService } from "../notifications/notifications.service";
 import { EmailService } from "../../common/email.service";
 
@@ -899,6 +899,17 @@ export class OnboardingService {
       }
     }
 
+    // Best-effort: mirror onboarding documents into the encrypted HR portfolio
+    // so HR has a canonical view of PHOTO / GOV_ID / OTHER attachments for the
+    // worker in this company.
+    if (session.userId) {
+      try {
+        await this.syncOnboardingDocumentsToHrPortfolio(session);
+      } catch {
+        // Non-fatal: never block document uploads if HR sync fails.
+      }
+    }
+
     return updated;
   }
 
@@ -1187,6 +1198,84 @@ export class OnboardingService {
       await this.prisma.userPortfolio.update({
         where: { id: existing.id },
         data: { photoUrl: photoDoc.fileUrl },
+      });
+    }
+  }
+
+  // Mirror all onboarding documents for this session into the encrypted HR
+  // portfolio payload so HR can see PHOTO / GOV_ID / OTHER attachments for the
+  // worker in this company.
+  private async syncOnboardingDocumentsToHrPortfolio(session: any) {
+    if (!session.userId) return;
+
+    const docs = await this.prisma.onboardingDocument.findMany({
+      where: { sessionId: session.id },
+      orderBy: { createdAt: "asc" },
+    });
+
+    if (!docs.length) return;
+
+    // Ensure there is a portfolio row for this (company, user).
+    const portfolio = await this.prisma.userPortfolio.upsert({
+      where: {
+        UserPortfolio_company_user_key: {
+          companyId: session.companyId,
+          userId: session.userId,
+        },
+      },
+      update: {},
+      create: {
+        companyId: session.companyId,
+        userId: session.userId,
+      },
+      select: { id: true },
+    });
+
+    const existingHr = await this.prisma.userPortfolioHr.findUnique({
+      where: { portfolioId: portfolio.id },
+      select: {
+        encryptedJson: true,
+      },
+    });
+
+    let payload: any = {};
+    if (existingHr) {
+      try {
+        payload = decryptPortfolioHrJson(Buffer.from(existingHr.encryptedJson));
+      } catch {
+        // If decryption fails, fall back to an empty payload and overwrite.
+        payload = {};
+      }
+    }
+
+    payload.documents = docs.map(d => ({
+      id: d.id,
+      type: d.type,
+      fileUrl: d.fileUrl,
+      fileName: d.fileName ?? null,
+      mimeType: d.mimeType ?? null,
+    }));
+
+    const encryptedJson = encryptPortfolioHrJson(payload);
+    const encryptedBytes = Uint8Array.from(encryptedJson);
+
+    if (existingHr) {
+      await this.prisma.userPortfolioHr.update({
+        where: { portfolioId: portfolio.id },
+        data: {
+          encryptedJson: encryptedBytes,
+        },
+      });
+    } else {
+      await this.prisma.userPortfolioHr.create({
+        data: {
+          portfolioId: portfolio.id,
+          encryptedJson: encryptedBytes,
+          ssnLast4: null,
+          itinLast4: null,
+          bankAccountLast4: null,
+          bankRoutingLast4: null,
+        },
       });
     }
   }
