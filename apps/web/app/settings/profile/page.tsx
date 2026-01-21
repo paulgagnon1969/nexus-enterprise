@@ -52,6 +52,32 @@ interface MyPortfolioResponse {
   hr: PortfolioHrDto | null;
 }
 
+interface MyOnboardingSession {
+  id: string;
+  email: string;
+  status: string;
+  createdAt: string;
+  checklist: {
+    profileComplete?: boolean;
+    photoUploaded?: boolean;
+    govIdUploaded?: boolean;
+    skillsComplete?: boolean;
+    [key: string]: any;
+  };
+  profile?: {
+    firstName?: string | null;
+    lastName?: string | null;
+    city?: string | null;
+    state?: string | null;
+  } | null;
+  documents?: {
+    id: string;
+    type: "PHOTO" | "GOV_ID" | "OTHER" | string;
+    fileUrl: string;
+    createdAt: string;
+  }[];
+  token: string;
+}
 
 export default function ProfileSettingsPage() {
   const router = useRouter();
@@ -60,6 +86,8 @@ export default function ProfileSettingsPage() {
   const [hr, setHr] = useState<PortfolioHrDto | null>(null);
   const [canViewHr, setCanViewHr] = useState(false);
   const [hrEnabled, setHrEnabled] = useState(false);
+
+  const [onboarding, setOnboarding] = useState<MyOnboardingSession | null>(null);
 
   // Public
   const [firstName, setFirstName] = useState("");
@@ -108,14 +136,20 @@ export default function ProfileSettingsPage() {
         setLoading(true);
         setError(null);
 
-        const res = await fetch(`${API_BASE}/users/me/portfolio`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) {
-          throw new Error(`Failed to load profile (${res.status})`);
+        const [portfolioRes, onboardingRes] = await Promise.all([
+          fetch(`${API_BASE}/users/me/portfolio`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE}/onboarding/my-session`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch(() => null as any),
+        ]);
+
+        if (!portfolioRes.ok) {
+          throw new Error(`Failed to load profile (${portfolioRes.status})`);
         }
 
-        const json: MyPortfolioResponse = await res.json();
+        const json: MyPortfolioResponse = await portfolioRes.json();
         setMe(json.user);
         setPortfolio(json.portfolio);
         setCanViewHr(!!json.canViewHr);
@@ -151,6 +185,13 @@ export default function ProfileSettingsPage() {
         setBankName(json.hr?.bankName ?? "");
         setBankAddress(json.hr?.bankAddress ?? "");
         setHipaaNotes(json.hr?.hipaaNotes ?? "");
+
+        if (onboardingRes && onboardingRes.ok) {
+          const onboardingJson: MyOnboardingSession = await onboardingRes.json();
+          setOnboarding(onboardingJson);
+        } else {
+          setOnboarding(null);
+        }
       } catch (e: any) {
         setError(e?.message ?? "Failed to load profile");
       } finally {
@@ -841,6 +882,50 @@ export default function ProfileSettingsPage() {
           </div>
 
           {message && <div style={{ fontSize: 12, color: "#16a34a" }}>{message}</div>}
+
+          {onboarding && (
+            <section style={{ marginTop: 16 }}>
+              <h3 style={{ fontSize: 15, margin: "0 0 6px" }}>Nexis profile snapshot</h3>
+              <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
+                Status: <strong>{onboarding.status}</strong>{" "}
+                {onboarding.checklist?.profileComplete && "· Profile complete"}
+                {onboarding.checklist?.skillsComplete && " · Skills self-assessed"}
+              </p>
+              {onboarding.documents && onboarding.documents.length > 0 && (
+                <div style={{ fontSize: 12, color: "#4b5563", marginTop: 4 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>Documents from your Nexis profile</div>
+                  <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                    {onboarding.documents.map(doc => {
+                      const typeLabel =
+                        doc.type === "PHOTO"
+                          ? "Profile photo"
+                          : doc.type === "GOV_ID"
+                          ? "Government ID / DL"
+                          : "Attachment";
+                      const url = doc.fileUrl.startsWith("/uploads/")
+                        ? `${API_BASE}${doc.fileUrl}`
+                        : doc.fileUrl;
+                      return (
+                        <li key={doc.id} style={{ marginBottom: 2 }}>
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ color: "#2563eb", textDecoration: "none" }}
+                          >
+                            {typeLabel}
+                          </a>{" "}
+                          <span style={{ color: "#9ca3af" }}>
+                            ({new Date(doc.createdAt).toLocaleDateString()})
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </section>
+          )}
 
           <button
             type="button"

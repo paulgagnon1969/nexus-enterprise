@@ -84,6 +84,12 @@ model Company {
   inventoryMovements InventoryMovement[]
   inventoryPositions InventoryPosition[]
   personLocations    PersonLocation[]
+
+  // Maintenance & asset monitoring
+  maintenanceTemplates   AssetMaintenanceTemplate[]
+  maintenanceTodos       MaintenanceTodo[]
+  maintenanceReviewSettings MaintenanceReviewSettings?
+  assetMeterReadings     AssetMeterReading[]
 }
 
 model OrganizationTemplate {
@@ -2059,6 +2065,7 @@ enum Role {
   ADMIN
   MEMBER
   CLIENT
+  EM // Equipment Maintenance
 }
 
 enum ParcelStatus {
@@ -2195,6 +2202,25 @@ model Asset {
   isConsumable    Boolean            @default(false)
   priceListItemId String?
 
+  // Identity / OEM
+  manufacturer        String?
+  model               String?
+  serialNumberOrVin   String?
+  year                Int?
+  isActive            Boolean           @default(true)
+
+  // Maintenance configuration (per asset)
+  maintenanceProfileCode    String?
+  maintTriggerStrategy      MaintenanceTriggerStrategy?
+  maintTimeIntervalValue    Int?
+  maintTimeIntervalUnit     MaintenanceIntervalUnit?
+  maintMeterType            MaintenanceMeterType?
+  maintMeterIntervalAmount  Int?
+  maintLeadTimeDays         Int?
+  maintNotes                String?
+  maintOwnerEmail           String?
+  maintOwnerExternalId      String?
+
   // Location-aware field (optional initially)
   currentLocationId String?
   currentLocation   Location? @relation("AssetCurrentLocation", fields: [currentLocationId], references: [id])
@@ -2205,6 +2231,11 @@ model Asset {
   priceListItem   PriceListItem?     @relation(fields: [priceListItemId], references: [id])
   usages          AssetUsage[]
   transactions    AssetTransaction[]
+
+  // Maintenance relations
+  maintenanceSchedules AssetMaintenanceSchedule[]
+  maintenanceTodos     MaintenanceTodo[]
+  meterReadings        AssetMeterReading[]
 
   @@index([companyId, assetType], map: "Asset_company_type_idx")
   @@index([companyId, currentLocationId])
@@ -2299,6 +2330,34 @@ enum TransactionKind {
   TIME_PUNCH
   MAINTENANCE
   ADJUSTMENT
+}
+
+enum MaintenanceTriggerStrategy {
+  TIME_ONLY
+  METER_ONLY
+  TIME_OR_METER
+}
+
+enum MaintenanceIntervalUnit {
+  DAY
+  WEEK
+  MONTH
+  YEAR
+}
+
+enum MaintenanceMeterType {
+  HOURS
+  MILES
+  RUN_CYCLES
+  GENERATOR_HOURS
+}
+
+enum MaintenanceTodoStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+  CANCELLED
 }
 
 model Location {
@@ -2416,7 +2475,9 @@ model InventoryMovement {
   quantity Decimal? @db.Decimal(18, 4)
 
   // Optional costing information associated with this movement
-  transportCost    Decimal? @db.Decimal(14, 2)
+  metadata Json?
+
+  transportCost     Decimal? @db.Decimal(14, 2)
   internalLaborCost Decimal? @db.Decimal(14, 2)
 
   movedByUserId String
@@ -2432,6 +2493,138 @@ model InventoryMovement {
 
   @@index([companyId, itemType, itemId])
   @@index([companyId, toLocationId, movedAt])
+}
+
+model AssetMaintenanceTemplate {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+
+  code        String   @unique
+  name        String
+  description String?
+  assetType   AssetType?
+
+  isActive    Boolean  @default(true)
+
+  rules       AssetMaintenanceRule[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AssetMaintenanceRule {
+  id          String   @id @default(cuid())
+  templateId  String
+  template    AssetMaintenanceTemplate @relation(fields: [templateId], references: [id])
+
+  name        String
+  description String?
+
+  triggerStrategy     MaintenanceTriggerStrategy
+  timeIntervalValue   Int?
+  timeIntervalUnit    MaintenanceIntervalUnit?
+  meterType           MaintenanceMeterType?
+  meterIntervalAmount Int?
+  leadTimeDays        Int?
+
+  defaultAssigneeRole Role?
+  priority            Int?
+
+  isActive   Boolean  @default(true)
+
+  schedules  AssetMaintenanceSchedule[]
+  todos      MaintenanceTodo[]
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AssetMaintenanceSchedule {
+  id        String   @id @default(cuid())
+  assetId   String
+  asset     Asset    @relation(fields: [assetId], references: [id])
+
+  ruleId    String
+  rule      AssetMaintenanceRule @relation(fields: [ruleId], references: [id])
+
+  lastServiceDate  DateTime?
+  lastServiceMeter Int?
+
+  nextTimeDueAt    DateTime?
+  nextMeterDueAt   Int?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  todos            MaintenanceTodo[]
+
+  @@unique([assetId, ruleId])
+}
+
+model MaintenanceTodo {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+
+  assetId   String?
+  asset     Asset?   @relation(fields: [assetId], references: [id])
+
+  scheduleId String?
+  schedule   AssetMaintenanceSchedule? @relation(fields: [scheduleId], references: [id])
+
+  ruleId    String?
+  rule      AssetMaintenanceRule? @relation(fields: [ruleId], references: [id])
+
+  title       String
+  description String?
+
+  status      MaintenanceTodoStatus @default(PENDING)
+  dueDate     DateTime?
+  completedAt DateTime?
+  completedByUserId String?
+
+  assignedToUserId String?
+  assignedToRole   Role?
+  priority         Int?
+  kind             String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MaintenanceReviewSettings {
+  id        String   @id @default(cuid())
+  companyId String   @unique
+  company   Company  @relation(fields: [companyId], references: [id])
+
+  intervalValue Int
+  intervalUnit  MaintenanceIntervalUnit
+
+  nextReviewAt  DateTime?
+  lastReviewAt  DateTime?
+
+  isActive      Boolean @default(true)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model AssetMeterReading {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+
+  assetId   String
+  asset     Asset    @relation(fields: [assetId], references: [id])
+
+  meterType MaintenanceMeterType
+  value     Int
+  recordedAt DateTime @default(now())
+  source     String?
+
+  createdAt  DateTime @default(now())
+
+  @@index([assetId, meterType, recordedAt])
 }
 
 model InventoryPosition {

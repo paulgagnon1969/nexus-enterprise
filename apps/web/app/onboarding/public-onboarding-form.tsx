@@ -87,6 +87,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
 
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadingGovId, setUploadingGovId] = useState(false);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [submittingFinal, setSubmittingFinal] = useState(false);
 
   const [categoryFilter, setCategoryFilter] = useState<string>("");
@@ -289,7 +290,7 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
     }
   }
 
-  async function uploadDocument(type: "PHOTO" | "GOV_ID", file: File) {
+  async function uploadDocument(type: "PHOTO" | "GOV_ID" | "OTHER", file: File) {
     const form = new FormData();
     form.append("type", type);
     form.append("file", file);
@@ -955,8 +956,9 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
       <section style={{ marginTop: "1.5rem", maxWidth: 560 }}>
         <h2 style={{ fontSize: 16, marginBottom: 8 }}>Documents</h2>
         <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 8 }}>
-          Please upload a clear photo of yourself and a photo of your driver&apos;s license (or other
-          government-issued ID).
+          Please upload a clear photo of yourself, a photo of your driver&apos;s license (or other
+          government-issued ID), and (optionally) a resume or brief executive summary of your
+          experience.
         </p>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1019,9 +1021,40 @@ export default function PublicOnboardingForm({ token }: { token: string }) {
                 : "Select a clear photo of your driver’s license or other government ID. It will upload automatically."}
             </div>
           </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label htmlFor="onboarding-attachment" style={{ fontSize: 13 }}>
+              Resume / executive summary (optional)
+            </label>
+            <input
+              id="onboarding-attachment"
+              name="attachment"
+              type="file"
+              accept="application/pdf,.doc,.docx,image/*"
+              onChange={async e => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                try {
+                  setUploadingAttachment(true);
+                  await uploadDocument("OTHER", file);
+                } catch (err: any) {
+                  setError(err?.message ?? "Failed to upload document.");
+                } finally {
+                  setUploadingAttachment(false);
+                }
+              }}
+            />
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+              {uploadingAttachment
+                ? "Uploading document…"
+                : checklist.attachmentsUploaded
+                ? "Document uploaded. You can add or replace files as needed."
+                : "Attach a resume, executive summary, or key project list (PDF, Word, or image)."}
+            </div>
+          </div>
+
         </div>
       </section>
-
       <section style={{ marginTop: "1.5rem", maxWidth: 980 }}>
         <h2 style={{ fontSize: 16, marginBottom: 8 }}>Trade skills self-assessment</h2>
         <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 8 }}>

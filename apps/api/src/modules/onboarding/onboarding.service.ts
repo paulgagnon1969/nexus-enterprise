@@ -871,21 +871,35 @@ export class OnboardingService {
         fileUrl: params.fileUrl,
         fileName: params.fileName,
         mimeType: params.mimeType,
-        sizeBytes: params.sizeBytes ?? null
-      }
+        sizeBytes: params.sizeBytes ?? null,
+      },
     });
 
     const checklist = (session.checklistJson && JSON.parse(session.checklistJson)) || {};
     if (params.type === "PHOTO") checklist.photoUploaded = true;
     if (params.type === "GOV_ID") checklist.govIdUploaded = true;
+    if (params.type === "OTHER") checklist.attachmentsUploaded = true;
 
-    return this.prisma.onboardingSession.update({
+    const updated = await this.prisma.onboardingSession.update({
       where: { id: session.id },
       data: {
         status: "IN_PROGRESS" as any,
-        checklistJson: JSON.stringify(checklist)
-      }
+        checklistJson: JSON.stringify(checklist),
+      },
     });
+
+    // Best-effort: keep the candidate's portfolio photo in sync with the latest
+    // onboarding PHOTO document so their profile header matches what they
+    // uploaded during Nexis onboarding.
+    if (params.type === "PHOTO" && session.userId) {
+      try {
+        await this.syncOnboardingDocumentsToUserPortfolio(session);
+      } catch {
+        // Non-fatal: do not block document upload if portfolio sync fails.
+      }
+    }
+
+    return updated;
   }
 
   async submitByToken(token: string) {
@@ -897,6 +911,17 @@ export class OnboardingService {
         status: "SUBMITTED" as any,
       },
     });
+
+    // Best-effort: mirror onboarding skill ratings into the canonical
+    // UserSkillRating table so that /settings/skills and other views can screen
+    // based on the same self-assessment used during public onboarding.
+    if (session.userId) {
+      try {
+        await this.syncOnboardingSkillsToUserSkills(session.id, session.userId);
+      } catch {
+        // Non-fatal: never block candidate submission if skill sync fails.
+      }
+    }
 
     // Best-effort: hydrate the user's portfolio + HR contact info from the
     // onboarding profile so that /settings/profile is pre-populated on first
@@ -1077,7 +1102,93 @@ export class OnboardingService {
       }
     });
 
+    // Best-effort: whenever a session has a linked user, keep that user's
+    // UserSkillRating rows in sync with the latest onboarding skill ratings so
+    // screening and portfolio views always see the same self-assessment.
+    if (session.userId) {
+      try {
+        await this.syncOnboardingSkillsToUserSkills(session.id, session.userId);
+      } catch {
+        // Non-fatal: never block candidate skill edits on sync failures.
+      }
+    }
+
     return this.getSkillsForSessionByToken(token);
+  }
+
+  private async syncOnboardingSkillsToUserSkills(sessionId: string, userId: string) {
+    const onboardingSkills = await this.prisma.onboardingSkillRating.findMany({
+      where: { sessionId },
+    });
+
+    if (!onboardingSkills.length) {
+      return;
+    }
+
+    const now = new Date();
+    for (const s of onboardingSkills) {
+      await this.prisma.userSkillRating.upsert({
+        where: {
+          UserSkillRating_user_skill_key: {
+            userId,
+            skillId: s.skillId,
+          },
+        },
+        update: {
+          selfLevel: s.level,
+          updatedAt: now,
+        },
+        create: {
+          userId,
+          skillId: s.skillId,
+          selfLevel: s.level,
+          updatedAt: now,
+        },
+      });
+    }
+  }
+
+  private async syncOnboardingDocumentsToUserPortfolio(session: any) {
+    if (!session.userId) return;
+
+    // Use the most recent PHOTO document for this session, if any.
+    const photoDoc = await this.prisma.onboardingDocument.findFirst({
+      where: {
+        sessionId: session.id,
+        type: "PHOTO" as any,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!photoDoc) return;
+
+    const existing = await this.prisma.userPortfolio.findUnique({
+      where: {
+        UserPortfolio_company_user_key: {
+          companyId: session.companyId,
+          userId: session.userId,
+        },
+      },
+      select: { id: true, photoUrl: true },
+    });
+
+    if (!existing) {
+      await this.prisma.userPortfolio.create({
+        data: {
+          companyId: session.companyId,
+          userId: session.userId,
+          photoUrl: photoDoc.fileUrl,
+        },
+      });
+      return;
+    }
+
+    if (!existing.photoUrl) {
+      await this.prisma.userPortfolio.update({
+        where: { id: existing.id },
+        data: { photoUrl: photoDoc.fileUrl },
+      });
+    }
   }
 
   // Copy basic identity + contact fields from an onboarding profile into the
@@ -2170,31 +2281,13 @@ export class OnboardingService {
       }
     });
 
-    // Migrate onboarding skill ratings into UserSkillRating as self-levels
-    const onboardingSkills = await this.prisma.onboardingSkillRating.findMany({
-      where: { sessionId: session.id }
-    });
-
-    const now = new Date();
-    for (const s of onboardingSkills) {
-      await this.prisma.userSkillRating.upsert({
-        where: {
-          UserSkillRating_user_skill_key: {
-            userId: user.id,
-            skillId: s.skillId,
-          },
-        },
-        update: {
-          selfLevel: s.level,
-          updatedAt: now
-        },
-        create: {
-          userId: user.id,
-          skillId: s.skillId,
-          selfLevel: s.level,
-          updatedAt: now
-        }
-      });
+    // Migrate onboarding skill ratings into UserSkillRating as self-levels so
+    // hiring managers and trades views see the same self-assessment used during
+    // public onboarding.
+    try {
+      await this.syncOnboardingSkillsToUserSkills(session.id, user.id);
+    } catch {
+      // Non-fatal: do not block approval if skill sync fails.
     }
 
     await this.prisma.onboardingSession.update({

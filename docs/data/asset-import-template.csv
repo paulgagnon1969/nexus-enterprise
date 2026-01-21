@@ -1,6 +1,6 @@
-company_code,asset_code,asset_name,asset_type,description,base_unit,base_rate,is_trackable,is_consumable,initial_location_code
-ACME,TRUCK-001,F350 Service Truck,EQUIPMENT,Primary service truck,DAY,0,false,false,EQUIPMENT_POOL
-ACME,GEN-25KW-01,25kW Towable Generator,RENTAL,Towable diesel generator,DAY,0,true,false,EQUIPMENT_POOL
-ACME,DEHUM-XL-01,XL Desiccant Dehumidifier,EQUIPMENT,Large desiccant dehu,DAY,0,true,false,EQUIPMENT_POOL
-ACME,SHEETROCK-1_2-UL,1/2" Type X Drywall,MATERIAL,Fire-rated gypsum board,SHEET,0,false,true,MATERIALS_POOL
-ACME,CREW-LABOR-GC,Generic Labor Crew,LABOR,Internal GC crew,HOUR,0,false,false,PEOPLE_POOL
+company_code,asset_code,asset_name,asset_type,description,base_unit,base_rate,is_trackable,is_consumable,initial_location_code,manufacturer,model,serial_number_or_vin,year,is_active,maintenance_profile_code,maint_trigger_strategy,maint_time_interval_value,maint_time_interval_unit,maint_meter_type,maint_meter_interval_amount,maint_lead_time_days,maint_notes,maint_owner_email,maint_owner_external_id
+ACME,TRUCK-001,F350 Service Truck,EQUIPMENT,Primary service truck,DAY,0,false,false,EQUIPMENT_POOL,Ford,F-350 Super Duty,1FT8W3BT0LED12345,2020,true,TRUCK_SERVICE_A,TIME_OR_METER,6,MONTH,HOURS,250,14,"Full service: oil, filters, brakes","em@example.com","EM-EXT-1"
+ACME,GEN-25KW-01,25kW Towable Generator,RENTAL,Towable diesel generator,DAY,0,true,false,EQUIPMENT_POOL,Multiquip,DCA25SSIU4F,GEN25-001,2019,true,GENERATOR_PM_A,TIME_OR_METER,3,MONTH,HOURS,200,7,"Check fluids and load test","em@example.com","EM-EXT-1"
+ACME,DEHUM-XL-01,XL Desiccant Dehumidifier,EQUIPMENT,Large desiccant dehu,DAY,0,true,false,EQUIPMENT_POOL,,,,,,,,,,,,,,,
+ACME,SHEETROCK-1_2-UL,1/2" Type X Drywall,MATERIAL,Fire-rated gypsum board,SHEET,0,false,true,MATERIALS_POOL,,,,,,,,,,,,,,,
+ACME,CREW-LABOR-GC,Generic Labor Crew,LABOR,Internal GC crew,HOUR,0,false,false,PEOPLE_POOL,,,,,,,,,,,,,,,

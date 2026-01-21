@@ -476,15 +476,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             {h.messaging}
           </Link>
-          <Link
-            href="/financial"
-            className={
-              "app-nav-link" +
-              (isActive("/financial") ? " app-nav-link-active" : "")
-            }
-          >
-            {h.financial}
-          </Link>
+          <NavDropdown
+            label={h.financial}
+            active={path.startsWith("/financial")}
+            items={[
+              { label: "Overview", href: "/financial" },
+              { label: "Logistics", href: "/financial?section=ASSET_LOGISTICS" },
+            ]}
+          />
           <Link
             href="/reports"
             className={

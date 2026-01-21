@@ -38,6 +38,11 @@ type PortfolioHrPayload = {
   // HIPAA / medical / notes
   hipaaNotes?: string | null;
 
+  // HR-only compensation (protected; used for CP/export)
+  hourlyRate?: number | null;
+  dayRate?: number | null;
+  cpHourlyRate?: number | null;
+
   // HR documents (non-secret; URLs to storage)
   documents?: HrDocumentPayload[];
 };
@@ -336,6 +341,10 @@ export class UserService {
       "bankName",
       "bankAddress",
       "hipaaNotes",
+      // HR-only compensation fields
+      "hourlyRate",
+      "dayRate",
+      "cpHourlyRate",
     ];
 
     const hasAnyHrUpdate = hrInputKeys.some(k => body[k] !== undefined);
@@ -371,6 +380,22 @@ export class UserService {
       setMaybe("bankName", body.bankName);
       setMaybe("bankAddress", body.bankAddress);
       setMaybe("hipaaNotes", body.hipaaNotes);
+
+      // HR-only compensation: stored encrypted alongside other HR payload.
+      // These are numbers in the payload; we coerce from strings if needed.
+      const coerceNumber = (val: any): number | null | undefined => {
+        if (val === undefined) return undefined;
+        if (val === null || val === "") return null;
+        const n = typeof val === "number" ? val : parseFloat(String(val));
+        if (Number.isNaN(n)) return undefined;
+        return n;
+      };
+      const hrHourly = coerceNumber(body.hourlyRate);
+      const hrDay = coerceNumber(body.dayRate);
+      const hrCpHourly = coerceNumber(body.cpHourlyRate);
+      if (hrHourly !== undefined) (next as any).hourlyRate = hrHourly;
+      if (hrDay !== undefined) (next as any).dayRate = hrDay;
+      if (hrCpHourly !== undefined) (next as any).cpHourlyRate = hrCpHourly;
 
       // Highly sensitive: we keep the full value only in encrypted JSON.
       setMaybe("ssn", body.ssn);
@@ -478,6 +503,22 @@ export class UserService {
     setMaybe("state", body.state);
     setMaybe("postalCode", body.postalCode);
     setMaybe("country", body.country);
+
+    // HR-only compensation: allow OWNER/ADMIN/HR to set these on behalf of
+    // the worker. They remain stored only in the encrypted HR payload.
+    const coerceNumber = (val: any): number | null | undefined => {
+      if (val === undefined) return undefined;
+      if (val === null || val === "") return null;
+      const n = typeof val === "number" ? val : parseFloat(String(val));
+      if (Number.isNaN(n)) return undefined;
+      return n;
+    };
+    const hrHourly = coerceNumber(body.hourlyRate);
+    const hrDay = coerceNumber(body.dayRate);
+    const hrCpHourly = coerceNumber(body.cpHourlyRate);
+    if (hrHourly !== undefined) (next as any).hourlyRate = hrHourly;
+    if (hrDay !== undefined) (next as any).dayRate = hrDay;
+    if (hrCpHourly !== undefined) (next as any).cpHourlyRate = hrCpHourly;
 
     const encryptedJson = encryptPortfolioHrJson(next);
     const encryptedBytes = Uint8Array.from(encryptedJson);
