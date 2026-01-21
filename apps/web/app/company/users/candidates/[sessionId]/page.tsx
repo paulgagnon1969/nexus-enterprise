@@ -503,6 +503,19 @@ export default function CandidateDetailPage() {
     (completedChecklistCount / (checklistItems.length || 1)) * 100,
   );
 
+  // Partition onboarding documents so we can feature photo / ID near the top of
+  // the page and reuse them later in the HR section.
+  const docs = Array.isArray(session.documents) ? session.documents : [];
+  const photos = docs.filter(d => (d.type || "").toUpperCase() === "PHOTO");
+  const govIds = docs.filter(d => (d.type || "").toUpperCase() === "GOV_ID");
+
+  // Prefer documents that weve confirmed exist on disk when docAvailable has
+  // been populated; otherwise fall back to the first of each type.
+  const primaryPhoto =
+    photos.find(d => docAvailable[d.id] !== false) || (photos.length > 0 ? photos[0] : null);
+  const primaryGovId =
+    govIds.find(d => docAvailable[d.id] !== false) || (govIds.length > 0 ? govIds[0] : null);
+
   // Only Nexus System HR / SUPER_ADMIN will have canViewHr in this context, so
   // we can safely use that flag to decide whether to show HR document upload
   // controls.
@@ -582,6 +595,71 @@ export default function CandidateDetailPage() {
       </div>
       <h1 style={{ marginTop: 0, fontSize: 20 }}>Candidate</h1>
       <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>Prospective worker from Nexis profile</p>
+
+      {canViewHr && (primaryPhoto || primaryGovId) && (
+        <section
+          style={{
+            marginTop: 12,
+            padding: 10,
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            backgroundColor: "#f9fafb",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            {primaryPhoto && (
+              <img
+                src={primaryPhoto.fileUrl}
+                alt={primaryPhoto.fileName || "Candidate profile photo"}
+                style={{
+                  width: 72,
+                  height: 72,
+                  borderRadius: 8,
+                  objectFit: "cover",
+                  border: "1px solid #e5e7eb",
+                  backgroundColor: "#ffffff",
+                }}
+              />
+            )}
+            <div style={{ fontSize: 12, color: "#111827" }}>
+              <div style={{ fontWeight: 600, marginBottom: 2 }}>Photo & ID on file</div>
+              {primaryPhoto && (
+                <div>
+                  <span>Profile photo </span>
+                  <a
+                    href={primaryPhoto.fileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "#2563eb", textDecoration: "none", fontSize: 11 }}
+                  >
+                    View full-size
+                  </a>
+                </div>
+              )}
+              {primaryGovId && (
+                <div>
+                  <span>Government ID </span>
+                  <a
+                    href={primaryGovId.fileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "#2563eb", textDecoration: "none", fontSize: 11 }}
+                  >
+                    View ID
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       <div
         style={{
