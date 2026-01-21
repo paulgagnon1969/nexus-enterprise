@@ -1,17 +1,21 @@
 /*
- * Import assets from a CSV file and optionally set their initial locations.
+ * Import assets from a CSV file and optionally set their initial locations
+ * and maintenance configuration.
  *
  * Usage (from repo root):
  *   COMPANY_ID=... npx ts-node packages/database/src/scripts/import-assets-from-csv.ts path/to/asset-import.csv
  *
  * The CSV is expected to match docs/data/asset-import-template.csv:
- *   company_code,asset_code,asset_name,asset_type,description,base_unit,base_rate,is_trackable,is_consumable,initial_location_code
+ *   company_code,asset_code,asset_name,asset_type,description,base_unit,base_rate,is_trackable,is_consumable,initial_location_code,
+ *   manufacturer,model,serial_number_or_vin,year,is_active,
+ *   maintenance_profile_code,maint_trigger_strategy,maint_time_interval_value,maint_time_interval_unit,
+ *   maint_meter_type,maint_meter_interval_amount,maint_lead_time_days,maint_notes,maint_owner_email,maint_owner_external_id
  */
 
 import fs from "fs";
 import path from "path";
 import { parse } from "csv-parse/sync";
-import { prisma, AssetType } from "../index";
+import { prisma, AssetType, MaintenanceTriggerStrategy, MaintenanceIntervalUnit, MaintenanceMeterType } from "../index";
 
 async function main() {
   const companyId = process.env.COMPANY_ID;
@@ -51,6 +55,21 @@ async function main() {
     is_trackable?: string;
     is_consumable?: string;
     initial_location_code?: string;
+    manufacturer?: string;
+    model?: string;
+    serial_number_or_vin?: string;
+    year?: string;
+    is_active?: string;
+    maintenance_profile_code?: string;
+    maint_trigger_strategy?: string;
+    maint_time_interval_value?: string;
+    maint_time_interval_unit?: string;
+    maint_meter_type?: string;
+    maint_meter_interval_amount?: string;
+    maint_lead_time_days?: string;
+    maint_notes?: string;
+    maint_owner_email?: string;
+    maint_owner_external_id?: string;
   }>;
 
   // eslint-disable-next-line no-console
@@ -79,6 +98,38 @@ async function main() {
     const baseRate = row.base_rate ? Number(row.base_rate) : null;
     const isTrackable = row.is_trackable?.toLowerCase() === "true";
     const isConsumable = row.is_consumable?.toLowerCase() === "true";
+
+    const manufacturer = row.manufacturer?.trim() || null;
+    const model = row.model?.trim() || null;
+    const serialNumberOrVin = row.serial_number_or_vin?.trim() || null;
+    const year = row.year ? Number(row.year) : null;
+    const isActive = row.is_active ? row.is_active.toLowerCase() !== "false" : true;
+
+    const maintenanceProfileCode = row.maintenance_profile_code?.trim() || null;
+
+    const triggerKey = row.maint_trigger_strategy?.trim()?.toUpperCase() as
+      | keyof typeof MaintenanceTriggerStrategy
+      | undefined;
+    const maintTriggerStrategy = triggerKey ? MaintenanceTriggerStrategy[triggerKey] : null;
+
+    const timeIntervalValue = row.maint_time_interval_value ? Number(row.maint_time_interval_value) : null;
+    const timeUnitKey = row.maint_time_interval_unit?.trim()?.toUpperCase() as
+      | keyof typeof MaintenanceIntervalUnit
+      | undefined;
+    const maintTimeIntervalUnit = timeUnitKey ? MaintenanceIntervalUnit[timeUnitKey] : null;
+
+    const meterTypeKey = row.maint_meter_type?.trim()?.toUpperCase() as
+      | keyof typeof MaintenanceMeterType
+      | undefined;
+    const maintMeterType = meterTypeKey ? MaintenanceMeterType[meterTypeKey] : null;
+    const maintMeterIntervalAmount = row.maint_meter_interval_amount
+      ? Number(row.maint_meter_interval_amount)
+      : null;
+
+    const maintLeadTimeDays = row.maint_lead_time_days ? Number(row.maint_lead_time_days) : null;
+    const maintNotes = row.maint_notes?.trim() || null;
+    const maintOwnerEmail = row.maint_owner_email?.trim() || null;
+    const maintOwnerExternalId = row.maint_owner_external_id?.trim() || null;
 
     let locationCode = row.initial_location_code?.trim() || null;
 
@@ -134,6 +185,22 @@ async function main() {
           baseRate: baseRate != null ? baseRate : existing.baseRate,
           isTrackable,
           isConsumable,
+          manufacturer: manufacturer ?? existing.manufacturer,
+          model: model ?? existing.model,
+          serialNumberOrVin: serialNumberOrVin ?? existing.serialNumberOrVin,
+          year: year != null ? year : existing.year,
+          isActive,
+          maintenanceProfileCode: maintenanceProfileCode ?? existing.maintenanceProfileCode,
+          maintTriggerStrategy: maintTriggerStrategy ?? existing.maintTriggerStrategy,
+          maintTimeIntervalValue: timeIntervalValue != null ? timeIntervalValue : existing.maintTimeIntervalValue,
+          maintTimeIntervalUnit: maintTimeIntervalUnit ?? existing.maintTimeIntervalUnit,
+          maintMeterType: maintMeterType ?? existing.maintMeterType,
+          maintMeterIntervalAmount:
+            maintMeterIntervalAmount != null ? maintMeterIntervalAmount : existing.maintMeterIntervalAmount,
+          maintLeadTimeDays: maintLeadTimeDays != null ? maintLeadTimeDays : existing.maintLeadTimeDays,
+          maintNotes: maintNotes ?? existing.maintNotes,
+          maintOwnerEmail: maintOwnerEmail ?? existing.maintOwnerEmail,
+          maintOwnerExternalId: maintOwnerExternalId ?? existing.maintOwnerExternalId,
           currentLocationId: currentLocationId ?? existing.currentLocationId,
         },
       });
@@ -151,6 +218,21 @@ async function main() {
           baseRate: baseRate != null ? baseRate : null,
           isTrackable,
           isConsumable,
+          manufacturer,
+          model,
+          serialNumberOrVin,
+          year,
+          isActive,
+          maintenanceProfileCode,
+          maintTriggerStrategy,
+          maintTimeIntervalValue: timeIntervalValue,
+          maintTimeIntervalUnit,
+          maintMeterType,
+          maintMeterIntervalAmount,
+          maintLeadTimeDays,
+          maintNotes,
+          maintOwnerEmail,
+          maintOwnerExternalId,
           currentLocationId,
         },
       });
