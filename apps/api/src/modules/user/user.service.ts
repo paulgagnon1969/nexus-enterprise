@@ -254,6 +254,8 @@ export class UserService {
           bankAddress: payload.bankAddress ?? null,
           hipaaNotes: payload.hipaaNotes ?? null,
 
+          documents: Array.isArray(payload.documents) ? payload.documents : [],
+
           // Masked / derived
           ssnLast4: hr.ssnLast4 ?? null,
           itinLast4: hr.itinLast4 ?? null,
@@ -837,6 +839,8 @@ export class UserService {
               bankName: payload.bankName ?? null,
               bankAddress: payload.bankAddress ?? null,
               hipaaNotes: payload.hipaaNotes ?? null,
+
+              documents: Array.isArray(payload.documents) ? payload.documents : [],
 
               ssnLast4: hr.ssnLast4 ?? null,
               itinLast4: hr.itinLast4 ?? null,
