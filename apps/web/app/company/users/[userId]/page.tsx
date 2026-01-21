@@ -1048,11 +1048,50 @@ export default function CompanyUserProfilePage() {
           </a>
         </div>
         <h1 style={{ marginTop: 0, fontSize: 20 }}>
-          Worker profile{displayName ? `  ${displayName}` : ""}
+          Worker profile{displayName ? ` \u0013 ${displayName}` : ""}
         </h1>
         <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
-          {profile.company.name} · {profile.companyRole}
+          {profile.company.name} \u00b7 {profile.companyRole}
         </p>
+
+        {profile.portfolio?.photoUrl && (
+          <section
+            style={{
+              marginTop: 12,
+              padding: 10,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              backgroundColor: "#f9fafb",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <img
+              src={profile.portfolio.photoUrl}
+              alt={displayName || "Worker profile photo"}
+              style={{
+                width: 72,
+                height: 72,
+                borderRadius: 8,
+                objectFit: "cover",
+                border: "1px solid #e5e7eb",
+                backgroundColor: "#ffffff",
+              }}
+            />
+            <div style={{ fontSize: 12, color: "#111827" }}>
+              <div style={{ fontWeight: 600, marginBottom: 2 }}>Photo on file</div>
+              <a
+                href={profile.portfolio.photoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "#2563eb", textDecoration: "none", fontSize: 11 }}
+              >
+                View full-size
+              </a>
+            </div>
+          </section>
+        )}
 
         <div
           style={{
