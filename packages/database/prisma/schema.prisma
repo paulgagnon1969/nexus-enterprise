@@ -469,12 +469,13 @@ model Worker {
   dateHired          DateTime?
   status             String? // e.g. ACTIVE / INACTIVE
   isForeman          Boolean      @default(false)
-  defaultPayRate     Float? // hourly pay rate
-  billRate           Float? // hourly bill rate
-  cpRate             Float? // hourly CP rate
-  cpRole             String? // CP role / designation (e.g. wage determination code)
-  cpFringeRate       Float? // estimated fringe value for CP ($/hr)
-  unionLocal         String?
+  defaultPayRate       Float? // hourly pay rate
+  defaultHoursPerDay   Float? @default(10) // hours per day used for day-rate conversions
+  billRate             Float? // hourly bill rate
+  cpRate               Float? // hourly CP rate
+  cpRole               String? // CP role / designation (e.g. wage determination code)
+  cpFringeRate         Float? // estimated fringe value for CP ($/hr)
+  unionLocal           String?
   firstSeenWeekEnd   DateTime?
   lastSeenWeekEnd    DateTime?
   totalHoursCbs      Float?       @default(0)
@@ -2500,7 +2501,7 @@ model AssetMaintenanceTemplate {
   companyId   String
   company     Company  @relation(fields: [companyId], references: [id])
 
-  code        String   @unique
+  code        String
   name        String
   description String?
   assetType   AssetType?
@@ -2510,6 +2511,8 @@ model AssetMaintenanceTemplate {
   rules       AssetMaintenanceRule[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@unique([companyId, code])
 }
 
 model AssetMaintenanceRule {

@@ -49,6 +49,7 @@ export class WorkerController {
     body: {
       phone?: string | null;
       defaultPayRate?: number | null;
+      defaultHoursPerDay?: number | null;
       billRate?: number | null;
       cpRate?: number | null;
       cpRole?: string | null;

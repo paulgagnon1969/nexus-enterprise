@@ -143,6 +143,7 @@ export class WorkerService {
       unionLocal?: string | null;
       dateHired?: string | null;
       defaultPayRate?: number | null;
+      defaultHoursPerDay?: number | null;
       billRate?: number | null;
       cpRate?: number | null;
       cpRole?: string | null;
@@ -214,6 +215,11 @@ export class WorkerService {
       data.defaultPayRate = input.defaultPayRate === null ? null : input.defaultPayRate;
     }
 
+    if (input.defaultHoursPerDay !== undefined) {
+      data.defaultHoursPerDay =
+        input.defaultHoursPerDay === null ? null : input.defaultHoursPerDay;
+    }
+
     if (input.billRate !== undefined) {
       data.billRate = input.billRate === null ? null : input.billRate;
     }
@@ -253,6 +259,7 @@ export class WorkerService {
         unionLocal: true,
         dateHired: true,
         defaultPayRate: true,
+        defaultHoursPerDay: true,
         billRate: true,
         cpRate: true,
         cpRole: true,
