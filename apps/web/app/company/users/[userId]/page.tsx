@@ -487,39 +487,11 @@ export default function CompanyUserProfilePage() {
     };
   }, [profile]);
 
-  if (loading) {
-    return (
-      <div className="app-card">
-        <p style={{ fontSize: 14, color: "#6b7280" }}>Loading user profile…</p>
-      </div>
-    );
-  }
-
-  if (error || !profile) {
-    return (
-      <div className="app-card">
-        <h1 style={{ marginTop: 0, fontSize: 20 }}>User profile</h1>
-        <p style={{ color: "#b91c1c" }}>{error || "User not found"}</p>
-      </div>
-    );
-  }
-
-  const displayedReputation = profile.reputation.override ?? profile.reputation.avg;
-  const canViewHr = profile.canViewHr ?? !!profile.hr;
-  const canEditHrFields = profile.canEditHr ?? false;
-  const hasWorker = !!profile.worker;
-  const hr = (profile.hr as HrDto | null) || {};
-  const hasHrData = !!profile.hr;
-
-  const workerLink =
-    profile.worker && profile.worker.id
-      ? `/workers/${profile.worker.id}/weeks`
-      : null;
-
   // Initialize editable HR compensation fields from the HR portfolio payload
   // (when available). These are HR-only screening/export rates and are distinct
   // from the Worker record compensation fields.
   useEffect(() => {
+    if (!profile) return;
     const hrPayload = profile.hr as HrDto | null | undefined;
     if (!hrPayload) {
       setHrHourlyRate("");
@@ -550,7 +522,36 @@ export default function CompanyUserProfilePage() {
         ? String(hrPayload.candidateDesiredPay)
         : "",
     );
-  }, [profile.hr]);
+  }, [profile]);
+
+  if (loading) {
+    return (
+      <div className="app-card">
+        <p style={{ fontSize: 14, color: "#6b7280" }}>Loading user profile…</p>
+      </div>
+    );
+  }
+
+  if (error || !profile) {
+    return (
+      <div className="app-card">
+        <h1 style={{ marginTop: 0, fontSize: 20 }}>User profile</h1>
+        <p style={{ color: "#b91c1c" }}>{error || "User not found"}</p>
+      </div>
+    );
+  }
+
+  const displayedReputation = profile.reputation.override ?? profile.reputation.avg;
+  const canViewHr = profile.canViewHr ?? !!profile.hr;
+  const canEditHrFields = profile.canEditHr ?? false;
+  const hasWorker = !!profile.worker;
+  const hr = (profile.hr as HrDto | null) || {};
+  const hasHrData = !!profile.hr;
+
+  const workerLink =
+    profile.worker && profile.worker.id
+      ? `/workers/${profile.worker.id}/weeks`
+      : null;
 
   const displayName =
     profile.firstName || profile.lastName
