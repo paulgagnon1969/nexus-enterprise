@@ -99,12 +99,29 @@ export async function rebuildPayrollWeekForProject(
   for (const agg of byWorker.values()) {
     const worker = await prisma.worker.findUnique({
       where: { id: agg.workerId },
-      select: { fullName: true, firstName: true, lastName: true, defaultPayRate: true },
+      select: {
+        fullName: true,
+        firstName: true,
+        lastName: true,
+        defaultPayRate: true,
+        defaultHoursPerDay: true,
+      },
     });
 
     const baseHourlyRate = worker?.defaultPayRate ?? null;
     const totalHours = (agg.totalSt || 0) + (agg.totalOt || 0) + (agg.totalDt || 0);
     const totalPay = baseHourlyRate != null ? baseHourlyRate * totalHours : 0;
+
+    // When a worker has an hours-per-day unit set, carry that into the
+    // payroll record so downstream Certified Payroll logic can reason about
+    // day-rate based calculations with consistent units.
+    const defaultHoursPerDay = worker?.defaultHoursPerDay ?? null;
+    const dayRateBaseHours =
+      defaultHoursPerDay != null && defaultHoursPerDay > 0 ? defaultHoursPerDay : null;
+    const dayRate =
+      baseHourlyRate != null && dayRateBaseHours != null
+        ? baseHourlyRate * dayRateBaseHours
+        : null;
 
     // Build simple 7-day array of hours from aggregated totals; for now we
     // don't track per-day breakdown here, only week totals.
@@ -128,6 +145,8 @@ export async function rebuildPayrollWeekForProject(
         weekCode: null,
         employmentType: "CONTRACTOR_1099",
         baseHourlyRate,
+        dayRate,
+        dayRateBaseHours,
         totalPay,
         totalHoursSt: agg.totalSt,
         totalHoursOt: agg.totalOt,
@@ -148,8 +167,8 @@ export async function rebuildPayrollWeekForProject(
         weekEndDate,
         employmentType: "CONTRACTOR_1099",
         baseHourlyRate,
-        dayRate: null,
-        dayRateBaseHours: null,
+        dayRate,
+        dayRateBaseHours,
         totalPay,
         totalHoursSt: agg.totalSt,
         totalHoursOt: agg.totalOt,

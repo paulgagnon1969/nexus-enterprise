@@ -655,7 +655,7 @@ export class AuthService {
       JSON.stringify({ userId: user.id })
     );
 
-    const webBase = process.env.WEB_BASE_URL || "http://localhost:3000";
+    const webBase = process.env.WEB_BASE_URL || "https://ncc-nexus-contractor-connect.com";
     const resetUrl = `${webBase.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(resetToken)}`;
 
     await this.email.sendMail({

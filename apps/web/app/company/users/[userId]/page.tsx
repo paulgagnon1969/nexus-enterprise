@@ -1117,7 +1117,7 @@ export default function CompanyUserProfilePage() {
           </a>
         </div>
         <h1 style={{ marginTop: 0, fontSize: 20 }}>
-          Worker profile{displayName ? ` \u0013 ${displayName}` : ""}
+          Worker profile{displayName ? ` – ${displayName}` : ""}
         </h1>
         <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
           {profile.company.name} \u00b7 {profile.companyRole}
@@ -1173,7 +1173,7 @@ export default function CompanyUserProfilePage() {
             flexWrap: "wrap",
           }}
         >
-          <div style={{ flex: "1 1 0", minWidth: 320, order: 2 }}>
+          <div style={{ flex: "0 0 360px", minWidth: 320, maxWidth: 420 }}>
           <section>
               <h2 style={{ fontSize: 16, marginBottom: 4 }}>Identity</h2>
 
@@ -1946,19 +1946,1030 @@ export default function CompanyUserProfilePage() {
             </section>
           </div>
 
-          {canViewHr && (
-            <section
+          {/* Skills & ratings (right column) */}
+          <section
+            style={{
+              flex: "1 1 0",
+              minWidth: 360,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div
               style={{
-                flex: "0 0 420px",
-                maxWidth: 460,
-                fontSize: 13,
-                alignSelf: "stretch",
-                minHeight: 0,
-                order: 1,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "baseline",
+                marginBottom: 4,
               }}
             >
-              {canViewHr && (
+              <h2 style={{ fontSize: 16, margin: 0 }}>Skills</h2>
+              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                Rated {ratedSkills}/{totalSkills} skills
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                gap: 16,
+                alignItems: "stretch",
+                flex: "1 1 auto",
+                minHeight: 0,
+              }}
+            >
+              {/* Left: compact matrix (groupings + ratings) */}
+              <div
+                style={{
+                  flex: "0 0 760px",
+                  maxWidth: 760,
+                  minHeight: 0,
+                  display: "flex",
+                }}
+              >
                 <div
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: "auto",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 6,
+                  }}
+                >
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: 13,
+                      tableLayout: "fixed",
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ backgroundColor: "#f9fafb" }}>
+                        <th style={{ textAlign: "left", padding: "6px 8px", width: 320 }}>Skill</th>
+                        {isAdminOrAbove ? (
+                          <>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "6px 8px",
+                                whiteSpace: "nowrap",
+                                width: 140,
+                              }}
+                            >
+                              Self
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "6px 8px",
+                                whiteSpace: "nowrap",
+                                width: 140,
+                              }}
+                            >
+                              Peer
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "6px 8px",
+                                whiteSpace: "nowrap",
+                                width: 140,
+                              }}
+                            >
+                              Client
+                            </th>
+                          </>
+                        ) : (
+                          <th
+                            style={{
+                              textAlign: "left",
+                              padding: "6px 8px",
+                              whiteSpace: "nowrap",
+                              width: 180,
+                            }}
+                          >
+                            Rating
+                          </th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {categoryGroups.map((g, gIdx) => {
+                        const expanded = !!expandedCategories[g.categoryLabel];
+                        const roundedSelf =
+                          g.avgSelf != null ? Math.round(g.avgSelf) : null;
+                        const roundedAgg =
+                          g.avgAggregate != null ? Math.round(g.avgAggregate) : null;
+
+                        return (
+                          <Fragment key={g.categoryLabel}>
+                            <tr
+                              style={{
+                                backgroundColor:
+                                  gIdx % 2 === 0 ? "#ffffff" : "#fcfcfd",
+                              }}
+                            >
+                              <td
+                                style={{
+                                  padding: "10px 10px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  cursor: "pointer",
+                                  fontWeight: 700,
+                                }}
+                                onClick={() =>
+                                  setExpandedCategories(prev => ({
+                                    ...prev,
+                                    [g.categoryLabel]: !prev[g.categoryLabel],
+                                  }))
+                                }
+                              >
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    gap: 10,
+                                  }}
+                                >
+                                  <span>
+                                    {expanded ? "▾" : "▸"} {g.categoryLabel}
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      color: "#6b7280",
+                                    }}
+                                  >
+                                    Rated {g.ratedCount}/{g.totalCount}
+                                  </span>
+                                </div>
+                              </td>
+
+                              {isAdminOrAbove ? (
+                                <>
+                                  <td
+                                    style={{
+                                      padding: "10px 10px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      whiteSpace: "nowrap",
+                                      textAlign: "left",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: 8,
+                                      }}
+                                    >
+                                      {renderStars(roundedSelf, 14)}
+                                      <span
+                                        style={{
+                                          fontSize: 11,
+                                          color: "#6b7280",
+                                        }}
+                                      >
+                                        {g.avgSelf != null
+                                          ? `${g.avgSelf.toFixed(1)}/5`
+                                          : "—"}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "10px 10px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      whiteSpace: "nowrap",
+                                      textAlign: "left",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: 8,
+                                      }}
+                                    >
+                                      {renderStars(g.avgPeer, 12)}
+                                      <span
+                                        style={{
+                                          fontSize: 11,
+                                          color: "#6b7280",
+                                        }}
+                                      >
+                                        {g.avgPeer != null
+                                          ? `${g.avgPeer.toFixed(1)}/5`
+                                          : "—"}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "10px 10px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      whiteSpace: "nowrap",
+                                      textAlign: "left",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: 8,
+                                      }}
+                                    >
+                                      {renderStars(g.avgClient, 12)}
+                                      <span
+                                        style={{
+                                          fontSize: 11,
+                                          color: "#6b7280",
+                                        }}
+                                      >
+                                        {g.avgClient != null
+                                          ? `${g.avgClient.toFixed(1)}/5`
+                                          : "—"}
+                                      </span>
+                                    </div>
+                                  </td>
+                                </>
+                              ) : (
+                                <td
+                                  style={{
+                                    padding: "10px 10px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    whiteSpace: "nowrap",
+                                    textAlign: "left",
+                                  }}
+                                >
+                                  {g.avgAggregate == null ? (
+                                    <span
+                                      style={{
+                                        fontSize: 11,
+                                        color: "#6b7280",
+                                      }}
+                                    >
+                                      —
+                                    </span>
+                                  ) : (
+                                    <div
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: 8,
+                                      }}
+                                    >
+                                      {renderStars(roundedAgg, 14)}
+                                      <span
+                                        style={{
+                                          fontSize: 11,
+                                          color: "#6b7280",
+                                        }}
+                                      >
+                                        {g.avgAggregate.toFixed(1)}/5
+                                      </span>
+                                    </div>
+                                  )}
+                                </td>
+                              )}
+                            </tr>
+
+                            {expanded &&
+                              g.skills.map((skill, idx) => {
+                                const selected = selectedSkillId === skill.id;
+
+                                return (
+                                  <tr
+                                    key={skill.id}
+                                    onClick={() => {
+                                      setSelectedSkillId(skill.id);
+                                      setEmployerLevel("");
+                                      setEmployerNotes("");
+                                      setClientLevel("");
+                                      setClientComment("");
+                                    }}
+                                    style={{
+                                      backgroundColor: selected
+                                        ? "#eff6ff"
+                                        : idx % 2 === 0
+                                        ? "#ffffff"
+                                        : "#fcfcfd",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    <td
+                                      style={{
+                                        padding: "8px 10px 8px 26px",
+                                        borderTop: "1px solid #e5e7eb",
+                                        fontWeight: selected ? 600 : 400,
+                                        borderLeft: selected
+                                          ? "3px solid #2563eb"
+                                          : "3px solid transparent",
+                                      }}
+                                    >
+                                      <div>{skill.label}</div>
+                                      {skill.tradeLabel && (
+                                        <div
+                                          style={{
+                                            fontSize: 11,
+                                            color: "#6b7280",
+                                            marginTop: 2,
+                                          }}
+                                        >
+                                          {skill.tradeLabel}
+                                        </div>
+                                      )}
+                                    </td>
+
+                                    {isAdminOrAbove ? (
+                                      <>
+                                        <td
+                                          style={{
+                                            padding: "8px 10px",
+                                            borderTop: "1px solid #e5e7eb",
+                                            whiteSpace: "nowrap",
+                                            textAlign: "left",
+                                          }}
+                                        >
+                                          <div
+                                            style={{
+                                              display: "inline-flex",
+                                              alignItems: "center",
+                                              gap: 8,
+                                            }}
+                                          >
+                                            {renderStars(skill.selfLevel, 16)}
+                                            <span
+                                              style={{
+                                                fontSize: 11,
+                                                color: "#6b7280",
+                                              }}
+                                            >
+                                              {skill.selfLevel != null
+                                                ? `${skill.selfLevel}/5`
+                                                : "—"}
+                                            </span>
+                                          </div>
+                                        </td>
+                                        <td
+                                          style={{
+                                            padding: "8px 10px",
+                                            borderTop: "1px solid #e5e7eb",
+                                            whiteSpace: "nowrap",
+                                            textAlign: "left",
+                                          }}
+                                        >
+                                          <div
+                                            style={{
+                                              display: "inline-flex",
+                                              alignItems: "center",
+                                              gap: 8,
+                                            }}
+                                          >
+                                            {renderStars(
+                                              skill.employerAvgLevel,
+                                              12,
+                                            )}
+                                            <span
+                                              style={{
+                                                fontSize: 11,
+                                                color: "#6b7280",
+                                              }}
+                                            >
+                                              {skill.employerAvgLevel != null
+                                                ? `${skill.employerAvgLevel.toFixed(1)}/5 (${skill.employerRatingCount ?? 0})`
+                                                : "—"}
+                                            </span>
+                                          </div>
+                                        </td>
+                                        <td
+                                          style={{
+                                            padding: "8px 10px",
+                                            borderTop: "1px solid #e5e7eb",
+                                            whiteSpace: "nowrap",
+                                            textAlign: "left",
+                                          }}
+                                        >
+                                          <div
+                                            style={{
+                                              display: "inline-flex",
+                                              alignItems: "center",
+                                              gap: 8,
+                                            }}
+                                          >
+                                            {renderStars(skill.clientAvgLevel, 12)}
+                                            <span
+                                              style={{
+                                                fontSize: 11,
+                                                color: "#6b7280",
+                                              }}
+                                            >
+                                              {skill.clientAvgLevel != null
+                                                ? `${skill.clientAvgLevel.toFixed(1)}/5 (${skill.clientRatingCount ?? 0})`
+                                                : "—"}
+                                            </span>
+                                          </div>
+                                        </td>
+                                      </>
+                                    ) : (
+                                      <td
+                                        style={{
+                                          padding: "8px 10px",
+                                          borderTop: "1px solid #e5e7eb",
+                                          whiteSpace: "nowrap",
+                                          textAlign: "left",
+                                        }}
+                                      >
+                                        {skill.aggregateAvgLevel == null ? (
+                                          <span
+                                            style={{
+                                              fontSize: 11,
+                                              color: "#6b7280",
+                                            }}
+                                          >
+                                            —
+                                          </span>
+                                        ) : (
+                                          <div
+                                            style={{
+                                              display: "inline-flex",
+                                              alignItems: "center",
+                                              gap: 8,
+                                            }}
+                                          >
+                                            {renderStars(
+                                              Math.round(skill.aggregateAvgLevel),
+                                              14,
+                                            )}
+                                            <span
+                                              style={{
+                                                fontSize: 11,
+                                                color: "#6b7280",
+                                              }}
+                                            >
+                                              {skill.aggregateAvgLevel.toFixed(1)}/5 ({
+                                                skill.aggregateRatingCount
+                                              })
+                                            </span>
+                                          </div>
+                                        )}
+                                      </td>
+                                    )}
+                                  </tr>
+                                );
+                              })}
+                          </Fragment>
+                        );
+                      })}
+
+                      {profile.skills.length === 0 && (
+                        <tr>
+                          <td
+                            colSpan={isAdminOrAbove ? 4 : 2}
+                            style={{
+                              padding: "8px",
+                              fontSize: 12,
+                              color: "#6b7280",
+                            }}
+                          >
+                            No Data in records – personnel records incomplete.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Right: details panel (comments + future portfolio) */}
+              <div
+                style={{
+                  flex: 1,
+                  minWidth: 260,
+                  minHeight: 0,
+                  display: "flex",
+                }}
+              >
+                <div
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: "auto",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 6,
+                    padding: 12,
+                    background: "#ffffff",
+                  }}
+                >
+                  {!selectedSkillId ? (
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>
+                      Select a skill to view details.
+                    </div>
+                  ) : (() => {
+                    const skill =
+                      profile.skills.find(s => s.id === selectedSkillId) || null;
+                    const detailsLoading =
+                      !!detailsLoadingBySkillId[selectedSkillId];
+                    const detailsError = detailsErrorBySkillId[selectedSkillId];
+                    const details = detailsBySkillId[selectedSkillId];
+
+                    if (!skill) {
+                      return (
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>
+                          Skill not found.
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 12,
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 700 }}>
+                            {skill.label}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#6b7280",
+                              marginTop: 2,
+                            }}
+                          >
+                            {(skill.categoryLabel || "Other") +
+                              (skill.tradeLabel
+                                ? ` · ${skill.tradeLabel}`
+                                : "")}
+                          </div>
+                        </div>
+
+                        <div style={{ fontSize: 12 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                            Ratings
+                          </div>
+                          {isAdminOrAbove ? (
+                            <div
+                              style={{
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: 12,
+                              }}
+                            >
+                              <div>
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#6b7280",
+                                  }}
+                                >
+                                  Self
+                                </div>
+                                {renderStars(skill.selfLevel, 16)}
+                              </div>
+                              <div>
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#6b7280",
+                                  }}
+                                >
+                                  Peer
+                                </div>
+                                <div
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                  }}
+                                >
+                                  {renderStars(skill.employerAvgLevel, 14)}
+                                  <span
+                                    style={{
+                                      fontSize: 11,
+                                      color: "#6b7280",
+                                    }}
+                                  >
+                                    {skill.employerAvgLevel != null
+                                      ? `${skill.employerAvgLevel.toFixed(1)}/5 (${skill.employerRatingCount ?? 0})`
+                                      : "—"}
+                                  </span>
+                                </div>
+                              </div>
+                              <div>
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#6b7280",
+                                  }}
+                                >
+                                  Client
+                                </div>
+                                <div
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 6,
+                                  }}
+                                >
+                                  {renderStars(skill.clientAvgLevel, 14)}
+                                  <span
+                                    style={{
+                                      fontSize: 11,
+                                      color: "#6b7280",
+                                    }}
+                                  >
+                                    {skill.clientAvgLevel != null
+                                      ? `${skill.clientAvgLevel.toFixed(1)}/5 (${skill.clientRatingCount ?? 0})`
+                                      : "—"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div>
+                              {skill.aggregateAvgLevel == null ? (
+                                <span style={{ color: "#6b7280" }}>
+                                  No ratings yet.
+                                </span>
+                              ) : (
+                                <div
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                  }}
+                                >
+                                  {renderStars(
+                                    Math.round(skill.aggregateAvgLevel),
+                                    16,
+                                  )}
+                                  <span style={{ color: "#6b7280" }}>
+                                    {skill.aggregateAvgLevel.toFixed(1)}/5 ({
+                                      skill.aggregateRatingCount
+                                    })
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {canRate && (
+                          <form
+                            onSubmit={handleAddEmployerRating}
+                            style={{ fontSize: 12 }}
+                          >
+                            <div
+                              style={{
+                                fontWeight: 600,
+                                marginBottom: 6,
+                              }}
+                            >
+                              Add / update employer rating
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: 8,
+                                alignItems: "flex-start",
+                              }}
+                            >
+                              <select
+                                value={employerLevel}
+                                onChange={e =>
+                                  setEmployerLevel(e.target.value)
+                                }
+                                style={{
+                                  padding: "4px 6px",
+                                  borderRadius: 4,
+                                  border: "1px solid #d1d5db",
+                                }}
+                              >
+                                <option value="">Level…</option>
+                                <option value="1">1 – Novice</option>
+                                <option value="2">2 – Beginner</option>
+                                <option value="3">3 – Competent</option>
+                                <option value="4">4 – Proficient</option>
+                                <option value="5">5 – Expert</option>
+                              </select>
+                              <textarea
+                                placeholder="Comments / clarifications (optional)"
+                                value={employerNotes}
+                                onChange={e =>
+                                  setEmployerNotes(e.target.value)
+                                }
+                                rows={4}
+                                style={{
+                                  flex: 1,
+                                  minWidth: 220,
+                                  padding: "6px 8px",
+                                  borderRadius: 4,
+                                  border: "1px solid #d1d5db",
+                                  resize: "vertical",
+                                }}
+                              />
+                              <button
+                                type="submit"
+                                disabled={employerSaving}
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: 4,
+                                  border: "1px solid #0f172a",
+                                  backgroundColor: employerSaving
+                                    ? "#e5e7eb"
+                                    : "#0f172a",
+                                  color: employerSaving
+                                    ? "#4b5563"
+                                    : "#f9fafb",
+                                  cursor: employerSaving
+                                    ? "default"
+                                    : "pointer",
+                                }}
+                              >
+                                {employerSaving ? "Saving…" : "Save"}
+                              </button>
+                            </div>
+                            {employerError && (
+                              <div
+                                style={{ color: "#b91c1c", marginTop: 6 }}
+                              >
+                                {employerError}
+                              </div>
+                            )}
+                          </form>
+                        )}
+
+                        {canClientRate && (
+                          <form
+                            onSubmit={handleAddClientRating}
+                            style={{ fontSize: 12 }}
+                          >
+                            <div
+                              style={{
+                                fontWeight: 600,
+                                marginBottom: 6,
+                              }}
+                            >
+                              Add client rating
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: 8,
+                                alignItems: "flex-start",
+                              }}
+                            >
+                              <select
+                                value={clientLevel}
+                                onChange={e =>
+                                  setClientLevel(e.target.value)
+                                }
+                                style={{
+                                  padding: "4px 6px",
+                                  borderRadius: 4,
+                                  border: "1px solid #d1d5db",
+                                }}
+                              >
+                                <option value="">Level…</option>
+                                <option value="1">1 – Novice</option>
+                                <option value="2">2 – Beginner</option>
+                                <option value="3">3 – Competent</option>
+                                <option value="4">4 – Proficient</option>
+                                <option value="5">5 – Expert</option>
+                              </select>
+                              <textarea
+                                placeholder="Client comment (optional)"
+                                value={clientComment}
+                                onChange={e =>
+                                  setClientComment(e.target.value)
+                                }
+                                rows={3}
+                                style={{
+                                  flex: 1,
+                                  minWidth: 220,
+                                  padding: "6px 8px",
+                                  borderRadius: 4,
+                                  border: "1px solid #d1d5db",
+                                  resize: "vertical",
+                                }}
+                              />
+                              <button
+                                type="submit"
+                                disabled={clientSaving}
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: 4,
+                                  border: "1px solid #0f172a",
+                                  backgroundColor: clientSaving
+                                    ? "#e5e7eb"
+                                    : "#0f172a",
+                                  color: clientSaving
+                                    ? "#4b5563"
+                                    : "#f9fafb",
+                                  cursor: clientSaving
+                                    ? "default"
+                                    : "pointer",
+                                }}
+                              >
+                                {clientSaving ? "Saving…" : "Save"}
+                              </button>
+                            </div>
+                            {clientError && (
+                              <div
+                                style={{ color: "#b91c1c", marginTop: 6 }}
+                              >
+                                {clientError}
+                              </div>
+                            )}
+                          </form>
+                        )}
+
+                        {isAdminOrAbove && (
+                          <div style={{ fontSize: 12 }}>
+                            <div
+                              style={{
+                                fontWeight: 600,
+                                marginBottom: 6,
+                              }}
+                            >
+                              Peer / client comments
+                            </div>
+                            {detailsLoading ? (
+                              <div style={{ color: "#6b7280" }}>
+                                Loading comments…
+                              </div>
+                            ) : detailsError ? (
+                              <div style={{ color: "#b91c1c" }}>
+                                {detailsError}
+                              </div>
+                            ) : (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: 16,
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                <div
+                                  style={{ minWidth: 220, flex: 1 }}
+                                >
+                                  <div
+                                    style={{
+                                      fontSize: 11,
+                                      color: "#6b7280",
+                                      marginBottom: 4,
+                                    }}
+                                  >
+                                    Peer
+                                  </div>
+                                  {details?.peerRatings?.filter(
+                                    (r: any) => r.comment,
+                                  )?.length ? (
+                                    <ul
+                                      style={{
+                                        margin: 0,
+                                        paddingLeft: 18,
+                                      }}
+                                    >
+                                      {details.peerRatings
+                                        .filter((r: any) => r.comment)
+                                        .map((r: any) => (
+                                          <li
+                                            key={r.id}
+                                            style={{ marginBottom: 4 }}
+                                          >
+                                            <span
+                                              style={{
+                                                fontWeight: 600,
+                                              }}
+                                            >
+                                              {r.level}/5
+                                            </span>{" "}
+                                            — {r.comment}
+                                          </li>
+                                        ))}
+                                    </ul>
+                                  ) : (
+                                    <div
+                                      style={{ color: "#6b7280" }}
+                                    >
+                                      No peer comments yet.
+                                    </div>
+                                  )}
+                                </div>
+                                <div
+                                  style={{ minWidth: 220, flex: 1 }}
+                                >
+                                  <div
+                                    style={{
+                                      fontSize: 11,
+                                      color: "#6b7280",
+                                      marginBottom: 4,
+                                    }}
+                                  >
+                                    Client
+                                  </div>
+                                  {details?.clientRatings?.filter(
+                                    (r: any) => r.comment,
+                                  )?.length ? (
+                                    <ul
+                                      style={{
+                                        margin: 0,
+                                        paddingLeft: 18,
+                                      }}
+                                    >
+                                      {details.clientRatings
+                                        .filter((r: any) => r.comment)
+                                        .map((r: any) => (
+                                          <li
+                                            key={r.id}
+                                            style={{ marginBottom: 4 }}
+                                          >
+                                            <span
+                                              style={{
+                                                fontWeight: 600,
+                                              }}
+                                            >
+                                              {r.level}/5
+                                            </span>{" "}
+                                            — {r.comment}
+                                          </li>
+                                        ))}
+                                    </ul>
+                                  ) : (
+                                    <div
+                                      style={{ color: "#6b7280" }}
+                                    >
+                                      No client comments yet.
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div style={{ fontSize: 12 }}>
+                          <div
+                            style={{
+                              fontWeight: 600,
+                              marginBottom: 6,
+                            }}
+                          >
+                            Portfolio (Line card / work deck)
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: "#6b7280",
+                              marginBottom: 8,
+                            }}
+                          >
+                            Coming next: uploads + links curated by the tradesman per
+                            skill.
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 8,
+                            }}
+                          >
+                            <input
+                              type="url"
+                              placeholder="Add a link (e.g. portfolio page)"
+                              disabled
+                              style={{
+                                padding: "6px 8px",
+                                borderRadius: 4,
+                                border: "1px solid #d1d5db",
+                                background: "#f9fafb",
+                              }}
+                            />
+                            <input type="file" multiple disabled />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        {/* Full-width HR (confidential) section below profile + skills */}
+        {canViewHr && (
+          <section style={{ marginTop: 24, fontSize: 13 }}>
+            {canViewHr && (
+              <div
                 style={{
                   marginTop: hasWorker ? 8 : 0,
                   padding: 10,
@@ -1986,8 +2997,16 @@ export default function CompanyUserProfilePage() {
                   }}
                 >
                   <span>HR (confidential)</span>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontSize: 12, color: "#6b7280" }}>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <span
+                      style={{ fontSize: 12, color: "#6b7280" }}
+                    >
                       {hrCollapsed ? "Show" : "Hide"}
                     </span>
                     <span
@@ -1997,7 +3016,9 @@ export default function CompanyUserProfilePage() {
                         borderRadius: 999,
                         border: `1px solid ${hrCollapsed ? "#b91c1c" : "#16a34a"}`,
                         color: hrCollapsed ? "#b91c1c" : "#166534",
-                        backgroundColor: hrCollapsed ? "#fef2f2" : "#ecfdf3",
+                        backgroundColor: hrCollapsed
+                          ? "#fef2f2"
+                          : "#ecfdf3",
                         textTransform: "uppercase",
                         letterSpacing: 0.3,
                       }}
@@ -2008,108 +3029,199 @@ export default function CompanyUserProfilePage() {
                 </button>
 
                 {!hrCollapsed && (
-                  <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ fontSize: 12, color: "#6b7280" }}>
-                      Editable HR contact snapshot for this worker. Changes here update
-                      the worker's HR portfolio for this company only.
+                  <div
+                    style={{
+                      marginTop: 6,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 8,
+                    }}
+                  >
+                    <div
+                      style={{ fontSize: 12, color: "#6b7280" }}
+                    >
+                      Editable HR contact snapshot for this worker.
+                      Changes here update the worker's HR portfolio for
+                      this company only.
                     </div>
                     {!hasHrData && (
-                      <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: "#b91c1c",
+                          marginTop: 4,
+                        }}
+                      >
                         No Data in records – personnel records incomplete.
                       </div>
                     )}
-                    {hr && (hr.hasSsn || hr.hasBankAccount || hr.hasBankRouting) && (
-                      <div style={{ fontSize: 11, color: "#4b5563", marginTop: 4 }}>
-                        <div>
-                          <strong>Identifiers on file:</strong>{" "}
-                          {hr.hasSsn ? (
-                            <span>SSN ending in {hr.ssnLast4 ?? "••••"}</span>
-                          ) : (
-                            <span>No SSN on file</span>
-                          )}
+                    {hr &&
+                      (hr.hasSsn || hr.hasBankAccount || hr.hasBankRouting) && (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "#4b5563",
+                            marginTop: 4,
+                          }}
+                        >
+                          <div>
+                            <strong>Identifiers on file:</strong>{" "}
+                            {hr.hasSsn ? (
+                              <span>
+                                SSN ending in {hr.ssnLast4 ?? "••••"}
+                              </span>
+                            ) : (
+                              <span>No SSN on file</span>
+                            )}
+                          </div>
+                          <div>
+                            <strong>Bank account:</strong>{" "}
+                            {hr.hasBankAccount ? (
+                              <span>
+                                Acct ending in {hr.bankAccountLast4 ?? "••••"}
+                              </span>
+                            ) : (
+                              <span>No account on file</span>
+                            )}
+                          </div>
+                          <div>
+                            <strong>Routing:</strong>{" "}
+                            {hr.hasBankRouting ? (
+                              <span>
+                                Routing ending in {hr.bankRoutingLast4 ?? "••••"}
+                              </span>
+                            ) : (
+                              <span>No routing on file</span>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <strong>Bank account:</strong>{" "}
-                          {hr.hasBankAccount ? (
-                            <span>Acct ending in {hr.bankAccountLast4 ?? "••••"}</span>
-                          ) : (
-                            <span>No account on file</span>
-                          )}
-                        </div>
-                        <div>
-                          <strong>Routing:</strong>{" "}
-                          {hr.hasBankRouting ? (
-                            <span>Routing ending in {hr.bankRoutingLast4 ?? "••••"}</span>
-                          ) : (
-                            <span>No routing on file</span>
-                          )}
-                        </div>
-                      </div>
-                    )}
+                      )}
 
-                    {Array.isArray(hr?.documents) && hr.documents.length > 0 && (
-                      <div style={{ fontSize: 11, color: "#4b5563", marginTop: 8 }}>
-                        <div style={{ fontWeight: 600, marginBottom: 4 }}>Attachments on file</div>
-                        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                          {hr.documents.map(doc => {
-                            const type = (doc.type || "").toUpperCase();
-                            if (!doc.fileUrl) return null;
-                            if (type === "PHOTO") {
-                              return (
-                                <li key={doc.id} style={{ marginBottom: 4 }}>
-                                  <strong>Photo:</strong>{" "}
-                                  <a
-                                    href={doc.fileUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    style={{ color: "#2563eb", textDecoration: "none" }}
+                    {Array.isArray(hr?.documents) &&
+                      hr.documents.length > 0 && (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "#4b5563",
+                            marginTop: 8,
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontWeight: 600,
+                              marginBottom: 4,
+                            }}
+                          >
+                            Attachments on file
+                          </div>
+                          <ul
+                            style={{
+                              listStyle: "none",
+                              padding: 0,
+                              margin: 0,
+                            }}
+                          >
+                            {hr.documents.map(doc => {
+                              const type = (doc.type || "").toUpperCase();
+                              if (!doc.fileUrl) return null;
+                              if (type === "PHOTO") {
+                                return (
+                                  <li
+                                    key={doc.id}
+                                    style={{ marginBottom: 4 }}
                                   >
-                                    View photo
-                                  </a>
-                                </li>
-                              );
-                            }
-                            if (type === "GOV_ID") {
-                              return (
-                                <li key={doc.id} style={{ marginBottom: 4 }}>
-                                  <strong>Government ID:</strong>{" "}
-                                  <a
-                                    href={doc.fileUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    style={{ color: "#2563eb", textDecoration: "none" }}
+                                    <strong>Photo:</strong>{" "}
+                                    <a
+                                      href={doc.fileUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{
+                                        color: "#2563eb",
+                                        textDecoration: "none",
+                                      }}
+                                    >
+                                      View photo
+                                    </a>
+                                  </li>
+                                );
+                              }
+                              if (type === "GOV_ID") {
+                                return (
+                                  <li
+                                    key={doc.id}
+                                    style={{ marginBottom: 4 }}
                                   >
-                                    View ID {doc.fileName ? `(${doc.fileName})` : ""}
-                                  </a>
-                                </li>
-                              );
-                            }
-                            return (
-                              <li key={doc.id} style={{ marginBottom: 4 }}>
-                                <strong>Attachment:</strong>{" "}
-                                <a
-                                  href={doc.fileUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  style={{ color: "#2563eb", textDecoration: "none" }}
+                                    <strong>Government ID:</strong>{" "}
+                                    <a
+                                      href={doc.fileUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{
+                                        color: "#2563eb",
+                                        textDecoration: "none",
+                                      }}
+                                    >
+                                      View ID {doc.fileName
+                                        ? `(${doc.fileName})`
+                                        : ""}
+                                    </a>
+                                  </li>
+                                );
+                              }
+                              return (
+                                <li
+                                  key={doc.id}
+                                  style={{ marginBottom: 4 }}
                                 >
-                                  {doc.fileName || doc.type || "View attachment"}
-                                </a>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    )}
+                                  <strong>Attachment:</strong>{" "}
+                                  <a
+                                    href={doc.fileUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                      color: "#2563eb",
+                                      textDecoration: "none",
+                                    }}
+                                  >
+                                    {doc.fileName ||
+                                      doc.type ||
+                                      "View attachment"}
+                                  </a>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      )}
                     {!canEditHrFields && (
-                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
-                        You can view HR contact details for this worker but do not have permission to edit them.
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#6b7280",
+                          marginTop: 4,
+                        }}
+                      >
+                        You can view HR contact details for this worker
+                        but do not have permission to edit them.
                       </div>
                     )}
 
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 12,
+                      }}
+                    >
                       <label style={{ flex: "1 1 220px" }}>
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>HR email</div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: "#6b7280",
+                          }}
+                        >
+                          HR email
+                        </div>
                         <input
                           type="email"
                           value={hr.displayEmail ?? ""}
@@ -2140,7 +3252,14 @@ export default function CompanyUserProfilePage() {
                         />
                       </label>
                       <label style={{ flex: "1 1 180px" }}>
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>HR phone</div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: "#6b7280",
+                          }}
+                        >
+                          HR phone
+                        </div>
                         <input
                           type="tel"
                           value={hr.phone ?? ""}
@@ -2172,9 +3291,22 @@ export default function CompanyUserProfilePage() {
                       </label>
                     </div>
 
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 12,
+                      }}
+                    >
                       <label style={{ flex: "1 1 260px" }}>
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>Address line 1</div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: "#6b7280",
+                          }}
+                        >
+                          Address line 1
+                        </div>
                         <input
                           type="text"
                           value={hr.addressLine1 ?? ""}
@@ -2204,7 +3336,14 @@ export default function CompanyUserProfilePage() {
                         />
                       </label>
                       <label style={{ flex: "1 1 220px" }}>
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>Address line 2</div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: "#6b7280",
+                          }}
+                        >
+                          Address line 2
+                        </div>
                         <input
                           type="text"
                           value={hr.addressLine2 ?? ""}
@@ -2235,9 +3374,22 @@ export default function CompanyUserProfilePage() {
                       </label>
                     </div>
 
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 12,
+                      }}
+                    >
                       <label style={{ flex: "1 1 180px" }}>
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>City</div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: "#6b7280",
+                          }}
+                        >
+                          City
+                        </div>
                         <input
                           type="text"
                           value={hr.city ?? ""}
@@ -2267,7 +3419,14 @@ export default function CompanyUserProfilePage() {
                         />
                       </label>
                       <label style={{ flex: "0 0 100px" }}>
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>State</div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: "#6b7280",
+                          }}
+                        >
+                          State
+                        </div>
                         <input
                           type="text"
                           value={hr.state ?? ""}
@@ -2297,7 +3456,14 @@ export default function CompanyUserProfilePage() {
                         />
                       </label>
                       <label style={{ flex: "0 0 120px" }}>
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>Postal code</div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: "#6b7280",
+                          }}
+                        >
+                          Postal code
+                        </div>
                         <input
                           type="text"
                           value={hr.postalCode ?? ""}
@@ -2327,7 +3493,14 @@ export default function CompanyUserProfilePage() {
                         />
                       </label>
                       <label style={{ flex: "0 0 120px" }}>
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>Country</div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: "#6b7280",
+                          }}
+                        >
+                          Country
+                        </div>
                         <input
                           type="text"
                           value={hr.country ?? ""}
@@ -2366,10 +3539,27 @@ export default function CompanyUserProfilePage() {
                         fontSize: 12,
                       }}
                     >
-                      <div style={{ fontWeight: 600, marginBottom: 4 }}>HR-only compensation</div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                      <div
+                        style={{ fontWeight: 600, marginBottom: 4 }}
+                      >
+                        HR-only compensation
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: 12,
+                        }}
+                      >
                         <label style={{ flex: "0 0 140px" }}>
-                          <div style={{ fontSize: 12, color: "#6b7280" }}>Hourly rate</div>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#6b7280",
+                            }}
+                          >
+                            Hourly rate
+                          </div>
                           <input
                             type="number"
                             step="0.01"
@@ -2396,7 +3586,14 @@ export default function CompanyUserProfilePage() {
                           />
                         </label>
                         <label style={{ flex: "0 0 140px" }}>
-                          <div style={{ fontSize: 12, color: "#6b7280" }}>Day rate</div>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#6b7280",
+                            }}
+                          >
+                            Day rate
+                          </div>
                           <input
                             type="number"
                             step="0.01"
@@ -2423,7 +3620,14 @@ export default function CompanyUserProfilePage() {
                           />
                         </label>
                         <label style={{ flex: "0 0 160px" }}>
-                          <div style={{ fontSize: 12, color: "#6b7280" }}>CP hourly rate</div>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#6b7280",
+                            }}
+                          >
+                            CP hourly rate
+                          </div>
                           <input
                             type="number"
                             step="0.01"
@@ -2440,12 +3644,21 @@ export default function CompanyUserProfilePage() {
                           />
                         </label>
                         <label style={{ flex: "0 0 180px" }}>
-                          <div style={{ fontSize: 12, color: "#6b7280" }}>Candidate desired pay</div>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#6b7280",
+                            }}
+                          >
+                            Candidate desired pay
+                          </div>
                           <input
                             type="number"
                             step="0.01"
                             value={hrCandidateDesiredPay}
-                            onChange={e => setHrCandidateDesiredPay(e.target.value)}
+                            onChange={e =>
+                              setHrCandidateDesiredPay(e.target.value)
+                            }
                             disabled={!canEditHrFields}
                             style={{
                               width: "100%",
@@ -2457,11 +3670,25 @@ export default function CompanyUserProfilePage() {
                           />
                         </label>
                       </div>
-                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
-                        Units: {(Number(workerHoursPerDay) || 10).toString()} hrs / day.
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#6b7280",
+                          marginTop: 4,
+                        }}
+                      >
+                        Units: {(Number(workerHoursPerDay) || 10).toString()} hrs
+                        / day.
                       </div>
-                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-                        Stored in the encrypted HR portfolio; used for HR screening and CP/export only.
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#6b7280",
+                          marginTop: 2,
+                        }}
+                      >
+                        Stored in the encrypted HR portfolio; used for HR
+                        screening and CP/export only.
                       </div>
                     </div>
 
@@ -2479,93 +3706,121 @@ export default function CompanyUserProfilePage() {
                           type="button"
                           disabled={savingHr}
                           onClick={async () => {
-                          if (!profile) return;
-                          const token = localStorage.getItem("accessToken");
-                          if (!token) {
-                            setHrError("Missing access token. Please log in again.");
-                            return;
-                          }
-                          try {
-                            setSavingHr(true);
-                            setHrError(null);
-                            const currentHr = profile.hr || {};
-
-                            const parseRate = (value: string): number | null | undefined => {
-                              const trimmed = value.trim();
-                              if (!trimmed) return null;
-                              const n = Number(trimmed);
-                              if (Number.isNaN(n)) return undefined;
-                              return n;
-                            };
-
-                            const nextHourly = parseRate(hrHourlyRate);
-                            const nextDay = parseRate(hrDayRate);
-                            const nextCpHourly = parseRate(hrCpHourlyRate);
-                            const nextDesired = parseRate(hrCandidateDesiredPay);
-
-                            if (
-                              nextHourly === undefined ||
-                              nextDay === undefined ||
-                              nextCpHourly === undefined ||
-                              nextDesired === undefined
-                            ) {
-                              throw new Error("Rates must be numeric when provided.");
-                            }
-
-                            const body: any = {
-                              displayEmail: currentHr.displayEmail ?? null,
-                              phone: currentHr.phone ?? null,
-                              addressLine1: currentHr.addressLine1 ?? null,
-                              addressLine2: currentHr.addressLine2 ?? null,
-                              city: currentHr.city ?? null,
-                              state: currentHr.state ?? null,
-                              postalCode: currentHr.postalCode ?? null,
-                              country: currentHr.country ?? null,
-                            };
-
-                            if (nextHourly !== undefined) body.hourlyRate = nextHourly;
-                            if (nextDay !== undefined) body.dayRate = nextDay;
-                            if (nextCpHourly !== undefined) body.cpHourlyRate = nextCpHourly;
-                            if (nextDesired !== undefined) body.candidateDesiredPay = nextDesired;
-                            const res = await fetch(
-                              `${API_BASE}/users/${profile.id}/portfolio-hr`,
-                              {
-                                method: "PATCH",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                  Authorization: `Bearer ${token}`,
-                                },
-                                body: JSON.stringify(body),
-                              },
-                            );
-                            if (!res.ok) {
-                              const text = await res.text().catch(() => "");
-                              throw new Error(
-                                `Failed to save HR contact (${res.status}) ${text}`,
+                            if (!profile) return;
+                            const token =
+                              localStorage.getItem("accessToken");
+                            if (!token) {
+                              setHrError(
+                                "Missing access token. Please log in again.",
                               );
+                              return;
                             }
-                            const json = await res.json();
-                            setProfile(json);
-                          } catch (e: any) {
-                            setHrError(e?.message ?? "Failed to save HR contact.");
-                          } finally {
-                            setSavingHr(false);
-                          }
-                        }}
-                        style={{
-                          padding: "4px 10px",
-                          borderRadius: 4,
-                          border: "1px solid #0f172a",
-                          backgroundColor: savingHr ? "#e5e7eb" : "#0f172a",
-                          color: savingHr ? "#4b5563" : "#f9fafb",
-                          fontSize: 12,
-                          cursor: savingHr ? "default" : "pointer",
-                        }}
-                      >
-                        {savingHr ? "Saving" : "Save HR contact"}
+                            try {
+                              setSavingHr(true);
+                              setHrError(null);
+                              const currentHr = profile.hr || {};
+
+                              const parseRate = (
+                                value: string,
+                              ): number | null | undefined => {
+                                const trimmed = value.trim();
+                                if (!trimmed) return null;
+                                const n = Number(trimmed);
+                                if (Number.isNaN(n)) return undefined;
+                                return n;
+                              };
+
+                              const nextHourly = parseRate(hrHourlyRate);
+                              const nextDay = parseRate(hrDayRate);
+                              const nextCpHourly = parseRate(hrCpHourlyRate);
+                              const nextDesired =
+                                parseRate(hrCandidateDesiredPay);
+
+                              if (
+                                nextHourly === undefined ||
+                                nextDay === undefined ||
+                                nextCpHourly === undefined ||
+                                nextDesired === undefined
+                              ) {
+                                throw new Error(
+                                  "Rates must be numeric when provided.",
+                                );
+                              }
+
+                              const body: any = {
+                                displayEmail:
+                                  currentHr.displayEmail ?? null,
+                                phone: currentHr.phone ?? null,
+                                addressLine1:
+                                  currentHr.addressLine1 ?? null,
+                                addressLine2:
+                                  currentHr.addressLine2 ?? null,
+                                city: currentHr.city ?? null,
+                                state: currentHr.state ?? null,
+                                postalCode:
+                                  currentHr.postalCode ?? null,
+                                country: currentHr.country ?? null,
+                              };
+
+                              if (nextHourly !== undefined)
+                                body.hourlyRate = nextHourly;
+                              if (nextDay !== undefined)
+                                body.dayRate = nextDay;
+                              if (nextCpHourly !== undefined)
+                                body.cpHourlyRate = nextCpHourly;
+                              if (nextDesired !== undefined)
+                                body.candidateDesiredPay = nextDesired;
+                              const res = await fetch(
+                                `${API_BASE}/users/${profile.id}/portfolio-hr`,
+                                {
+                                  method: "PATCH",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                  body: JSON.stringify(body),
+                                },
+                              );
+                              if (!res.ok) {
+                                const text = await res
+                                  .text()
+                                  .catch(() => "");
+                                throw new Error(
+                                  `Failed to save HR contact (${res.status}) ${text}`,
+                                );
+                              }
+                              const json = await res.json();
+                              setProfile(json);
+                            } catch (e: any) {
+                              setHrError(
+                                e?.message ?? "Failed to save HR contact.",
+                              );
+                            } finally {
+                              setSavingHr(false);
+                            }
+                          }}
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: 4,
+                            border: "1px solid #0f172a",
+                            backgroundColor: savingHr
+                              ? "#e5e7eb"
+                              : "#0f172a",
+                            color: savingHr
+                              ? "#4b5563"
+                              : "#f9fafb",
+                            fontSize: 12,
+                            cursor: savingHr ? "default" : "pointer",
+                          }}
+                        >
+                          {savingHr ? "Saving…" : "Save HR contact"}
                         </button>
                         {hrError && (
-                          <span style={{ fontSize: 11, color: "#b91c1c" }}>{hrError}</span>
+                          <span
+                            style={{ fontSize: 11, color: "#b91c1c" }}
+                          >
+                            {hrError}
+                          </span>
                         )}
                       </div>
                     )}
@@ -2579,19 +3834,51 @@ export default function CompanyUserProfilePage() {
                         borderTop: "1px dashed #e5e7eb",
                       }}
                     >
-                      <h3 style={{ fontSize: 14, marginBottom: 4 }}>Journal</h3>
-                      <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
-                        Internal notes and message history related to this worker. Workers may
-                        see high-level message history on their own journal board, but HR-only
-                        notes remain internal unless explicitly shared.
+                      <h3
+                        style={{ fontSize: 14, marginBottom: 4 }}
+                      >
+                        Journal
+                      </h3>
+                      <p
+                        style={{
+                          fontSize: 12,
+                          color: "#6b7280",
+                          marginTop: 0,
+                        }}
+                      >
+                        Internal notes and message history related to this
+                        worker. Workers may see high-level message history on
+                        their own journal board, but HR-only notes remain
+                        internal unless explicitly shared.
                       </p>
 
                       {journalLoading ? (
-                        <p style={{ fontSize: 12, color: "#6b7280" }}>Loading journal…</p>
+                        <p
+                          style={{
+                            fontSize: 12,
+                            color: "#6b7280",
+                          }}
+                        >
+                          Loading journal…
+                        </p>
                       ) : journalError ? (
-                        <p style={{ fontSize: 12, color: "#b91c1c" }}>{journalError}</p>
+                        <p
+                          style={{
+                            fontSize: 12,
+                            color: "#b91c1c",
+                          }}
+                        >
+                          {journalError}
+                        </p>
                       ) : journalEntries.length === 0 ? (
-                        <p style={{ fontSize: 12, color: "#6b7280" }}>No journal entries yet.</p>
+                        <p
+                          style={{
+                            fontSize: 12,
+                            color: "#6b7280",
+                          }}
+                        >
+                          No journal entries yet.
+                        </p>
                       ) : (
                         <div
                           style={{
@@ -2603,94 +3890,141 @@ export default function CompanyUserProfilePage() {
                             padding: 8,
                           }}
                         >
-                          <ul style={{ listStyle: "none", margin: 0, padding: 0, fontSize: 12 }}>
+                          <ul
+                            style={{
+                              listStyle: "none",
+                              margin: 0,
+                              padding: 0,
+                              fontSize: 12,
+                            }}
+                          >
                             {journalEntries.map(entry => (
                               <li
                                 key={entry.id}
                                 style={{
                                   padding: "6px 4px",
-                                  borderBottom: "1px solid #f3f4f6",
+                                  borderBottom:
+                                    "1px solid #f3f4f6",
                                 }}
                               >
-                                <div style={{ color: "#6b7280", fontSize: 11 }}>
-                                  {new Date(entry.createdAt).toLocaleString()}
+                                <div
+                                  style={{
+                                    color: "#6b7280",
+                                    fontSize: 11,
+                                  }}
+                                >
+                                  {new Date(
+                                    entry.createdAt,
+                                  ).toLocaleString()}
                                   {entry.senderEmail && (
                                     <>
-                                      {" "}· <span>{entry.senderEmail}</span>
+                                      {" "}·
+                                      <span>{entry.senderEmail}</span>
                                     </>
                                   )}
                                 </div>
-                                <div style={{ whiteSpace: "pre-wrap", color: "#111827" }}>
+                                <div
+                                  style={{
+                                    whiteSpace: "pre-wrap",
+                                    color: "#111827",
+                                  }}
+                                >
                                   {entry.body}
                                 </div>
-                                {entry.attachments && entry.attachments.length > 0 && (
-                                  <div style={{ marginTop: 4, fontSize: 11 }}>
-                                    {entry.attachments.map(att => {
-                                      const name = (att.filename || att.url || "").toLowerCase();
-                                      const isImage = /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name);
-                                      if (isImage) {
+                                {entry.attachments &&
+                                  entry.attachments.length > 0 && (
+                                    <div
+                                      style={{
+                                        marginTop: 4,
+                                        fontSize: 11,
+                                      }}
+                                    >
+                                      {entry.attachments.map(att => {
+                                        const name = (
+                                          att.filename ||
+                                          att.url ||
+                                          ""
+                                        ).toLowerCase();
+                                        const isImage =
+                                          /\.(png|jpe?g|gif|webp|bmp|svg)$/.
+                                            test(name);
+                                        if (isImage) {
+                                          return (
+                                            <div
+                                              key={att.id}
+                                              style={{
+                                                display: "flex",
+                                                alignItems:
+                                                  "center",
+                                                gap: 8,
+                                                marginBottom: 4,
+                                              }}
+                                            >
+                                              <a
+                                                href={att.url}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                style={{
+                                                  display:
+                                                    "inline-flex",
+                                                  alignItems:
+                                                    "center",
+                                                  gap: 8,
+                                                }}
+                                              >
+                                                <img
+                                                  src={att.url}
+                                                  alt={
+                                                    att.filename ||
+                                                    "Screenshot"
+                                                  }
+                                                  style={{
+                                                    width: 72,
+                                                    height: 72,
+                                                    objectFit:
+                                                      "cover",
+                                                    borderRadius: 6,
+                                                    border:
+                                                      "1px solid #e5e7eb",
+                                                    backgroundColor:
+                                                      "#f9fafb",
+                                                  }}
+                                                />
+                                                <span
+                                                  style={{
+                                                    color:
+                                                      "#2563eb",
+                                                    textDecoration:
+                                                      "underline",
+                                                  }}
+                                                >
+                                                  {att.filename ||
+                                                    att.url}
+                                                </span>
+                                              </a>
+                                            </div>
+                                          );
+                                        }
                                         return (
-                                          <div
-                                            key={att.id}
-                                            style={{
-                                              display: "flex",
-                                              alignItems: "center",
-                                              gap: 8,
-                                              marginBottom: 4,
-                                            }}
-                                          >
+                                          <div key={att.id}>
                                             <a
                                               href={att.url}
                                               target="_blank"
                                               rel="noreferrer"
                                               style={{
-                                                display: "inline-flex",
-                                                alignItems: "center",
-                                                gap: 8,
+                                                color: "#2563eb",
+                                                textDecoration:
+                                                  "underline",
                                               }}
                                             >
-                                              <img
-                                                src={att.url}
-                                                alt={att.filename || "Screenshot"}
-                                                style={{
-                                                  width: 72,
-                                                  height: 72,
-                                                  objectFit: "cover",
-                                                  borderRadius: 6,
-                                                  border: "1px solid #e5e7eb",
-                                                  backgroundColor: "#f9fafb",
-                                                }}
-                                              />
-                                              <span
-                                                style={{
-                                                  color: "#2563eb",
-                                                  textDecoration: "underline",
-                                                }}
-                                              >
-                                                {att.filename || att.url}
-                                              </span>
+                                              {att.filename ||
+                                                att.url}
                                             </a>
                                           </div>
                                         );
-                                      }
-                                      return (
-                                        <div key={att.id}>
-                                          <a
-                                            href={att.url}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            style={{
-                                              color: "#2563eb",
-                                              textDecoration: "underline",
-                                            }}
-                                          >
-                                            {att.filename || att.url}
-                                          </a>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
+                                      })}
+                                    </div>
+                                  )}
                               </li>
                             ))}
                           </ul>
@@ -2701,10 +4035,16 @@ export default function CompanyUserProfilePage() {
                       <form
                         onSubmit={async e => {
                           e.preventDefault();
-                          if (!journalDraft.trim() || !profile?.id) return;
-                          const token = window.localStorage.getItem("accessToken");
+                          if (!journalDraft.trim() || !profile?.id)
+                            return;
+                          const token =
+                            window.localStorage.getItem(
+                              "accessToken",
+                            );
                           if (!token) {
-                            alert("Missing access token. Please log in again.");
+                            alert(
+                              "Missing access token. Please log in again.",
+                            );
                             return;
                           }
                           try {
@@ -2719,20 +4059,24 @@ export default function CompanyUserProfilePage() {
                                 },
                                 body: JSON.stringify({
                                   body: journalDraft.trim(),
-                                  shareWithSubject: shareJournalWithWorker,
+                                  shareWithSubject:
+                                    shareJournalWithWorker,
                                   attachments:
                                     journalAttachments.length > 0
                                       ? journalAttachments.map(att => ({
                                           kind: "UPLOADED_FILE",
                                           url: att.url,
-                                          filename: att.label || null,
+                                          filename:
+                                            att.label || null,
                                         }))
                                       : undefined,
                                 }),
                               },
                             );
                             if (!res.ok) {
-                              const text = await res.text().catch(() => "");
+                              const text = await res
+                                .text()
+                                .catch(() => "");
                               throw new Error(
                                 `Failed to add journal entry (${res.status}) ${text}`,
                               );
@@ -2742,16 +4086,24 @@ export default function CompanyUserProfilePage() {
                             setJournalEntries(prev => [
                               {
                                 id: created.id,
-                                body: created.body ?? journalDraft.trim(),
-                                createdAt: created.createdAt ?? new Date().toISOString(),
-                                senderEmail: created.senderEmail ?? null,
+                                body:
+                                  created.body ??
+                                  journalDraft.trim(),
+                                createdAt:
+                                  created.createdAt ??
+                                  new Date().toISOString(),
+                                senderEmail:
+                                  created.senderEmail ?? null,
                                 attachments:
                                   journalAttachments.length > 0
-                                    ? journalAttachments.map((att, idx) => ({
-                                        id: `${created.id}-att-${idx}`,
-                                        url: att.url,
-                                        filename: att.label || null,
-                                      }))
+                                    ? journalAttachments.map(
+                                        (att, idx) => ({
+                                          id: `${created.id}-att-${idx}`,
+                                          url: att.url,
+                                          filename:
+                                            att.label || null,
+                                        }),
+                                      )
                                     : [],
                               },
                               ...prev,
@@ -2760,7 +4112,10 @@ export default function CompanyUserProfilePage() {
                             setJournalAttachments([]);
                             setShareJournalWithWorker(false);
                           } catch (err: any) {
-                            alert(err?.message ?? "Failed to add journal entry.");
+                            alert(
+                              err?.message ??
+                                "Failed to add journal entry.",
+                            );
                           } finally {
                             setSavingJournal(false);
                           }
@@ -2772,11 +4127,18 @@ export default function CompanyUserProfilePage() {
                           gap: 6,
                         }}
                       >
-                        <label style={{ fontSize: 12, color: "#4b5563" }}>
+                        <label
+                          style={{
+                            fontSize: 12,
+                            color: "#4b5563",
+                          }}
+                        >
                           Add HR-only journal note
                           <textarea
                             value={journalDraft}
-                            onChange={e => setJournalDraft(e.target.value)}
+                            onChange={e =>
+                              setJournalDraft(e.target.value)
+                            }
                             rows={3}
                             style={{
                               marginTop: 4,
@@ -2791,9 +4153,22 @@ export default function CompanyUserProfilePage() {
                           />
                         </label>
                         {journalAttachments.length > 0 && (
-                          <div style={{ marginTop: 6, fontSize: 11 }}>
-                            <div style={{ marginBottom: 2 }}>Attached images</div>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          <div
+                            style={{
+                              marginTop: 6,
+                              fontSize: 11,
+                            }}
+                          >
+                            <div style={{ marginBottom: 2 }}>
+                              Attached images
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: 4,
+                              }}
+                            >
                               {journalAttachments.map(att => (
                                 <span
                                   key={att.url}
@@ -2812,7 +4187,9 @@ export default function CompanyUserProfilePage() {
                                     type="button"
                                     onClick={() =>
                                       setJournalAttachments(prev =>
-                                        prev.filter(x => x.url !== att.url),
+                                        prev.filter(
+                                          x => x.url !== att.url,
+                                        ),
                                       )
                                     }
                                     style={{
@@ -2848,9 +4225,15 @@ export default function CompanyUserProfilePage() {
                             <input
                               type="checkbox"
                               checked={shareJournalWithWorker}
-                              onChange={e => setShareJournalWithWorker(e.target.checked)}
+                              onChange={e =>
+                                setShareJournalWithWorker(
+                                  e.target.checked,
+                                )
+                              }
                             />
-                            <span>Share this note with the worker via Messages</span>
+                            <span>
+                              Share this note with the worker via Messages
+                            </span>
                           </label>
                           <button
                             type="submit"
@@ -2869,7 +4252,9 @@ export default function CompanyUserProfilePage() {
                                   : "#f9fafb",
                               fontSize: 12,
                               cursor:
-                                savingJournal || !journalDraft.trim() ? "default" : "pointer",
+                                savingJournal || !journalDraft.trim()
+                                  ? "default"
+                                  : "pointer",
                             }}
                           >
                             {savingJournal ? "Saving…" : "Add journal entry"}
@@ -2881,583 +4266,9 @@ export default function CompanyUserProfilePage() {
                 )}
               </div>
             )}
-            </section>
-          )}
-        </div>
-
-        <hr
-          style={{
-            marginTop: 16,
-            marginBottom: 12,
-            border: 0,
-            borderTop: "1px solid #e5e7eb",
-          }}
-        />
+          </section>
+        )}
       </div>
-
-      <section style={{ marginTop: 0, flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "baseline",
-            marginBottom: 4,
-          }}
-        >
-          <h2 style={{ fontSize: 16, margin: 0 }}>Skills</h2>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
-            Rated {ratedSkills}/{totalSkills} skills
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 16, alignItems: "stretch", flex: "1 1 auto", minHeight: 0 }}>
-          {/* Left: compact matrix (groupings + ratings) */}
-          <div style={{ flex: "0 0 760px", maxWidth: 760, minHeight: 0, display: "flex" }}>
-            <div
-              style={{
-                flex: 1,
-                minHeight: 0,
-                overflowY: "auto",
-                border: "1px solid #e5e7eb",
-                borderRadius: 6,
-              }}
-            >
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: 13,
-                  tableLayout: "fixed",
-                }}
-              >
-                <thead>
-                  <tr style={{ backgroundColor: "#f9fafb" }}>
-                    <th style={{ textAlign: "left", padding: "6px 8px", width: 320 }}>Skill</th>
-                    {isAdminOrAbove ? (
-                      <>
-                        <th style={{ textAlign: "left", padding: "6px 8px", whiteSpace: "nowrap", width: 140 }}>
-                          Self
-                        </th>
-                        <th style={{ textAlign: "left", padding: "6px 8px", whiteSpace: "nowrap", width: 140 }}>
-                          Peer
-                        </th>
-                        <th style={{ textAlign: "left", padding: "6px 8px", whiteSpace: "nowrap", width: 140 }}>
-                          Client
-                        </th>
-                      </>
-                    ) : (
-                      <th style={{ textAlign: "left", padding: "6px 8px", whiteSpace: "nowrap", width: 180 }}>
-                        Rating
-                      </th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {categoryGroups.map((g, gIdx) => {
-                    const expanded = !!expandedCategories[g.categoryLabel];
-                    const roundedSelf = g.avgSelf != null ? Math.round(g.avgSelf) : null;
-                    const roundedAgg = g.avgAggregate != null ? Math.round(g.avgAggregate) : null;
-
-                    return (
-                      <Fragment key={g.categoryLabel}>
-                        <tr
-                          style={{
-                            backgroundColor: gIdx % 2 === 0 ? "#ffffff" : "#fcfcfd",
-                          }}
-                        >
-                          <td
-                            style={{
-                              padding: "10px 10px",
-                              borderTop: "1px solid #e5e7eb",
-                              cursor: "pointer",
-                              fontWeight: 700,
-                            }}
-                            onClick={() =>
-                              setExpandedCategories(prev => ({
-                                ...prev,
-                                [g.categoryLabel]: !prev[g.categoryLabel],
-                              }))
-                            }
-                          >
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                              <span>
-                                {expanded ? "▾" : "▸"} {g.categoryLabel}
-                              </span>
-                              <span style={{ fontSize: 11, fontWeight: 600, color: "#6b7280" }}>
-                                Rated {g.ratedCount}/{g.totalCount}
-                              </span>
-                            </div>
-                          </td>
-
-                          {isAdminOrAbove ? (
-                            <>
-                              <td
-                                style={{
-                                  padding: "10px 10px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  whiteSpace: "nowrap",
-                                  textAlign: "left",
-                                }}
-                              >
-                                <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                                  {renderStars(roundedSelf, 14)}
-                                  <span style={{ fontSize: 11, color: "#6b7280" }}>
-                                    {g.avgSelf != null ? `${g.avgSelf.toFixed(1)}/5` : "—"}
-                                  </span>
-                                </div>
-                              </td>
-                              <td
-                                style={{
-                                  padding: "10px 10px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  whiteSpace: "nowrap",
-                                  textAlign: "left",
-                                }}
-                              >
-                                <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                                  {renderStars(g.avgPeer, 12)}
-                                  <span style={{ fontSize: 11, color: "#6b7280" }}>
-                                    {g.avgPeer != null ? `${g.avgPeer.toFixed(1)}/5` : "—"}
-                                  </span>
-                                </div>
-                              </td>
-                              <td
-                                style={{
-                                  padding: "10px 10px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  whiteSpace: "nowrap",
-                                  textAlign: "left",
-                                }}
-                              >
-                                <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                                  {renderStars(g.avgClient, 12)}
-                                  <span style={{ fontSize: 11, color: "#6b7280" }}>
-                                    {g.avgClient != null ? `${g.avgClient.toFixed(1)}/5` : "—"}
-                                  </span>
-                                </div>
-                              </td>
-                            </>
-                          ) : (
-                            <td
-                              style={{
-                                padding: "10px 10px",
-                                borderTop: "1px solid #e5e7eb",
-                                whiteSpace: "nowrap",
-                                textAlign: "left",
-                              }}
-                            >
-                              {g.avgAggregate == null ? (
-                                <span style={{ fontSize: 11, color: "#6b7280" }}>—</span>
-                              ) : (
-                                <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                                  {renderStars(roundedAgg, 14)}
-                                  <span style={{ fontSize: 11, color: "#6b7280" }}>
-                                    {g.avgAggregate.toFixed(1)}/5
-                                  </span>
-                                </div>
-                              )}
-                            </td>
-                          )}
-                        </tr>
-
-                        {expanded &&
-                          g.skills.map((skill, idx) => {
-                            const selected = selectedSkillId === skill.id;
-
-                            return (
-                              <tr
-                                key={skill.id}
-                                onClick={() => {
-                                  setSelectedSkillId(skill.id);
-                                  setEmployerLevel("");
-                                  setEmployerNotes("");
-                                  setClientLevel("");
-                                  setClientComment("");
-                                }}
-                                style={{
-                                  backgroundColor: selected
-                                    ? "#eff6ff"
-                                    : idx % 2 === 0
-                                    ? "#ffffff"
-                                    : "#fcfcfd",
-                                  cursor: "pointer",
-                                }}
-                              >
-                                <td
-                                  style={{
-                                    padding: "8px 10px 8px 26px",
-                                    borderTop: "1px solid #e5e7eb",
-                                    fontWeight: selected ? 600 : 400,
-                                    borderLeft: selected ? "3px solid #2563eb" : "3px solid transparent",
-                                  }}
-                                >
-                                  <div>{skill.label}</div>
-                                  {skill.tradeLabel && (
-                                    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-                                      {skill.tradeLabel}
-                                    </div>
-                                  )}
-                                </td>
-
-                                {isAdminOrAbove ? (
-                                  <>
-                                    <td
-                                      style={{
-                                        padding: "8px 10px",
-                                        borderTop: "1px solid #e5e7eb",
-                                        whiteSpace: "nowrap",
-                                        textAlign: "left",
-                                      }}
-                                    >
-                                      <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                                        {renderStars(skill.selfLevel, 16)}
-                                        <span style={{ fontSize: 11, color: "#6b7280" }}>
-                                          {skill.selfLevel != null ? `${skill.selfLevel}/5` : "—"}
-                                        </span>
-                                      </div>
-                                    </td>
-                                    <td
-                                      style={{
-                                        padding: "8px 10px",
-                                        borderTop: "1px solid #e5e7eb",
-                                        whiteSpace: "nowrap",
-                                        textAlign: "left",
-                                      }}
-                                    >
-                                      <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                                        {renderStars(skill.employerAvgLevel, 12)}
-                                        <span style={{ fontSize: 11, color: "#6b7280" }}>
-                                          {skill.employerAvgLevel != null
-                                            ? `${skill.employerAvgLevel.toFixed(1)}/5 (${skill.employerRatingCount ?? 0})`
-                                            : "—"}
-                                        </span>
-                                      </div>
-                                    </td>
-                                    <td
-                                      style={{
-                                        padding: "8px 10px",
-                                        borderTop: "1px solid #e5e7eb",
-                                        whiteSpace: "nowrap",
-                                        textAlign: "left",
-                                      }}
-                                    >
-                                      <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                                        {renderStars(skill.clientAvgLevel, 12)}
-                                        <span style={{ fontSize: 11, color: "#6b7280" }}>
-                                          {skill.clientAvgLevel != null
-                                            ? `${skill.clientAvgLevel.toFixed(1)}/5 (${skill.clientRatingCount ?? 0})`
-                                            : "—"}
-                                        </span>
-                                      </div>
-                                    </td>
-                                  </>
-                                ) : (
-                                  <td
-                                    style={{
-                                      padding: "8px 10px",
-                                      borderTop: "1px solid #e5e7eb",
-                                      whiteSpace: "nowrap",
-                                      textAlign: "left",
-                                    }}
-                                  >
-                                    {skill.aggregateAvgLevel == null ? (
-                                      <span style={{ fontSize: 11, color: "#6b7280" }}>—</span>
-                                    ) : (
-                                      <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                                        {renderStars(Math.round(skill.aggregateAvgLevel), 14)}
-                                        <span style={{ fontSize: 11, color: "#6b7280" }}>
-                                          {skill.aggregateAvgLevel.toFixed(1)}/5 ({skill.aggregateRatingCount})
-                                        </span>
-                                      </div>
-                                    )}
-                                  </td>
-                                )}
-                              </tr>
-                            );
-                          })}
-                      </Fragment>
-                    );
-                  })}
-
-                  {profile.skills.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={isAdminOrAbove ? 4 : 2}
-                        style={{ padding: "8px", fontSize: 12, color: "#6b7280" }}
-                      >
-                        No Data in records – personnel records incomplete.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Right: details panel (comments + future portfolio) */}
-          <div style={{ flex: 1, minWidth: 260, minHeight: 0, display: "flex" }}>
-            <div
-              style={{
-                flex: 1,
-                minHeight: 0,
-                overflowY: "auto",
-                border: "1px solid #e5e7eb",
-                borderRadius: 6,
-                padding: 12,
-                background: "#ffffff",
-              }}
-            >
-              {!selectedSkillId ? (
-                <div style={{ fontSize: 12, color: "#6b7280" }}>Select a skill to view details.</div>
-              ) : (() => {
-                const skill = profile.skills.find(s => s.id === selectedSkillId) || null;
-                const detailsLoading = !!detailsLoadingBySkillId[selectedSkillId];
-                const detailsError = detailsErrorBySkillId[selectedSkillId];
-                const details = detailsBySkillId[selectedSkillId];
-
-                if (!skill) {
-                  return <div style={{ fontSize: 12, color: "#6b7280" }}>Skill not found.</div>;
-                }
-
-                return (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700 }}>{skill.label}</div>
-                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
-                        {(skill.categoryLabel || "Other") + (skill.tradeLabel ? ` · ${skill.tradeLabel}` : "")}
-                      </div>
-                    </div>
-
-                    <div style={{ fontSize: 12 }}>
-                      <div style={{ fontWeight: 600, marginBottom: 6 }}>Ratings</div>
-                      {isAdminOrAbove ? (
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-                          <div>
-                            <div style={{ fontSize: 11, color: "#6b7280" }}>Self</div>
-                            {renderStars(skill.selfLevel, 16)}
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 11, color: "#6b7280" }}>Peer</div>
-                            <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                              {renderStars(skill.employerAvgLevel, 14)}
-                              <span style={{ fontSize: 11, color: "#6b7280" }}>
-                                {skill.employerAvgLevel != null
-                                  ? `${skill.employerAvgLevel.toFixed(1)}/5 (${skill.employerRatingCount ?? 0})`
-                                  : "—"}
-                              </span>
-                            </div>
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 11, color: "#6b7280" }}>Client</div>
-                            <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                              {renderStars(skill.clientAvgLevel, 14)}
-                              <span style={{ fontSize: 11, color: "#6b7280" }}>
-                                {skill.clientAvgLevel != null
-                                  ? `${skill.clientAvgLevel.toFixed(1)}/5 (${skill.clientRatingCount ?? 0})`
-                                  : "—"}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div>
-                          {skill.aggregateAvgLevel == null ? (
-                            <span style={{ color: "#6b7280" }}>No ratings yet.</span>
-                          ) : (
-                            <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                              {renderStars(Math.round(skill.aggregateAvgLevel), 16)}
-                              <span style={{ color: "#6b7280" }}>
-                                {skill.aggregateAvgLevel.toFixed(1)}/5 ({skill.aggregateRatingCount})
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {canRate && (
-                      <form onSubmit={handleAddEmployerRating} style={{ fontSize: 12 }}>
-                        <div style={{ fontWeight: 600, marginBottom: 6 }}>Add / update employer rating</div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-start" }}>
-                          <select
-                            value={employerLevel}
-                            onChange={e => setEmployerLevel(e.target.value)}
-                            style={{
-                              padding: "4px 6px",
-                              borderRadius: 4,
-                              border: "1px solid #d1d5db",
-                            }}
-                          >
-                            <option value="">Level…</option>
-                            <option value="1">1 – Novice</option>
-                            <option value="2">2 – Beginner</option>
-                            <option value="3">3 – Competent</option>
-                            <option value="4">4 – Proficient</option>
-                            <option value="5">5 – Expert</option>
-                          </select>
-                          <textarea
-                            placeholder="Comments / clarifications (optional)"
-                            value={employerNotes}
-                            onChange={e => setEmployerNotes(e.target.value)}
-                            rows={4}
-                            style={{
-                              flex: 1,
-                              minWidth: 220,
-                              padding: "6px 8px",
-                              borderRadius: 4,
-                              border: "1px solid #d1d5db",
-                              resize: "vertical",
-                            }}
-                          />
-                          <button
-                            type="submit"
-                            disabled={employerSaving}
-                            style={{
-                              padding: "6px 10px",
-                              borderRadius: 4,
-                              border: "1px solid #0f172a",
-                              backgroundColor: employerSaving ? "#e5e7eb" : "#0f172a",
-                              color: employerSaving ? "#4b5563" : "#f9fafb",
-                              cursor: employerSaving ? "default" : "pointer",
-                            }}
-                          >
-                            {employerSaving ? "Saving…" : "Save"}
-                          </button>
-                        </div>
-                        {employerError && (
-                          <div style={{ color: "#b91c1c", marginTop: 6 }}>{employerError}</div>
-                        )}
-                      </form>
-                    )}
-
-                    {canClientRate && (
-                      <form onSubmit={handleAddClientRating} style={{ fontSize: 12 }}>
-                        <div style={{ fontWeight: 600, marginBottom: 6 }}>Add client rating</div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-start" }}>
-                          <select
-                            value={clientLevel}
-                            onChange={e => setClientLevel(e.target.value)}
-                            style={{
-                              padding: "4px 6px",
-                              borderRadius: 4,
-                              border: "1px solid #d1d5db",
-                            }}
-                          >
-                            <option value="">Level…</option>
-                            <option value="1">1 – Novice</option>
-                            <option value="2">2 – Beginner</option>
-                            <option value="3">3 – Competent</option>
-                            <option value="4">4 – Proficient</option>
-                            <option value="5">5 – Expert</option>
-                          </select>
-                          <textarea
-                            placeholder="Client comment (optional)"
-                            value={clientComment}
-                            onChange={e => setClientComment(e.target.value)}
-                            rows={3}
-                            style={{
-                              flex: 1,
-                              minWidth: 220,
-                              padding: "6px 8px",
-                              borderRadius: 4,
-                              border: "1px solid #d1d5db",
-                              resize: "vertical",
-                            }}
-                          />
-                          <button
-                            type="submit"
-                            disabled={clientSaving}
-                            style={{
-                              padding: "6px 10px",
-                              borderRadius: 4,
-                              border: "1px solid #0f172a",
-                              backgroundColor: clientSaving ? "#e5e7eb" : "#0f172a",
-                              color: clientSaving ? "#4b5563" : "#f9fafb",
-                              cursor: clientSaving ? "default" : "pointer",
-                            }}
-                          >
-                            {clientSaving ? "Saving…" : "Save"}
-                          </button>
-                        </div>
-                        {clientError && (
-                          <div style={{ color: "#b91c1c", marginTop: 6 }}>{clientError}</div>
-                        )}
-                      </form>
-                    )}
-
-                    {isAdminOrAbove && (
-                      <div style={{ fontSize: 12 }}>
-                        <div style={{ fontWeight: 600, marginBottom: 6 }}>Peer / client comments</div>
-                        {detailsLoading ? (
-                          <div style={{ color: "#6b7280" }}>Loading comments…</div>
-                        ) : detailsError ? (
-                          <div style={{ color: "#b91c1c" }}>{detailsError}</div>
-                        ) : (
-                          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                            <div style={{ minWidth: 220, flex: 1 }}>
-                              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Peer</div>
-                              {details?.peerRatings?.filter((r: any) => r.comment)?.length ? (
-                                <ul style={{ margin: 0, paddingLeft: 18 }}>
-                                  {details.peerRatings
-                                    .filter((r: any) => r.comment)
-                                    .map((r: any) => (
-                                      <li key={r.id} style={{ marginBottom: 4 }}>
-                                        <span style={{ fontWeight: 600 }}>{r.level}/5</span> — {r.comment}
-                                      </li>
-                                    ))}
-                                </ul>
-                              ) : (
-                                <div style={{ color: "#6b7280" }}>No peer comments yet.</div>
-                              )}
-                            </div>
-                            <div style={{ minWidth: 220, flex: 1 }}>
-                              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Client</div>
-                              {details?.clientRatings?.filter((r: any) => r.comment)?.length ? (
-                                <ul style={{ margin: 0, paddingLeft: 18 }}>
-                                  {details.clientRatings
-                                    .filter((r: any) => r.comment)
-                                    .map((r: any) => (
-                                      <li key={r.id} style={{ marginBottom: 4 }}>
-                                        <span style={{ fontWeight: 600 }}>{r.level}/5</span> — {r.comment}
-                                      </li>
-                                    ))}
-                                </ul>
-                              ) : (
-                                <div style={{ color: "#6b7280" }}>No client comments yet.</div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <div style={{ fontSize: 12 }}>
-                      <div style={{ fontWeight: 600, marginBottom: 6 }}>Portfolio (Line card / work deck)</div>
-                      <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 8 }}>
-                        Coming next: uploads + links curated by the tradesman per skill.
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        <input
-                          type="url"
-                          placeholder="Add a link (e.g. portfolio page)"
-                          disabled
-                          style={{
-                            padding: "6px 8px",
-                            borderRadius: 4,
-                            border: "1px solid #d1d5db",
-                            background: "#f9fafb",
-                          }}
-                        />
-                        <input type="file" multiple disabled />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }
