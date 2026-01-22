@@ -42,6 +42,7 @@ type PortfolioHrPayload = {
   hourlyRate?: number | null;
   dayRate?: number | null;
   cpHourlyRate?: number | null;
+  candidateDesiredPay?: number | null;
 
   // HR documents (non-secret; URLs to storage)
   documents?: HrDocumentPayload[];
@@ -254,6 +255,11 @@ export class UserService {
           bankAddress: payload.bankAddress ?? null,
           hipaaNotes: payload.hipaaNotes ?? null,
 
+          hourlyRate: payload.hourlyRate ?? null,
+          dayRate: payload.dayRate ?? null,
+          cpHourlyRate: payload.cpHourlyRate ?? null,
+          candidateDesiredPay: payload.candidateDesiredPay ?? null,
+
           documents: Array.isArray(payload.documents) ? payload.documents : [],
 
           // Masked / derived
@@ -327,7 +333,7 @@ export class UserService {
 
     const canViewHr = this.canViewHrPortfolio(actor, actor.userId);
 
-    const hrInputKeys = [
+      const hrInputKeys = [
       "displayEmail",
       "phone",
       "addressLine1",
@@ -347,6 +353,7 @@ export class UserService {
       "hourlyRate",
       "dayRate",
       "cpHourlyRate",
+      "candidateDesiredPay",
     ];
 
     const hasAnyHrUpdate = hrInputKeys.some(k => body[k] !== undefined);
@@ -395,9 +402,11 @@ export class UserService {
       const hrHourly = coerceNumber(body.hourlyRate);
       const hrDay = coerceNumber(body.dayRate);
       const hrCpHourly = coerceNumber(body.cpHourlyRate);
+      const hrDesired = coerceNumber(body.candidateDesiredPay);
       if (hrHourly !== undefined) (next as any).hourlyRate = hrHourly;
       if (hrDay !== undefined) (next as any).dayRate = hrDay;
       if (hrCpHourly !== undefined) (next as any).cpHourlyRate = hrCpHourly;
+      if (hrDesired !== undefined) (next as any).candidateDesiredPay = hrDesired;
 
       // Highly sensitive: we keep the full value only in encrypted JSON.
       setMaybe("ssn", body.ssn);
@@ -518,9 +527,11 @@ export class UserService {
     const hrHourly = coerceNumber(body.hourlyRate);
     const hrDay = coerceNumber(body.dayRate);
     const hrCpHourly = coerceNumber(body.cpHourlyRate);
+    const hrDesired = coerceNumber(body.candidateDesiredPay);
     if (hrHourly !== undefined) (next as any).hourlyRate = hrHourly;
     if (hrDay !== undefined) (next as any).dayRate = hrDay;
     if (hrCpHourly !== undefined) (next as any).cpHourlyRate = hrCpHourly;
+    if (hrDesired !== undefined) (next as any).candidateDesiredPay = hrDesired;
 
     const encryptedJson = encryptPortfolioHrJson(next);
     const encryptedBytes = Uint8Array.from(encryptedJson);
@@ -840,6 +851,11 @@ export class UserService {
               bankAddress: payload.bankAddress ?? null,
               hipaaNotes: payload.hipaaNotes ?? null,
 
+              hourlyRate: payload.hourlyRate ?? null,
+              dayRate: payload.dayRate ?? null,
+              cpHourlyRate: payload.cpHourlyRate ?? null,
+              candidateDesiredPay: payload.candidateDesiredPay ?? null,
+
               documents: Array.isArray(payload.documents) ? payload.documents : [],
 
               ssnLast4: hr.ssnLast4 ?? null,
@@ -887,6 +903,7 @@ export class UserService {
               totalHoursCbs: true,
               totalHoursCct: true,
               defaultPayRate: true,
+              defaultHoursPerDay: true,
               billRate: true,
               cpRate: true,
               cpRole: true,

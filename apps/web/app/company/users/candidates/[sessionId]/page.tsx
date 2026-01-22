@@ -129,6 +129,13 @@ export default function CandidateDetailPage() {
   // Collapse the HR onboarding profile card by default so sensitive fields
   // are not immediately visible; HR/admins can click to unlock.
   const [hrProfileCollapsed, setHrProfileCollapsed] = useState(true);
+  const [hrHourlyRate, setHrHourlyRate] = useState<string>("");
+  const [hrDayRate, setHrDayRate] = useState<string>("");
+  const [hrCpHourlyRate, setHrCpHourlyRate] = useState<string>("");
+  const [hrCandidateDesiredPay, setHrCandidateDesiredPay] = useState<string>("");
+  const [savingHrComp, setSavingHrComp] = useState(false);
+  const [hrCompError, setHrCompError] = useState<string | null>(null);
+  const [hrCompMessage, setHrCompMessage] = useState<string | null>(null);
 
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
@@ -226,6 +233,66 @@ export default function CandidateDetailPage() {
 
     void load();
   }, [sessionId]);
+
+  // Load HR-only compensation from the worker HR portfolio (if linked) so
+  // HR sees the same screening rates here and on the worker profile.
+  useEffect(() => {
+    const targetUserId = session?.userId;
+    if (!targetUserId || !canViewHr) return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    async function loadHrComp() {
+      try {
+        const res = await fetch(`${API_BASE}/users/${targetUserId}/profile`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        const hr = json?.hr as
+          | {
+              hourlyRate?: number | null;
+              dayRate?: number | null;
+              cpHourlyRate?: number | null;
+              candidateDesiredPay?: number | null;
+            }
+          | null
+          | undefined;
+        if (!hr || cancelled) return;
+
+        setHrHourlyRate(
+          typeof hr.hourlyRate === "number" && !Number.isNaN(hr.hourlyRate)
+            ? String(hr.hourlyRate)
+            : "",
+        );
+        setHrDayRate(
+          typeof hr.dayRate === "number" && !Number.isNaN(hr.dayRate)
+            ? String(hr.dayRate)
+            : "",
+        );
+        setHrCpHourlyRate(
+          typeof hr.cpHourlyRate === "number" && !Number.isNaN(hr.cpHourlyRate)
+            ? String(hr.cpHourlyRate)
+            : "",
+        );
+        setHrCandidateDesiredPay(
+          typeof hr.candidateDesiredPay === "number" && !Number.isNaN(hr.candidateDesiredPay)
+            ? String(hr.candidateDesiredPay)
+            : "",
+        );
+      } catch {
+        // Fail soft if HR portfolio is unavailable; inputs will remain empty.
+      }
+    }
+
+    void loadHrComp();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.userId, canViewHr]);
 
   // Load self-assessed skills once we know the session token
   useEffect(() => {
@@ -509,12 +576,82 @@ export default function CandidateDetailPage() {
   const photos = docs.filter(d => (d.type || "").toUpperCase() === "PHOTO");
   const govIds = docs.filter(d => (d.type || "").toUpperCase() === "GOV_ID");
 
-  // Prefer documents that weve confirmed exist on disk when docAvailable has
+  // Prefer documents that we've confirmed exist on disk when docAvailable has
   // been populated; otherwise fall back to the first of each type.
   const primaryPhoto =
     photos.find(d => docAvailable[d.id] !== false) || (photos.length > 0 ? photos[0] : null);
   const primaryGovId =
     govIds.find(d => docAvailable[d.id] !== false) || (govIds.length > 0 ? govIds[0] : null);
+
+  const candidatePhotoUrl = primaryPhoto?.fileUrl || "/people-icon-users.jpg";
+  const hasCandidatePhoto = !!primaryPhoto;
+
+  async function handleSaveHrComp() {
+    if (!session?.userId) {
+      setHrCompError("No linked Nexis worker profile for this candidate.");
+      return;
+    }
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setHrCompError("Missing access token. Please log in again.");
+      return;
+    }
+
+    const parseRate = (value: string): number | null | undefined => {
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      const n = Number(trimmed);
+      if (Number.isNaN(n)) return undefined;
+      return n;
+    };
+
+    const nextHourly = parseRate(hrHourlyRate);
+    const nextDay = parseRate(hrDayRate);
+    const nextCpHourly = parseRate(hrCpHourlyRate);
+    const nextDesired = parseRate(hrCandidateDesiredPay);
+
+    if (
+      nextHourly === undefined ||
+      nextDay === undefined ||
+      nextCpHourly === undefined ||
+      nextDesired === undefined
+    ) {
+      setHrCompError("Rates must be numeric when provided.");
+      return;
+    }
+
+    try {
+      setSavingHrComp(true);
+      setHrCompError(null);
+      setHrCompMessage(null);
+
+      const body: any = {};
+      if (nextHourly !== undefined) body.hourlyRate = nextHourly;
+      if (nextDay !== undefined) body.dayRate = nextDay;
+      if (nextCpHourly !== undefined) body.cpHourlyRate = nextCpHourly;
+      if (nextDesired !== undefined) body.candidateDesiredPay = nextDesired;
+
+      const res = await fetch(`${API_BASE}/users/${session.userId}/portfolio-hr`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Failed to save HR compensation (${res.status})`);
+      }
+
+      setHrCompMessage("Saved HR rates.");
+    } catch (e: any) {
+      setHrCompError(e?.message ?? "Failed to save HR compensation.");
+    } finally {
+      setSavingHrComp(false);
+    }
+  }
 
   // Only Nexus System HR / SUPER_ADMIN will have canViewHr in this context, so
   // we can safely use that flag to decide whether to show HR document upload
@@ -596,7 +733,7 @@ export default function CandidateDetailPage() {
       <h1 style={{ marginTop: 0, fontSize: 20 }}>Candidate</h1>
       <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>Prospective worker from Nexis profile</p>
 
-      {canViewHr && (primaryPhoto || primaryGovId) && (
+      {canViewHr && (
         <section
           style={{
             marginTop: 12,
@@ -614,33 +751,35 @@ export default function CandidateDetailPage() {
               flexWrap: "wrap",
             }}
           >
-            {primaryPhoto && (
-              <img
-                src={primaryPhoto.fileUrl}
-                alt={primaryPhoto.fileName || "Candidate profile photo"}
-                style={{
-                  width: 72,
-                  height: 72,
-                  borderRadius: 8,
-                  objectFit: "cover",
-                  border: "1px solid #e5e7eb",
-                  backgroundColor: "#ffffff",
-                }}
-              />
-            )}
+            <img
+              src={candidatePhotoUrl}
+              alt={hasCandidatePhoto ? primaryPhoto?.fileName || "Candidate profile photo" : "Candidate profile placeholder"}
+              style={{
+                width: 72,
+                height: 72,
+                borderRadius: 8,
+                objectFit: "cover",
+                border: "1px solid #e5e7eb",
+                backgroundColor: "#ffffff",
+              }}
+            />
             <div style={{ fontSize: 12, color: "#111827" }}>
               <div style={{ fontWeight: 600, marginBottom: 2 }}>Photo & ID on file</div>
-              {primaryPhoto && (
+              {hasCandidatePhoto ? (
                 <div>
                   <span>Profile photo </span>
                   <a
-                    href={primaryPhoto.fileUrl}
+                    href={candidatePhotoUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{ color: "#2563eb", textDecoration: "none", fontSize: 11 }}
                   >
                     View full-size
                   </a>
+                </div>
+              ) : (
+                <div>
+                  <span style={{ fontSize: 11, color: "#6b7280" }}>No uploaded photo yet</span>
                 </div>
               )}
               {primaryGovId && (
@@ -670,7 +809,7 @@ export default function CandidateDetailPage() {
           flexWrap: "wrap",
         }}
       >
-        <div style={{ flex: "1 1 0", minWidth: 320 }}>
+        <div style={{ flex: "1 1 0", minWidth: 320, order: 2 }}>
           <section>
             <h2 style={{ fontSize: 16, marginBottom: 4 }}>Contact</h2>
             <p style={{ fontSize: 13 }}>
@@ -785,6 +924,9 @@ export default function CandidateDetailPage() {
               flex: "0 0 360px",
               maxWidth: 400,
               margin: 0,
+              alignSelf: "stretch",
+              minHeight: 0,
+              order: 1,
             }}
           >
             <div
@@ -1782,6 +1924,136 @@ export default function CandidateDetailPage() {
               </p>
             </div>
           )}
+
+          <div
+            style={{
+              marginTop: 6,
+              paddingTop: 8,
+              borderTop: "1px dashed #e5e7eb",
+              fontSize: 12,
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>HR-only compensation</div>
+            <p style={{ fontSize: 11, color: "#6b7280", marginTop: 0 }}>
+              Screening pay rates used internally; stored in the workers HR portfolio.
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+              <label style={{ flex: "0 0 140px" }}>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>Hourly rate</div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={hrHourlyRate}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setHrHourlyRate(val);
+                    const n = Number(val);
+                    if (!Number.isNaN(n)) {
+                      setHrDayRate(String(n * 10));
+                    } else if (!val.trim()) {
+                      setHrDayRate("");
+                    }
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </label>
+              <label style={{ flex: "0 0 140px" }}>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>Day rate (10-hr)</div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={hrDayRate}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setHrDayRate(val);
+                    const n = Number(val);
+                    if (!Number.isNaN(n)) {
+                      setHrHourlyRate(String(n / 10));
+                    } else if (!val.trim()) {
+                      setHrHourlyRate("");
+                    }
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </label>
+              <label style={{ flex: "0 0 160px" }}>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>CP hourly rate</div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={hrCpHourlyRate}
+                  onChange={e => setHrCpHourlyRate(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </label>
+              <label style={{ flex: "0 0 180px" }}>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>Candidate desired pay</div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={hrCandidateDesiredPay}
+                  onChange={e => setHrCandidateDesiredPay(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </label>
+            </div>
+            <div
+              style={{
+                marginTop: 6,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                type="button"
+                disabled={savingHrComp}
+                onClick={() => void handleSaveHrComp()}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #0f172a",
+                  backgroundColor: savingHrComp ? "#e5e7eb" : "#0f172a",
+                  color: savingHrComp ? "#4b5563" : "#f9fafb",
+                  fontSize: 12,
+                  cursor: savingHrComp ? "default" : "pointer",
+                }}
+              >
+                {savingHrComp ? "Saving…" : "Save HR rates"}
+              </button>
+              {hrCompError && (
+                <span style={{ fontSize: 11, color: "#b91c1c" }}>{hrCompError}</span>
+              )}
+              {!hrCompError && hrCompMessage && (
+                <span style={{ fontSize: 11, color: "#16a34a" }}>{hrCompMessage}</span>
+              )}
+            </div>
+          </div>
 
           {/* Journal section */}
           <div

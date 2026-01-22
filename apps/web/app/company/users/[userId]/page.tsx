@@ -37,6 +37,10 @@ interface HrDto {
   bankName?: string | null;
   bankAddress?: string | null;
   hipaaNotes?: string | null;
+  hourlyRate?: number | null;
+  dayRate?: number | null;
+  cpHourlyRate?: number | null;
+  candidateDesiredPay?: number | null;
   ssnLast4?: string | null;
   itinLast4?: string | null;
   bankAccountLast4?: string | null;
@@ -71,10 +75,11 @@ interface WorkerDto {
   totalHoursCbs: number | null;
   totalHoursCct: number | null;
   defaultPayRate: number | null;
-      billRate: number | null;
-      cpRate: number | null;
-      cpRole: string | null;
-      cpFringeRate: number | null;
+  defaultHoursPerDay: number | null;
+  billRate: number | null;
+  cpRate: number | null;
+  cpRole: string | null;
+  cpFringeRate: number | null;
 }
 
 interface UserProfileDto {
@@ -146,6 +151,10 @@ export default function CompanyUserProfilePage() {
   const [hrCollapsed, setHrCollapsed] = useState(true);
   const [savingHr, setSavingHr] = useState(false);
   const [hrError, setHrError] = useState<string | null>(null);
+  const [hrHourlyRate, setHrHourlyRate] = useState<string>("");
+  const [hrDayRate, setHrDayRate] = useState<string>("");
+  const [hrCpHourlyRate, setHrCpHourlyRate] = useState<string>("");
+  const [hrCandidateDesiredPay, setHrCandidateDesiredPay] = useState<string>("");
 
   // HR journal: internal case log for this worker/user.
   const [journalLoading, setJournalLoading] = useState(false);
@@ -192,9 +201,11 @@ export default function CompanyUserProfilePage() {
   const [workerUnionLocal, setWorkerUnionLocal] = useState<string>("");
   const [workerDateHired, setWorkerDateHired] = useState<string>("");
   const [workerPayRate, setWorkerPayRate] = useState<string>("");
-  // Day rate is derived from hourly (10-hour day) but kept as its own state so
-  // edits in either field keep the other in sync.
+  // Day rate is derived from hourly (hours-per-day units) but kept as its own
+  // state so edits in either field keep the other in sync.
   const [workerDayRate, setWorkerDayRate] = useState<string>("");
+  // Units for converting hourly ↔ day rate; UI-only for now, default 10 hours.
+  const [workerHoursPerDay, setWorkerHoursPerDay] = useState<string>("10");
   const [workerBillRate, setWorkerBillRate] = useState<string>("");
   const [workerCpRate, setWorkerCpRate] = useState<string>("");
   const [workerCpRole, setWorkerCpRole] = useState<string>("");
@@ -264,10 +275,13 @@ export default function CompanyUserProfilePage() {
               ? String(profileJson.worker.defaultPayRate)
               : "",
           );
-          // Initialize derived day rate as 10x hourly when we have a numeric
-          // default pay rate.
+          const hoursFromApi =
+            profileJson.worker.defaultHoursPerDay != null
+              ? profileJson.worker.defaultHoursPerDay
+              : 10;
+          setWorkerHoursPerDay(String(hoursFromApi));
           if (profileJson.worker.defaultPayRate != null) {
-            setWorkerDayRate(String(profileJson.worker.defaultPayRate * 10));
+            setWorkerDayRate(String(profileJson.worker.defaultPayRate * hoursFromApi));
           } else {
             setWorkerDayRate("");
           }
@@ -502,6 +516,42 @@ export default function CompanyUserProfilePage() {
       ? `/workers/${profile.worker.id}/weeks`
       : null;
 
+  // Initialize editable HR compensation fields from the HR portfolio payload
+  // (when available). These are HR-only screening/export rates and are distinct
+  // from the Worker record compensation fields.
+  useEffect(() => {
+    const hrPayload = profile.hr as HrDto | null | undefined;
+    if (!hrPayload) {
+      setHrHourlyRate("");
+      setHrDayRate("");
+      setHrCpHourlyRate("");
+      setHrCandidateDesiredPay("");
+      return;
+    }
+
+    setHrHourlyRate(
+      typeof hrPayload.hourlyRate === "number" && !Number.isNaN(hrPayload.hourlyRate)
+        ? String(hrPayload.hourlyRate)
+        : "",
+    );
+    setHrDayRate(
+      typeof hrPayload.dayRate === "number" && !Number.isNaN(hrPayload.dayRate)
+        ? String(hrPayload.dayRate)
+        : "",
+    );
+    setHrCpHourlyRate(
+      typeof hrPayload.cpHourlyRate === "number" && !Number.isNaN(hrPayload.cpHourlyRate)
+        ? String(hrPayload.cpHourlyRate)
+        : "",
+    );
+    setHrCandidateDesiredPay(
+      typeof hrPayload.candidateDesiredPay === "number" &&
+      !Number.isNaN(hrPayload.candidateDesiredPay)
+        ? String(hrPayload.candidateDesiredPay)
+        : "",
+    );
+  }, [profile.hr]);
+
   const displayName =
     profile.firstName || profile.lastName
       ? `${profile.firstName ?? ""} ${profile.lastName ?? ""}`.trim()
@@ -652,12 +702,14 @@ export default function CompanyUserProfilePage() {
     const nextBill = parseRate(workerBillRate);
     const nextCp = parseRate(workerCpRate);
     const nextCpFringe = parseRate(workerCpFringe);
+    const nextHours = parseRate(workerHoursPerDay);
 
     if (
       nextPay === undefined ||
       nextBill === undefined ||
       nextCp === undefined ||
-      nextCpFringe === undefined
+      nextCpFringe === undefined ||
+      nextHours === undefined
     ) {
       setWorkerError("Rates must be numeric when provided.");
       return;
@@ -682,6 +734,7 @@ export default function CompanyUserProfilePage() {
       if (nextBill !== undefined) body.billRate = nextBill;
       if (nextCp !== undefined) body.cpRate = nextCp;
       if (nextCpFringe !== undefined) body.cpFringeRate = nextCpFringe;
+      if (nextHours !== undefined) body.defaultHoursPerDay = nextHours;
       body.cpRole = workerCpRole.trim() || null;
 
       const res = await fetch(`${API_BASE}/workers/${profile.worker.id}/comp`, {
@@ -1031,6 +1084,9 @@ export default function CompanyUserProfilePage() {
       return a.categoryLabel.localeCompare(b.categoryLabel);
     });
 
+  const totalSkills = profile.skills.length;
+  const ratedSkills = profile.skills.filter(s => getSkillSort(s).rated).length;
+
   return (
     <div
       className="app-card"
@@ -1117,7 +1173,7 @@ export default function CompanyUserProfilePage() {
             flexWrap: "wrap",
           }}
         >
-          <div style={{ flex: "1 1 0", minWidth: 320 }}>
+          <div style={{ flex: "1 1 0", minWidth: 320, order: 2 }}>
           <section>
               <h2 style={{ fontSize: 16, marginBottom: 4 }}>Identity</h2>
 
@@ -1470,27 +1526,28 @@ export default function CompanyUserProfilePage() {
                     </div>
                   ) : null}
                   {canEditWorkerComp && (
-                    <div style={{ marginTop: 8, fontSize: 12 }}>
-                      <div style={{ fontWeight: 600, marginBottom: 2 }}>Compensation</div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
-                        <label style={{ flex: "0 0 140px" }}>
-                          <span>
-                            <strong>Base pay (hourly)</strong>
-                          </span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={workerPayRate}
-                            onChange={e => {
-                              const val = e.target.value;
-                              setWorkerPayRate(val);
-                              const n = Number(val);
-                              if (!Number.isNaN(n)) {
-                                setWorkerDayRate(String(n * 10));
-                              } else if (!val.trim()) {
-                                setWorkerDayRate("");
-                              }
-                            }}
+                      <div style={{ marginTop: 8, fontSize: 12 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 2 }}>Compensation</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
+                          <label style={{ flex: "0 0 140px" }}>
+                            <span>
+                              <strong>Base pay (hourly)</strong>
+                            </span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={workerPayRate}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setWorkerPayRate(val);
+                                const n = Number(val);
+                                const hours = Number(workerHoursPerDay) || 10;
+                                if (!Number.isNaN(n)) {
+                                  setWorkerDayRate(String(n * hours));
+                                } else if (!val.trim()) {
+                                  setWorkerDayRate("");
+                                }
+                              }}
                             style={{
                               fontSize: 12,
                               padding: "2px 4px",
@@ -1502,7 +1559,7 @@ export default function CompanyUserProfilePage() {
                         </label>
                         <label style={{ flex: "0 0 160px" }}>
                           <span>
-                            <strong>Base pay (day, 10 hrs)</strong>
+                            <strong>Base pay (day)</strong>
                           </span>
                           <input
                             type="number"
@@ -1512,10 +1569,38 @@ export default function CompanyUserProfilePage() {
                               const val = e.target.value;
                               setWorkerDayRate(val);
                               const n = Number(val);
-                              if (!Number.isNaN(n)) {
-                                setWorkerPayRate(String(n / 10));
+                              const hours = Number(workerHoursPerDay) || 10;
+                              if (!Number.isNaN(n) && hours > 0) {
+                                setWorkerPayRate(String(n / hours));
                               } else if (!val.trim()) {
                                 setWorkerPayRate("");
+                              }
+                            }}
+                            style={{
+                              fontSize: 12,
+                              padding: "2px 4px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              width: "100%",
+                            }}
+                          />
+                        </label>
+                        <label style={{ flex: "0 0 120px" }}>
+                          <span>
+                            <strong>Units (hrs / day)</strong>
+                          </span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={workerHoursPerDay}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setWorkerHoursPerDay(val);
+                              const hours = Number(val) || 10;
+                              const hourly = Number(workerPayRate);
+                              if (!Number.isNaN(hourly)) {
+                                setWorkerDayRate(String(hourly * hours));
                               }
                             }}
                             style={{
@@ -1869,6 +1954,7 @@ export default function CompanyUserProfilePage() {
                 fontSize: 13,
                 alignSelf: "stretch",
                 minHeight: 0,
+                order: 1,
               }}
             >
               {canViewHr && (
@@ -2272,6 +2358,113 @@ export default function CompanyUserProfilePage() {
                       </label>
                     </div>
 
+                    <div
+                      style={{
+                        marginTop: 6,
+                        paddingTop: 8,
+                        borderTop: "1px dashed #e5e7eb",
+                        fontSize: 12,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>HR-only compensation</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                        <label style={{ flex: "0 0 140px" }}>
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>Hourly rate</div>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={hrHourlyRate}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setHrHourlyRate(val);
+                              const n = Number(val);
+                              const hours = Number(workerHoursPerDay) || 10;
+                              if (!Number.isNaN(n)) {
+                                setHrDayRate(String(n * hours));
+                              } else if (!val.trim()) {
+                                setHrDayRate("");
+                              }
+                            }}
+                            disabled={!canEditHrFields}
+                            style={{
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </label>
+                        <label style={{ flex: "0 0 140px" }}>
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>Day rate</div>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={hrDayRate}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setHrDayRate(val);
+                              const n = Number(val);
+                              const hours = Number(workerHoursPerDay) || 10;
+                              if (!Number.isNaN(n) && hours > 0) {
+                                setHrHourlyRate(String(n / hours));
+                              } else if (!val.trim()) {
+                                setHrHourlyRate("");
+                              }
+                            }}
+                            disabled={!canEditHrFields}
+                            style={{
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </label>
+                        <label style={{ flex: "0 0 160px" }}>
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>CP hourly rate</div>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={hrCpHourlyRate}
+                            onChange={e => setHrCpHourlyRate(e.target.value)}
+                            disabled={!canEditHrFields}
+                            style={{
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </label>
+                        <label style={{ flex: "0 0 180px" }}>
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>Candidate desired pay</div>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={hrCandidateDesiredPay}
+                            onChange={e => setHrCandidateDesiredPay(e.target.value)}
+                            disabled={!canEditHrFields}
+                            style={{
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </label>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                        Units: {(Number(workerHoursPerDay) || 10).toString()} hrs / day.
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                        Stored in the encrypted HR portfolio; used for HR screening and CP/export only.
+                      </div>
+                    </div>
+
                     {canEditHrFields && (
                       <div
                         style={{
@@ -2296,7 +2489,30 @@ export default function CompanyUserProfilePage() {
                             setSavingHr(true);
                             setHrError(null);
                             const currentHr = profile.hr || {};
-                            const body = {
+
+                            const parseRate = (value: string): number | null | undefined => {
+                              const trimmed = value.trim();
+                              if (!trimmed) return null;
+                              const n = Number(trimmed);
+                              if (Number.isNaN(n)) return undefined;
+                              return n;
+                            };
+
+                            const nextHourly = parseRate(hrHourlyRate);
+                            const nextDay = parseRate(hrDayRate);
+                            const nextCpHourly = parseRate(hrCpHourlyRate);
+                            const nextDesired = parseRate(hrCandidateDesiredPay);
+
+                            if (
+                              nextHourly === undefined ||
+                              nextDay === undefined ||
+                              nextCpHourly === undefined ||
+                              nextDesired === undefined
+                            ) {
+                              throw new Error("Rates must be numeric when provided.");
+                            }
+
+                            const body: any = {
                               displayEmail: currentHr.displayEmail ?? null,
                               phone: currentHr.phone ?? null,
                               addressLine1: currentHr.addressLine1 ?? null,
@@ -2306,6 +2522,11 @@ export default function CompanyUserProfilePage() {
                               postalCode: currentHr.postalCode ?? null,
                               country: currentHr.country ?? null,
                             };
+
+                            if (nextHourly !== undefined) body.hourlyRate = nextHourly;
+                            if (nextDay !== undefined) body.dayRate = nextDay;
+                            if (nextCpHourly !== undefined) body.cpHourlyRate = nextCpHourly;
+                            if (nextDesired !== undefined) body.candidateDesiredPay = nextDesired;
                             const res = await fetch(
                               `${API_BASE}/users/${profile.id}/portfolio-hr`,
                               {
@@ -2675,7 +2896,19 @@ export default function CompanyUserProfilePage() {
       </div>
 
       <section style={{ marginTop: 0, flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column" }}>
-        <h2 style={{ fontSize: 16, marginBottom: 4 }}>Skills</h2>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            marginBottom: 4,
+          }}
+        >
+          <h2 style={{ fontSize: 16, margin: 0 }}>Skills</h2>
+          <div style={{ fontSize: 12, color: "#6b7280" }}>
+            Rated {ratedSkills}/{totalSkills} skills
+          </div>
+        </div>
 
         <div style={{ display: "flex", gap: 16, alignItems: "stretch", flex: "1 1 auto", minHeight: 0 }}>
           {/* Left: compact matrix (groupings + ratings) */}
