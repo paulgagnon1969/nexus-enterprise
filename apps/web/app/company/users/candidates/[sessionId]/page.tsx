@@ -133,6 +133,7 @@ export default function CandidateDetailPage() {
   const [hrDayRate, setHrDayRate] = useState<string>("");
   const [hrCpHourlyRate, setHrCpHourlyRate] = useState<string>("");
   const [hrCandidateDesiredPay, setHrCandidateDesiredPay] = useState<string>("");
+  const [hrStartDate, setHrStartDate] = useState<string>("");
   const [savingHrComp, setSavingHrComp] = useState(false);
   const [hrCompError, setHrCompError] = useState<string | null>(null);
   const [hrCompMessage, setHrCompMessage] = useState<string | null>(null);
@@ -257,6 +258,7 @@ export default function CandidateDetailPage() {
               dayRate?: number | null;
               cpHourlyRate?: number | null;
               candidateDesiredPay?: number | null;
+              startDate?: string | null;
             }
           | null
           | undefined;
@@ -282,6 +284,7 @@ export default function CandidateDetailPage() {
             ? String(hr.candidateDesiredPay)
             : "",
         );
+        setHrStartDate(hr.startDate ? String(hr.startDate).slice(0, 10) : "");
       } catch {
         // Fail soft if HR portfolio is unavailable; inputs will remain empty.
       }
@@ -609,6 +612,7 @@ export default function CandidateDetailPage() {
     const nextDay = parseRate(hrDayRate);
     const nextCpHourly = parseRate(hrCpHourlyRate);
     const nextDesired = parseRate(hrCandidateDesiredPay);
+    const nextStartDate = hrStartDate.trim() ? hrStartDate.trim() : null;
 
     if (
       nextHourly === undefined ||
@@ -630,6 +634,7 @@ export default function CandidateDetailPage() {
       if (nextDay !== undefined) body.dayRate = nextDay;
       if (nextCpHourly !== undefined) body.cpHourlyRate = nextCpHourly;
       if (nextDesired !== undefined) body.candidateDesiredPay = nextDesired;
+      body.startDate = nextStartDate;
 
       const res = await fetch(`${API_BASE}/users/${session.userId}/portfolio-hr`, {
         method: "PATCH",
@@ -809,7 +814,18 @@ export default function CandidateDetailPage() {
           flexWrap: "wrap",
         }}
       >
-        <div style={{ flex: "1 1 0", minWidth: 320, order: 2 }}>
+        {/* Left column: contact, location, status, and onboarding profile (HR view) */}
+        <div
+          style={{
+            flex: "0 0 360px",
+            minWidth: 320,
+            maxWidth: 400,
+            alignSelf: "stretch",
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+          }}
+        >
           <section>
             <h2 style={{ fontSize: 16, marginBottom: 4 }}>Contact</h2>
             <p style={{ fontSize: 13 }}>
@@ -839,7 +855,7 @@ export default function CandidateDetailPage() {
             </p>
           </section>
 
-          <section style={{ marginTop: 16 }}>
+          <section>
             <h2 style={{ fontSize: 16, marginBottom: 4 }}>Location</h2>
             <p style={{ fontSize: 13 }}>
               <strong>City / State:</strong>{" "}
@@ -854,7 +870,7 @@ export default function CandidateDetailPage() {
             </p>
           </section>
 
-          <section style={{ marginTop: 16 }}>
+          <section>
             <h2 style={{ fontSize: 16, marginBottom: 4 }}>Status</h2>
             <p style={{ fontSize: 13 }}>
               <strong>Onboarding status:</strong>{" "}
@@ -916,711 +932,705 @@ export default function CandidateDetailPage() {
               <span>{new Date(session.createdAt).toLocaleString()}</span>
             </p>
           </section>
-        </div>
 
-        {canViewHr && (
-          <section
-            style={{
-              flex: "0 0 360px",
-              maxWidth: 400,
-              margin: 0,
-              alignSelf: "stretch",
-              minHeight: 0,
-              order: 1,
-            }}
-          >
-            <div
+          {canViewHr && (
+            <section
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 4,
-              }}
-            >
-              <button
-              type="button"
-              onClick={() => setHrProfileCollapsed(prev => !prev)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                width: "100%",
-                padding: 0,
                 margin: 0,
-                border: "none",
-                background: "transparent",
-                fontSize: 16,
-                fontWeight: 600,
-                cursor: "pointer",
+                alignSelf: "stretch",
+                minHeight: 0,
               }}
             >
-              <span>Onboarding profile (HR view)</span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 12, color: "#6b7280" }}>
-                  {hrProfileCollapsed ? "Show" : "Hide"}
-                </span>
-                <span
-                  style={{
-                    fontSize: 10,
-                    padding: "1px 6px",
-                    borderRadius: 999,
-                    border: `1px solid ${hrProfileCollapsed ? "#b91c1c" : "#16a34a"}`,
-                    color: hrProfileCollapsed ? "#b91c1c" : "#166534",
-                    backgroundColor: hrProfileCollapsed ? "#fef2f2" : "#ecfdf3",
-                    textTransform: "uppercase",
-                    letterSpacing: 0.3,
-                  }}
-                >
-                  {hrProfileCollapsed ? "Lock" : "Open"}
-                </span>
-              </span>
-            </button>
-          </div>
-
-          <div
-            style={{
-              display: hrProfileCollapsed ? "none" : "block",
-            }}
-          >
-              <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
-                Editable snapshot of the candidates self-entered profile fields so HR can quickly
-                see what is complete or missing and correct obvious issues.
-              </p>
               <div
                 style={{
-                  marginTop: 4,
-                  fontSize: 12,
-                  color: "#4b5563",
                   display: "flex",
                   alignItems: "center",
-                  gap: 8,
+                  justifyContent: "space-between",
+                  marginBottom: 4,
                 }}
               >
-                <span>
-                  Profile completion:
-                  {" "}
-                  <strong>{isNaN(checklistPercent) ? "0" : checklistPercent}%</strong>
-                </span>
-                <span
+                <button
+                  type="button"
+                  onClick={() => setHrProfileCollapsed(prev => !prev)}
                   style={{
-                    flex: "0 0 120px",
-                    height: 6,
-                    borderRadius: 999,
-                    background: "#e5e7eb",
-                    overflow: "hidden",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    width: "100%",
+                    padding: 0,
+                    margin: 0,
+                    border: "none",
+                    background: "transparent",
+                    fontSize: 16,
+                    fontWeight: 600,
+                    cursor: "pointer",
                   }}
                 >
-                  <span
-                    style={{
-                      display: "block",
-                      height: "100%",
-                      width: `${Math.min(100, Math.max(0, checklistPercent))}%`,
-                      background: checklistPercent >= 80 ? "#16a34a" : "#f97316",
-                    }}
-                  />
-                </span>
+                  <span>Onboarding profile (HR view)</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 12, color: "#6b7280" }}>
+                      {hrProfileCollapsed ? "Show" : "Hide"}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        padding: "1px 6px",
+                        borderRadius: 999,
+                        border: `1px solid ${hrProfileCollapsed ? "#b91c1c" : "#16a34a"}`,
+                        color: hrProfileCollapsed ? "#b91c1c" : "#166534",
+                        backgroundColor: hrProfileCollapsed ? "#fef2f2" : "#ecfdf3",
+                        textTransform: "uppercase",
+                        letterSpacing: 0.3,
+                      }}
+                    >
+                      {hrProfileCollapsed ? "Lock" : "Open"}
+                    </span>
+                  </span>
+                </button>
               </div>
+
               <div
                 style={{
-                  marginTop: 6,
-                  padding: 10,
-                  borderRadius: 8,
-                  border: "1px solid #e5e7eb",
-                  background: "#ffffff",
-                  fontSize: 13,
+                  display: hrProfileCollapsed ? "none" : "block",
                 }}
               >
-                <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>Checklist</div>
-              <ul style={{ paddingLeft: 18, margin: 0, fontSize: 12 }}>
-                {checklistItems.map(item => {
-                  const done = !!checklist[item.key];
-                  return (
-                    <li key={item.key} style={{ marginBottom: 2 }}>
-                      <span
-                        style={{
-                          display: "inline-block",
-                          width: 12,
-                          marginRight: 4,
-                          color: done ? "#16a34a" : "#b91c1c",
-                          fontWeight: 600,
-                        }}
-                      >
-                        {done ? "✓" : "!"}
-                      </span>
-                      <span>{item.label}</span>
-                      {!done && (
-                        <span style={{ marginLeft: 4, color: "#b91c1c" }}>(missing)</span>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-              <div style={{ minWidth: 180 }}>
-                <p style={{ margin: 0 }}>
-                  <strong>First name:</strong>{" "}
-                  <input
-                    type="text"
-                    value={session.profile?.firstName ?? ""}
-                    onChange={e =>
-                      setSession(prev =>
-                        prev
-                          ? {
-                              ...prev,
-                              profile: {
-                                ...(prev.profile || {}),
-                                firstName: e.target.value,
-                              },
-                            }
-                          : prev,
-                      )
-                    }
-                    style={{
-                      fontSize: 12,
-                      padding: "2px 4px",
-                      borderRadius: 4,
-                      border: `1px solid ${session.profile?.firstName ? "#d1d5db" : "#fca5a5"}`,
-                      minWidth: 140,
-                    }}
-                  />
+                <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
+                  Editable snapshot of the candidates self-entered profile fields so HR can quickly
+                  see what is complete or missing and correct obvious issues.
                 </p>
-                <p style={{ margin: 0 }}>
-                  <strong>Last name:</strong>{" "}
-                  <input
-                    type="text"
-                    value={session.profile?.lastName ?? ""}
-                    onChange={e =>
-                      setSession(prev =>
-                        prev
-                          ? {
-                              ...prev,
-                              profile: {
-                                ...(prev.profile || {}),
-                                lastName: e.target.value,
-                              },
-                            }
-                          : prev,
-                      )
-                    }
+                <div
+                  style={{
+                    marginTop: 4,
+                    fontSize: 12,
+                    color: "#4b5563",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <span>
+                    Profile completion:
+                    {" "}
+                    <strong>{isNaN(checklistPercent) ? "0" : checklistPercent}%</strong>
+                  </span>
+                  <span
                     style={{
-                      fontSize: 12,
-                      padding: "2px 4px",
-                      borderRadius: 4,
-                      border: `1px solid ${session.profile?.lastName ? "#d1d5db" : "#fca5a5"}`,
-                      minWidth: 140,
+                      flex: "0 0 120px",
+                      height: 6,
+                      borderRadius: 999,
+                      background: "#e5e7eb",
+                      overflow: "hidden",
                     }}
-                  />
-                </p>
-                <p style={{ margin: 0 }}>
-                  <strong>Phone:</strong>{" "}
-                  <input
-                    type="text"
-                    value={session.profile?.phone ?? ""}
-                    onChange={e =>
-                      setSession(prev =>
-                        prev
-                          ? {
-                              ...prev,
-                              profile: {
-                                ...(prev.profile || {}),
-                                phone: e.target.value,
-                              },
-                            }
-                          : prev,
-                      )
-                    }
-                    style={{
-                      fontSize: 12,
-                      padding: "2px 4px",
-                      borderRadius: 4,
-                      border: `1px solid ${session.profile?.phone ? "#d1d5db" : "#fca5a5"}`,
-                      minWidth: 140,
-                    }}
-                  />
-                </p>
-                <p style={{ margin: 0 }}>
-                  <strong>Date of birth:</strong>{" "}
-                  <input
-                    type="date"
-                    value={session.profile?.dob ? String(session.profile.dob).slice(0, 10) : ""}
-                    onChange={e =>
-                      setSession(prev =>
-                        prev
-                          ? {
-                              ...prev,
-                              profile: {
-                                ...(prev.profile || {}),
-                                dob: e.target.value || null,
-                              },
-                            }
-                          : prev,
-                      )
-                    }
-                    style={{
-                      fontSize: 12,
-                      padding: "2px 4px",
-                      borderRadius: 4,
-                      border: "1px solid #d1d5db",
-                      minWidth: 140,
-                    }}
-                  />
-                </p>
-              </div>
+                  >
+                    <span
+                      style={{
+                        display: "block",
+                        height: "100%",
+                        width: `${Math.min(100, Math.max(0, checklistPercent))}%`,
+                        background: checklistPercent >= 80 ? "#16a34a" : "#f97316",
+                      }}
+                    />
+                  </span>
+                </div>
+                <div
+                  style={{
+                    marginTop: 6,
+                    padding: 10,
+                    borderRadius: 8,
+                    border: "1px solid #e5e7eb",
+                    background: "#ffffff",
+                    fontSize: 13,
+                  }}
+                >
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>Checklist</div>
+                    <ul style={{ paddingLeft: 18, margin: 0, fontSize: 12 }}>
+                      {checklistItems.map(item => {
+                        const done = !!checklist[item.key];
+                        return (
+                          <li key={item.key} style={{ marginBottom: 2 }}>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                width: 12,
+                                marginRight: 4,
+                                color: done ? "#16a34a" : "#b91c1c",
+                                fontWeight: 600,
+                              }}
+                            >
+                              {done ? "✓" : "!"}
+                            </span>
+                            <span>{item.label}</span>
+                            {!done && (
+                              <span style={{ marginLeft: 4, color: "#b91c1c" }}>(missing)</span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+                    <div style={{ minWidth: 180 }}>
+                      <p style={{ margin: 0 }}>
+                        <strong>First name:</strong>{" "}
+                        <input
+                          type="text"
+                          value={session.profile?.firstName ?? ""}
+                          onChange={e =>
+                            setSession(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    profile: {
+                                      ...(prev.profile || {}),
+                                      firstName: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: `1px solid ${session.profile?.firstName ? "#d1d5db" : "#fca5a5"}`,
+                            minWidth: 140,
+                          }}
+                        />
+                      </p>
+                      <p style={{ margin: 0 }}>
+                        <strong>Last name:</strong>{" "}
+                        <input
+                          type="text"
+                          value={session.profile?.lastName ?? ""}
+                          onChange={e =>
+                            setSession(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    profile: {
+                                      ...(prev.profile || {}),
+                                      lastName: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: `1px solid ${session.profile?.lastName ? "#d1d5db" : "#fca5a5"}`,
+                            minWidth: 140,
+                          }}
+                        />
+                      </p>
+                      <p style={{ margin: 0 }}>
+                        <strong>Phone:</strong>{" "}
+                        <input
+                          type="text"
+                          value={session.profile?.phone ?? ""}
+                          onChange={e =>
+                            setSession(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    profile: {
+                                      ...(prev.profile || {}),
+                                      phone: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: `1px solid ${session.profile?.phone ? "#d1d5db" : "#fca5a5"}`,
+                            minWidth: 140,
+                          }}
+                        />
+                      </p>
+                      <p style={{ margin: 0 }}>
+                        <strong>Date of birth:</strong>{" "}
+                        <input
+                          type="date"
+                          value={session.profile?.dob ? String(session.profile.dob).slice(0, 10) : ""}
+                          onChange={e =>
+                            setSession(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    profile: {
+                                      ...(prev.profile || {}),
+                                      dob: e.target.value || null,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            minWidth: 140,
+                          }}
+                        />
+                      </p>
+                    </div>
 
-              <div style={{ minWidth: 220 }}>
-                <p style={{ margin: 0 }}>
-                  <strong>Address line 1:</strong>{" "}
-                  <input
-                    type="text"
-                    value={session.profile?.addressLine1 ?? ""}
-                    onChange={e =>
-                      setSession(prev =>
-                        prev
-                          ? {
-                              ...prev,
-                              profile: {
-                                ...(prev.profile || {}),
-                                addressLine1: e.target.value,
-                              },
-                            }
-                          : prev,
-                      )
-                    }
+                    <div style={{ minWidth: 220 }}>
+                      <p style={{ margin: 0 }}>
+                        <strong>Address line 1:</strong>{" "}
+                        <input
+                          type="text"
+                          value={session.profile?.addressLine1 ?? ""}
+                          onChange={e =>
+                            setSession(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    profile: {
+                                      ...(prev.profile || {}),
+                                      addressLine1: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: `1px solid ${session.profile?.addressLine1 ? "#d1d5db" : "#fca5a5"}`,
+                            minWidth: 180,
+                          }}
+                        />
+                      </p>
+                      <p style={{ margin: 0 }}>
+                        <strong>Address line 2:</strong>{" "}
+                        <input
+                          type="text"
+                          value={session.profile?.addressLine2 ?? ""}
+                          onChange={e =>
+                            setSession(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    profile: {
+                                      ...(prev.profile || {}),
+                                      addressLine2: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            minWidth: 180,
+                          }}
+                        />
+                      </p>
+                      <p style={{ margin: 0 }}>
+                        <strong>City:</strong>{" "}
+                        <input
+                          type="text"
+                          value={session.profile?.city ?? ""}
+                          onChange={e =>
+                            setSession(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    profile: {
+                                      ...(prev.profile || {}),
+                                      city: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: `1px solid ${session.profile?.city ? "#d1d5db" : "#fca5a5"}`,
+                            minWidth: 140,
+                          }}
+                        />
+                      </p>
+                      <p style={{ margin: 0 }}>
+                        <strong>State:</strong>{" "}
+                        <input
+                          type="text"
+                          value={session.profile?.state ?? ""}
+                          onChange={e =>
+                            setSession(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    profile: {
+                                      ...(prev.profile || {}),
+                                      state: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: `1px solid ${session.profile?.state ? "#d1d5db" : "#fca5a5"}`,
+                            minWidth: 80,
+                          }}
+                        />
+                      </p>
+                      <p style={{ margin: 0 }}>
+                        <strong>Postal code:</strong>{" "}
+                        <input
+                          type="text"
+                          value={session.profile?.postalCode ?? ""}
+                          onChange={e =>
+                            setSession(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    profile: {
+                                      ...(prev.profile || {}),
+                                      postalCode: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: `1px solid ${session.profile?.postalCode ? "#d1d5db" : "#fca5a5"}`,
+                            minWidth: 100,
+                          }}
+                        />
+                      </p>
+                      <p style={{ margin: 0 }}>
+                        <strong>Country:</strong>{" "}
+                        <input
+                          type="text"
+                          value={session.profile?.country ?? ""}
+                          onChange={e =>
+                            setSession(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    profile: {
+                                      ...(prev.profile || {}),
+                                      country: e.target.value,
+                                    },
+                                  }
+                                : prev,
+                            )
+                          }
+                          style={{
+                            fontSize: 12,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            minWidth: 100,
+                          }}
+                        />
+                      </p>
+                    </div>
+                  </div>
+                  <div
                     style={{
-                      fontSize: 12,
-                      padding: "2px 4px",
-                      borderRadius: 4,
-                      border: `1px solid ${session.profile?.addressLine1 ? "#d1d5db" : "#fca5a5"}`,
-                      minWidth: 180,
+                      marginTop: 10,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
                     }}
-                  />
-                </p>
-                <p style={{ margin: 0 }}>
-                  <strong>Address line 2:</strong>{" "}
-                  <input
-                    type="text"
-                    value={session.profile?.addressLine2 ?? ""}
-                    onChange={e =>
-                      setSession(prev =>
-                        prev
-                          ? {
-                              ...prev,
-                              profile: {
-                                ...(prev.profile || {}),
-                                addressLine2: e.target.value,
+                  >
+                    <button
+                      type="button"
+                      disabled={savingProfile}
+                      onClick={async () => {
+                        const token = window.localStorage.getItem("accessToken");
+                        if (!token) {
+                          alert("Missing access token. Please log in again.");
+                          return;
+                        }
+                        try {
+                          setSavingProfile(true);
+                          setProfileError(null);
+
+                          const body = {
+                            firstName: session.profile?.firstName ?? null,
+                            lastName: session.profile?.lastName ?? null,
+                            phone: session.profile?.phone ?? null,
+                            dob: session.profile?.dob
+                              ? String(session.profile.dob).slice(0, 10)
+                              : null,
+                            addressLine1: session.profile?.addressLine1 ?? null,
+                            addressLine2: session.profile?.addressLine2 ?? null,
+                            city: session.profile?.city ?? null,
+                            state: session.profile?.state ?? null,
+                            postalCode: session.profile?.postalCode ?? null,
+                            country: session.profile?.country ?? null,
+                          };
+
+                          // Primary path: HR-only authenticated endpoint.
+                          let res = await fetch(
+                            `${API_BASE}/onboarding/sessions/${session.id}/profile`,
+                            {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${token}`,
                               },
-                            }
-                          : prev,
-                      )
-                    }
-                    style={{
-                      fontSize: 12,
-                      padding: "2px 4px",
-                      borderRadius: 4,
-                      border: "1px solid #d1d5db",
-                      minWidth: 180,
-                    }}
-                  />
-                </p>
-                <p style={{ margin: 0 }}>
-                  <strong>City:</strong>{" "}
-                  <input
-                    type="text"
-                    value={session.profile?.city ?? ""}
-                    onChange={e =>
-                      setSession(prev =>
-                        prev
-                          ? {
-                              ...prev,
-                              profile: {
-                                ...(prev.profile || {}),
-                                city: e.target.value,
+                              body: JSON.stringify(body),
+                            },
+                          );
+
+                          // Fallback for environments where the new HR endpoint has
+                          // not been deployed yet: use the existing token-based
+                          // public profile endpoint so edits still persist.
+                          if (res.status === 404 && session.token) {
+                            res = await fetch(`${API_BASE}/onboarding/${session.token}/profile`, {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
                               },
-                            }
-                          : prev,
-                      )
-                    }
-                    style={{
-                      fontSize: 12,
-                      padding: "2px 4px",
-                      borderRadius: 4,
-                      border: `1px solid ${session.profile?.city ? "#d1d5db" : "#fca5a5"}`,
-                      minWidth: 140,
-                    }}
-                  />
-                </p>
-                <p style={{ margin: 0 }}>
-                  <strong>State:</strong>{" "}
-                  <input
-                    type="text"
-                    value={session.profile?.state ?? ""}
-                    onChange={e =>
-                      setSession(prev =>
-                        prev
-                          ? {
-                              ...prev,
-                              profile: {
-                                ...(prev.profile || {}),
-                                state: e.target.value,
-                              },
-                            }
-                          : prev,
-                      )
-                    }
-                    style={{
-                      fontSize: 12,
-                      padding: "2px 4px",
-                      borderRadius: 4,
-                      border: `1px solid ${session.profile?.state ? "#d1d5db" : "#fca5a5"}`,
-                      minWidth: 80,
-                    }}
-                  />
-                </p>
-                <p style={{ margin: 0 }}>
-                  <strong>Postal code:</strong>{" "}
-                  <input
-                    type="text"
-                    value={session.profile?.postalCode ?? ""}
-                    onChange={e =>
-                      setSession(prev =>
-                        prev
-                          ? {
-                              ...prev,
-                              profile: {
-                                ...(prev.profile || {}),
-                                postalCode: e.target.value,
-                              },
-                            }
-                          : prev,
-                      )
-                    }
-                    style={{
-                      fontSize: 12,
-                      padding: "2px 4px",
-                      borderRadius: 4,
-                      border: `1px solid ${session.profile?.postalCode ? "#d1d5db" : "#fca5a5"}`,
-                      minWidth: 100,
-                    }}
-                  />
-                </p>
-                <p style={{ margin: 0 }}>
-                  <strong>Country:</strong>{" "}
-                  <input
-                    type="text"
-                    value={session.profile?.country ?? ""}
-                    onChange={e =>
-                      setSession(prev =>
-                        prev
-                          ? {
-                              ...prev,
-                              profile: {
-                                ...(prev.profile || {}),
-                                country: e.target.value,
-                              },
-                            }
-                          : prev,
-                      )
-                    }
-                    style={{
-                      fontSize: 12,
-                      padding: "2px 4px",
-                      borderRadius: 4,
-                      border: "1px solid #d1d5db",
-                      minWidth: 100,
-                    }}
-                  />
-                </p>
+                              body: JSON.stringify(body),
+                            });
+                          }
+
+                          if (!res.ok) {
+                            const text = await res.text().catch(() => "");
+                            throw new Error(
+                              `Failed to save onboarding profile (${res.status}) ${text}`,
+                            );
+                          }
+
+                          const json = await res.json().catch(() => null);
+                          if (json && json.profile) {
+                            setSession(prev => (prev ? { ...prev, profile: json.profile } : prev));
+                          } else {
+                            // Token-based endpoint currently does not return profile;
+                            // assume success and mark checklist as having profile
+                            // information complete.
+                            setSession(prev =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    checklist: {
+                                      ...(prev.checklist || {}),
+                                      profileComplete: true,
+                                    },
+                                  }
+                                : prev,
+                            );
+                          }
+                        } catch (err: any) {
+                          setProfileError(err?.message ?? "Failed to save onboarding profile.");
+                        } finally {
+                          setSavingProfile(false);
+                        }
+                      }}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 4,
+                        border: "1px solid #0f172a",
+                        backgroundColor: savingProfile ? "#e5e7eb" : "#0f172a",
+                        color: savingProfile ? "#4b5563" : "#f9fafb",
+                        fontSize: 12,
+                        cursor: savingProfile ? "default" : "pointer",
+                      }}
+                    >
+                      {savingProfile ? "Saving…" : "Save profile changes"}
+                    </button>
+                    {profileError && (
+                      <span style={{ fontSize: 11, color: "#b91c1c" }}>{profileError}</span>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-            <div
-              style={{
-                marginTop: 10,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
+            </section>
+          )}
+        </div>
+
+        {/* Right column: self-assessed skills */}
+        <section
+          style={{
+            flex: "1 1 0",
+            minWidth: 360,
+            marginTop: 0,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 4,
+            }}
+          >
+            <h2 style={{ fontSize: 16, margin: 0 }}>Self-assessed skills</h2>
+            {canViewHr && (
               <button
                 type="button"
-                disabled={savingProfile}
-                onClick={async () => {
-                  const token = window.localStorage.getItem("accessToken");
-                  if (!token) {
-                    alert("Missing access token. Please log in again.");
-                    return;
-                  }
-                  try {
-                    setSavingProfile(true);
-                    setProfileError(null);
-
-                    const body = {
-                      firstName: session.profile?.firstName ?? null,
-                      lastName: session.profile?.lastName ?? null,
-                      phone: session.profile?.phone ?? null,
-                      dob: session.profile?.dob
-                        ? String(session.profile.dob).slice(0, 10)
-                        : null,
-                      addressLine1: session.profile?.addressLine1 ?? null,
-                      addressLine2: session.profile?.addressLine2 ?? null,
-                      city: session.profile?.city ?? null,
-                      state: session.profile?.state ?? null,
-                      postalCode: session.profile?.postalCode ?? null,
-                      country: session.profile?.country ?? null,
-                    };
-
-                    // Primary path: HR-only authenticated endpoint.
-                    let res = await fetch(
-                      `${API_BASE}/onboarding/sessions/${session.id}/profile`,
-                      {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                          Authorization: `Bearer ${token}`,
-                        },
-                        body: JSON.stringify(body),
-                      },
-                    );
-
-                    // Fallback for environments where the new HR endpoint has
-                    // not been deployed yet: use the existing token-based
-                    // public profile endpoint so edits still persist.
-                    if (res.status === 404 && session.token) {
-                      res = await fetch(`${API_BASE}/onboarding/${session.token}/profile`, {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                        },
-                        body: JSON.stringify(body),
-                      });
-                    }
-
-                    if (!res.ok) {
-                      const text = await res.text().catch(() => "");
-                      throw new Error(
-                        `Failed to save onboarding profile (${res.status}) ${text}`,
-                      );
-                    }
-
-                    const json = await res.json().catch(() => null);
-                    if (json && json.profile) {
-                      setSession(prev => (prev ? { ...prev, profile: json.profile } : prev));
-                    } else {
-                      // Token-based endpoint currently does not return profile;
-                      // assume success and mark checklist as having profile
-                      // information complete.
-                      setSession(prev =>
-                        prev
-                          ? {
-                              ...prev,
-                              checklist: {
-                                ...(prev.checklist || {}),
-                                profileComplete: true,
-                              },
-                            }
-                          : prev,
-                      );
-                    }
-                  } catch (err: any) {
-                    setProfileError(err?.message ?? "Failed to save onboarding profile.");
-                  } finally {
-                    setSavingProfile(false);
-                  }
-                }}
+                onClick={() => void handleSaveSkills()}
+                disabled={skillsSaving || !session?.token}
                 style={{
                   padding: "4px 10px",
                   borderRadius: 4,
                   border: "1px solid #0f172a",
-                  backgroundColor: savingProfile ? "#e5e7eb" : "#0f172a",
-                  color: savingProfile ? "#4b5563" : "#f9fafb",
+                  backgroundColor: skillsSaving ? "#e5e7eb" : "#0f172a",
+                  color: skillsSaving ? "#4b5563" : "#f9fafb",
                   fontSize: 12,
-                  cursor: savingProfile ? "default" : "pointer",
+                  cursor: skillsSaving || !session?.token ? "default" : "pointer",
                 }}
               >
-                {savingProfile ? "Saving…" : "Save profile changes"}
+                {skillsSaving ? "Saving…" : "Save self-assessment"}
               </button>
-              {profileError && (
-                <span style={{ fontSize: 11, color: "#b91c1c" }}>{profileError}</span>
-              )}
-            </div>
+            )}
           </div>
-          </div>
-        </section>
-      )}
-
-      </div>
-
-      <hr
-        style={{
-          marginTop: 16,
-          marginBottom: 12,
-          border: 0,
-          borderTop: "1px solid #e5e7eb",
-        }}
-      />
-
-      <section style={{ marginTop: 0 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 8,
-            marginBottom: 4,
-          }}
-        >
-          <h2 style={{ fontSize: 16, margin: 0 }}>Self-assessed skills</h2>
-          {canViewHr && (
-            <button
-              type="button"
-              onClick={() => void handleSaveSkills()}
-              disabled={skillsSaving || !session?.token}
+          {skillsLoading ? (
+            <p style={{ fontSize: 12, color: "#6b7280" }}>Loading skills…</p>
+          ) : skillsError ? (
+            <p style={{ fontSize: 12, color: "#b91c1c" }}>{skillsError}</p>
+          ) : skills.length === 0 ? (
+            <p style={{ fontSize: 12, color: "#6b7280" }}>No self-assessed skills recorded yet.</p>
+          ) : (
+            <div
               style={{
-                padding: "4px 10px",
-                borderRadius: 4,
-                border: "1px solid #0f172a",
-                backgroundColor: skillsSaving ? "#e5e7eb" : "#0f172a",
-                color: skillsSaving ? "#4b5563" : "#f9fafb",
-                fontSize: 12,
-                cursor: skillsSaving || !session?.token ? "default" : "pointer",
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                overflow: "hidden",
+                marginTop: 4,
               }}
             >
-              {skillsSaving ? "Saving…" : "Save self-assessment"}
-            </button>
-          )}
-        </div>
-        {skillsLoading ? (
-          <p style={{ fontSize: 12, color: "#6b7280" }}>Loading skills…</p>
-        ) : skillsError ? (
-          <p style={{ fontSize: 12, color: "#b91c1c" }}>{skillsError}</p>
-        ) : skills.length === 0 ? (
-          <p style={{ fontSize: 12, color: "#6b7280" }}>No self-assessed skills recorded yet.</p>
-        ) : (
-          <div
-            style={{
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              overflow: "hidden",
-              marginTop: 4,
-            }}
-          >
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead>
-                <tr style={{ backgroundColor: "#f9fafb" }}>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Division / functional area</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Skill</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Trade</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Level</th>
-                </tr>
-              </thead>
-              <tbody>
-                {categoryGroups.map(group => {
-                  const expanded = !!expandedCategories[group.categoryLabel];
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ backgroundColor: "#f9fafb" }}>
+                    <th style={{ textAlign: "left", padding: "6px 8px" }}>Division / functional area</th>
+                    <th style={{ textAlign: "left", padding: "6px 8px" }}>Skill</th>
+                    <th style={{ textAlign: "left", padding: "6px 8px" }}>Trade</th>
+                    <th style={{ textAlign: "left", padding: "6px 8px" }}>Level</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categoryGroups.map(group => {
+                    const expanded = !!expandedCategories[group.categoryLabel];
 
-                  return (
-                    <Fragment key={group.categoryLabel}>
-                      <tr style={{ backgroundColor: "#f3f4f6" }}>
-                        <td
-                          colSpan={4}
-                          onClick={() =>
-                            setExpandedCategories(prev => ({
-                              ...prev,
-                              [group.categoryLabel]: !prev[group.categoryLabel],
-                            }))
-                          }
-                          style={{
-                            padding: "6px 8px",
-                            borderTop: "1px solid #e5e7eb",
-                            fontWeight: 600,
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            cursor: "pointer",
-                          }}
-                        >
-                          <span>
-                            {expanded ? "▾" : "▸"} {group.categoryLabel}
-                          </span>
-                          <span style={{ fontSize: 11, color: "#6b7280" }}>
-                            Rated {group.ratedCount}/{group.totalCount}
-                            {group.avgSelf != null && (
-                              <>
-                                {" · "}
-                                {group.avgSelf.toFixed(1)}/5 avg
-                              </>
-                            )}
-                          </span>
-                        </td>
-                      </tr>
-                      {expanded &&
-                        group.skills
-                          .slice()
-                          .sort((a, b) => (b.level ?? 0) - (a.level ?? 0))
-                          .map(skill => (
-                            <tr key={skill.id}>
-                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }} />
-                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>{skill.label}</td>
-                              <td
-                                style={{
-                                  padding: "6px 8px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  fontSize: 12,
-                                }}
-                              >
-                                {skill.tradeLabel || "—"}
-                              </td>
-                              <td
-                                style={{
-                                  padding: "6px 8px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  fontSize: 12,
-                                }}
-                              >
-                                {canViewHr ? (
-                                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                    <StarRating
-                                      value={skill.level}
-                                      onChange={(next: 1 | 2 | 3 | 4 | 5) => {
-                                        setSkills(prev =>
-                                          prev.map(s =>
-                                            s.id === skill.id
-                                              ? { ...s, level: next }
-                                              : s,
-                                          ),
-                                        );
-                                      }}
-                                      size={14}
-                                      ariaLabel={`Self-assessed level for ${skill.label}`}
-                                    />
-                                    {skill.level != null && (
-                                      <span style={{ fontSize: 11, color: "#4b5563" }}>
-                                        {skill.level}/5
-                                      </span>
-                                    )}
-                                  </div>
-                                ) : skill.level != null ? (
-                                  <span>
-                                    {renderStars(skill.level, 12)}{" "}
-                                    <span style={{ marginLeft: 4 }}>{skill.level}/5</span>
-                                  </span>
-                                ) : (
-                                  <span style={{ color: "#6b7280", fontSize: 11 }}>Not yet rated</span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {skillsSaveMessage && (
-          <p style={{ fontSize: 11, color: "#16a34a", marginTop: 4 }}>{skillsSaveMessage}</p>
-        )}
-      </section>
+                    return (
+                      <Fragment key={group.categoryLabel}>
+                        <tr style={{ backgroundColor: "#f3f4f6" }}>
+                          <td
+                            colSpan={4}
+                            onClick={() =>
+                              setExpandedCategories(prev => ({
+                                ...prev,
+                                [group.categoryLabel]: !prev[group.categoryLabel],
+                              }))
+                            }
+                            style={{
+                              padding: "6px 8px",
+                              borderTop: "1px solid #e5e7eb",
+                              fontWeight: 600,
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <span>
+                              {expanded ? "▾" : "▸"} {group.categoryLabel}
+                            </span>
+                            <span style={{ fontSize: 11, color: "#6b7280" }}>
+                              Rated {group.ratedCount}/{group.totalCount}
+                              {group.avgSelf != null && (
+                                <>
+                                  {" · "}
+                                  {group.avgSelf.toFixed(1)}/5 avg
+                                </>
+                              )}
+                            </span>
+                          </td>
+                        </tr>
+                        {expanded &&
+                          group.skills
+                            .slice()
+                            .sort((a, b) => (b.level ?? 0) - (a.level ?? 0))
+                            .map(skill => (
+                              <tr key={skill.id}>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }} />
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>{skill.label}</td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  {skill.tradeLabel || "—"}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  {canViewHr ? (
+                                    <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                      <StarRating
+                                        value={skill.level}
+                                        onChange={(next: 1 | 2 | 3 | 4 | 5) => {
+                                          setSkills(prev =>
+                                            prev.map(s =>
+                                              s.id === skill.id
+                                                ? { ...s, level: next }
+                                                : s,
+                                            ),
+                                          );
+                                        }}
+                                        size={14}
+                                        ariaLabel={`Self-assessed level for ${skill.label}`}
+                                      />
+                                      {skill.level != null && (
+                                        <span style={{ fontSize: 11, color: "#4b5563" }}>
+                                          {skill.level}/5
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : skill.level != null ? (
+                                    <span>
+                                      {renderStars(skill.level, 12)}{" "}
+                                      <span style={{ marginLeft: 4 }}>{skill.level}/5</span>
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: "#6b7280", fontSize: 11 }}>Not yet rated</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {skillsSaveMessage && (
+            <p style={{ fontSize: 11, color: "#16a34a", marginTop: 4 }}>{skillsSaveMessage}</p>
+          )}
+        </section>
+      </div>
 
       {canViewHr && !hrProfileCollapsed && (
         <section style={{ marginTop: 16 }}>
@@ -1935,9 +1945,25 @@ export default function CandidateDetailPage() {
           >
             <div style={{ fontWeight: 600, marginBottom: 4 }}>HR-only compensation</div>
             <p style={{ fontSize: 11, color: "#6b7280", marginTop: 0 }}>
-              Screening pay rates used internally; stored in the workers HR portfolio.
+              Screening pay rates and availability used internally; stored in the workers HR
+              portfolio.
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+              <label style={{ flex: "0 0 180px" }}>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>Start date / availability</div>
+                <input
+                  type="date"
+                  value={hrStartDate}
+                  onChange={e => setHrStartDate(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </label>
               <label style={{ flex: "0 0 140px" }}>
                 <div style={{ fontSize: 12, color: "#6b7280" }}>Hourly rate</div>
                 <input
