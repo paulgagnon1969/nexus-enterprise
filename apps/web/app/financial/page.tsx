@@ -129,8 +129,10 @@ export default function FinancialPage() {
   const [activeSection, setActiveSection] = useState<FinancialSection>(() => {
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
-      const section = url.searchParams.get("section");
-      if (section === "TIME_ACCOUNTING") return "TIME_ACCOUNTING";
+      const section = url.searchParams.get("section") as FinancialSection | null;
+      if (section === "TIME_ACCOUNTING" || section === "ASSET_LOGISTICS") {
+        return section;
+      }
     }
     return "PRICELIST_TREE";
   });
