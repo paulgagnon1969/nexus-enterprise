@@ -41,6 +41,7 @@ interface HrDto {
   dayRate?: number | null;
   cpHourlyRate?: number | null;
   candidateDesiredPay?: number | null;
+  startDate?: string | null;
   ssnLast4?: string | null;
   itinLast4?: string | null;
   bankAccountLast4?: string | null;
@@ -155,6 +156,7 @@ export default function CompanyUserProfilePage() {
   const [hrDayRate, setHrDayRate] = useState<string>("");
   const [hrCpHourlyRate, setHrCpHourlyRate] = useState<string>("");
   const [hrCandidateDesiredPay, setHrCandidateDesiredPay] = useState<string>("");
+  const [hrStartDate, setHrStartDate] = useState<string>("");
 
   // HR journal: internal case log for this worker/user.
   const [journalLoading, setJournalLoading] = useState(false);
@@ -498,6 +500,7 @@ export default function CompanyUserProfilePage() {
       setHrDayRate("");
       setHrCpHourlyRate("");
       setHrCandidateDesiredPay("");
+      setHrStartDate("");
       return;
     }
 
@@ -521,6 +524,9 @@ export default function CompanyUserProfilePage() {
       !Number.isNaN(hrPayload.candidateDesiredPay)
         ? String(hrPayload.candidateDesiredPay)
         : "",
+    );
+    setHrStartDate(
+      hrPayload.startDate ? String(hrPayload.startDate).slice(0, 10) : "",
     );
   }, [profile]);
 
@@ -3552,6 +3558,29 @@ export default function CompanyUserProfilePage() {
                           gap: 12,
                         }}
                       >
+                        <label style={{ flex: "0 0 180px" }}>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#6b7280",
+                            }}
+                          >
+                            Start date / availability
+                          </div>
+                          <input
+                            type="date"
+                            value={hrStartDate}
+                            onChange={e => setHrStartDate(e.target.value)}
+                            disabled={!canEditHrFields}
+                            style={{
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </label>
                         <label style={{ flex: "0 0 140px" }}>
                           <div
                             style={{
@@ -3736,6 +3765,8 @@ export default function CompanyUserProfilePage() {
                               const nextCpHourly = parseRate(hrCpHourlyRate);
                               const nextDesired =
                                 parseRate(hrCandidateDesiredPay);
+                              const nextStartDate =
+                                hrStartDate.trim() ? hrStartDate.trim() : null;
 
                               if (
                                 nextHourly === undefined ||
@@ -3771,6 +3802,7 @@ export default function CompanyUserProfilePage() {
                                 body.cpHourlyRate = nextCpHourly;
                               if (nextDesired !== undefined)
                                 body.candidateDesiredPay = nextDesired;
+                              body.startDate = nextStartDate;
                               const res = await fetch(
                                 `${API_BASE}/users/${profile.id}/portfolio-hr`,
                                 {

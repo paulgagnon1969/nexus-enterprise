@@ -38,6 +38,9 @@ type PortfolioHrPayload = {
   // HIPAA / medical / notes
   hipaaNotes?: string | null;
 
+  // Availability / start date (HR-only, used for planning/anniversaries)
+  startDate?: string | null;
+
   // HR-only compensation (protected; used for CP/export)
   hourlyRate?: number | null;
   dayRate?: number | null;
@@ -255,6 +258,8 @@ export class UserService {
           bankAddress: payload.bankAddress ?? null,
           hipaaNotes: payload.hipaaNotes ?? null,
 
+          startDate: payload.startDate ?? null,
+
           hourlyRate: payload.hourlyRate ?? null,
           dayRate: payload.dayRate ?? null,
           cpHourlyRate: payload.cpHourlyRate ?? null,
@@ -349,6 +354,7 @@ export class UserService {
       "bankName",
       "bankAddress",
       "hipaaNotes",
+      "startDate",
       // HR-only compensation fields
       "hourlyRate",
       "dayRate",
@@ -389,6 +395,7 @@ export class UserService {
       setMaybe("bankName", body.bankName);
       setMaybe("bankAddress", body.bankAddress);
       setMaybe("hipaaNotes", body.hipaaNotes);
+      setMaybe("startDate", body.startDate);
 
       // HR-only compensation: stored encrypted alongside other HR payload.
       // These are numbers in the payload; we coerce from strings if needed.
@@ -514,6 +521,7 @@ export class UserService {
     setMaybe("state", body.state);
     setMaybe("postalCode", body.postalCode);
     setMaybe("country", body.country);
+    setMaybe("startDate", body.startDate);
 
     // HR-only compensation: allow OWNER/ADMIN/HR to set these on behalf of
     // the worker. They remain stored only in the encrypted HR payload.
@@ -850,6 +858,8 @@ export class UserService {
               bankName: payload.bankName ?? null,
               bankAddress: payload.bankAddress ?? null,
               hipaaNotes: payload.hipaaNotes ?? null,
+
+              startDate: payload.startDate ?? null,
 
               hourlyRate: payload.hourlyRate ?? null,
               dayRate: payload.dayRate ?? null,
