@@ -204,6 +204,8 @@ export default function FinancialPage() {
   const [priceListEta, setPriceListEta] = useState<number | null>(null);
   const [componentsEta, setComponentsEta] = useState<number | null>(null);
 
+  const [showInventoryLogisticsInfo, setShowInventoryLogisticsInfo] = useState(false);
+
   // Last Golden-related import jobs (so we can poll status after enqueue).
   const [priceListJob, setPriceListJob] = useState<ImportJobDto | null>(null);
   const [componentsJob, setComponentsJob] = useState<ImportJobDto | null>(null);
@@ -1852,11 +1854,53 @@ export default function FinancialPage() {
               history.
             </li>
             <li>
-              <strong>Materials as inventory:</strong> reuse the same inventory
-              positions and movements used for job materials so all logistics live
-              in one place.
+              <strong>Materials as inventory:</strong> reuse the same inventory positions
+              and movements used for job materials so all logistics live in one place.
+            </li>
+            <li>
+              <strong>Inventory Logistics use:</strong> the advanced logistics module
+              ties materials and labor to specific project financial allocations down
+              to the room.
+              {" "}
+              <button
+                type="button"
+                onClick={() => setShowInventoryLogisticsInfo((prev) => !prev)}
+                style={{
+                  border: "none",
+                  background: "none",
+                  padding: 0,
+                  margin: 0,
+                  cursor: "pointer",
+                  color: "#2563eb",
+                  textDecoration: "underline",
+                  font: "inherit",
+                }}
+              >
+                Learn more about Inventory Logistics
+              </button>
             </li>
           </ul>
+          {showInventoryLogisticsInfo && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: 8,
+                borderRadius: 6,
+                border: "1px solid #e5e7eb",
+                background: "#f9fafb",
+                fontSize: 12,
+                maxWidth: 620,
+              }}
+            >
+              <strong>Inventory Logistics overview.</strong>{" "}
+              This module lets you connect people, equipment, and materials to
+              specific locations inside a project14down to floors and rooms14and
+              tie those logistics back to project financials. Use it to see, at any
+              moment, which crews and assets are staged where, how inventory is
+              moving between pools and jobs, and how that activity rolls up into
+              billing and cost allocation.
+            </div>
+          )}
 
           <div
             style={{
