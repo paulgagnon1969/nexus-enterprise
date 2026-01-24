@@ -34,8 +34,12 @@ interface HrDto {
   state?: string | null;
   postalCode?: string | null;
   country?: string | null;
+
   bankName?: string | null;
   bankAddress?: string | null;
+  bankAccountNumber?: string | null;
+  bankRoutingNumber?: string | null;
+
   hipaaNotes?: string | null;
   hourlyRate?: number | null;
   dayRate?: number | null;
@@ -125,6 +129,9 @@ export default function CompanyUserProfilePage() {
   const [isAdminOrAbove, setIsAdminOrAbove] = useState(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
+  const [updatingTenantAccess, setUpdatingTenantAccess] = useState(false);
+  const [tenantAccessError, setTenantAccessError] = useState<string | null>(null);
+
   // Skills matrix style: category groups start collapsed by default.
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
@@ -158,6 +165,16 @@ export default function CompanyUserProfilePage() {
   const [hrCpHourlyRate, setHrCpHourlyRate] = useState<string>("");
   const [hrCandidateDesiredPay, setHrCandidateDesiredPay] = useState<string>("");
   const [hrStartDate, setHrStartDate] = useState<string>("");
+
+  // Banking (confidential) — only loaded on-demand.
+  const [bankAccountNumber, setBankAccountNumber] = useState<string>("");
+  const [bankRoutingNumber, setBankRoutingNumber] = useState<string>("");
+  const [bankAccountDirty, setBankAccountDirty] = useState(false);
+  const [bankRoutingDirty, setBankRoutingDirty] = useState(false);
+  const [bankNumbersLoaded, setBankNumbersLoaded] = useState(false);
+  const [bankNumbersVisible, setBankNumbersVisible] = useState(false);
+  const [bankRevealLoading, setBankRevealLoading] = useState(false);
+  const [bankRevealError, setBankRevealError] = useState<string | null>(null);
 
   // HR journal: internal case log for this worker/user.
   const [journalLoading, setJournalLoading] = useState(false);
@@ -531,6 +548,17 @@ export default function CompanyUserProfilePage() {
     );
   }, [profile]);
 
+  // Never auto-load confidential bank numbers; always require an explicit reveal.
+  useEffect(() => {
+    setBankAccountNumber("");
+    setBankRoutingNumber("");
+    setBankAccountDirty(false);
+    setBankRoutingDirty(false);
+    setBankNumbersLoaded(false);
+    setBankNumbersVisible(false);
+    setBankRevealError(null);
+  }, [profile?.id]);
+
   if (loading) {
     return (
       <div className="app-card">
@@ -577,6 +605,55 @@ export default function CompanyUserProfilePage() {
   const canEditUserType = isAdminOrAbove;
   const canEditGlobalRole = isSuperAdmin;
   const canEditWorkerComp = !!profile.canEditWorkerComp && !!profile.worker;
+  const canManageTenantAccess = isAdminOrAbove || isSuperAdmin;
+
+  async function handleToggleTenantAccess(nextIsActive: boolean) {
+    setTenantAccessError(null);
+
+    if (!profile) {
+      setTenantAccessError("Profile not loaded.");
+      return;
+    }
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setTenantAccessError("Missing access token. Please log in again.");
+      return;
+    }
+
+    try {
+      setUpdatingTenantAccess(true);
+
+      const res = await fetch(
+        `${API_BASE}/companies/${profile.company.id}/members/${profile.id}/active`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ isActive: nextIsActive }),
+        },
+      );
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Failed to update tenant access (${res.status})`);
+      }
+
+      const updated = await res.json().catch(() => null);
+      const isActive =
+        typeof updated?.isActive === "boolean" ? updated.isActive : nextIsActive;
+
+      setProfile(prev =>
+        prev ? { ...prev, companyMembershipActive: isActive } : prev,
+      );
+    } catch (err: any) {
+      setTenantAccessError(err?.message ?? "Failed to update tenant access.");
+    } finally {
+      setUpdatingTenantAccess(false);
+    }
+  }
 
   async function handleSaveIdentity(e?: FormEvent) {
     if (e) e.preventDefault();
@@ -1132,6 +1209,94 @@ export default function CompanyUserProfilePage() {
         <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
           {profile.company.name} \u00b7 {profile.companyRole}
         </p>
+
+        <div
+          style={{
+            marginTop: 8,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            fontSize: 12,
+            maxWidth: 760,
+          }}
+        >
+          <strong>Tenant access:</strong>
+          {companyAccessActive ? (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "2px 8px",
+                borderRadius: 999,
+                border: "1px solid #16a34a",
+                backgroundColor: "#ecfdf3",
+                fontSize: 11,
+                color: "#166534",
+              }}
+            >
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: 999,
+                  backgroundColor: "#16a34a",
+                }}
+              />
+              <span>ACTIVE</span>
+            </span>
+          ) : (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "2px 8px",
+                borderRadius: 999,
+                border: "1px solid #b91c1c",
+                backgroundColor: "#fef2f2",
+                fontSize: 11,
+                color: "#b91c1c",
+              }}
+            >
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: 999,
+                  backgroundColor: "#b91c1c",
+                }}
+              />
+              <span>DEACTIVATED</span>
+            </span>
+          )}
+
+          {canManageTenantAccess && (
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 11,
+                color: "#4b5563",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={companyAccessActive}
+                disabled={updatingTenantAccess}
+                onChange={e => void handleToggleTenantAccess(e.target.checked)}
+              />
+              <span>Allow access to this tenant</span>
+            </label>
+          )}
+
+          {tenantAccessError && (
+            <span style={{ fontSize: 11, color: "#b91c1c" }}>{tenantAccessError}</span>
+          )}
+        </div>
+
         {!companyAccessActive && (
           <div
             style={{
@@ -1146,8 +1311,8 @@ export default function CompanyUserProfilePage() {
             }}
           >
             <strong>Tenant access disabled.</strong>{" "}
-            This worker cannot log into <strong>{profile.company.name}</strong> as a
-            company user. They may still appear in the Nexus System as a candidate.
+            This worker cannot log into <strong>{profile.company.name}</strong>. They can
+            still use their login/password to access the NEXUS MARKET.
           </div>
         )}
 
@@ -3567,6 +3732,316 @@ export default function CompanyUserProfilePage() {
                         fontSize: 12,
                       }}
                     >
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                        Banking (confidential)
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: 12,
+                        }}
+                      >
+                        <label style={{ flex: "1 1 220px" }}>
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>
+                            Bank name
+                          </div>
+                          <input
+                            type="text"
+                            value={hr.bankName ?? ""}
+                            onChange={e =>
+                              canEditHrFields
+                                ? setProfile(prev =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          hr: {
+                                            ...(prev.hr || {}),
+                                            bankName: e.target.value,
+                                          },
+                                        }
+                                      : prev,
+                                  )
+                                : undefined
+                            }
+                            disabled={!canEditHrFields}
+                            placeholder="e.g., Chase"
+                            style={{
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </label>
+                        <label style={{ flex: "1 1 260px" }}>
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>
+                            Bank address
+                          </div>
+                          <input
+                            type="text"
+                            value={hr.bankAddress ?? ""}
+                            onChange={e =>
+                              canEditHrFields
+                                ? setProfile(prev =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          hr: {
+                                            ...(prev.hr || {}),
+                                            bankAddress: e.target.value,
+                                          },
+                                        }
+                                      : prev,
+                                  )
+                                : undefined
+                            }
+                            disabled={!canEditHrFields}
+                            placeholder="Optional"
+                            style={{
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </label>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: 12,
+                          marginTop: 8,
+                        }}
+                      >
+                        <label style={{ flex: "1 1 220px" }}>
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>
+                            Bank account #
+                          </div>
+                          <input
+                            type={bankNumbersVisible ? "text" : "password"}
+                            value={bankAccountNumber}
+                            onChange={e => {
+                              if (!canEditHrFields) return;
+                              setBankAccountNumber(e.target.value);
+                              setBankAccountDirty(true);
+                            }}
+                            disabled={!canEditHrFields}
+                            placeholder={
+                              hr.bankAccountLast4
+                                ? `Stored (ends in ${hr.bankAccountLast4})`
+                                : "Enter bank account #"
+                            }
+                            style={{
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </label>
+                        <label style={{ flex: "1 1 220px" }}>
+                          <div style={{ fontSize: 12, color: "#6b7280" }}>
+                            Routing #
+                          </div>
+                          <input
+                            type={bankNumbersVisible ? "text" : "password"}
+                            value={bankRoutingNumber}
+                            onChange={e => {
+                              if (!canEditHrFields) return;
+                              setBankRoutingNumber(e.target.value);
+                              setBankRoutingDirty(true);
+                            }}
+                            disabled={!canEditHrFields}
+                            placeholder={
+                              hr.bankRoutingLast4
+                                ? `Stored (ends in ${hr.bankRoutingLast4})`
+                                : "Enter routing #"
+                            }
+                            style={{
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </label>
+                      </div>
+
+                      <div
+                        style={{
+                          marginTop: 8,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          disabled={!canEditHrFields || bankRevealLoading}
+                          onClick={async () => {
+                            if (!profile) return;
+                            const token = localStorage.getItem("accessToken");
+                            if (!token) {
+                              setBankRevealError(
+                                "Missing access token. Please log in again.",
+                              );
+                              return;
+                            }
+                            try {
+                              setBankRevealLoading(true);
+                              setBankRevealError(null);
+
+                              const res = await fetch(
+                                `${API_BASE}/users/${profile.id}/profile?includeBankNumbers=1`,
+                                {
+                                  headers: {
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                },
+                              );
+
+                              if (!res.ok) {
+                                const text = await res
+                                  .text()
+                                  .catch(() => "");
+                                throw new Error(
+                                  `Failed to reveal bank info (${res.status}) ${text}`,
+                                );
+                              }
+
+                              const json = await res.json();
+                              const revealed = (json?.hr || {}) as HrDto;
+
+                              // Merge in-place so we don't clobber unsaved edits.
+                              setProfile(prev =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      hr: {
+                                        ...(prev.hr || {}),
+                                        ...(json?.hr || {}),
+                                      },
+                                    }
+                                  : prev,
+                              );
+
+                              setBankAccountNumber(
+                                revealed.bankAccountNumber ?? "",
+                              );
+                              setBankRoutingNumber(
+                                revealed.bankRoutingNumber ?? "",
+                              );
+                              setBankAccountDirty(false);
+                              setBankRoutingDirty(false);
+                              setBankNumbersLoaded(true);
+                              setBankNumbersVisible(true);
+                            } catch (e: any) {
+                              setBankRevealError(
+                                e?.message ?? "Failed to reveal bank info.",
+                              );
+                            } finally {
+                              setBankRevealLoading(false);
+                            }
+                          }}
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: 4,
+                            border: "1px solid #0f172a",
+                            backgroundColor: bankRevealLoading
+                              ? "#e5e7eb"
+                              : "#0f172a",
+                            color: bankRevealLoading
+                              ? "#4b5563"
+                              : "#f9fafb",
+                            fontSize: 12,
+                            cursor: bankRevealLoading ? "default" : "pointer",
+                          }}
+                        >
+                          {bankRevealLoading
+                            ? "Revealing…"
+                            : bankNumbersLoaded
+                              ? "Refresh bank numbers"
+                              : "Reveal bank numbers"}
+                        </button>
+
+                        {bankNumbersLoaded && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBankNumbersVisible(prev => !prev)
+                            }
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              backgroundColor: "#f3f4f6",
+                              fontSize: 12,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {bankNumbersVisible ? "Hide" : "Show"}
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          disabled={!canEditHrFields}
+                          onClick={() => {
+                            setBankAccountNumber("");
+                            setBankRoutingNumber("");
+                            setBankAccountDirty(true);
+                            setBankRoutingDirty(true);
+                            setBankNumbersLoaded(true);
+                            setBankNumbersVisible(true);
+                          }}
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: 4,
+                            border: "1px solid #b91c1c",
+                            backgroundColor: "#fef2f2",
+                            color: "#b91c1c",
+                            fontSize: 12,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Clear
+                        </button>
+
+                        {bankRevealError && (
+                          <span style={{ fontSize: 11, color: "#b91c1c" }}>
+                            {bankRevealError}
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#6b7280",
+                          marginTop: 4,
+                        }}
+                      >
+                        Stored encrypted. Use “Save HR contact” below to persist
+                        changes.
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        marginTop: 6,
+                        paddingTop: 8,
+                        borderTop: "1px dashed #e5e7eb",
+                        fontSize: 12,
+                      }}
+                    >
                       <div
                         style={{ fontWeight: 600, marginBottom: 4 }}
                       >
@@ -3813,6 +4288,9 @@ export default function CompanyUserProfilePage() {
                                 postalCode:
                                   currentHr.postalCode ?? null,
                                 country: currentHr.country ?? null,
+
+                                bankName: currentHr.bankName ?? null,
+                                bankAddress: currentHr.bankAddress ?? null,
                               };
 
                               if (nextHourly !== undefined)
@@ -3824,6 +4302,17 @@ export default function CompanyUserProfilePage() {
                               if (nextDesired !== undefined)
                                 body.candidateDesiredPay = nextDesired;
                               body.startDate = nextStartDate;
+
+                              // Do not send confidential bank numbers unless an admin explicitly edited them.
+                              if (bankAccountDirty) {
+                                const trimmed = bankAccountNumber.trim();
+                                body.bankAccountNumber = trimmed ? trimmed : null;
+                              }
+                              if (bankRoutingDirty) {
+                                const trimmed = bankRoutingNumber.trim();
+                                body.bankRoutingNumber = trimmed ? trimmed : null;
+                              }
+
                               const res = await fetch(
                                 `${API_BASE}/users/${profile.id}/portfolio-hr`,
                                 {
@@ -3845,6 +4334,8 @@ export default function CompanyUserProfilePage() {
                               }
                               const json = await res.json();
                               setProfile(json);
+                              setBankAccountDirty(false);
+                              setBankRoutingDirty(false);
                             } catch (e: any) {
                               setHrError(
                                 e?.message ?? "Failed to save HR contact.",
