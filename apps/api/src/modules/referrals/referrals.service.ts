@@ -236,7 +236,7 @@ export class ReferralsService {
       throw new ForbiddenException("Only Nexus System admins can view Nex-Net candidates.");
     }
 
-    return this.prisma.nexNetCandidate.findMany({
+    const candidates = await this.prisma.nexNetCandidate.findMany({
       orderBy: { createdAt: "desc" },
       include: {
         user: {
@@ -263,6 +263,92 @@ export class ReferralsService {
         },
       },
       take: 200,
+    });
+
+    if (!candidates.length) {
+      return [];
+    }
+
+    const userIds = Array.from(
+      new Set(
+        candidates
+          .map(c => c.userId as string | null)
+          .filter((id): id is string => !!id && typeof id === "string"),
+      ),
+    );
+    const candidateIds = candidates.map(c => c.id);
+
+    const memberships = userIds.length
+      ? await this.prisma.companyMembership.findMany({
+          where: { userId: { in: userIds } },
+          select: {
+            userId: true,
+            companyId: true,
+            role: true,
+            company: {
+              select: { id: true, name: true },
+            },
+          },
+        })
+      : [];
+
+    const membershipsByUserId = new Map<string, typeof memberships>();
+    for (const m of memberships) {
+      const list = membershipsByUserId.get(m.userId) ?? [];
+      list.push(m);
+      membershipsByUserId.set(m.userId, list);
+    }
+
+    const interests = await this.prisma.candidateInterest.findMany({
+      where: {
+        candidateId: { in: candidateIds },
+      },
+    });
+    const interestByCandidateAndCompany = new Map<string, string>();
+    for (const ci of interests) {
+      const key = `${ci.candidateId}|${ci.requestingCompanyId}`;
+      if (!interestByCandidateAndCompany.has(key)) {
+        interestByCandidateAndCompany.set(key, ci.status as string);
+      }
+    }
+
+    return candidates.map(c => {
+      const userId = (c.userId as string | null) ?? null;
+      const mems = userId ? membershipsByUserId.get(userId) ?? [] : [];
+
+      const assignedTenants = mems.map(m => {
+        const cid = m.companyId;
+        const key = `${c.id}|${cid}`;
+        const interestStatusRaw = interestByCandidateAndCompany.get(key) ?? null;
+
+        return {
+          companyId: cid,
+          companyName: m.company?.name ?? cid,
+          companyRole: m.role as string,
+          interestStatus: interestStatusRaw ?? "NONE",
+          isCurrentTenant: false,
+        };
+      });
+
+      const assignedTenantCount = assignedTenants.length;
+
+      const latestReferral = (c as any).referralsAsReferee?.[0] ?? null;
+      const email = c.email ?? c.user?.email ?? null;
+
+      return {
+        candidateId: c.id,
+        userId,
+        email,
+        firstName: c.firstName ?? c.user?.firstName ?? null,
+        lastName: c.lastName ?? c.user?.lastName ?? null,
+        phone: c.phone ?? null,
+        source: c.source ?? null,
+        status: c.status ?? null,
+        createdAt: c.createdAt ?? null,
+        primaryReferrerEmail: latestReferral?.referrer?.email ?? null,
+        assignedTenantCount,
+        assignedTenants,
+      };
     });
   }
 
@@ -302,7 +388,7 @@ export class ReferralsService {
       return [];
     }
 
-    return this.prisma.nexNetCandidate.findMany({
+    const candidates = await this.prisma.nexNetCandidate.findMany({
       where: {
         id: { in: candidateIds },
         isDeletedSoft: false,
@@ -336,6 +422,177 @@ export class ReferralsService {
       },
       take: 500,
     });
+
+    if (!candidates.length) {
+      return [];
+    }
+
+    const userIds = Array.from(
+      new Set(
+        candidates
+          .map(c => c.userId as string | null)
+          .filter((id): id is string => !!id && typeof id === "string"),
+      ),
+    );
+
+    const memberships = userIds.length
+      ? await this.prisma.companyMembership.findMany({
+          where: { userId: { in: userIds } },
+          select: {
+            userId: true,
+            companyId: true,
+            role: true,
+            company: {
+              select: { id: true, name: true },
+            },
+          },
+        })
+      : [];
+
+    const membershipsByUserId = new Map<string, typeof memberships>();
+    for (const m of memberships) {
+      const list = membershipsByUserId.get(m.userId) ?? [];
+      list.push(m);
+      membershipsByUserId.set(m.userId, list);
+    }
+
+    const interests = await this.prisma.candidateInterest.findMany({
+      where: {
+        candidateId: { in: candidateIds },
+      },
+    });
+    const interestByCandidateAndCompany = new Map<string, string>();
+    for (const ci of interests) {
+      const key = `${ci.candidateId}|${ci.requestingCompanyId}`;
+      if (!interestByCandidateAndCompany.has(key)) {
+        interestByCandidateAndCompany.set(key, ci.status as string);
+      }
+    }
+
+    return candidates.map(c => {
+      const userId = (c.userId as string | null) ?? null;
+      const mems = userId ? membershipsByUserId.get(userId) ?? [] : [];
+
+      const assignedTenants = mems.map(m => {
+        const cid = m.companyId;
+        const key = `${c.id}|${cid}`;
+        const interestStatusRaw = interestByCandidateAndCompany.get(key) ?? null;
+
+        return {
+          companyId: cid,
+          companyName: m.company?.name ?? cid,
+          companyRole: m.role as string,
+          interestStatus: interestStatusRaw ?? "NONE",
+          isCurrentTenant: cid === this.fortifiedCompanyId,
+        };
+      });
+
+      const assignedTenantCount = assignedTenants.length;
+      const latestReferral = (c as any).referralsAsReferee?.[0] ?? null;
+      const email = c.email ?? c.user?.email ?? null;
+
+      return {
+        candidateId: c.id,
+        userId,
+        email,
+        firstName: c.firstName ?? c.user?.firstName ?? null,
+        lastName: c.lastName ?? c.user?.lastName ?? null,
+        phone: c.phone ?? null,
+        source: c.source ?? null,
+        status: c.status ?? null,
+        createdAt: c.createdAt ?? null,
+        primaryReferrerEmail: latestReferral?.referrer?.email ?? null,
+        assignedTenantCount,
+        assignedTenants,
+      };
+    });
+  }
+
+  // System-wide candidate assignment history (employment + pay snapshots).
+  // SUPER_ADMIN only. This returns a summary of CandidateInterest rows for the
+  // given candidate, enriched with company names so NCC can render employment
+  // timelines.
+  async listCandidateAssignments(actor: AuthenticatedUser, candidateId: string) {
+    if (actor.globalRole !== GlobalRole.SUPER_ADMIN) {
+      throw new ForbiddenException("Only Nexus System admins can view candidate assignments.");
+    }
+
+    const candidate = await this.prisma.nexNetCandidate.findUnique({
+      where: { id: candidateId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    if (!candidate) {
+      throw new BadRequestException("Candidate not found");
+    }
+
+    const interests = await this.prisma.candidateInterest.findMany({
+      where: { candidateId },
+      orderBy: [
+        { employmentStartDate: "asc" },
+        { createdAt: "asc" },
+      ],
+    });
+
+    if (!interests.length) {
+      return {
+        candidate: {
+          id: candidate.id,
+          userId: candidate.userId,
+          email: candidate.email ?? candidate.user?.email ?? null,
+          firstName: candidate.firstName ?? candidate.user?.firstName ?? null,
+          lastName: candidate.lastName ?? candidate.user?.lastName ?? null,
+        },
+        assignments: [],
+      };
+    }
+
+    const companyIds = Array.from(
+      new Set(interests.map(ci => ci.requestingCompanyId).filter(Boolean)),
+    );
+
+    const companies = companyIds.length
+      ? await this.prisma.company.findMany({
+          where: { id: { in: companyIds as string[] } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const companyNameById = new Map(companies.map(c => [c.id, c.name]));
+
+    const assignments = interests.map(ci => ({
+      id: ci.id,
+      companyId: ci.requestingCompanyId,
+      companyName: companyNameById.get(ci.requestingCompanyId) ?? ci.requestingCompanyId,
+      status: ci.status,
+      employmentStartDate: ci.employmentStartDate,
+      employmentEndDate: ci.employmentEndDate,
+      baseHourlyRate: ci.baseHourlyRate,
+      dayRate: ci.dayRate,
+      cpHourlyRate: ci.cpHourlyRate,
+      cpFringeHourlyRate: ci.cpFringeHourlyRate,
+      createdAt: ci.createdAt,
+      updatedAt: ci.updatedAt,
+    }));
+
+    return {
+      candidate: {
+        id: candidate.id,
+        userId: candidate.userId,
+        email: candidate.email ?? candidate.user?.email ?? null,
+        firstName: candidate.firstName ?? candidate.user?.firstName ?? null,
+        lastName: candidate.lastName ?? candidate.user?.lastName ?? null,
+      },
+      assignments,
+    };
   }
 
   // --- Certification catalog & templates (admin/system only) ---

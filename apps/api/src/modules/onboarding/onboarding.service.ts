@@ -1718,13 +1718,22 @@ export class OnboardingService {
     // interestStatus per (candidate, company) pair. This is optional and
     // failure-tolerant; the primary signal remains CompanyMembership.
     const candidateIds = Array.from(new Set(Array.from(candidateIdByUserId.values())));
-    const interests = candidateIds.length
-      ? await this.prisma.candidateInterest.findMany({
+
+    let interests: any[] = [];
+    if (candidateIds.length) {
+      try {
+        interests = await this.prisma.candidateInterest.findMany({
           where: {
             candidateId: { in: candidateIds },
           },
-        })
-      : [];
+        });
+      } catch (e) {
+        // If the CandidateInterest table is not yet present in this environment
+        // or the query fails for any reason, treat interests as empty so we do
+        // not break the Prospective Candidates view.
+        interests = [];
+      }
+    }
 
     const interestByCandidateAndCompany = new Map<string, string>();
     for (const ci of interests) {
@@ -2527,6 +2536,161 @@ export class OnboardingService {
       where: { id: session.id },
       data: { status: "APPROVED" as any }
     });
+
+    // Best-effort: record or update CandidateInterest as HIRED for this
+    // (candidate, company) pair so Nex-Net can show assignment history and
+    // basic pay snapshots. We resolve or create a NexNetCandidate keyed by
+    // (userId, email) and then upsert the interest row.
+    try {
+      const normalizedEmail = this.normalizeEmail(session.email);
+
+      let candidate = await this.prisma.nexNetCandidate.findFirst({
+        where: {
+          OR: [
+            { userId: user.id },
+            normalizedEmail
+              ? {
+                  email: {
+                    equals: normalizedEmail,
+                    mode: "insensitive",
+                  } as any,
+                }
+              : undefined,
+          ].filter(Boolean) as any,
+        },
+      });
+
+      if (!candidate) {
+        candidate = await this.prisma.nexNetCandidate.create({
+          data: {
+            userId: user.id,
+            email: normalizedEmail,
+            firstName: null,
+            lastName: null,
+            phone: null,
+            source: NexNetSource.IMPORTED,
+            status: NexNetStatus.HIRED,
+          },
+        });
+      } else if (candidate.status !== NexNetStatus.HIRED) {
+        await this.prisma.nexNetCandidate.update({
+          where: { id: candidate.id },
+          data: { status: NexNetStatus.HIRED },
+        });
+      }
+
+      const now = new Date();
+
+      // Attempt to grab a basic pay snapshot from Worker and/or HR portfolio.
+      let baseHourly: number | null = null;
+      let dayRate: number | null = null;
+      let cpHourly: number | null = null;
+      let cpFringe: number | null = null;
+
+      try {
+        const worker = await this.prisma.worker.findFirst({
+          where: {
+            email: {
+              equals: normalizedEmail,
+              mode: "insensitive",
+            } as any,
+          },
+          select: {
+            defaultPayRate: true,
+            billRate: true,
+            cpRate: true,
+            cpFringeRate: true,
+          },
+        });
+        if (worker) {
+          baseHourly = worker.defaultPayRate ?? null;
+          cpHourly = worker.cpRate ?? null;
+          cpFringe = worker.cpFringeRate ?? null;
+        }
+      } catch {
+        // Fail soft if Worker mirror is not available.
+      }
+
+      try {
+        const portfolio = await this.prisma.userPortfolio.findUnique({
+          where: {
+            UserPortfolio_company_user_key: {
+              companyId: session.companyId,
+              userId: user.id,
+            },
+          },
+          select: { id: true },
+        });
+
+        if (portfolio) {
+          const hr = await this.prisma.userPortfolioHr.findUnique({
+            where: { portfolioId: portfolio.id },
+            select: { encryptedJson: true },
+          });
+
+          if (hr) {
+            try {
+              const payload = decryptPortfolioHrJson(Buffer.from(hr.encryptedJson)) as any;
+              if (typeof payload.hourlyRate === "number") {
+                baseHourly = payload.hourlyRate;
+              }
+              if (typeof payload.dayRate === "number") {
+                dayRate = payload.dayRate;
+              }
+              if (typeof payload.cpHourlyRate === "number") {
+                cpHourly = payload.cpHourlyRate;
+              }
+              if (typeof payload.cpFringeHourly === "number") {
+                cpFringe = payload.cpFringeHourly;
+              }
+            } catch {
+              // Ignore HR decryption failures for this best-effort path.
+            }
+          }
+        }
+      } catch {
+        // Non-fatal: portfolio is optional for this snapshot.
+      }
+
+      const existingInterest = await this.prisma.candidateInterest.findFirst({
+        where: {
+          candidateId: candidate.id,
+          requestingCompanyId: session.companyId,
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      if (!existingInterest) {
+        await this.prisma.candidateInterest.create({
+          data: {
+            candidateId: candidate.id,
+            requestingCompanyId: session.companyId,
+            status: "HIRED" as any,
+            employmentStartDate: now,
+            baseHourlyRate: baseHourly,
+            dayRate,
+            cpHourlyRate: cpHourly,
+            cpFringeHourlyRate: cpFringe,
+            handledByUserId: actor.userId ?? null,
+          },
+        });
+      } else {
+        await this.prisma.candidateInterest.update({
+          where: { id: existingInterest.id },
+          data: {
+            status: "HIRED" as any,
+            employmentStartDate: existingInterest.employmentStartDate ?? now,
+            baseHourlyRate: baseHourly ?? existingInterest.baseHourlyRate,
+            dayRate: dayRate ?? existingInterest.dayRate,
+            cpHourlyRate: cpHourly ?? existingInterest.cpHourlyRate,
+            cpFringeHourlyRate: cpFringe ?? existingInterest.cpFringeHourlyRate,
+            handledByUserId: actor.userId ?? existingInterest.handledByUserId,
+          },
+        });
+      }
+    } catch {
+      // Non-fatal: do not block approval if Nex-Net assignment logging fails.
+    }
 
     return { sessionId: session.id, userId: user.id };
   }

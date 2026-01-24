@@ -233,6 +233,17 @@ export class ReferralsController {
     return this.referrals.upsertCandidateMarketProfile(actor, candidateId, body);
   }
 
+  // System-wide candidate assignment history (employment + pay snapshots) used
+  // by Nex-Net and NCC to show which tenants a candidate has worked for and
+  // when. SUPER_ADMIN only.
+  @UseGuards(JwtAuthGuard)
+  @GlobalRoles(GlobalRole.SUPER_ADMIN)
+  @Get("system/candidates/:candidateId/assignments")
+  async getCandidateAssignments(@Req() req: any, @Param("candidateId") candidateId: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.referrals.listCandidateAssignments(actor, candidateId);
+  }
+
   // System-wide gaming alerts: aggregate referee rejections per referrer.
   @UseGuards(JwtAuthGuard)
   @GlobalRoles(GlobalRole.SUPER_ADMIN)
