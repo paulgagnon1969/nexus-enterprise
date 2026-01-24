@@ -121,6 +121,16 @@ function CompanyUsersPageInner() {
   const [bulkCsvSaving, setBulkCsvSaving] = useState(false);
   const [bulkCsvResult, setBulkCsvResult] = useState<string | null>(null);
 
+  // People import/export (dev tooling)
+  const [exportingPeople, setExportingPeople] = useState(false);
+  const [exportPeopleError, setExportPeopleError] = useState<string | null>(null);
+  const [exportPeopleResult, setExportPeopleResult] = useState<string | null>(null);
+
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importingPeople, setImportingPeople] = useState(false);
+  const [importPeopleError, setImportPeopleError] = useState<string | null>(null);
+  const [importPeopleResult, setImportPeopleResult] = useState<string | null>(null);
+
   // Inline reset password panel (for admins)
   const [resetEmail, setResetEmail] = useState<string | null>(null);
   const [resetRole, setResetRole] = useState<CompanyRole | null>(null);
@@ -133,7 +143,7 @@ function CompanyUsersPageInner() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [initialError, setInitialError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<"users" | "candidates">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "candidates" | "importExport">("users");
 
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const copyTimerRef = useRef<number | null>(null);
@@ -182,11 +192,13 @@ function CompanyUsersPageInner() {
     };
   }, []);
 
-  // Allow deep-links like /company/users?tab=candidates
+  // Allow deep-links like /company/users?tab=candidates or tab=importExport
   useEffect(() => {
     const tab = searchParams?.get("tab");
     if (tab === "candidates") {
       setActiveTab("candidates");
+    } else if (tab === "importExport") {
+      setActiveTab("importExport");
     } else {
       setActiveTab("users");
     }
@@ -943,6 +955,325 @@ function CompanyUsersPageInner() {
     setBulkResult(summaryParts.join(" "));
   };
 
+  async function handleExportPeopleSnapshot() {
+    if (!companyId) {
+      setExportPeopleError("Missing company context.");
+      return;
+    }
+    if (typeof window === "undefined") {
+      setExportPeopleError("Export is only available in a browser context.");
+      return;
+    }
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setExportPeopleError("Missing access token. Please log in again.");
+      return;
+    }
+
+    try {
+      setExportingPeople(true);
+      setExportPeopleError(null);
+      setExportPeopleResult(null);
+
+      const membersPromise = fetch(`${API_BASE}/companies/${companyId}/members`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const prospectsPromise = fetch(
+        `${API_BASE}/onboarding/company/${companyId}/prospects`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
+      const [membersRes, prospectsRes] = await Promise.all([
+        membersPromise,
+        prospectsPromise,
+      ]);
+
+      if (!membersRes.ok) {
+        const text = await membersRes.text().catch(() => "");
+        throw new Error(`Failed to load members (${membersRes.status}) ${text}`);
+      }
+      if (!prospectsRes.ok) {
+        const text = await prospectsRes.text().catch(() => "");
+        throw new Error(`Failed to load candidates (${prospectsRes.status}) ${text}`);
+      }
+
+      const exportedMembers: CompanyMemberRow[] = await membersRes.json();
+      const exportedCandidates: any[] = await prospectsRes.json();
+
+      const snapshot = {
+        companyId,
+        companyName: companyName || null,
+        exportedAt: new Date().toISOString(),
+        origin: window.location.origin,
+        members: exportedMembers,
+        candidates: Array.isArray(exportedCandidates) ? exportedCandidates : [],
+      };
+
+      const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+
+      const safeName = (companyName || companyId)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      const datePart = new Date().toISOString().slice(0, 10);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `nexus-people-${safeName || "company"}-${datePart}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setExportPeopleResult(
+        `Exported ${exportedMembers.length} members and ${
+          Array.isArray(exportedCandidates) ? exportedCandidates.length : 0
+        } candidates to JSON.`,
+      );
+    } catch (err: any) {
+      setExportPeopleError(err?.message ?? "Failed to export people snapshot.");
+    } finally {
+      setExportingPeople(false);
+    }
+  }
+
+  async function handleImportPeoplePreview(e: FormEvent) {
+    e.preventDefault();
+    setImportPeopleError(null);
+    setImportPeopleResult(null);
+
+    if (!importFile) {
+      setImportPeopleError("Choose a JSON export file first.");
+      return;
+    }
+
+    try {
+      setImportingPeople(true);
+      const text = await readFileAsText(importFile);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new Error("File is not valid JSON.");
+      }
+
+      const membersArr = Array.isArray(parsed?.members) ? parsed.members : [];
+      const candidatesArr = Array.isArray(parsed?.candidates)
+        ? parsed.candidates
+        : [];
+
+      const summaryParts: string[] = [];
+      summaryParts.push(
+        `Snapshot companyId: ${parsed?.companyId || "(missing)"} · exportedAt: ${
+          parsed?.exportedAt || "(unknown)"
+        }`,
+      );
+      summaryParts.push(
+        `Contains ${membersArr.length} member row${
+          membersArr.length === 1 ? "" : "s"
+        } and ${candidatesArr.length} candidate row${
+          candidatesArr.length === 1 ? "" : "s"
+        }`,
+      );
+
+      const memberEmails = membersArr
+        .map((m: any) => m?.user?.email)
+        .filter((v: any) => typeof v === "string")
+        .slice(0, 5);
+      const candidateEmails = candidatesArr
+        .map((c: any) => c?.email)
+        .filter((v: any) => typeof v === "string")
+        .slice(0, 5);
+
+      if (memberEmails.length) {
+        summaryParts.push(
+          `Example member emails: ${memberEmails.join(", ")}${
+            membersArr.length > memberEmails.length
+              ? `, +${membersArr.length - memberEmails.length} more`
+              : ""
+          }`,
+        );
+      }
+      if (candidateEmails.length) {
+        summaryParts.push(
+          `Example candidate emails: ${candidateEmails.join(", ")}${
+            candidatesArr.length > candidateEmails.length
+              ? `, +${candidatesArr.length - candidateEmails.length} more`
+              : ""
+          }`,
+        );
+      }
+
+      summaryParts.push(
+        "Note: this view only validates the snapshot. Automated import into dev is a separate step and can be wired next.",
+      );
+
+      setImportPeopleResult(summaryParts.join(" \\n"));
+    } catch (err: any) {
+      setImportPeopleError(err?.message ?? "Failed to read or validate snapshot.");
+    } finally {
+      setImportingPeople(false);
+    }
+  }
+
+  async function handleImportPeopleRun() {
+    setImportPeopleError(null);
+    // Keep any existing preview summary and append to it after import.
+
+    if (!companyId) {
+      setImportPeopleError("Missing company context.");
+      return;
+    }
+
+    if (!importFile) {
+      setImportPeopleError("Choose a JSON export file first.");
+      return;
+    }
+
+    try {
+      setImportingPeople(true);
+      const text = await readFileAsText(importFile);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new Error("File is not valid JSON.");
+      }
+
+      const candidatesArr = Array.isArray(parsed?.candidates)
+        ? parsed.candidates
+        : [];
+
+      if (!candidatesArr.length) {
+        setImportPeopleResult(
+          "Snapshot has no candidates to import. Members are not imported in this step.",
+        );
+        return;
+      }
+
+      let createdCount = 0;
+      let submittedCount = 0;
+      const errors: string[] = [];
+
+      for (const raw of candidatesArr) {
+        const email = (raw?.email || "").trim().toLowerCase();
+        if (!email) {
+          errors.push("Skipping candidate without email.");
+          continue;
+        }
+
+        try {
+          // Create a new onboarding session for this company + email.
+          const startRes = await fetch(`${API_BASE}/onboarding/start`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ companyId, email }),
+          });
+
+          if (!startRes.ok) {
+            const textBody = await startRes.text().catch(() => "");
+            errors.push(
+              `${email}: failed to start onboarding (${startRes.status}) ${textBody?.slice(0, 120) ?? ""}`,
+            );
+            continue;
+          }
+
+          const startJson: any = await startRes.json();
+          const tokenForSession: string | undefined = startJson?.token;
+          if (!tokenForSession) {
+            errors.push(`${email}: onboarding/start did not return a token.`);
+            continue;
+          }
+
+          createdCount += 1;
+
+          // Best-effort: hydrate profile if present in the snapshot.
+          const profile = raw?.profile;
+          if (profile && typeof profile === "object") {
+            try {
+              await fetch(`${API_BASE}/onboarding/${tokenForSession}/profile`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  firstName: profile.firstName ?? undefined,
+                  lastName: profile.lastName ?? undefined,
+                  phone: profile.phone ?? undefined,
+                  dob: profile.dob ?? undefined,
+                  addressLine1: profile.addressLine1 ?? undefined,
+                  addressLine2: profile.addressLine2 ?? undefined,
+                  city: profile.city ?? undefined,
+                  state: profile.state ?? undefined,
+                  postalCode: profile.postalCode ?? undefined,
+                  country: profile.country ?? undefined,
+                }),
+              });
+            } catch (err: any) {
+              errors.push(`${email}: profile import failed (${err?.message ?? "unknown error"})`);
+            }
+          }
+
+          // If the original candidate was SUBMITTED, mirror that status by submitting
+          // the imported session as well.
+          const status = String(raw?.status || "").toUpperCase();
+          if (status === "SUBMITTED") {
+            try {
+              const submitRes = await fetch(
+                `${API_BASE}/onboarding/${tokenForSession}/submit`,
+                {
+                  method: "POST",
+                },
+              );
+              if (submitRes.ok) {
+                submittedCount += 1;
+              } else {
+                const textBody = await submitRes.text().catch(() => "");
+                errors.push(
+                  `${email}: submit failed (${submitRes.status}) ${
+                    textBody?.slice(0, 120) ?? ""
+                  }`,
+                );
+              }
+            } catch (err: any) {
+              errors.push(`${email}: submit failed (${err?.message ?? "unknown error"})`);
+            }
+          }
+        } catch (err: any) {
+          errors.push(`${email}: ${err?.message ?? "import failed"}`);
+        }
+      }
+
+      let summary = `Imported ${createdCount} candidate session${
+        createdCount === 1 ? "" : "s"
+      } into ${companyName || companyId}.`;
+      if (submittedCount > 0) {
+        summary += ` Marked ${submittedCount} as SUBMITTED.`;
+      }
+      if (errors.length) {
+        const shown = errors.slice(0, 5);
+        summary += ` Errors: ${shown.join(" | ")}`;
+        if (errors.length > shown.length) {
+          summary += ` (+${errors.length - shown.length} more)`;
+        }
+      }
+
+      setImportPeopleResult(summary);
+    } catch (err: any) {
+      setImportPeopleError(err?.message ?? "Failed to import candidates from snapshot.");
+    } finally {
+      setImportingPeople(false);
+    }
+  }
+
   if (initialLoading) {
     return (
       <div className="app-card">
@@ -1067,9 +1398,168 @@ function CompanyUsersPageInner() {
             Prospective candidates
           </button>
         )}
+        {canManageMembers && (
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("importExport");
+              router.replace("/company/users?tab=importExport");
+            }}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 999,
+              border:
+                activeTab === "importExport" ? "1px solid #0f172a" : "1px solid #d1d5db",
+              background: activeTab === "importExport" ? "#0f172a" : "#ffffff",
+              color: activeTab === "importExport" ? "#f9fafb" : "#111827",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            Import / Export People
+          </button>
+        )}
       </div>
 
-      {activeTab === "candidates" && companyId ? (
+      {activeTab === "importExport" && companyId && canManageMembers ? (
+        <section style={{ marginTop: 8 }}>
+          <h2 style={{ fontSize: 16, marginBottom: 4 }}>Import / Export People</h2>
+          <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 8 }}>
+            Export a snapshot of company members and prospective candidates to JSON so you can
+            move data between environments. Import preview validates a snapshot file and shows
+            what it contains.
+          </p>
+
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              padding: 12,
+              background: "#f9fafb",
+            }}
+          >
+            <div>
+              <h3 style={{ fontSize: 14, margin: 0 }}>Export people snapshot</h3>
+              <p style={{ fontSize: 12, color: "#4b5563", marginTop: 4 }}>
+                Creates a JSON file containing all current company members and prospective
+                candidates for <strong>{companyName || companyId}</strong>.
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleExportPeopleSnapshot()}
+                disabled={exportingPeople}
+                style={{
+                  marginTop: 4,
+                  padding: "6px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #0f172a",
+                  backgroundColor: exportingPeople ? "#e5e7eb" : "#0f172a",
+                  color: exportingPeople ? "#4b5563" : "#f9fafb",
+                  cursor: exportingPeople ? "default" : "pointer",
+                  fontSize: 12,
+                }}
+              >
+                {exportingPeople ? "Preparing export…" : "Export people (JSON)"}
+              </button>
+              {exportPeopleError && (
+                <p style={{ marginTop: 4, fontSize: 12, color: "#b91c1c" }}>
+                  {exportPeopleError}
+                </p>
+              )}
+              {exportPeopleResult && (
+                <p style={{ marginTop: 4, fontSize: 12, color: "#16a34a" }}>
+                  {exportPeopleResult}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <h3 style={{ fontSize: 14, margin: 0 }}>Import snapshot (preview)</h3>
+              <p style={{ fontSize: 12, color: "#4b5563", marginTop: 4 }}>
+                Choose a previously exported JSON file to inspect what would be imported into this
+                environment. Automated creation of candidates and members can be layered on top of
+                this preview.
+              </p>
+              <form
+                onSubmit={handleImportPeoplePreview}
+                style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}
+              >
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  onChange={e => setImportFile(e.target.files?.[0] ?? null)}
+                  style={{ fontSize: 12 }}
+                />
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button
+                    type="submit"
+                    disabled={importingPeople || !importFile}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #0f172a",
+                      backgroundColor:
+                        importingPeople || !importFile ? "#e5e7eb" : "#0f172a",
+                      color: importingPeople || !importFile ? "#4b5563" : "#f9fafb",
+                      cursor:
+                        importingPeople || !importFile ? "default" : "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    {importingPeople ? "Reading file" : "Preview snapshot"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleImportPeopleRun()}
+                    disabled={importingPeople || !importFile}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #b91c1c",
+                      backgroundColor:
+                        importingPeople || !importFile ? "#fee2e2" : "#b91c1c",
+                      color: importingPeople || !importFile ? "#9f1239" : "#fef2f2",
+                      cursor:
+                        importingPeople || !importFile ? "default" : "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    {importingPeople ? "Importing" : "Import candidates (dev)"}
+                  </button>
+                </div>
+              </form>
+              <p style={{ marginTop: 4, fontSize: 11, color: "#b91c1c" }}>
+                DEV-ONLY: importing will create onboarding sessions for each candidate in the
+                file in the <strong>{companyName || companyId}</strong> tenant. Do not run this
+                in production.
+              </p>
+              {importPeopleError && (
+                <p style={{ marginTop: 4, fontSize: 12, color: "#b91c1c" }}>
+                  {importPeopleError}
+                </p>
+              )}
+              {importPeopleResult && (
+                <pre
+                  style={{
+                    marginTop: 4,
+                    fontSize: 11,
+                    color: "#111827",
+                    background: "#ffffff",
+                    borderRadius: 6,
+                    padding: 8,
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {importPeopleResult}
+                </pre>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : activeTab === "candidates" && companyId ? (
         <ProspectiveCandidatesPanel
           companyId={companyId}
           companyName={companyName}

@@ -1478,9 +1478,12 @@ export class OnboardingService {
       typeof company.name === "string" &&
       company.name.toLowerCase().startsWith("nexus fortified structures");
 
-    // For non-Fortified tenants, reuse the existing company-scoped behavior but
-    // also include any candidates explicitly shared with this tenant via
-    // CandidatePoolVisibility.
+    // First, resolve the underlying sessions using the existing logic (local
+    // + shared for non-Fortified, Nexus System + Fortified for Fortified). We
+    // then enrich those sessions with assignment metadata so callers can see
+    // which tenants already "own" this person as a worker.
+    let baseSessions: any[];
+
     if (!isFortifiedCompany) {
       // Local onboarding sessions for this company (same auth and filtering
       // rules as listSessionsForCompany).
@@ -1503,87 +1506,143 @@ export class OnboardingService {
       });
 
       if (!visibilityRows.length) {
-        return localSessions;
-      }
+        baseSessions = localSessions;
+      } else {
+        const candidateIds = Array.from(
+          new Set(visibilityRows.map(v => v.candidateId).filter(id => !!id)),
+        );
 
-      const candidateIds = Array.from(
-        new Set(visibilityRows.map(v => v.candidateId).filter(id => !!id)),
-      );
+        if (!candidateIds.length) {
+          baseSessions = localSessions;
+        } else {
+          const candidates = await this.prisma.nexNetCandidate.findMany({
+            where: {
+              id: { in: candidateIds },
+              isDeletedSoft: false,
+            },
+            select: {
+              id: true,
+              userId: true,
+              email: true,
+              companyId: true,
+            },
+          });
 
-      if (!candidateIds.length) {
-        return localSessions;
-      }
+          if (!candidates.length) {
+            baseSessions = localSessions;
+          } else {
+            // Resolve the latest onboarding session for each candidate in their
+            // owning company (if any), then fetch those sessions with the same
+            // filters we apply to local sessions.
+            const sharedSessionIdSet = new Set<string>();
 
-      const candidates = await this.prisma.nexNetCandidate.findMany({
-        where: {
-          id: { in: candidateIds },
-          isDeletedSoft: false,
-        },
-        select: {
-          id: true,
-          userId: true,
-          email: true,
-          companyId: true,
-        },
-      });
+            for (const cand of candidates) {
+              if (!cand.companyId) continue;
 
-      if (!candidates.length) {
-        return localSessions;
-      }
+              const normalizedEmail = this.normalizeEmail(cand.email ?? "");
+              const or: any[] = [];
+              if (cand.userId) {
+                or.push({ userId: cand.userId });
+              }
+              if (normalizedEmail) {
+                or.push({
+                  email: {
+                    equals: normalizedEmail,
+                    mode: "insensitive",
+                  } as any,
+                });
+              }
+              if (!or.length) continue;
 
-      // Resolve the latest onboarding session for each candidate in their
-      // owning company (if any), then fetch those sessions with the same
-      // filters we apply to local sessions.
-      const sharedSessionIdSet = new Set<string>();
+              const session = await this.prisma.onboardingSession.findFirst({
+                where: {
+                  companyId: cand.companyId,
+                  OR: or,
+                },
+                select: {
+                  id: true,
+                },
+                orderBy: { createdAt: "desc" },
+              });
 
-      for (const cand of candidates) {
-        if (!cand.companyId) continue;
+              if (session) {
+                sharedSessionIdSet.add(session.id);
+              }
+            }
 
-        const normalizedEmail = this.normalizeEmail(cand.email ?? "");
-        const or: any[] = [];
-        if (cand.userId) {
-          or.push({ userId: cand.userId });
+            // Exclude any sessions that are already part of the localSessions list to
+            // avoid duplicates.
+            const existingLocalIds = new Set(localSessions.map(s => s.id));
+            const sharedSessionIds = Array.from(sharedSessionIdSet).filter(
+              id => !existingLocalIds.has(id),
+            );
+
+            if (!sharedSessionIds.length) {
+              baseSessions = localSessions;
+            } else {
+              const sharedSessions = await this.prisma.onboardingSession.findMany({
+                where: {
+                  id: { in: sharedSessionIds },
+                  status: statuses && statuses.length ? { in: statuses as any } : undefined,
+                  detailStatusCode:
+                    detailStatusCodes && detailStatusCodes.length
+                      ? { in: detailStatusCodes.map(c => c.toUpperCase()) }
+                      : undefined,
+                },
+                include: {
+                  profile: true,
+                },
+                orderBy: { createdAt: "desc" },
+              });
+
+              baseSessions = [...localSessions, ...sharedSessions];
+            }
+          }
         }
-        if (normalizedEmail) {
-          or.push({
-            email: {
-              equals: normalizedEmail,
+      }
+    } else {
+      // Fortified-specific view: only OWNER / ADMIN at the active Fortified
+      // company can access the shared Nex-Net prospective candidates pool.
+      if (actor.companyId !== companyId) {
+        throw new ForbiddenException(
+          "Only Nexus Fortified admins can view shared prospects for this company.",
+        );
+      }
+      if (actor.role !== "OWNER" && actor.role !== "ADMIN") {
+        throw new ForbiddenException(
+          "Only Nexus Fortified admins can view shared prospects.",
+        );
+      }
+
+      // Resolve the canonical Nexus System recruiting company id so we always
+      // read from the same pool that /apply and startPublicSession use.
+      let recruitingCompanyId = this.nexusSystemCompanyId;
+
+      if (!recruitingCompanyId) {
+        const recruitingCompany = await this.prisma.company.findFirst({
+          where: {
+            name: {
+              equals: "Nexus System",
               mode: "insensitive",
             } as any,
-          });
-        }
-        if (!or.length) continue;
-
-        const session = await this.prisma.onboardingSession.findFirst({
-          where: {
-            companyId: cand.companyId,
-            OR: or,
           },
-          select: {
-            id: true,
-          },
-          orderBy: { createdAt: "desc" },
+          select: { id: true },
         });
 
-        if (session) {
-          sharedSessionIdSet.add(session.id);
+        if (!recruitingCompany) {
+          throw new BadRequestException(
+            "Recruiting pool company (Nexus System) not found. Ensure a company named 'Nexus System' exists.",
+          );
         }
+
+        recruitingCompanyId = recruitingCompany.id;
       }
 
-      // Exclude any sessions that are already part of the localSessions list to
-      // avoid duplicates.
-      const existingLocalIds = new Set(localSessions.map(s => s.id));
-      const sharedSessionIds = Array.from(sharedSessionIdSet).filter(
-        id => !existingLocalIds.has(id),
-      );
+      const companyIds = [recruitingCompanyId, companyId];
 
-      if (!sharedSessionIds.length) {
-        return localSessions;
-      }
-
-      const sharedSessions = await this.prisma.onboardingSession.findMany({
+      baseSessions = await this.prisma.onboardingSession.findMany({
         where: {
-          id: { in: sharedSessionIds },
+          companyId: { in: companyIds },
           status: statuses && statuses.length ? { in: statuses as any } : undefined,
           detailStatusCode:
             detailStatusCodes && detailStatusCodes.length
@@ -1595,62 +1654,147 @@ export class OnboardingService {
         },
         orderBy: { createdAt: "desc" },
       });
-
-      return [...localSessions, ...sharedSessions];
     }
 
-    // Fortified-specific view: only OWNER / ADMIN at the active Fortified
-    // company can access the shared Nex-Net prospective candidates pool.
-    if (actor.companyId !== companyId) {
-      throw new ForbiddenException(
-        "Only Nexus Fortified admins can view shared prospects for this company.",
-      );
-    }
-    if (actor.role !== "OWNER" && actor.role !== "ADMIN") {
-      throw new ForbiddenException(
-        "Only Nexus Fortified admins can view shared prospects.",
-      );
+    if (!baseSessions.length) {
+      return [];
     }
 
-    // Resolve the canonical Nexus System recruiting company id so we always
-    // read from the same pool that /apply and startPublicSession use.
-    let recruitingCompanyId = this.nexusSystemCompanyId;
+    // --- Enrich sessions with assignment metadata ---
 
-    if (!recruitingCompanyId) {
-      const recruitingCompany = await this.prisma.company.findFirst({
-        where: {
-          name: {
-            equals: "Nexus System",
-            mode: "insensitive",
-          } as any,
-        },
-        select: { id: true },
+    // Collect userIds for membership lookups.
+    const userIds = Array.from(
+      new Set(
+        baseSessions
+          .map(s => s.userId as string | null)
+          .filter((id): id is string => !!id && typeof id === "string"),
+      ),
+    );
+
+    // Resolve Nex-Net candidates for these users (best-effort; we key by userId).
+    const candidates = userIds.length
+      ? await this.prisma.nexNetCandidate.findMany({
+          where: {
+            userId: { in: userIds },
+          },
+          select: {
+            id: true,
+            userId: true,
+          },
+        })
+      : [];
+
+    const candidateIdByUserId = new Map<string, string>();
+    for (const c of candidates) {
+      if (c.userId) {
+        candidateIdByUserId.set(c.userId, c.id);
+      }
+    }
+
+    // Load memberships for all relevant users so we can see which tenants they
+    // already work for.
+    const memberships = userIds.length
+      ? await this.prisma.companyMembership.findMany({
+          where: { userId: { in: userIds } },
+          select: {
+            userId: true,
+            companyId: true,
+            role: true,
+            company: {
+              select: { id: true, name: true },
+            },
+          },
+        })
+      : [];
+
+    const membershipsByUserId = new Map<string, typeof memberships>();
+    for (const m of memberships) {
+      const list = membershipsByUserId.get(m.userId) ?? [];
+      list.push(m);
+      membershipsByUserId.set(m.userId, list);
+    }
+
+    // Best-effort: also load CandidateInterest rows so we can expose an
+    // interestStatus per (candidate, company) pair. This is optional and
+    // failure-tolerant; the primary signal remains CompanyMembership.
+    const candidateIds = Array.from(new Set(Array.from(candidateIdByUserId.values())));
+    const interests = candidateIds.length
+      ? await this.prisma.candidateInterest.findMany({
+          where: {
+            candidateId: { in: candidateIds },
+          },
+        })
+      : [];
+
+    const interestByCandidateAndCompany = new Map<string, string>();
+    for (const ci of interests) {
+      const key = `${ci.candidateId}|${ci.requestingCompanyId}`;
+      if (!interestByCandidateAndCompany.has(key)) {
+        interestByCandidateAndCompany.set(key, ci.status as string);
+      }
+    }
+
+    const actorCompanyId = actor.companyId;
+
+    return baseSessions.map(session => {
+      const userId = (session.userId as string | null) ?? null;
+      const candidateId = userId ? candidateIdByUserId.get(userId) ?? null : null;
+
+      const mems = userId ? membershipsByUserId.get(userId) ?? [] : [];
+      const assignedTenants = mems.map(m => {
+        const cid = m.companyId;
+        const key = candidateId ? `${candidateId}|${cid}` : null;
+        const interestStatusRaw = key ? interestByCandidateAndCompany.get(key) : null;
+
+        let interestStatus: string = interestStatusRaw ?? "NONE";
+        if (interestStatus === "NONE" && cid === session.companyId) {
+          const st = String(session.status || "").toUpperCase();
+          if (st === "APPROVED" || st === "HIRED") {
+            interestStatus = "HIRED";
+          }
+        }
+
+        return {
+          companyId: cid,
+          companyName: m.company?.name ?? cid,
+          companyRole: m.role as string,
+          interestStatus,
+          isCurrentTenant: !!actorCompanyId && cid === actorCompanyId,
+        };
       });
 
-      if (!recruitingCompany) {
-        throw new BadRequestException(
-          "Recruiting pool company (Nexus System) not found. Ensure a company named 'Nexus System' exists.",
-        );
-      }
+      const assignedTenantCount = assignedTenants.length;
+      const assignedHere = assignedTenants.some(t => t.companyId === session.companyId);
+      const assignedElsewhere = assignedTenantCount > 0 && !assignedHere;
 
-      recruitingCompanyId = recruitingCompany.id;
-    }
+      const checklist = session.checklistJson ? JSON.parse(session.checklistJson) : {};
+      const profileCompletionPercent = (() => {
+        const keys = ["profileComplete", "photoUploaded", "govIdUploaded", "skillsComplete"];
+        const completed = keys.filter(k => checklist[k]).length;
+        if (!keys.length) return null;
+        const raw = Math.round((completed / keys.length) * 100);
+        if (!Number.isFinite(raw)) return null;
+        return Math.max(10, raw);
+      })();
 
-    const companyIds = [recruitingCompanyId, companyId];
-
-    return this.prisma.onboardingSession.findMany({
-      where: {
-        companyId: { in: companyIds },
-        status: statuses && statuses.length ? { in: statuses as any } : undefined,
-        detailStatusCode:
-          detailStatusCodes && detailStatusCodes.length
-            ? { in: detailStatusCodes.map(c => c.toUpperCase()) }
-            : undefined,
-      },
-      include: {
-        profile: true,
-      },
-      orderBy: { createdAt: "desc" },
+      return {
+        id: session.id,
+        companyId: session.companyId,
+        candidateId,
+        userId,
+        email: session.email,
+        status: session.status,
+        detailStatusCode: session.detailStatusCode ?? null,
+        createdAt: session.createdAt,
+        updatedAt: (session as any).updatedAt ?? null,
+        profile: (session as any).profile ?? null,
+        checklist,
+        profileCompletionPercent,
+        assignedTenantCount,
+        assignedHere,
+        assignedElsewhere,
+        assignedTenants,
+      };
     });
   }
 
