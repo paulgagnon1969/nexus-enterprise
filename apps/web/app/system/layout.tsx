@@ -840,6 +840,14 @@ function SystemLayoutInner({ children }: { children: ReactNode }) {
             People · Trades
           </Link>
           <Link
+            href="/company/users?tab=importExport"
+            target="_blank"
+            rel="noreferrer"
+            style={{ textDecoration: "none", color: "#111827" }}
+          >
+            Import / Export People
+          </Link>
+          <Link
             href="/system/nex-net"
             target="_self"
             rel="noreferrer"

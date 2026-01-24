@@ -3132,14 +3132,28 @@ model CandidatePoolVisibility {
 
 /// Interest expressed by another company/tenant in a candidate.
 model CandidateInterest {
-  id                 String                  @id @default(cuid())
-  candidateId        String
+  id                  String                  @id @default(cuid())
+  candidateId         String
   requestingCompanyId String
-  status             CandidateInterestStatus @default(REQUESTED)
-  notes              String?
-  createdAt          DateTime                @default(now())
-  updatedAt          DateTime                @updatedAt
-  handledByUserId    String?
+  status              CandidateInterestStatus @default(REQUESTED)
+  notes               String?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  handledByUserId     String?
+
+  /// Optional employment window for this (candidate, company) interest when it
+  /// represents an actual assignment or hire.
+  employmentStartDate DateTime?
+  employmentEndDate   DateTime?
+
+  /// Snapshot of pay information at the time this interest transitioned to a
+  /// HIRED/active assignment. These are best-effort fields populated from HR
+  /// portfolio and/or Worker compensation and are not intended to be a full
+  /// payroll ledger.
+  baseHourlyRate      Float?
+  dayRate             Float?
+  cpHourlyRate        Float?
+  cpFringeHourlyRate  Float?
 
   // Scalar foreign keys only; relations to NexNetCandidate, Company, User
   // are enforced at the application layer.
