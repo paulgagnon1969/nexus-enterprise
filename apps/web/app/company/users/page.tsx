@@ -2255,7 +2255,7 @@ function CompanyUsersPageInner() {
                                 backgroundColor: "#16a34a",
                               }}
                             />
-                            <span>Active</span>
+                            <span>ACTIVE</span>
                           </span>
                         ) : (
                           <span
@@ -2279,7 +2279,7 @@ function CompanyUsersPageInner() {
                                 backgroundColor: "#b91c1c",
                               }}
                             />
-                            <span>Inactive</span>
+                            <span>DEACTIVATED</span>
                           </span>
                         )}
                         {canManageMembers && (

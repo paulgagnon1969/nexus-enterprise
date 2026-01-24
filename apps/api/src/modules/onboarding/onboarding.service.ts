@@ -401,6 +401,74 @@ export class OnboardingService {
     };
   }
 
+  async updateSessionBankInfo(
+    id: string,
+    actor: AuthenticatedUser,
+    input: {
+      bankName?: string | null;
+      accountHolderName?: string | null;
+      routingNumberMasked?: string | null;
+      accountNumberMasked?: string | null;
+    },
+  ) {
+    const session = await this.prisma.onboardingSession.findUnique({
+      where: { id },
+      include: { bankInfo: true },
+    });
+
+    if (!session) {
+      throw new NotFoundException("Onboarding session not found");
+    }
+
+    const sameCompany = session.companyId === actor.companyId;
+
+    if (!sameCompany && actor.globalRole !== ("SUPER_ADMIN" as any)) {
+      throw new ForbiddenException(
+        "Not allowed to edit onboarding bank info for this company",
+      );
+    }
+
+    const isAdminOrOwner = actor.role === Role.OWNER || actor.role === Role.ADMIN;
+    const isHiringManager = actor.profileCode === "HIRING_MANAGER";
+    const isHrProfile = actor.profileCode === "HR";
+    const isSuperAdmin = actor.globalRole === ("SUPER_ADMIN" as any);
+
+    if (!isSuperAdmin && !isAdminOrOwner && !isHiringManager && !isHrProfile) {
+      throw new ForbiddenException(
+        "Not allowed to edit onboarding bank info for this company",
+      );
+    }
+
+    const next = {
+      bankName: this.normalizeProfileField(
+        input.bankName ?? session.bankInfo?.bankName ?? null,
+      ),
+      accountHolderName: this.normalizeProfileField(
+        input.accountHolderName ?? session.bankInfo?.accountHolderName ?? null,
+      ),
+      routingNumberMasked: this.normalizeProfileField(
+        input.routingNumberMasked ?? session.bankInfo?.routingNumberMasked ?? null,
+      ),
+      accountNumberMasked: this.normalizeProfileField(
+        input.accountNumberMasked ?? session.bankInfo?.accountNumberMasked ?? null,
+      ),
+    };
+
+    const updated = await this.prisma.onboardingBankInfo.upsert({
+      where: { sessionId: session.id },
+      update: next,
+      create: {
+        sessionId: session.id,
+        ...next,
+      },
+    });
+
+    return {
+      id: session.id,
+      bankInfo: updated,
+    };
+  }
+
   async startSession(
     companyId: string,
     email: string,

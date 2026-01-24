@@ -11,7 +11,7 @@ import { Reflector } from "@nestjs/core";
     JwtModule.register({
       secret: process.env.JWT_ACCESS_SECRET || "change-me-access",
       // Use a fixed default TTL in seconds to satisfy strict typing
-      signOptions: { expiresIn: Number(process.env.JWT_ACCESS_TTL) || 28800 }
+      signOptions: { expiresIn: Number(process.env.JWT_ACCESS_TTL) || 86400 }
     })
   ],
   providers: [AuthService, JwtStrategy, RolesGuard, GlobalRolesGuard, Reflector],
