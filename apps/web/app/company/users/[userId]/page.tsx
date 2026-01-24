@@ -548,7 +548,8 @@ export default function CompanyUserProfilePage() {
   }
 
   const displayedReputation = profile.reputation.override ?? profile.reputation.avg;
-  const canViewHr = profile.canViewHr ?? !!profile.hr;
+  const canViewHr =
+    (profile.canViewHr ?? false) || isAdminOrAbove || isSuperAdmin || !!profile.hr;
   const canEditHrFields = profile.canEditHr ?? false;
   const hasWorker = !!profile.worker;
   const hr = (profile.hr as HrDto | null) || {};
