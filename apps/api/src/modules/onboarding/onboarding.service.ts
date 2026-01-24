@@ -2412,12 +2412,12 @@ export class OnboardingService {
         throw new ForbiddenException("Not allowed to review onboarding for this company");
       }
 
-      return session;
+      return this.buildSessionForReviewDto(session, actor);
     }
 
     // SUPER_ADMINs can review any onboarding session across tenants.
     if (isSuperAdmin) {
-      return session;
+      return this.buildSessionForReviewDto(session, actor);
     }
 
     // Cross-tenant path A: generic tenants who have been granted explicit
@@ -2461,7 +2461,7 @@ export class OnboardingService {
         const isHiringManager = actor.profileCode === "HIRING_MANAGER";
 
         if (isOwnerOrAdmin || isHiringManager) {
-          return session;
+          return this.buildSessionForReviewDto(session, actor);
         }
       }
     }
@@ -2479,7 +2479,133 @@ export class OnboardingService {
       throw new ForbiddenException("Not allowed to review onboarding for this company");
     }
 
-    return session;
+    return this.buildSessionForReviewDto(session, actor);
+  }
+
+  private async buildSessionForReviewDto(session: any, actor: AuthenticatedUser) {
+    const checklist = session.checklistJson ? JSON.parse(session.checklistJson) : null;
+    const userId: string | null = (session.userId as string | null) ?? null;
+
+    let candidateId: string | null = null;
+    let assignedTenants: {
+      companyId: string;
+      companyName: string;
+      companyRole: string | null;
+      interestStatus: string;
+      isCurrentTenant: boolean;
+      isActive: boolean | null;
+    }[] = [];
+    let assignedTenantCount = 0;
+    let assignedHere = false;
+    let assignedElsewhere = false;
+    let companyMembershipActiveHere: boolean | null = null;
+
+    if (userId) {
+      // Best-effort enrichment: resolve Nex-Net candidate and any company
+      // memberships so HR can see where this person is already a worker.
+      const [candidate, memberships, interests] = await Promise.all([
+        this.prisma.nexNetCandidate.findFirst({
+          where: { userId },
+          select: { id: true },
+        }),
+        this.prisma.companyMembership.findMany({
+          where: { userId },
+          select: {
+            userId: true,
+            companyId: true,
+            role: true,
+            isActive: true,
+            company: {
+              select: { id: true, name: true },
+            },
+          },
+        }),
+        // CandidateInterest rows are optional; failure is non-fatal.
+        (async () => {
+          try {
+            const cand = await this.prisma.nexNetCandidate.findFirst({
+              where: { userId },
+              select: { id: true },
+            });
+            if (!cand) return [] as any[];
+            const rows = await this.prisma.candidateInterest.findMany({
+              where: { candidateId: cand.id },
+            });
+            candidateId = cand.id;
+            return rows;
+          } catch {
+            return [] as any[];
+          }
+        })(),
+      ]);
+
+      if (candidate && !candidateId) {
+        candidateId = candidate.id;
+      }
+
+      const interestByCompany = new Map<string, string>();
+      for (const ci of interests as any[]) {
+        const key = String(ci.requestingCompanyId);
+        if (!interestByCompany.has(key)) {
+          interestByCompany.set(key, ci.status as string);
+        }
+      }
+
+      const actorCompanyId = actor.companyId;
+
+      assignedTenants = (memberships as any[]).map(m => {
+        const cid = m.companyId as string;
+        const key = cid;
+        const interestStatusRaw = interestByCompany.get(key) ?? null;
+        let interestStatus: string = interestStatusRaw ?? "NONE";
+
+        if (interestStatus === "NONE" && cid === session.companyId) {
+          const st = String(session.status || "").toUpperCase();
+          if (st === "APPROVED" || st === "HIRED") {
+            interestStatus = "HIRED";
+          }
+        }
+
+        return {
+          companyId: cid,
+          companyName: m.company?.name ?? cid,
+          companyRole: m.role as string,
+          interestStatus,
+          isCurrentTenant: !!actorCompanyId && cid === actorCompanyId,
+          isActive: typeof m.isActive === "boolean" ? m.isActive : null,
+        };
+      });
+
+      assignedTenantCount = assignedTenants.length;
+      assignedHere = !!assignedTenants.find(t => t.companyId === actor.companyId);
+      assignedElsewhere = assignedTenantCount > 0 && !assignedHere;
+
+      const membershipForActor = memberships.find((m: any) => m.companyId === actor.companyId);
+      if (membershipForActor && typeof membershipForActor.isActive === "boolean") {
+        companyMembershipActiveHere = membershipForActor.isActive;
+      }
+    }
+
+    return {
+      id: session.id,
+      email: session.email,
+      status: session.status,
+      createdAt: session.createdAt,
+      companyId: session.companyId,
+      token: session.token,
+      userId,
+      profile: session.profile ?? null,
+      detailStatusCode: session.detailStatusCode ?? null,
+      checklist,
+      bankInfo: session.bankInfo ?? null,
+      documents: session.documents ?? [],
+      candidateId,
+      assignedTenantCount,
+      assignedHere,
+      assignedElsewhere,
+      assignedTenants,
+      companyMembershipActiveHere,
+    };
   }
 
   async approveSession(id: string, actor: AuthenticatedUser) {

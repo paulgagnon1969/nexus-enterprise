@@ -32,6 +32,7 @@ interface MeResponse {
 interface CompanyMemberRow {
   userId: string;
   role: CompanyRole;
+  isActive: boolean;
   createdAt: string;
   user: {
     id: string;
@@ -500,6 +501,47 @@ function CompanyUsersPageInner() {
     }
   };
 
+  const handleChangeMemberActive = async (
+    userId: string,
+    currentIsActive: boolean,
+    nextIsActive: boolean,
+  ) => {
+    if (!companyId) return;
+    if (!canManageMembers) return;
+    if (currentIsActive === nextIsActive) return;
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token; please log in again.");
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/companies/${companyId}/members/${userId}/active`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ isActive: nextIsActive }),
+        },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        alert(`Failed to update access status (${res.status}) ${text}`);
+        return;
+      }
+      const updated: CompanyMemberRow = await res.json();
+      setMembers(prev =>
+        prev.map(m => (m.userId === updated.userId ? { ...m, isActive: updated.isActive } : m)),
+      );
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to update access status.");
+    }
+  };
+
   const handleChangeUserType = async (
     userId: string,
     currentUserType: UserType,
@@ -730,7 +772,16 @@ function CompanyUsersPageInner() {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+      reader.onerror = () => {
+        const err = reader.error;
+        // Normalize the browser's FileReader error into a friendlier message.
+        reject(
+          new Error(
+            err?.message ||
+              "Browser could not read this file. Try saving it locally (e.g. Desktop) and re-selecting it.",
+          ),
+        );
+      };
       reader.readAsText(file);
     });
   };
@@ -1117,6 +1168,9 @@ function CompanyUsersPageInner() {
       setImportPeopleResult(summaryParts.join(" \\n"));
     } catch (err: any) {
       setImportPeopleError(err?.message ?? "Failed to read or validate snapshot.");
+      // Clear the file so the user is prompted to select it again; this avoids
+      // stale or permission-blocked handles.
+      setImportFile(null);
     } finally {
       setImportingPeople(false);
     }
@@ -1269,6 +1323,7 @@ function CompanyUsersPageInner() {
       setImportPeopleResult(summary);
     } catch (err: any) {
       setImportPeopleError(err?.message ?? "Failed to import candidates from snapshot.");
+      setImportFile(null);
     } finally {
       setImportingPeople(false);
     }
@@ -1805,6 +1860,7 @@ function CompanyUsersPageInner() {
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>Phone</th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>User type</th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>Global role</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Access</th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>
                     <button
                       type="button"
@@ -2169,6 +2225,88 @@ function CompanyUsersPageInner() {
                           </select>
                         ) : (
                           m.user.globalRole ?? "NONE"
+                        )}
+                      </td>
+                      <td
+                        style={{
+                          padding: "4px 8px",
+                          borderTop: "1px solid #e5e7eb",
+                        }}
+                      >
+                        {m.isActive ? (
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                              padding: "2px 8px",
+                              borderRadius: 999,
+                              border: "1px solid #16a34a",
+                              backgroundColor: "#ecfdf3",
+                              fontSize: 11,
+                              color: "#166534",
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: 999,
+                                backgroundColor: "#16a34a",
+                              }}
+                            />
+                            <span>Active</span>
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                              padding: "2px 8px",
+                              borderRadius: 999,
+                              border: "1px solid #b91c1c",
+                              backgroundColor: "#fef2f2",
+                              fontSize: 11,
+                              color: "#b91c1c",
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: 999,
+                                backgroundColor: "#b91c1c",
+                              }}
+                            />
+                            <span>Inactive</span>
+                          </span>
+                        )}
+                        {canManageMembers && (
+                          <div style={{ marginTop: 4 }}>
+                            <label
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                fontSize: 11,
+                                color: "#4b5563",
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={m.isActive}
+                                onChange={e =>
+                                  void handleChangeMemberActive(
+                                    m.userId,
+                                    m.isActive,
+                                    e.target.checked,
+                                  )
+                                }
+                              />
+                              <span>Allow access to this tenant</span>
+                            </label>
+                          </div>
                         )}
                       </td>
                       <td

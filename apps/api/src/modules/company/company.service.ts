@@ -199,6 +199,7 @@ export class CompanyService {
       select: {
         userId: true,
         role: true,
+        isActive: true,
         createdAt: true,
         user: {
           select: {
@@ -241,6 +242,7 @@ export class CompanyService {
       return {
         userId: m.userId,
         role: m.role,
+        isActive: m.isActive,
         createdAt: m.createdAt,
         user: {
           id: m.user.id,
@@ -785,6 +787,55 @@ export class CompanyService {
         userId,
         previousRole: membership.role,
         newRole: role,
+      },
+    });
+
+    return updated;
+  }
+
+  async updateMemberActive(
+    companyId: string,
+    userId: string,
+    isActive: boolean,
+    actor: AuthenticatedUser,
+  ) {
+    if (actor.companyId !== companyId) {
+      throw new Error("Cannot modify members for a different company context");
+    }
+
+    const membership = await this.prisma.companyMembership.findUnique({
+      where: { userId_companyId: { userId, companyId } },
+    });
+
+    if (!membership) {
+      throw new Error("Membership not found");
+    }
+
+    const updated = await this.prisma.companyMembership.update({
+      where: { userId_companyId: { userId, companyId } },
+      data: { isActive },
+      select: {
+        userId: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            globalRole: true,
+            userType: true,
+          },
+        },
+      },
+    });
+
+    await this.audit.log(actor, "COMPANY_MEMBER_ACCESS_UPDATED", {
+      companyId,
+      metadata: {
+        userId,
+        previousIsActive: membership.isActive,
+        newIsActive: isActive,
       },
     });
 

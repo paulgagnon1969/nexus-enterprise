@@ -92,6 +92,7 @@ interface UserProfileDto {
   userType: string;
   company: { id: string; name: string };
   companyRole: string;
+  companyMembershipActive?: boolean;
   canEditHr?: boolean;
   canViewHr?: boolean;
   canEditWorkerComp?: boolean;
@@ -548,6 +549,7 @@ export default function CompanyUserProfilePage() {
   }
 
   const displayedReputation = profile.reputation.override ?? profile.reputation.avg;
+  const companyAccessActive = profile.companyMembershipActive ?? true;
   const canViewHr =
     (profile.canViewHr ?? false) || isAdminOrAbove || isSuperAdmin || !!profile.hr;
   const canEditHrFields = profile.canEditHr ?? false;
@@ -1130,6 +1132,24 @@ export default function CompanyUserProfilePage() {
         <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
           {profile.company.name} \u00b7 {profile.companyRole}
         </p>
+        {!companyAccessActive && (
+          <div
+            style={{
+              marginTop: 8,
+              padding: 8,
+              borderRadius: 8,
+              border: "1px solid #fecaca",
+              backgroundColor: "#fef2f2",
+              color: "#b91c1c",
+              fontSize: 12,
+              maxWidth: 640,
+            }}
+          >
+            <strong>Tenant access disabled.</strong>{" "}
+            This worker cannot log into <strong>{profile.company.name}</strong> as a
+            company user. They may still appear in the Nexus System as a candidate.
+          </div>
+        )}
 
         <section
           style={{
