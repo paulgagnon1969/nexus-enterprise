@@ -102,6 +102,7 @@ export default function CandidateDetailPage() {
   const [skillsSaveMessage, setSkillsSaveMessage] = useState<string | null>(null);
  
   const [canViewHr, setCanViewHr] = useState(false);
+  const [canManageTenantAccess, setCanManageTenantAccess] = useState(false);
   const [detailStatusOptions, setDetailStatusOptions] = useState<
     { id: string; code: string; label: string; color?: string | null }[]
   >([]);
@@ -153,6 +154,36 @@ export default function CandidateDetailPage() {
   const [savingHrComp, setSavingHrComp] = useState(false);
   const [hrCompError, setHrCompError] = useState<string | null>(null);
   const [hrCompMessage, setHrCompMessage] = useState<string | null>(null);
+
+  // HR portfolio banking (confidential) — only available when the onboarding
+  // session is linked to a userId.
+  const [hrBankName, setHrBankName] = useState<string>("");
+  const [hrBankAddress, setHrBankAddress] = useState<string>("");
+  const [hrBankNameDirty, setHrBankNameDirty] = useState(false);
+  const [hrBankAddressDirty, setHrBankAddressDirty] = useState(false);
+  const [hrBankAccountLast4, setHrBankAccountLast4] = useState<string | null>(null);
+  const [hrBankRoutingLast4, setHrBankRoutingLast4] = useState<string | null>(null);
+
+  const [bankAccountNumber, setBankAccountNumber] = useState<string>("");
+  const [bankRoutingNumber, setBankRoutingNumber] = useState<string>("");
+  const [bankAccountDirty, setBankAccountDirty] = useState(false);
+  const [bankRoutingDirty, setBankRoutingDirty] = useState(false);
+  const [bankNumbersLoaded, setBankNumbersLoaded] = useState(false);
+  const [bankNumbersVisible, setBankNumbersVisible] = useState(false);
+  const [bankRevealLoading, setBankRevealLoading] = useState(false);
+  const [bankRevealError, setBankRevealError] = useState<string | null>(null);
+  const [bankSaving, setBankSaving] = useState(false);
+  const [bankSaveError, setBankSaveError] = useState<string | null>(null);
+  const [bankSaveMessage, setBankSaveMessage] = useState<string | null>(null);
+
+  // Onboarding (masked) bank info stored on the session itself.
+  const [onboardingBankName, setOnboardingBankName] = useState<string>("");
+  const [onboardingAccountHolderName, setOnboardingAccountHolderName] = useState<string>("");
+  const [onboardingRoutingMasked, setOnboardingRoutingMasked] = useState<string>("");
+  const [onboardingAccountMasked, setOnboardingAccountMasked] = useState<string>("");
+  const [savingOnboardingBank, setSavingOnboardingBank] = useState(false);
+  const [onboardingBankError, setOnboardingBankError] = useState<string | null>(null);
+  const [onboardingBankMessage, setOnboardingBankMessage] = useState<string | null>(null);
 
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
@@ -263,6 +294,37 @@ export default function CandidateDetailPage() {
     void load();
   }, [sessionId]);
 
+  // Keep editable onboarding bank fields in sync with the loaded session.
+  useEffect(() => {
+    const bi = session?.bankInfo;
+    setOnboardingBankName(bi?.bankName ?? "");
+    setOnboardingAccountHolderName(bi?.accountHolderName ?? "");
+    setOnboardingRoutingMasked(bi?.routingNumberMasked ?? "");
+    setOnboardingAccountMasked(bi?.accountNumberMasked ?? "");
+    setOnboardingBankError(null);
+    setOnboardingBankMessage(null);
+  }, [session?.id, session?.bankInfo]);
+
+  // Never auto-load confidential bank numbers; always require an explicit reveal.
+  useEffect(() => {
+    setHrBankName("");
+    setHrBankAddress("");
+    setHrBankNameDirty(false);
+    setHrBankAddressDirty(false);
+    setHrBankAccountLast4(null);
+    setHrBankRoutingLast4(null);
+
+    setBankAccountNumber("");
+    setBankRoutingNumber("");
+    setBankAccountDirty(false);
+    setBankRoutingDirty(false);
+    setBankNumbersLoaded(false);
+    setBankNumbersVisible(false);
+    setBankRevealError(null);
+    setBankSaveError(null);
+    setBankSaveMessage(null);
+  }, [session?.userId]);
+
   // Load HR-only compensation from the worker HR portfolio (if linked) so
   // HR sees the same screening rates here and on the worker profile.
   useEffect(() => {
@@ -287,6 +349,10 @@ export default function CandidateDetailPage() {
               cpHourlyRate?: number | null;
               candidateDesiredPay?: number | null;
               startDate?: string | null;
+              bankName?: string | null;
+              bankAddress?: string | null;
+              bankAccountLast4?: string | null;
+              bankRoutingLast4?: string | null;
             }
           | null
           | undefined;
@@ -313,6 +379,11 @@ export default function CandidateDetailPage() {
             : "",
         );
         setHrStartDate(hr.startDate ? String(hr.startDate).slice(0, 10) : "");
+
+        if (!hrBankNameDirty) setHrBankName(hr.bankName ?? "");
+        if (!hrBankAddressDirty) setHrBankAddress(hr.bankAddress ?? "");
+        setHrBankAccountLast4(hr.bankAccountLast4 ?? null);
+        setHrBankRoutingLast4(hr.bankRoutingLast4 ?? null);
       } catch {
         // Fail soft if HR portfolio is unavailable; inputs will remain empty.
       }
@@ -407,14 +478,21 @@ export default function CandidateDetailPage() {
         const me: MeResponse = await res.json();
 
         const isSuperAdmin = me.globalRole === "SUPER_ADMIN";
+
+        const memberships = Array.isArray(me.memberships) ? me.memberships : [];
+        const membership = memberships.find(m => m.companyId === companyId);
+        const isOwnerOrAdmin = !!(
+          membership && (membership.role === "OWNER" || membership.role === "ADMIN")
+        );
+
+        setCanManageTenantAccess(isSuperAdmin || isOwnerOrAdmin);
+
         if (isSuperAdmin) {
           setCanViewHr(true);
           return;
         }
 
-        const memberships = Array.isArray(me.memberships) ? me.memberships : [];
-        const membership = memberships.find(m => m.companyId === companyId);
-        if (membership && (membership.role === "OWNER" || membership.role === "ADMIN")) {
+        if (isOwnerOrAdmin) {
           setCanViewHr(true);
         }
       } catch {
@@ -686,6 +764,222 @@ export default function CandidateDetailPage() {
     }
   }
 
+  async function handleRevealHrBankNumbers() {
+    const targetUserId = session?.userId;
+    if (!targetUserId) {
+      setBankRevealError("No linked Nexis worker profile for this candidate.");
+      return;
+    }
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setBankRevealError("Missing access token. Please log in again.");
+      return;
+    }
+
+    try {
+      setBankRevealLoading(true);
+      setBankRevealError(null);
+
+      const res = await fetch(
+        `${API_BASE}/users/${targetUserId}/profile?includeBankNumbers=1`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(
+          `Failed to reveal bank info (${res.status}) ${text}`,
+        );
+      }
+
+      const json = await res.json();
+      const hr = (json?.hr || {}) as any;
+
+      // Populate safe fields as well.
+      if (!hrBankNameDirty) setHrBankName(hr.bankName ?? "");
+      if (!hrBankAddressDirty) setHrBankAddress(hr.bankAddress ?? "");
+      setHrBankAccountLast4(hr.bankAccountLast4 ?? null);
+      setHrBankRoutingLast4(hr.bankRoutingLast4 ?? null);
+
+      setBankAccountNumber(hr.bankAccountNumber ?? "");
+      setBankRoutingNumber(hr.bankRoutingNumber ?? "");
+      setBankAccountDirty(false);
+      setBankRoutingDirty(false);
+      setBankNumbersLoaded(true);
+      setBankNumbersVisible(true);
+    } catch (e: any) {
+      setBankRevealError(e?.message ?? "Failed to reveal bank info.");
+    } finally {
+      setBankRevealLoading(false);
+    }
+  }
+
+  async function handleSaveHrBank() {
+    const targetUserId = session?.userId;
+    if (!targetUserId) {
+      setBankSaveError("No linked Nexis worker profile for this candidate.");
+      return;
+    }
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setBankSaveError("Missing access token. Please log in again.");
+      return;
+    }
+
+    try {
+      setBankSaving(true);
+      setBankSaveError(null);
+      setBankSaveMessage(null);
+
+      const body: any = {
+        bankName: hrBankName.trim() ? hrBankName.trim() : null,
+        bankAddress: hrBankAddress.trim() ? hrBankAddress.trim() : null,
+      };
+
+      // Only send confidential numbers when explicitly edited.
+      if (bankAccountDirty) {
+        const trimmed = bankAccountNumber.trim();
+        body.bankAccountNumber = trimmed ? trimmed : null;
+      }
+      if (bankRoutingDirty) {
+        const trimmed = bankRoutingNumber.trim();
+        body.bankRoutingNumber = trimmed ? trimmed : null;
+      }
+
+      const res = await fetch(`${API_BASE}/users/${targetUserId}/portfolio-hr`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Failed to save bank info (${res.status})`);
+      }
+
+      // Response is the full profile DTO.
+      const json = await res.json().catch(() => null);
+      const hr = (json?.hr || {}) as any;
+
+      // Update placeholders / last4.
+      setHrBankAccountLast4(hr.bankAccountLast4 ?? hrBankAccountLast4);
+      setHrBankRoutingLast4(hr.bankRoutingLast4 ?? hrBankRoutingLast4);
+      if (!hrBankNameDirty) setHrBankName(hr.bankName ?? hrBankName);
+      if (!hrBankAddressDirty) setHrBankAddress(hr.bankAddress ?? hrBankAddress);
+
+      setBankAccountDirty(false);
+      setBankRoutingDirty(false);
+      setBankSaveMessage("Saved bank info.");
+    } catch (e: any) {
+      setBankSaveError(e?.message ?? "Failed to save bank info.");
+    } finally {
+      setBankSaving(false);
+    }
+  }
+
+  async function handleSaveOnboardingBankInfo() {
+    if (!session?.id) return;
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setOnboardingBankError("Missing access token. Please log in again.");
+      return;
+    }
+
+    try {
+      setSavingOnboardingBank(true);
+      setOnboardingBankError(null);
+      setOnboardingBankMessage(null);
+
+      const body = {
+        bankName: onboardingBankName.trim() ? onboardingBankName.trim() : null,
+        accountHolderName: onboardingAccountHolderName.trim()
+          ? onboardingAccountHolderName.trim()
+          : null,
+        routingNumberMasked: onboardingRoutingMasked.trim()
+          ? onboardingRoutingMasked.trim()
+          : null,
+        accountNumberMasked: onboardingAccountMasked.trim()
+          ? onboardingAccountMasked.trim()
+          : null,
+      };
+
+      const res = await fetch(
+        `${API_BASE}/onboarding/sessions/${session.id}/bank-info`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(body),
+        },
+      );
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to save bank info (${res.status}) ${text}`);
+      }
+
+      const json = await res.json().catch(() => null);
+      if (json && json.bankInfo) {
+        setSession(prev => (prev ? { ...prev, bankInfo: json.bankInfo } : prev));
+      }
+
+      setOnboardingBankMessage("Saved onboarding bank info.");
+    } catch (e: any) {
+      setOnboardingBankError(e?.message ?? "Failed to save onboarding bank info.");
+    } finally {
+      setSavingOnboardingBank(false);
+    }
+  }
+
+  async function handleToggleTenantAccess(nextIsActive: boolean) {
+    if (!session?.userId) return;
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token. Please log in again.");
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/companies/${session.companyId}/members/${session.userId}/active`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ isActive: nextIsActive }),
+        },
+      );
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Failed to update tenant access (${res.status})`);
+      }
+
+      const updated = await res.json().catch(() => null);
+      const isActive =
+        typeof updated?.isActive === "boolean" ? updated.isActive : nextIsActive;
+
+      setSession(prev =>
+        prev ? { ...prev, companyMembershipActiveHere: isActive } : prev,
+      );
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to update tenant access.");
+    }
+  }
+
   // Only Nexus System HR / SUPER_ADMIN will have canViewHr in this context, so
   // we can safely use that flag to decide whether to show HR document upload
   // controls.
@@ -900,6 +1194,97 @@ export default function CandidateDetailPage() {
 
           <section>
             <h2 style={{ fontSize: 16, marginBottom: 4 }}>Status</h2>
+
+            {session.userId && session.companyMembershipActiveHere != null && (
+              <div style={{ marginBottom: 8 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    flexWrap: "wrap",
+                    fontSize: 12,
+                  }}
+                >
+                  <strong>Tenant access:</strong>
+                  {session.companyMembershipActiveHere ? (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        border: "1px solid #16a34a",
+                        backgroundColor: "#ecfdf3",
+                        fontSize: 11,
+                        color: "#166534",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: 999,
+                          backgroundColor: "#16a34a",
+                        }}
+                      />
+                      <span>ACTIVE</span>
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        border: "1px solid #b91c1c",
+                        backgroundColor: "#fef2f2",
+                        fontSize: 11,
+                        color: "#b91c1c",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: 999,
+                          backgroundColor: "#b91c1c",
+                        }}
+                      />
+                      <span>DEACTIVATED</span>
+                    </span>
+                  )}
+
+                  {canManageTenantAccess && (
+                    <label
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        fontSize: 11,
+                        color: "#4b5563",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!!session.companyMembershipActiveHere}
+                        onChange={e => void handleToggleTenantAccess(e.target.checked)}
+                      />
+                      <span>Allow access to this tenant</span>
+                    </label>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {session.userId && session.companyMembershipActiveHere == null && (
+              <p style={{ fontSize: 12, color: "#6b7280", marginTop: 0 }}>
+                This person is not currently a user in this tenant.
+              </p>
+            )}
+
             {session.companyMembershipActiveHere === false && (
               <div
                 style={{
@@ -913,8 +1298,8 @@ export default function CandidateDetailPage() {
                 }}
               >
                 <strong>Tenant access disabled.</strong>{" "}
-                This worker cannot log into this company as a member. They may
-                still appear in the Nexus System as a candidate.
+                This worker cannot log into this tenant organization. They can
+                still use their login/password to access the NEXUS MARKET.
               </div>
             )}
             <p style={{ fontSize: 13 }}>
@@ -2269,38 +2654,335 @@ export default function CandidateDetailPage() {
                 })()}
               </p>
 
-              {session.bankInfo && (
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: 10,
+                  borderRadius: 6,
+                  border: "1px solid #fee2e2",
+                  background: "#fef2f2",
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                  Banking (HR portfolio)
+                </div>
+                {!session.userId && (
+                  <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>
+                    No linked Nexis worker profile yet — bank numbers can’t be revealed
+                    until the candidate is linked to a user.
+                  </div>
+                )}
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                  <label style={{ flex: "1 1 200px" }}>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>Bank name</div>
+                    <input
+                      type="text"
+                      value={hrBankName}
+                      onChange={e => {
+                        setHrBankName(e.target.value);
+                        setHrBankNameDirty(true);
+                      }}
+                      disabled={!session.userId}
+                      placeholder="e.g., Chase"
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                  </label>
+                  <label style={{ flex: "1 1 220px" }}>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>Bank address</div>
+                    <input
+                      type="text"
+                      value={hrBankAddress}
+                      onChange={e => {
+                        setHrBankAddress(e.target.value);
+                        setHrBankAddressDirty(true);
+                      }}
+                      disabled={!session.userId}
+                      placeholder="Optional"
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
+                  <label style={{ flex: "1 1 200px" }}>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>Bank account #</div>
+                    <input
+                      type={bankNumbersVisible ? "text" : "password"}
+                      value={bankAccountNumber}
+                      onChange={e => {
+                        if (!session.userId) return;
+                        setBankAccountNumber(e.target.value);
+                        setBankAccountDirty(true);
+                      }}
+                      disabled={!session.userId}
+                      placeholder={
+                        hrBankAccountLast4
+                          ? `Stored (ends in ${hrBankAccountLast4})`
+                          : "Enter bank account #"
+                      }
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                  </label>
+                  <label style={{ flex: "1 1 200px" }}>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>Routing #</div>
+                    <input
+                      type={bankNumbersVisible ? "text" : "password"}
+                      value={bankRoutingNumber}
+                      onChange={e => {
+                        if (!session.userId) return;
+                        setBankRoutingNumber(e.target.value);
+                        setBankRoutingDirty(true);
+                      }}
+                      disabled={!session.userId}
+                      placeholder={
+                        hrBankRoutingLast4
+                          ? `Stored (ends in ${hrBankRoutingLast4})`
+                          : "Enter routing #"
+                      }
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                  </label>
+                </div>
+
                 <div
                   style={{
-                    marginTop: 6,
-                    padding: 10,
-                    borderRadius: 6,
-                    border: "1px solid #fee2e2",
-                    background: "#fef2f2",
-                    fontSize: 12,
+                    marginTop: 8,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    flexWrap: "wrap",
                   }}
                 >
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                    Bank info (masked)
-                  </div>
-                  <p style={{ margin: 0 }}>
-                    <strong>Bank:</strong>{" "}
-                    {session.bankInfo.bankName || "—"}
-                  </p>
-                  <p style={{ margin: 0 }}>
-                    <strong>Account holder:</strong>{" "}
-                    {session.bankInfo.accountHolderName || "—"}
-                  </p>
-                  <p style={{ margin: 0 }}>
-                    <strong>Routing:</strong>{" "}
-                    {session.bankInfo.routingNumberMasked || "—"}
-                  </p>
-                  <p style={{ margin: 0 }}>
-                    <strong>Account:</strong>{" "}
-                    {session.bankInfo.accountNumberMasked || "—"}
-                  </p>
+                  <button
+                    type="button"
+                    disabled={!session.userId || bankRevealLoading}
+                    onClick={() => void handleRevealHrBankNumbers()}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #0f172a",
+                      backgroundColor: bankRevealLoading ? "#e5e7eb" : "#0f172a",
+                      color: bankRevealLoading ? "#4b5563" : "#f9fafb",
+                      fontSize: 12,
+                      cursor: !session.userId || bankRevealLoading ? "default" : "pointer",
+                    }}
+                  >
+                    {bankRevealLoading
+                      ? "Revealing…"
+                      : bankNumbersLoaded
+                        ? "Refresh bank numbers"
+                        : "Reveal bank numbers"}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={!session.userId}
+                    onClick={() => setBankNumbersVisible(prev => !prev)}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      backgroundColor: "#f3f4f6",
+                      fontSize: 12,
+                      cursor: !session.userId ? "default" : "pointer",
+                    }}
+                  >
+                    {bankNumbersVisible ? "Hide" : "Show"}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={!session.userId}
+                    onClick={() => {
+                      setBankAccountNumber("");
+                      setBankRoutingNumber("");
+                      setBankAccountDirty(true);
+                      setBankRoutingDirty(true);
+                      setBankNumbersLoaded(true);
+                      setBankNumbersVisible(true);
+                    }}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #b91c1c",
+                      backgroundColor: "#fef2f2",
+                      color: "#b91c1c",
+                      fontSize: 12,
+                      cursor: !session.userId ? "default" : "pointer",
+                    }}
+                  >
+                    Clear
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={!session.userId || bankSaving}
+                    onClick={() => void handleSaveHrBank()}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #0f172a",
+                      backgroundColor: bankSaving ? "#e5e7eb" : "#0f172a",
+                      color: bankSaving ? "#4b5563" : "#f9fafb",
+                      fontSize: 12,
+                      cursor: !session.userId || bankSaving ? "default" : "pointer",
+                    }}
+                  >
+                    {bankSaving ? "Saving…" : "Save bank"}
+                  </button>
                 </div>
-              )}
+
+                {bankRevealError && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: "#b91c1c" }}>
+                    {bankRevealError}
+                  </div>
+                )}
+                {bankSaveError && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: "#b91c1c" }}>
+                    {bankSaveError}
+                  </div>
+                )}
+                {!bankSaveError && bankSaveMessage && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: "#16a34a" }}>
+                    {bankSaveMessage}
+                  </div>
+                )}
+              </div>
+
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: 10,
+                  borderRadius: 6,
+                  border: "1px solid #e5e7eb",
+                  background: "#ffffff",
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                  Bank info (onboarding – masked)
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                  <label style={{ flex: "1 1 200px" }}>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>Bank</div>
+                    <input
+                      type="text"
+                      value={onboardingBankName}
+                      onChange={e => setOnboardingBankName(e.target.value)}
+                      placeholder="—"
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                  </label>
+                  <label style={{ flex: "1 1 220px" }}>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>Account holder</div>
+                    <input
+                      type="text"
+                      value={onboardingAccountHolderName}
+                      onChange={e => setOnboardingAccountHolderName(e.target.value)}
+                      placeholder="—"
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 8 }}>
+                  <label style={{ flex: "1 1 200px" }}>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>Routing (masked)</div>
+                    <input
+                      type="text"
+                      value={onboardingRoutingMasked}
+                      onChange={e => setOnboardingRoutingMasked(e.target.value)}
+                      placeholder="—"
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                  </label>
+                  <label style={{ flex: "1 1 200px" }}>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>Account (masked)</div>
+                    <input
+                      type="text"
+                      value={onboardingAccountMasked}
+                      onChange={e => setOnboardingAccountMasked(e.target.value)}
+                      placeholder="—"
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    disabled={savingOnboardingBank}
+                    onClick={() => void handleSaveOnboardingBankInfo()}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #0f172a",
+                      backgroundColor: savingOnboardingBank ? "#e5e7eb" : "#0f172a",
+                      color: savingOnboardingBank ? "#4b5563" : "#f9fafb",
+                      fontSize: 12,
+                      cursor: savingOnboardingBank ? "default" : "pointer",
+                    }}
+                  >
+                    {savingOnboardingBank ? "Saving…" : "Save masked bank"}
+                  </button>
+                  {onboardingBankError && (
+                    <span style={{ fontSize: 11, color: "#b91c1c" }}>{onboardingBankError}</span>
+                  )}
+                  {!onboardingBankError && onboardingBankMessage && (
+                    <span style={{ fontSize: 11, color: "#16a34a" }}>{onboardingBankMessage}</span>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 

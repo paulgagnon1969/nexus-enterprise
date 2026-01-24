@@ -303,16 +303,48 @@ export class AuthService {
       throw new UnauthorizedException("Invalid refresh token");
     }
 
+    // Before rotating/minting, ensure the membership is still valid. This is the
+    // primary enforcement point for tenant deactivation (isActive=false).
+    let role: Role = payload.role;
+    let profileCode: string | null | undefined = payload.profileCode;
+
+    if (payload.globalRole !== GlobalRole.SUPER_ADMIN) {
+      const membership = await this.prisma.companyMembership.findUnique({
+        where: {
+          userId_companyId: {
+            userId: payload.userId,
+            companyId: payload.companyId,
+          },
+        },
+        select: {
+          isActive: true,
+          role: true,
+          company: { select: { deletedAt: true } },
+          profile: { select: { code: true } },
+        },
+      });
+
+      // If membership was removed/deactivated, kill the refresh token and force
+      // a re-login into a different company context (e.g. Nexus Market).
+      if (!membership || membership.company?.deletedAt || membership.isActive === false) {
+        await redisClient.del(key);
+        throw new UnauthorizedException("User does not have an active company membership");
+      }
+
+      role = membership.role as Role;
+      profileCode = (membership as any).profile?.code ?? this.getDefaultProfileCodeForRole(role);
+    }
+
     // Rotate refresh token
     await redisClient.del(key);
 
     const { accessToken, refreshToken: newRefresh } = await this.issueTokens(
       payload.userId,
       payload.companyId,
-      payload.role,
+      role,
       payload.email,
       payload.globalRole,
-      payload.profileCode ?? this.getDefaultProfileCodeForRole(payload.role)
+      profileCode ?? this.getDefaultProfileCodeForRole(role)
     );
 
     return {
@@ -393,6 +425,9 @@ export class AuthService {
       },
       update: {
         role: invite.role,
+        // If this user was previously deactivated in the tenant, accepting a new
+        // invite should restore their access.
+        isActive: true,
       },
       create: {
         userId: user.id,
@@ -600,6 +635,11 @@ export class AuthService {
 
     if (!membership) {
       throw new UnauthorizedException("No access to this company");
+    }
+
+    // Tenant membership deactivation enforcement.
+    if (user.globalRole !== GlobalRole.SUPER_ADMIN && (membership as any).isActive === false) {
+      throw new UnauthorizedException("User does not have an active company membership");
     }
 
     const profileCode =

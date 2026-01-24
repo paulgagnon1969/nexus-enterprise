@@ -358,4 +358,23 @@ export class OnboardingController {
     const actor = req.user as AuthenticatedUser;
     return this.onboarding.updateSessionProfile(id, actor, body ?? {});
   }
+
+  // HR/admin-only: allow privileged users to edit the candidate's onboarding
+  // bank info record (masked values only).
+  @UseGuards(JwtAuthGuard)
+  @Post("sessions/:id/bank-info")
+  async updateSessionBankInfo(
+    @Param("id") id: string,
+    @Req() req: any,
+    @Body()
+    body: {
+      bankName?: string | null;
+      accountHolderName?: string | null;
+      routingNumberMasked?: string | null;
+      accountNumberMasked?: string | null;
+    },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.onboarding.updateSessionBankInfo(id, actor, body ?? {});
+  }
 }
