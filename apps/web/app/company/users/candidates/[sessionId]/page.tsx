@@ -125,6 +125,7 @@ export default function CandidateDetailPage() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadingGovId, setUploadingGovId] = useState(false);
   const [docUploadError, setDocUploadError] = useState<string | null>(null);
+  const [achDeliveryEnabled, setAchDeliveryEnabled] = useState(false);
 
   // Collapse the HR onboarding profile card by default so sensitive fields
   // are not immediately visible; HR/admins can click to unlock.
@@ -1034,7 +1035,7 @@ export default function CandidateDetailPage() {
                 </div>
                 <div
                   style={{
-                    marginTop: 6,
+                    marginTop: 116,
                     padding: 10,
                     borderRadius: 8,
                     border: "1px solid #e5e7eb",
@@ -1635,457 +1636,625 @@ export default function CandidateDetailPage() {
       {canViewHr && !hrProfileCollapsed && (
         <section style={{ marginTop: 16 }}>
           <h2 style={{ fontSize: 16, marginBottom: 4 }}>HR (confidential)</h2>
-          <p style={{ fontSize: 13 }}>
-            <strong>Address:</strong>{" "}
-            {(() => {
-              const parts: string[] = [];
-              if (session.profile?.addressLine1) parts.push(session.profile.addressLine1);
-              if (session.profile?.addressLine2) parts.push(session.profile.addressLine2);
-              const cityState = [session.profile?.city, session.profile?.state]
-                .filter(Boolean)
-                .join(", ");
-              if (cityState) parts.push(cityState);
-              if (session.profile?.postalCode) parts.push(session.profile.postalCode);
-              const addr = parts.join(", ");
-              if (!addr) return "—";
-              const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                addr,
-              )}`;
-              return (
-                <a
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "#2563eb", textDecoration: "none" }}
+
+          {/* Top row: HR meta (address + bank), attachments, and HR-only compensation */}
+          <div
+            style={{
+              marginTop: -425,
+              display: "flex",
+              gap: 16,
+              alignItems: "flex-start",
+              flexWrap: "wrap",
+              marginLeft: 420,
+            }}
+          >
+            {/* Left: attachments / onboarding documents (closer to checklist) */}
+            <div
+              style={{
+                flex: "1 1 260px",
+                minWidth: 260,
+              }}
+            >
+              {Array.isArray(session.documents) && session.documents.length > 0 && (() => {
+                const docs = session.documents ?? [];
+                const photos = docs.filter(
+                  d => (d.type || "").toUpperCase() === "PHOTO",
+                );
+                const govIds = docs.filter(
+                  d => (d.type || "").toUpperCase() === "GOV_ID",
+                );
+                const others = docs.filter(d => {
+                  const t = (d.type || "").toUpperCase();
+                  return t !== "PHOTO" && t !== "GOV_ID";
+                });
+
+                if (!photos.length && !govIds.length && !others.length) {
+                  return (
+                    <div
+                      style={{
+                        marginTop: 2,
+                        padding: 10,
+                        borderRadius: 8,
+                        border: "1px solid #e5e7eb",
+                        background: "#ffffff",
+                        fontSize: 12,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                        Onboarding documents
+                      </div>
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>
+                        No attachment uploaded.
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    style={{
+                      marginTop: 2,
+                      padding: 10,
+                      borderRadius: 8,
+                      border: "1px solid #e5e7eb",
+                      background: "#ffffff",
+                      fontSize: 12,
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                      Onboarding documents
+                    </div>
+                    <ul
+                      style={{
+                        listStyle: "none",
+                        padding: 0,
+                        margin: 0,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 6,
+                      }}
+                    >
+                      {photos.map(doc => {
+                        const label = doc.fileName || "Profile photo";
+                        const available = docAvailable[doc.id];
+                        if (available === false) {
+                          return (
+                            <li key={doc.id}>
+                              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                                No attachment uploaded.
+                              </div>
+                            </li>
+                          );
+                        }
+                        return (
+                          <li key={doc.id}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                              }}
+                            >
+                              <img
+                                src={doc.fileUrl}
+                                alt={label}
+                                style={{
+                                  width: 56,
+                                  height: 56,
+                                  borderRadius: 6,
+                                  objectFit: "cover",
+                                  border: "1px solid #e5e7eb",
+                                }}
+                              />
+                              <div>
+                                <div
+                                  style={{ fontSize: 12, fontWeight: 500 }}
+                                >
+                                  Profile photo
+                                </div>
+                                <a
+                                  href={doc.fileUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#2563eb",
+                                    textDecoration: "none",
+                                  }}
+                                >
+                                  View full-size
+                                </a>
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+
+                      {govIds.map(doc => {
+                        const label = doc.fileName || "Government ID";
+                        const available = docAvailable[doc.id];
+                        if (available === false) {
+                          return (
+                            <li key={doc.id}>
+                              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                                No attachment uploaded.
+                              </div>
+                            </li>
+                          );
+                        }
+                        return (
+                          <li key={doc.id}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: 40,
+                                  height: 40,
+                                  borderRadius: 8,
+                                  border: "1px solid #fee2e2",
+                                  background: "#fef2f2",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  fontSize: 11,
+                                  color: "#b91c1c",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                ID
+                              </div>
+                              <div>
+                                <div
+                                  style={{ fontSize: 12, fontWeight: 500 }}
+                                >
+                                  Government ID
+                                </div>
+                                <a
+                                  href={doc.fileUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#2563eb",
+                                    textDecoration: "none",
+                                  }}
+                                >
+                                  View uploaded ID ({label})
+                                </a>
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+
+                      {others.map(doc => {
+                        const label = doc.fileName || doc.type || "Attachment";
+                        const available = docAvailable[doc.id];
+                        if (available === false) {
+                          return (
+                            <li key={doc.id}>
+                              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                                No attachment uploaded.
+                              </div>
+                            </li>
+                          );
+                        }
+                        return (
+                          <li key={doc.id}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: 40,
+                                  height: 40,
+                                  borderRadius: 8,
+                                  border: "1px solid #e5e7eb",
+                                  background: "#f9fafb",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  fontSize: 11,
+                                  color: "#4b5563",
+                                }}
+                              >
+                                FILE
+                              </div>
+                              <div>
+                                <div
+                                  style={{ fontSize: 12, fontWeight: 500 }}
+                                >
+                                  {label}
+                                </div>
+                                <a
+                                  href={doc.fileUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#2563eb",
+                                    textDecoration: "none",
+                                  }}
+                                >
+                                  View attachment
+                                </a>
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+
+                    {canUploadHrDocs && (
+                      <div
+                        style={{
+                          marginTop: 10,
+                          paddingTop: 8,
+                          borderTop: "1px dashed #e5e7eb",
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontWeight: 600,
+                            marginBottom: 4,
+                          }}
+                        >
+                          Update documents (Nexus System HR)
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: 8,
+                          }}
+                        >
+                          <label style={{ fontSize: 12 }}>
+                            Profile photo
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={async e => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                await uploadHrDocument("PHOTO", file);
+                                // allow re-upload
+                                e.target.value = "";
+                              }}
+                              style={{
+                                display: "block",
+                                marginTop: 2,
+                                fontSize: 12,
+                              }}
+                            />
+                            <span
+                              style={{ fontSize: 11, color: "#6b7280" }}
+                            >
+                              {uploadingPhoto
+                                ? "Uploading photo…"
+                                : checklist.photoUploaded
+                                ? "Photo on file. Selecting a new file will replace it."
+                                : "Select a clear photo of the candidate to upload."}
+                            </span>
+                          </label>
+
+                          <label style={{ fontSize: 12 }}>
+                            Government ID
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={async e => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                await uploadHrDocument("GOV_ID", file);
+                                e.target.value = "";
+                              }}
+                              style={{
+                                display: "block",
+                                marginTop: 2,
+                                fontSize: 12,
+                              }}
+                            />
+                            <span
+                              style={{ fontSize: 11, color: "#6b7280" }}
+                            >
+                              {uploadingGovId
+                                ? "Uploading ID…"
+                                : checklist.govIdUploaded
+                                ? "ID on file. Selecting a new file will replace it."
+                                : "Upload a driver’s license or other government ID."}
+                            </span>
+                          </label>
+                        </div>
+                        {docUploadError && (
+                          <div
+                            style={{
+                              marginTop: 6,
+                              fontSize: 11,
+                              color: "#b91c1c",
+                            }}
+                          >
+                            {docUploadError}
+                          </div>
+                        )}
+
+                        {/* ACH delivery flag for HR reference */}
+                        <div
+                          style={{
+                            marginTop: -2,
+                            fontSize: 12,
+                          }}
+                        >
+                          <label
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={achDeliveryEnabled}
+                              onChange={e => setAchDeliveryEnabled(e.target.checked)}
+                            />
+                            <span>Real-Time ACH</span>
+                          </label>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Middle: HR-only compensation, still in this row */}
+            <div
+              style={{
+                flex: "0 0 280px",
+                minWidth: 260,
+                maxWidth: 340,
+                paddingTop: 4,
+                borderTop: "1px dashed #e5e7eb",
+                fontSize: 12,
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                HR-only compensation
+              </div>
+              <p style={{ fontSize: 11, color: "#6b7280", marginTop: 0 }}>
+                Screening pay rates and availability used internally; stored in the
+                workers HR portfolio.
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                <label style={{ flex: "0 0 180px" }}>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>
+                    Start date / availability
+                  </div>
+                  <input
+                    type="date"
+                    value={hrStartDate}
+                    onChange={e => setHrStartDate(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                </label>
+                <label style={{ flex: "0 0 140px" }}>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>Hourly rate</div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={hrHourlyRate}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setHrHourlyRate(val);
+                      const n = Number(val);
+                      if (!Number.isNaN(n)) {
+                        setHrDayRate(String(n * 10));
+                      } else if (!val.trim()) {
+                        setHrDayRate("");
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                </label>
+                <label style={{ flex: "0 0 140px" }}>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>
+                    Day rate (10-hr)
+                  </div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={hrDayRate}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setHrDayRate(val);
+                      const n = Number(val);
+                      if (!Number.isNaN(n)) {
+                        setHrHourlyRate(String(n / 10));
+                      } else if (!val.trim()) {
+                        setHrHourlyRate("");
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                </label>
+                <label style={{ flex: "0 0 160px" }}>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>CP hourly rate</div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={hrCpHourlyRate}
+                    onChange={e => setHrCpHourlyRate(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                </label>
+                <label style={{ flex: "0 0 180px" }}>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>
+                    Candidate desired pay
+                  </div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={hrCandidateDesiredPay}
+                    onChange={e => setHrCandidateDesiredPay(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                </label>
+              </div>
+              <div
+                style={{
+                  marginTop: 6,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={savingHrComp}
+                  onClick={() => void handleSaveHrComp()}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 4,
+                    border: "1px solid #0f172a",
+                    backgroundColor: savingHrComp ? "#e5e7eb" : "#0f172a",
+                    color: savingHrComp ? "#4b5563" : "#f9fafb",
+                    fontSize: 12,
+                    cursor: savingHrComp ? "default" : "pointer",
+                  }}
                 >
-                  {addr}
-                </a>
-              );
-            })()}
-          </p>
+                  {savingHrComp ? "Saving…" : "Save HR rates"}
+                </button>
+                {hrCompError && (
+                  <span style={{ fontSize: 11, color: "#b91c1c" }}>
+                    {hrCompError}
+                  </span>
+                )}
+                {!hrCompError && hrCompMessage && (
+                  <span style={{ fontSize: 11, color: "#16a34a" }}>
+                    {hrCompMessage}
+                  </span>
+                )}
+              </div>
+            </div>
 
-          {Array.isArray(session.documents) && session.documents.length > 0 && (() => {
-            const docs = session.documents ?? [];
-            const photos = docs.filter(d => (d.type || "").toUpperCase() === "PHOTO");
-            const govIds = docs.filter(d => (d.type || "").toUpperCase() === "GOV_ID");
-            const others = docs.filter(d => {
-              const t = (d.type || "").toUpperCase();
-              return t !== "PHOTO" && t !== "GOV_ID";
-            });
+            {/* Right: address + bank / HR meta */}
+            <div
+              style={{
+                flex: "1 1 260px",
+                minWidth: 260,
+              }}
+            >
+              <p style={{ fontSize: 13 }}>
+                <strong>Address:</strong>{" "}
+                {(() => {
+                  const parts: string[] = [];
+                  if (session.profile?.addressLine1)
+                    parts.push(session.profile.addressLine1);
+                  if (session.profile?.addressLine2)
+                    parts.push(session.profile.addressLine2);
+                  const cityState = [session.profile?.city, session.profile?.state]
+                    .filter(Boolean)
+                    .join(", ");
+                  if (cityState) parts.push(cityState);
+                  if (session.profile?.postalCode)
+                    parts.push(session.profile.postalCode);
+                  const addr = parts.join(", ");
+                  if (!addr) return "—";
+                  const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                    addr,
+                  )}`;
+                  return (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "#2563eb", textDecoration: "none" }}
+                    >
+                      {addr}
+                    </a>
+                  );
+                })()}
+              </p>
 
-            if (!photos.length && !govIds.length && !others.length) {
-              return (
+              {session.bankInfo && (
                 <div
                   style={{
                     marginTop: 6,
                     padding: 10,
-                    borderRadius: 8,
-                    border: "1px solid #e5e7eb",
-                    background: "#ffffff",
+                    borderRadius: 6,
+                    border: "1px solid #fee2e2",
+                    background: "#fef2f2",
                     fontSize: 12,
                   }}
                 >
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>Onboarding documents</div>
-                  <div style={{ fontSize: 12, color: "#6b7280" }}>No attachment uploaded.</div>
-                </div>
-              );
-            }
-
-            return (
-              <div
-                style={{
-                  marginTop: 6,
-                  padding: 10,
-                  borderRadius: 8,
-                  border: "1px solid #e5e7eb",
-                  background: "#ffffff",
-                  fontSize: 12,
-                }}
-              >
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>Onboarding documents</div>
-                <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-                  {photos.map(doc => {
-                    const label = doc.fileName || "Profile photo";
-                    const available = docAvailable[doc.id];
-                    if (available === false) {
-                      return (
-                        <li key={doc.id}>
-                          <div style={{ fontSize: 12, color: "#6b7280" }}>No attachment uploaded.</div>
-                        </li>
-                      );
-                    }
-                    return (
-                      <li key={doc.id}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <img
-                            src={doc.fileUrl}
-                            alt={label}
-                            style={{
-                              width: 56,
-                              height: 56,
-                              borderRadius: 6,
-                              objectFit: "cover",
-                              border: "1px solid #e5e7eb",
-                            }}
-                          />
-                          <div>
-                            <div style={{ fontSize: 12, fontWeight: 500 }}>Profile photo</div>
-                            <a
-                              href={doc.fileUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}
-                            >
-                              View full-size
-                            </a>
-                          </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-
-                  {govIds.map(doc => {
-                    const label = doc.fileName || "Government ID";
-                    const available = docAvailable[doc.id];
-                    if (available === false) {
-                      return (
-                        <li key={doc.id}>
-                          <div style={{ fontSize: 12, color: "#6b7280" }}>No attachment uploaded.</div>
-                        </li>
-                      );
-                    }
-                    return (
-                      <li key={doc.id}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div
-                            style={{
-                              width: 40,
-                              height: 40,
-                              borderRadius: 8,
-                              border: "1px solid #fee2e2",
-                              background: "#fef2f2",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontSize: 11,
-                              color: "#b91c1c",
-                              fontWeight: 600,
-                            }}
-                          >
-                            ID
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 12, fontWeight: 500 }}>Government ID</div>
-                            <a
-                              href={doc.fileUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}
-                            >
-                              View uploaded ID ({label})
-                            </a>
-                          </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-
-                  {others.map(doc => {
-                    const label = doc.fileName || doc.type || "Attachment";
-                    const available = docAvailable[doc.id];
-                    if (available === false) {
-                      return (
-                        <li key={doc.id}>
-                          <div style={{ fontSize: 12, color: "#6b7280" }}>No attachment uploaded.</div>
-                        </li>
-                      );
-                    }
-                    return (
-                      <li key={doc.id}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div
-                            style={{
-                              width: 40,
-                              height: 40,
-                              borderRadius: 8,
-                              border: "1px solid #e5e7eb",
-                              background: "#f9fafb",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontSize: 11,
-                              color: "#4b5563",
-                            }}
-                          >
-                            FILE
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 12, fontWeight: 500 }}>{label}</div>
-                            <a
-                              href={doc.fileUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}
-                            >
-                              View attachment
-                            </a>
-                          </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-
-                {canUploadHrDocs && (
-                  <div
-                    style={{
-                      marginTop: 10,
-                      paddingTop: 8,
-                      borderTop: "1px dashed #e5e7eb",
-                    }}
-                  >
-                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                      Update documents (Nexus System HR)
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      <label style={{ fontSize: 12 }}>
-                        Profile photo
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={async e => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            await uploadHrDocument("PHOTO", file);
-                            // allow re-upload
-                            e.target.value = "";
-                          }}
-                          style={{ display: "block", marginTop: 2, fontSize: 12 }}
-                        />
-                        <span style={{ fontSize: 11, color: "#6b7280" }}>
-                          {uploadingPhoto
-                            ? "Uploading photo…"
-                            : checklist.photoUploaded
-                            ? "Photo on file. Selecting a new file will replace it."
-                            : "Select a clear photo of the candidate to upload."}
-                        </span>
-                      </label>
-
-                      <label style={{ fontSize: 12 }}>
-                        Government ID
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={async e => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            await uploadHrDocument("GOV_ID", file);
-                            e.target.value = "";
-                          }}
-                          style={{ display: "block", marginTop: 2, fontSize: 12 }}
-                        />
-                        <span style={{ fontSize: 11, color: "#6b7280" }}>
-                          {uploadingGovId
-                            ? "Uploading ID…"
-                            : checklist.govIdUploaded
-                            ? "ID on file. Selecting a new file will replace it."
-                            : "Upload a driver’s license or other government ID."}
-                        </span>
-                      </label>
-                    </div>
-                    {docUploadError && (
-                      <div style={{ marginTop: 6, fontSize: 11, color: "#b91c1c" }}>
-                        {docUploadError}
-                      </div>
-                    )}
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                    Bank info (masked)
                   </div>
-                )}
-              </div>
-            );
-          })()}
-
-          {session.bankInfo && (
-            <div
-              style={{
-                marginTop: 6,
-                padding: 10,
-                borderRadius: 6,
-                border: "1px solid #fee2e2",
-                background: "#fef2f2",
-                fontSize: 12,
-              }}
-            >
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>Bank info (masked)</div>
-              <p style={{ margin: 0 }}>
-                <strong>Bank:</strong>{" "}
-                {session.bankInfo.bankName || "—"}
-              </p>
-              <p style={{ margin: 0 }}>
-                <strong>Account holder:</strong>{" "}
-                {session.bankInfo.accountHolderName || "—"}
-              </p>
-              <p style={{ margin: 0 }}>
-                <strong>Routing:</strong>{" "}
-                {session.bankInfo.routingNumberMasked || "—"}
-              </p>
-              <p style={{ margin: 0 }}>
-                <strong>Account:</strong>{" "}
-                {session.bankInfo.accountNumberMasked || "—"}
-              </p>
-            </div>
-          )}
-
-          <div
-            style={{
-              marginTop: 6,
-              paddingTop: 8,
-              borderTop: "1px dashed #e5e7eb",
-              fontSize: 12,
-            }}
-          >
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>HR-only compensation</div>
-            <p style={{ fontSize: 11, color: "#6b7280", marginTop: 0 }}>
-              Screening pay rates and availability used internally; stored in the workers HR
-              portfolio.
-            </p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-              <label style={{ flex: "0 0 180px" }}>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>Start date / availability</div>
-                <input
-                  type="date"
-                  value={hrStartDate}
-                  onChange={e => setHrStartDate(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                  }}
-                />
-              </label>
-              <label style={{ flex: "0 0 140px" }}>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>Hourly rate</div>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={hrHourlyRate}
-                  onChange={e => {
-                    const val = e.target.value;
-                    setHrHourlyRate(val);
-                    const n = Number(val);
-                    if (!Number.isNaN(n)) {
-                      setHrDayRate(String(n * 10));
-                    } else if (!val.trim()) {
-                      setHrDayRate("");
-                    }
-                  }}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                  }}
-                />
-              </label>
-              <label style={{ flex: "0 0 140px" }}>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>Day rate (10-hr)</div>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={hrDayRate}
-                  onChange={e => {
-                    const val = e.target.value;
-                    setHrDayRate(val);
-                    const n = Number(val);
-                    if (!Number.isNaN(n)) {
-                      setHrHourlyRate(String(n / 10));
-                    } else if (!val.trim()) {
-                      setHrHourlyRate("");
-                    }
-                  }}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                  }}
-                />
-              </label>
-              <label style={{ flex: "0 0 160px" }}>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>CP hourly rate</div>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={hrCpHourlyRate}
-                  onChange={e => setHrCpHourlyRate(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                  }}
-                />
-              </label>
-              <label style={{ flex: "0 0 180px" }}>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>Candidate desired pay</div>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={hrCandidateDesiredPay}
-                  onChange={e => setHrCandidateDesiredPay(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                  }}
-                />
-              </label>
-            </div>
-            <div
-              style={{
-                marginTop: 6,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                flexWrap: "wrap",
-              }}
-            >
-              <button
-                type="button"
-                disabled={savingHrComp}
-                onClick={() => void handleSaveHrComp()}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 4,
-                  border: "1px solid #0f172a",
-                  backgroundColor: savingHrComp ? "#e5e7eb" : "#0f172a",
-                  color: savingHrComp ? "#4b5563" : "#f9fafb",
-                  fontSize: 12,
-                  cursor: savingHrComp ? "default" : "pointer",
-                }}
-              >
-                {savingHrComp ? "Saving…" : "Save HR rates"}
-              </button>
-              {hrCompError && (
-                <span style={{ fontSize: 11, color: "#b91c1c" }}>{hrCompError}</span>
-              )}
-              {!hrCompError && hrCompMessage && (
-                <span style={{ fontSize: 11, color: "#16a34a" }}>{hrCompMessage}</span>
+                  <p style={{ margin: 0 }}>
+                    <strong>Bank:</strong>{" "}
+                    {session.bankInfo.bankName || "—"}
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    <strong>Account holder:</strong>{" "}
+                    {session.bankInfo.accountHolderName || "—"}
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    <strong>Routing:</strong>{" "}
+                    {session.bankInfo.routingNumberMasked || "—"}
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    <strong>Account:</strong>{" "}
+                    {session.bankInfo.accountNumberMasked || "—"}
+                  </p>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Journal section */}
+          {/* Journal section – full width below the three-column row */}
           <div
             id="journal"
             style={{
-              marginTop: 10,
+              marginTop: 12,
               paddingTop: 10,
               borderTop: "1px dashed #e5e7eb",
             }}
