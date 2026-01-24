@@ -27,6 +27,18 @@ interface NexNetCandidateRow {
   status?: string | null;
   createdAt?: string | null;
   referrerEmail?: string | null;
+
+  // Optional assignment metadata from the API: which tenants already
+  // "own" this candidate as a worker. The current UI does not depend on
+  // these fields but they are available for future tabs/filters.
+  assignedTenantCount?: number;
+  assignedTenants?: {
+    companyId: string;
+    companyName: string;
+    companyRole: string | null;
+    interestStatus: string;
+    isCurrentTenant: boolean;
+  }[];
 }
 
 interface ReferralRow {

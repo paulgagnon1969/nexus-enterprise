@@ -3343,6 +3343,20 @@ interface CandidateRow {
   checklist?: CandidateChecklist | null;
   detailStatusCode?: string | null;
   userId?: string | null; // underlying User.id when available (for journaling)
+
+  // Optional assignment metadata from the API. These are populated by the
+  // onboarding service when available but are not required for existing UI
+  // flows.
+  assignedTenantCount?: number;
+  assignedHere?: boolean;
+  assignedElsewhere?: boolean;
+  assignedTenants?: {
+    companyId: string;
+    companyName: string;
+    companyRole: string | null;
+    interestStatus: string;
+    isCurrentTenant: boolean;
+  }[];
 }
 
 interface FortifiedCandidateRow {
