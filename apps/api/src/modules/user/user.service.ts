@@ -92,6 +92,7 @@ export class UserService {
           select: {
             companyId: true,
             role: true,
+            isActive: true,
             company: {
               select: {
                 id: true,
@@ -693,6 +694,7 @@ export class UserService {
         where: { userId: targetUserId, companyId: actor.companyId },
         select: {
           role: true,
+          isActive: true,
           company: {
             select: { id: true, name: true },
           },
@@ -963,6 +965,7 @@ export class UserService {
         userType: user.userType,
         company: membership.company,
         companyRole: membership.role,
+        companyMembershipActive: membership.isActive,
         reputation: {
           avg: user.reputationOverallAvg,
           count: user.reputationOverallCount,
@@ -1021,6 +1024,7 @@ export class UserService {
         where: { userId: targetUserId, companyId: actor.companyId },
         select: {
           role: true,
+          isActive: true,
           company: {
             select: { id: true, name: true },
           },
@@ -1054,6 +1058,7 @@ export class UserService {
         userType: user.userType,
         company: membership.company,
         companyRole: membership.role,
+        companyMembershipActive: membership.isActive,
         reputation: {
           avg: user.reputationOverallAvg,
           count: user.reputationOverallCount,

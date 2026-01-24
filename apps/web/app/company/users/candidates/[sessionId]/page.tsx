@@ -50,6 +50,21 @@ interface CandidateSessionForReview {
     fileName?: string | null;
     mimeType?: string | null;
   }[] | null;
+
+  // Optional Nex-Net / worker assignment enrichment
+  candidateId?: string | null;
+  assignedTenantCount?: number | null;
+  assignedHere?: boolean;
+  assignedElsewhere?: boolean;
+  assignedTenants?: {
+    companyId: string;
+    companyName: string;
+    companyRole: string | null;
+    interestStatus: string;
+    isCurrentTenant: boolean;
+    isActive?: boolean | null;
+  }[] | null;
+  companyMembershipActiveHere?: boolean | null;
 }
 
 interface MeMembership {
@@ -225,6 +240,18 @@ export default function CandidateDetailPage() {
           checklist: json.checklist ?? null,
           detailStatusCode: json.detailStatusCode ?? null,
           documents: json.documents ?? null,
+          candidateId: json.candidateId ?? null,
+          assignedTenantCount:
+            typeof json.assignedTenantCount === "number" ? json.assignedTenantCount : null,
+          assignedHere: !!json.assignedHere,
+          assignedElsewhere: !!json.assignedElsewhere,
+          assignedTenants: Array.isArray(json.assignedTenants)
+            ? json.assignedTenants
+            : null,
+          companyMembershipActiveHere:
+            typeof json.companyMembershipActiveHere === "boolean"
+              ? json.companyMembershipActiveHere
+              : null,
         });
       } catch (e: any) {
         setError(e?.message ?? "Failed to load candidate.");
@@ -873,10 +900,37 @@ export default function CandidateDetailPage() {
 
           <section>
             <h2 style={{ fontSize: 16, marginBottom: 4 }}>Status</h2>
+            {session.companyMembershipActiveHere === false && (
+              <div
+                style={{
+                  marginBottom: 6,
+                  padding: 8,
+                  borderRadius: 6,
+                  border: "1px solid #fecaca",
+                  backgroundColor: "#fef2f2",
+                  color: "#b91c1c",
+                  fontSize: 12,
+                }}
+              >
+                <strong>Tenant access disabled.</strong>{" "}
+                This worker cannot log into this company as a member. They may
+                still appear in the Nexus System as a candidate.
+              </div>
+            )}
             <p style={{ fontSize: 13 }}>
               <strong>Onboarding status:</strong>{" "}
               <span>{session.status}</span>
             </p>
+            {typeof session.assignedTenantCount === "number" && (
+              <p style={{ fontSize: 13 }}>
+                <strong>Worker assignment:</strong>{" "}
+                {session.assignedTenantCount === 0 && "Not yet assigned as a worker."}
+                {session.assignedTenantCount > 0 && session.assignedHere &&
+                  "Already a worker for this tenant."}
+                {session.assignedTenantCount > 0 && !session.assignedHere &&
+                  "Assigned as a worker in other tenants."}
+              </p>
+            )}
             {canViewHr && detailStatusOptions.length > 0 && (
               <p style={{ fontSize: 13, marginTop: 4 }}>
                 <strong>Candidate status:</strong>{" "}

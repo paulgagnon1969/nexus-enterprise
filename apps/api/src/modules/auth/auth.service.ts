@@ -189,9 +189,14 @@ export class AuthService {
       where: { email: { equals: email, mode: "insensitive" } },
       include: {
         memberships: {
-          // NOTE: Once the Prisma client has been regenerated with
-          // Company.deletedAt, we can filter memberships here by
-          // `company.deletedAt: null` to exclude deactivated orgs from login.
+          // Only consider active memberships on non-deleted companies when
+          // establishing the login company context.
+          where: {
+            isActive: true,
+            company: {
+              deletedAt: null,
+            },
+          },
           include: {
             company: true,
             profile: { select: { code: true } },
@@ -239,9 +244,12 @@ export class AuthService {
       await this.ensureSuperAdminMemberships(user.id);
     }
 
-    const membership = (user as any).memberships[0];
+    const activeMemberships = ((user as any).memberships || []).filter(
+      (m: any) => m && m.isActive && !m.company?.deletedAt,
+    );
+    const membership = activeMemberships[0];
     if (!membership) {
-      throw new UnauthorizedException("User is not a member of any company");
+      throw new UnauthorizedException("User does not have an active company membership");
     }
 
     const profileCode =

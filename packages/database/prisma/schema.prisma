@@ -649,6 +649,10 @@ model CompanyMembership {
   companyId String
   createdAt DateTime     @default(now())
   role      Role
+  /// When false, this membership has been deactivated for the tenant. The user
+  /// may still exist in the Nexus System (e.g. as a candidate) but cannot
+  /// access this specific company as a member.
+  isActive  Boolean      @default(true)
   profileId String?
   company   Company      @relation(fields: [companyId], references: [id])
   profile   RoleProfile? @relation(fields: [profileId], references: [id])

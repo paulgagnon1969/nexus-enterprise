@@ -85,6 +85,21 @@ export class CompanyController {
     return this.companies.updateMemberRole(companyId, userId, role, actor);
   }
 
+  // Activate/deactivate a member within the company (OWNER/ADMIN only)
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post(":id/members/:userId/active")
+  updateMemberActive(
+    @Param("id") companyId: string,
+    @Param("userId") userId: string,
+    @Req() req: any,
+    @Body("isActive") isActive: boolean,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    // Coerce to boolean so "false" / 0 in JSON are handled safely.
+    return this.companies.updateMemberActive(companyId, userId, !!isActive, actor);
+  }
+
   // --- Company offices ---
 
   @UseGuards(JwtAuthGuard)

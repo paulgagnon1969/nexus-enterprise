@@ -135,7 +135,8 @@ This script:
 - Deploys a new Cloud Run revision for `nexus-api`.
 - `nexus-api` is already configured to:
   - Attach to `nexusprod-v2` via Cloud SQL.
-  - Use `DATABASE_URL` of the form `postgresql://postgres:<PROD_DB_PASSWORD>@localhost:5432/nexus_db?host=/cloudsql/...:nexusprod-v2`.
+  - Use `DATABASE_URL` of the form `postgresql://postgres:Nexusprodpass.22@localhost:5432/nexus_db?host=/cloudsql/...:nexusprod-v2`.
+-  PG NOTE - export DATABASE_URL='postgresql://postgres:Nexusprodpass.22@/nexus_db?host=/cloudsql/nexus-enterprise-480610:us-central1:nexusprod-v2'
 
 After deployment, verify API health in prod:
 
