@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Query, Req, UseGuards } from "@nestjs/common";
 import { UserService } from "./user.service";
 import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles, GlobalRole } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
@@ -40,7 +40,7 @@ export class UserController {
   }
 
   // Admin/HR-only: update HR portfolio fields for a specific user in the
-  // current company context (non-sensitive contact details only).
+  // current company context (including banking details stored encrypted).
   @UseGuards(JwtAuthGuard)
   @Patch(":id/portfolio-hr")
   updateUserPortfolioHr(
@@ -54,9 +54,14 @@ export class UserController {
 
   @UseGuards(JwtAuthGuard)
   @Get(":id/profile")
-  profile(@Param("id") id: string, @Req() req: any) {
+  profile(
+    @Param("id") id: string,
+    @Req() req: any,
+    @Query("includeBankNumbers") includeBankNumbers?: string,
+  ) {
     const actor = req.user as AuthenticatedUser;
-    return this.users.getProfile(id, actor);
+    const include = includeBankNumbers === "1" || includeBankNumbers === "true";
+    return this.users.getProfile(id, actor, { includeBankNumbers: include });
   }
 
   // Company-level admin can update basic identity fields (first/last name)

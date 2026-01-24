@@ -170,6 +170,7 @@ export class UserService {
     if (actor.userId === targetUserId) return true;
     if (actor.globalRole === GlobalRole.SUPER_ADMIN) return true;
     if (actor.profileCode === "HR") return true;
+    if (actor.role === Role.OWNER || actor.role === Role.ADMIN) return true;
     return false;
   }
 
@@ -448,10 +449,8 @@ export class UserService {
     return this.getMyPortfolio(actor);
   }
 
-  // Admin/HR-only update of non-sensitive HR portfolio fields for a specific
-  // user in the current company context. This allows HR/admins to adjust
-  // display email, phone, and mailing address for a worker from the Company
-  // Users profile page.
+  // Admin/HR-only update of HR portfolio fields for a specific user in the
+  // current company context.
   async updateUserPortfolioHr(actor: AuthenticatedUser, targetUserId: string, body: any) {
     const companyId = actor.companyId;
     if (!companyId) {
@@ -461,7 +460,7 @@ export class UserService {
     // Ensure the target user is a member of the actor's company.
     const membership = await this.prisma.companyMembership.findFirst({
       where: { userId: targetUserId, companyId },
-      select: { role: true },
+      select: { userId: true },
     });
 
     if (!membership) {
@@ -470,7 +469,19 @@ export class UserService {
 
     const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
     const isHr = actor.profileCode === "HR";
-    const isOwnerOrAdmin = membership.role === Role.OWNER || membership.role === Role.ADMIN;
+
+    const actorMembership = await this.prisma.companyMembership.findUnique({
+      where: {
+        userId_companyId: {
+          userId: actor.userId,
+          companyId,
+        },
+      },
+      select: { role: true },
+    });
+
+    const isOwnerOrAdmin =
+      actorMembership?.role === Role.OWNER || actorMembership?.role === Role.ADMIN;
 
     if (!isSuperAdmin && !isHr && !isOwnerOrAdmin) {
       throw new ForbiddenException("Not allowed to edit HR portfolio for this user");
@@ -511,9 +522,6 @@ export class UserService {
       (next as any)[key] = v;
     };
 
-    // Only non-sensitive contact/location fields are updatable via this
-    // endpoint. Highly sensitive fields (SSN, banking, HIPAA notes) remain
-    // editable only by the worker themself via /settings/profile.
     setMaybe("displayEmail", body.displayEmail);
     setMaybe("phone", body.phone);
     setMaybe("addressLine1", body.addressLine1);
@@ -522,6 +530,13 @@ export class UserService {
     setMaybe("state", body.state);
     setMaybe("postalCode", body.postalCode);
     setMaybe("country", body.country);
+
+    // Banking (stored encrypted; last-4 derived columns kept in sync).
+    setMaybe("bankName", body.bankName);
+    setMaybe("bankAddress", body.bankAddress);
+    setMaybe("bankAccountNumber", body.bankAccountNumber);
+    setMaybe("bankRoutingNumber", body.bankRoutingNumber);
+
     setMaybe("startDate", body.startDate);
 
     // HR-only compensation: allow OWNER/ADMIN/HR to set these on behalf of
@@ -549,12 +564,14 @@ export class UserService {
       where: { portfolioId: portfolio.id },
       update: {
         encryptedJson: encryptedBytes,
-        // Non-sensitive edit path: we do not change any of the masked
-        // last-4 fields here.
+        bankAccountLast4: this.last4FromValue(next.bankAccountNumber ?? null),
+        bankRoutingLast4: this.last4FromValue(next.bankRoutingNumber ?? null),
       },
       create: {
         portfolioId: portfolio.id,
         encryptedJson: encryptedBytes,
+        bankAccountLast4: this.last4FromValue(next.bankAccountNumber ?? null),
+        bankRoutingLast4: this.last4FromValue(next.bankRoutingNumber ?? null),
       },
     });
 
@@ -687,7 +704,13 @@ export class UserService {
     });
   }
 
-  async getProfile(targetUserId: string, actor: AuthenticatedUser) {
+  async getProfile(
+    targetUserId: string,
+    actor: AuthenticatedUser,
+    opts?: { includeBankNumbers?: boolean },
+  ) {
+    const includeBankNumbers = !!opts?.includeBankNumbers;
+
     try {
       // Ensure target user is a member of the actor's company
       const membership = await this.prisma.companyMembership.findFirst({
@@ -860,6 +883,13 @@ export class UserService {
               bankName: payload.bankName ?? null,
               bankAddress: payload.bankAddress ?? null,
               hipaaNotes: payload.hipaaNotes ?? null,
+
+              ...(includeBankNumbers
+                ? {
+                    bankAccountNumber: payload.bankAccountNumber ?? null,
+                    bankRoutingNumber: payload.bankRoutingNumber ?? null,
+                  }
+                : {}),
 
               startDate: payload.startDate ?? null,
 
