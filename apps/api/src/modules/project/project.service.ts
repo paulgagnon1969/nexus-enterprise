@@ -2702,10 +2702,10 @@ export class ProjectService {
     companyId: string,
     actor: AuthenticatedUser,
     filters: {
-      roomParticleId?: string;
-      categoryCode?: string;
-      selectionCode?: string;
-    }
+      roomParticleIds?: string[];
+      categoryCodes?: string[];
+      selectionCodes?: string[];
+    },
   ) {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, companyId }
@@ -2776,14 +2776,14 @@ export class ProjectService {
       estimateVersionId: latestVersion.id
     };
 
-    if (filters.roomParticleId) {
-      where.projectParticleId = filters.roomParticleId;
+    if (filters.roomParticleIds?.length) {
+      where.projectParticleId = { in: filters.roomParticleIds };
     }
-    if (filters.categoryCode) {
-      where.categoryCode = filters.categoryCode;
+    if (filters.categoryCodes?.length) {
+      where.categoryCode = { in: filters.categoryCodes };
     }
-    if (filters.selectionCode) {
-      where.selectionCode = filters.selectionCode;
+    if (filters.selectionCodes?.length) {
+      where.selectionCode = { in: filters.selectionCodes };
     }
 
     const items = await this.prisma.sowItem.findMany({ where });
@@ -2795,11 +2795,13 @@ export class ProjectService {
           projectId,
           estimateVersionId: latestVersion.id,
           rcvAmount: { not: null },
-          ...(filters.roomParticleId
-            ? { projectParticleId: filters.roomParticleId }
+          ...(filters.roomParticleIds?.length
+            ? { projectParticleId: { in: filters.roomParticleIds } }
             : {}),
-          ...(filters.categoryCode ? { categoryCode: filters.categoryCode } : {}),
-          ...(filters.selectionCode ? { selectionCode: filters.selectionCode } : {}),
+          ...(filters.categoryCodes?.length ? { categoryCode: { in: filters.categoryCodes } } : {}),
+          ...(filters.selectionCodes?.length
+            ? { selectionCode: { in: filters.selectionCodes } }
+            : {}),
         },
       });
     } catch (err: any) {
@@ -3249,9 +3251,9 @@ export class ProjectService {
     companyId: string,
     actor: AuthenticatedUser,
     filters: {
-      roomParticleId?: string;
-      categoryCode?: string;
-      selectionCode?: string;
+      roomParticleIds?: string[];
+      categoryCodes?: string[];
+      selectionCodes?: string[];
     },
   ) {
     const project = await this.prisma.project.findFirst({
@@ -3312,9 +3314,9 @@ export class ProjectService {
       return {
         projectId,
         estimateVersionId: null,
-        roomParticleId: filters.roomParticleId ?? null,
-        categoryCode: filters.categoryCode ?? null,
-        selectionCode: filters.selectionCode ?? null,
+        roomParticleId: filters.roomParticleIds?.length === 1 ? filters.roomParticleIds[0] : null,
+        categoryCode: filters.categoryCodes?.length === 1 ? filters.categoryCodes[0] : null,
+        selectionCode: filters.selectionCodes?.length === 1 ? filters.selectionCodes[0] : null,
         components: [],
       };
     }
@@ -3323,14 +3325,14 @@ export class ProjectService {
       estimateVersionId: latestVersion.id,
     };
 
-    if (filters.roomParticleId) {
-      sowWhere.projectParticleId = filters.roomParticleId;
+    if (filters.roomParticleIds?.length) {
+      sowWhere.projectParticleId = { in: filters.roomParticleIds };
     }
-    if (filters.categoryCode) {
-      sowWhere.categoryCode = filters.categoryCode;
+    if (filters.categoryCodes?.length) {
+      sowWhere.categoryCode = { in: filters.categoryCodes };
     }
-    if (filters.selectionCode) {
-      sowWhere.selectionCode = filters.selectionCode;
+    if (filters.selectionCodes?.length) {
+      sowWhere.selectionCode = { in: filters.selectionCodes };
     }
 
     const sowItems = await this.prisma.sowItem.findMany({
@@ -3342,9 +3344,9 @@ export class ProjectService {
       return {
         projectId,
         estimateVersionId: latestVersion.id,
-        roomParticleId: filters.roomParticleId ?? null,
-        categoryCode: filters.categoryCode ?? null,
-        selectionCode: filters.selectionCode ?? null,
+        roomParticleId: filters.roomParticleIds?.length === 1 ? filters.roomParticleIds[0] : null,
+        categoryCode: filters.categoryCodes?.length === 1 ? filters.categoryCodes[0] : null,
+        selectionCode: filters.selectionCodes?.length === 1 ? filters.selectionCodes[0] : null,
         components: [],
       };
     }
@@ -3404,9 +3406,9 @@ export class ProjectService {
     return {
       projectId,
       estimateVersionId: latestVersion.id,
-      roomParticleId: filters.roomParticleId ?? null,
-      categoryCode: filters.categoryCode ?? null,
-      selectionCode: filters.selectionCode ?? null,
+      roomParticleId: filters.roomParticleIds?.length === 1 ? filters.roomParticleIds[0] : null,
+      categoryCode: filters.categoryCodes?.length === 1 ? filters.categoryCodes[0] : null,
+      selectionCode: filters.selectionCodes?.length === 1 ? filters.selectionCodes[0] : null,
       components,
     };
   }

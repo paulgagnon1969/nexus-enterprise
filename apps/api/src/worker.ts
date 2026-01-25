@@ -807,14 +807,35 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
 
     const rawContent = fs.readFileSync(effectiveCsvPath, "utf8");
     const lines = rawContent.replace(/^\uFEFF/, "").split(/\r?\n/);
-    const startIndex = lines.findIndex(line => line.replace(/[\s,]+/g, "").trim());
+
+    // Some exports have a few non-data lines before the header.
+    // Prefer a header row that contains "% Complete" when available.
+    const headerIndex = lines.findIndex(
+      (line) =>
+        /%\s*complete/i.test(line) && (line.includes("\t") || line.includes(",") || line.includes(";")),
+    );
+
+    const startIndex =
+      headerIndex >= 0
+        ? headerIndex
+        : lines.findIndex((line) => line.replace(/[\s,]+/g, "").trim());
+
     const normalizedContent =
       startIndex >= 0 ? lines.slice(startIndex).join("\n") : rawContent;
+
+    const headerLine = (normalizedContent.split(/\r?\n/)[0] ?? "").trim();
+    const commaCount = (headerLine.match(/,/g) || []).length;
+    const tabCount = (headerLine.match(/\t/g) || []).length;
+    const semiCount = (headerLine.match(/;/g) || []).length;
+
+    // Many NCC exports are TSV but saved with a .csv extension.
+    const delimiter = tabCount > commaCount && tabCount > semiCount ? "\t" : semiCount > commaCount ? ";" : ",";
 
     const rows = parse(normalizedContent, {
       columns: true,
       skip_empty_lines: true,
       trim: true,
+      delimiter,
     }) as Array<Record<string, string>>;
 
     const parsedRowCount = rows.length;
@@ -827,19 +848,185 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
     const lineNoToPercent = new Map<number, number>();
     let rowsWithPercent = 0;
 
-    for (const row of rows) {
-      const lineRaw = row["#"] ?? row["Line"] ?? row["Line No"] ?? row["LineNo"];
-      const pctRaw = row["% Complete"] ?? row["Percent Complete"] ?? row["Percent"];
+    // Header names in the incoming CSVs can vary wildly (spaces, casing, punctuation,
+    // different labels). Build a normalized header map once so per-row parsing is cheap.
+    const normalizeHeader = (s: string) =>
+      String(s ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9%#]+/g, "");
 
-      const lineNo = Number(String(lineRaw ?? "").replace(/[^0-9]/g, ""));
-      if (!lineNo || Number.isNaN(lineNo)) continue;
+    const headerKeys = rows[0] ? Object.keys(rows[0]) : [];
+    const headerMap = new Map<string, string>();
+    for (const k of headerKeys) {
+      headerMap.set(normalizeHeader(k), k);
+    }
 
-      if (pctRaw == null) continue;
-      const cleaned = String(pctRaw).replace(/[^0-9.]/g, "");
-      if (!cleaned) continue;
+    const findHeaderKey = (candidates: string[]) => {
+      for (const cand of candidates) {
+        const normalized = normalizeHeader(cand);
+        const exact = headerMap.get(normalized);
+        if (exact) return exact;
+
+        // Fallback: substring match (e.g. "Percent Complete (RCV)")
+        for (const [norm, original] of headerMap.entries()) {
+          if (norm.includes(normalized)) return original;
+        }
+      }
+      return null;
+    };
+
+    const parseLineNo = (raw: any) => {
+      const s = String(raw ?? "").trim();
+      if (!s) return null;
+      // Avoid accidentally treating currency as a line number.
+      if (s.includes("$") || /\d+\.\d+/.test(s)) return null;
+      const digits = s.replace(/[^0-9]/g, "");
+      if (!digits) return null;
+      const n = Number(digits);
+      if (!n || Number.isNaN(n)) return null;
+      // Guardrail: typical Xactimate line numbers are relatively small.
+      if (n < 1 || n > 20000) return null;
+      return n;
+    };
+
+    const parsePercent = (raw: any) => {
+      if (raw == null) return null;
+      const s = String(raw).trim();
+      if (!s) return null;
+      const cleaned = s.replace(/[^0-9.]/g, "");
+      if (!cleaned) return null;
       let pct = Number(cleaned);
-      if (Number.isNaN(pct)) continue;
+      if (Number.isNaN(pct)) return null;
+
+      // Handle fractional inputs like 0.25 meaning 25%.
+      if (!s.includes("%") && cleaned.includes(".") && pct > 0 && pct <= 1) {
+        pct = pct * 100;
+      }
+
       pct = Math.max(0, Math.min(100, pct));
+      return pct;
+    };
+
+    let lineKey =
+      findHeaderKey([
+        "#",
+        "line",
+        "line#",
+        "lineno",
+        "line no",
+        "line number",
+        "lineitem",
+        "line item",
+        "line item#",
+        "line item number",
+      ]) ?? null;
+
+    let percentKey =
+      findHeaderKey([
+        "% complete",
+        "%complete",
+        "percent complete",
+        "percentcomplete",
+        "pct complete",
+        "pctcomplete",
+        "percent",
+        "pct",
+        "progress",
+      ]) ?? null;
+
+    // Fallbacks for non-standard headers.
+    // 1) Common layout for reconcile/POL exports: Column B = percent, Column D = line number.
+    // 2) If that doesn't work, score ALL columns and pick the best candidates.
+    const sample = rows.slice(0, Math.min(rows.length, 200));
+    const scoreColumn = (key: string, kind: "line" | "percent") => {
+      let count = 0;
+      for (const r of sample) {
+        const v = r[key];
+        if (kind === "line") {
+          if (parseLineNo(v) != null) count += 1;
+        } else {
+          if (parsePercent(v) != null) count += 1;
+        }
+      }
+      return count;
+    };
+
+    const bestKeyFor = (kind: "line" | "percent", excludeKey?: string | null) => {
+      let best: { key: string; score: number } | null = null;
+      for (const k of headerKeys) {
+        if (!k) continue;
+        if (excludeKey && k === excludeKey) continue;
+        const score = scoreColumn(k, kind);
+        if (!best || score > best.score) {
+          best = { key: k, score };
+        }
+      }
+      return best;
+    };
+
+    let fallbackUsed: string | null = null;
+
+    // Fallback (B=% , D=line) with validation.
+    if ((!percentKey || !lineKey) && headerKeys.length >= 4) {
+      const bKey = headerKeys[1];
+      const dKey = headerKeys[3];
+      const bPct = bKey ? scoreColumn(bKey, "percent") : 0;
+      const dLine = dKey ? scoreColumn(dKey, "line") : 0;
+
+      if (!percentKey && bKey && bPct > 0) {
+        percentKey = bKey;
+        fallbackUsed = "column_B";
+      }
+      if (!lineKey && dKey && dLine > 0) {
+        lineKey = dKey;
+        fallbackUsed = fallbackUsed ? `${fallbackUsed}+column_D` : "column_D";
+      }
+
+      if (!fallbackUsed && bKey && dKey && bPct > 0 && dLine > 0) {
+        fallbackUsed = "column_B_and_D";
+      }
+    }
+
+    // If we still couldn't find usable keys, infer from values.
+    // Require at least a few hits in the sample so we don't pick random columns.
+    const minHits = Math.max(3, Math.floor(sample.length * 0.02));
+
+    if (!percentKey) {
+      const bestPct = bestKeyFor("percent");
+      if (bestPct && bestPct.score >= minHits) {
+        percentKey = bestPct.key;
+        fallbackUsed = fallbackUsed ? `${fallbackUsed}+best_percent` : "best_percent";
+      }
+    }
+
+    if (!lineKey) {
+      const bestLine = bestKeyFor("line", percentKey);
+      if (bestLine && bestLine.score >= minHits) {
+        lineKey = bestLine.key;
+        fallbackUsed = fallbackUsed ? `${fallbackUsed}+best_line` : "best_line";
+      }
+    }
+
+    for (const row of rows) {
+      const lineRaw =
+        (lineKey ? row[lineKey] : undefined) ??
+        row["#"] ??
+        row["Line"] ??
+        row["Line No"] ??
+        row["LineNo"];
+
+      const pctRaw =
+        (percentKey ? row[percentKey] : undefined) ??
+        row["% Complete"] ??
+        row["Percent Complete"] ??
+        row["Percent"];
+
+      const lineNo = parseLineNo(lineRaw);
+      if (!lineNo) continue;
+
+      const pct = parsePercent(pctRaw);
+      if (pct == null) continue;
 
       lineNoToPercent.set(lineNo, pct);
       rowsWithPercent += 1;
@@ -865,52 +1052,92 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
 
     let updatedCount = 0;
     let skippedNoMatch = 0;
+    let skippedNoChange = 0;
 
-    await prisma.$transaction(async (tx) => {
-      const startedAt = new Date();
-      const endedAt = new Date();
+    const startedAt = new Date();
+    const endedAt = new Date();
 
-      const session = await tx.petlEditSession.create({
-        data: {
-          projectId: job.projectId!,
-          userId: job.createdByUserId ?? null,
-          source: "petl-percent-csv",
-          startedAt,
-          endedAt,
-        },
+    // NOTE: Avoid Prisma interactive transactions for large loops (default timeout ~5s).
+    // Instead, create the session once, then batch log inserts + updates.
+    const session = await prisma.petlEditSession.create({
+      data: {
+        projectId: job.projectId!,
+        userId: job.createdByUserId ?? null,
+        source: "petl-percent-csv",
+        startedAt,
+        endedAt,
+      },
+    });
+
+    const changesToCreate: Array<{
+      sessionId: string;
+      sowItemId: string;
+      field: string;
+      oldValue: number;
+      newValue: number;
+      effectiveAt: Date;
+    }> = [];
+
+    const updatesToApply: Array<{ id: string; percentComplete: number }> = [];
+
+    for (const [lineNo, pct] of lineNoToPercent.entries()) {
+      const item = matchedIds.get(lineNo);
+      if (!item) {
+        skippedNoMatch += 1;
+        continue;
+      }
+
+      const oldPercent = item.percentComplete ?? 0;
+      const next = pct;
+
+      // Skip no-op updates (saves time + avoids unnecessary audit rows)
+      if (Math.abs(oldPercent - next) < 0.0001) {
+        skippedNoChange += 1;
+        continue;
+      }
+
+      changesToCreate.push({
+        sessionId: session.id,
+        sowItemId: item.id,
+        field: "percent_complete",
+        oldValue: oldPercent,
+        newValue: next,
+        effectiveAt: endedAt,
       });
 
-      for (const [lineNo, pct] of lineNoToPercent.entries()) {
-        const item = matchedIds.get(lineNo);
-        if (!item) {
-          skippedNoMatch += 1;
-          continue;
-        }
+      updatesToApply.push({ id: item.id, percentComplete: next });
+      updatedCount += 1;
+    }
 
-        const oldPercent = item.percentComplete ?? 0;
-        const next = pct;
-
-        await tx.petlEditChange.create({
-          data: {
-            sessionId: session.id,
-            sowItemId: item.id,
-            field: "percent_complete",
-            oldValue: oldPercent,
-            newValue: next,
-            effectiveAt: endedAt,
-          },
-        });
-
-        await tx.sowItem.update({
-          where: { id: item.id },
-          data: {
-            percentComplete: next,
-            isAcvOnly: false,
-          },
-        });
-        updatedCount += 1;
+    const chunk = <T,>(arr: T[], size: number): T[][] => {
+      const out: T[][] = [];
+      for (let i = 0; i < arr.length; i += size) {
+        out.push(arr.slice(i, i + size));
       }
-    });
+      return out;
+    };
+
+    // Insert audit rows in bulk.
+    for (const part of chunk(changesToCreate, 1000)) {
+      if (part.length === 0) continue;
+      await prisma.petlEditChange.createMany({ data: part as any });
+    }
+
+    // Apply updates in manageable transactions.
+    for (const part of chunk(updatesToApply, 200)) {
+      if (part.length === 0) continue;
+      await prisma.$transaction(
+        part.map((u) =>
+          prisma.sowItem.update({
+            where: { id: u.id },
+            data: {
+              percentComplete: u.percentComplete,
+              isAcvOnly: false,
+            },
+          })
+        )
+      );
+    }
 
     await prisma.importJob.update({
       where: { id: importJobId },
@@ -926,6 +1153,15 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
           matchedCount,
           updatedCount,
           skippedNoMatch,
+          skippedNoChange,
+          detectedHeaders: {
+            lineKey,
+            percentKey,
+            fallbackUsed,
+            delimiter,
+            headerIndex: startIndex,
+            sampleHeaders: headerKeys.slice(0, 30),
+          },
         } as any,
       },
     });
@@ -1410,12 +1646,15 @@ export async function startWorker() {
   worker.on("failed", async (j, err) => {
     console.error(`[worker] failed bull job ${j?.id}`, err);
     if (j?.data?.importJobId) {
+      const detail = err instanceof Error ? err.message : String(err);
+      const message = detail && detail.trim() ? `Import failed: ${detail}` : "Import failed";
+
       await prisma.importJob.update({
         where: { id: j.data.importJobId },
         data: {
           status: ImportJobStatus.FAILED,
           finishedAt: new Date(),
-          message: "Import failed",
+          message,
           errorJson: safeError(err) as any,
         },
       });
