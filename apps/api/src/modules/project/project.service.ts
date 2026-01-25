@@ -1084,6 +1084,13 @@ export class ProjectService {
     return byId;
   }
 
+  private isMissingPrismaTableError(err: any, tableOrModel: string) {
+    const code = String(err?.code ?? "");
+    if (code !== "P2021") return false;
+    const msg = String(err?.message ?? "");
+    return msg.includes(tableOrModel);
+  }
+
   async getPetlForProject(
     projectId: string,
     companyId: string,
@@ -1127,20 +1134,45 @@ export class ProjectService {
     // IMPORTANT: Do NOT include required relations like projectParticle here.
     // In some prod data, orphaned particle IDs can exist and Prisma will throw
     // when hydrating a required relation include.
-    const [itemsRaw, reconciliationEntriesRaw] = await Promise.all([
-      this.prisma.sowItem.findMany({
-        where: { estimateVersionId: latestVersion.id },
-        orderBy: { lineNo: "asc" },
-      }),
-      this.prisma.petlReconciliationEntry.findMany({
-        where: {
-          projectId,
-          estimateVersionId: latestVersion.id,
-          rcvAmount: { not: null },
-        },
-        orderBy: { createdAt: "asc" },
-      }),
-    ]);
+    const itemsRaw = await this.prisma.sowItem.findMany({
+      where: { estimateVersionId: latestVersion.id },
+      orderBy: { lineNo: "asc" },
+    });
+
+    // Reconciliation entries are optional. If the DB migration hasn't been
+    // applied yet in an environment, Prisma throws P2021 (table missing).
+    let reconciliationEntriesRaw: any[] = [];
+    let reconciliationActivitySowItemIds: string[] = [];
+    try {
+      const [reconMonetary, reconActivity] = await Promise.all([
+        this.prisma.petlReconciliationEntry.findMany({
+          where: {
+            projectId,
+            estimateVersionId: latestVersion.id,
+            rcvAmount: { not: null },
+          },
+          orderBy: { createdAt: "asc" },
+        }),
+        this.prisma.petlReconciliationEntry.findMany({
+          where: {
+            projectId,
+            estimateVersionId: latestVersion.id,
+            parentSowItemId: { not: null },
+          },
+          distinct: ["parentSowItemId"],
+          select: { parentSowItemId: true },
+        }),
+      ]);
+
+      reconciliationEntriesRaw = reconMonetary;
+      reconciliationActivitySowItemIds = reconActivity
+        .map((r: any) => r.parentSowItemId)
+        .filter((v: any): v is string => typeof v === "string" && v.length > 0);
+    } catch (err: any) {
+      if (!this.isMissingPrismaTableError(err, "PetlReconciliationEntry")) {
+        throw err;
+      }
+    }
 
     const particleById = await this.resolveProjectParticlesForProject({
       projectId,
@@ -1165,6 +1197,7 @@ export class ProjectService {
       estimateVersionId: latestVersion.id,
       items,
       reconciliationEntries,
+      reconciliationActivitySowItemIds,
     };
   }
 
@@ -2420,18 +2453,25 @@ export class ProjectService {
       return { projectId, groups: [] };
     }
 
-    const [items, reconEntries] = await Promise.all([
-      this.prisma.sowItem.findMany({
-        where: { estimateVersionId: latestVersion.id },
-      }),
-      this.prisma.petlReconciliationEntry.findMany({
+    const items = await this.prisma.sowItem.findMany({
+      where: { estimateVersionId: latestVersion.id },
+    });
+
+    let reconEntries: any[] = [];
+    try {
+      reconEntries = await this.prisma.petlReconciliationEntry.findMany({
         where: {
           projectId,
           estimateVersionId: latestVersion.id,
           rcvAmount: { not: null },
         },
-      }),
-    ]);
+      });
+    } catch (err: any) {
+      if (!this.isMissingPrismaTableError(err, "PetlReconciliationEntry")) {
+        throw err;
+      }
+      reconEntries = [];
+    }
 
     const particleById = await this.resolveProjectParticlesForProject({
       projectId,
@@ -2614,9 +2654,11 @@ export class ProjectService {
       where.selectionCode = filters.selectionCode;
     }
 
-    const [items, reconEntries] = await Promise.all([
-      this.prisma.sowItem.findMany({ where }),
-      this.prisma.petlReconciliationEntry.findMany({
+    const items = await this.prisma.sowItem.findMany({ where });
+
+    let reconEntries: any[] = [];
+    try {
+      reconEntries = await this.prisma.petlReconciliationEntry.findMany({
         where: {
           projectId,
           estimateVersionId: latestVersion.id,
@@ -2627,8 +2669,13 @@ export class ProjectService {
           ...(filters.categoryCode ? { categoryCode: filters.categoryCode } : {}),
           ...(filters.selectionCode ? { selectionCode: filters.selectionCode } : {}),
         },
-      }),
-    ]);
+      });
+    } catch (err: any) {
+      if (!this.isMissingPrismaTableError(err, "PetlReconciliationEntry")) {
+        throw err;
+      }
+      reconEntries = [];
+    }
 
     if (items.length === 0 && reconEntries.length === 0) {
       return {
@@ -3303,23 +3350,32 @@ export class ProjectService {
       };
     }
 
-    const [sowItems, reconEntries, componentsCount] = await Promise.all([
+    const [sowItems, componentsCount] = await Promise.all([
       this.prisma.sowItem.findMany({
         where: { estimateVersionId: latestVersion.id },
         select: { rcvAmount: true, itemAmount: true },
       }),
-      this.prisma.petlReconciliationEntry.findMany({
+      this.prisma.componentSummary.count({
+        where: { estimateVersionId: latestVersion.id },
+      }),
+    ]);
+
+    let reconEntries: { rcvAmount: number | null }[] = [];
+    try {
+      reconEntries = await this.prisma.petlReconciliationEntry.findMany({
         where: {
           projectId,
           estimateVersionId: latestVersion.id,
           rcvAmount: { not: null },
         },
         select: { rcvAmount: true },
-      }),
-      this.prisma.componentSummary.count({
-        where: { estimateVersionId: latestVersion.id },
-      }),
-    ]);
+      });
+    } catch (err: any) {
+      if (!this.isMissingPrismaTableError(err, "PetlReconciliationEntry")) {
+        throw err;
+      }
+      reconEntries = [];
+    }
 
     let totalAmount = 0;
     for (const item of sowItems) {
