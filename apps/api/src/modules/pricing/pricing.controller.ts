@@ -448,6 +448,76 @@ export class PricingController {
     }
   }
 
+  // Search tenant cost book (CompanyPriceListItem) by cat/sel/description.
+  @UseGuards(JwtAuthGuard)
+  @Post("company-price-list/search")
+  async searchCompanyPriceList(@Req() req: FastifyRequest) {
+    const anyReq: any = req as any;
+    const user = anyReq.user as AuthenticatedUser | undefined;
+
+    if (!user?.companyId) {
+      throw new BadRequestException("Missing company context for cost book search");
+    }
+
+    const anyBody: any = (anyReq.body ?? {}) as any;
+    const q = typeof anyBody.query === "string" ? anyBody.query.trim() : "";
+    const cat = typeof anyBody.cat === "string" ? anyBody.cat.trim() : "";
+    const sel = typeof anyBody.sel === "string" ? anyBody.sel.trim() : "";
+    const limitRaw = anyBody.limit;
+
+    // Browsing a single CAT in the UI often needs more than 200 rows so the user
+    // can scroll above/below the highlighted match. Keep the unfiltered cap low.
+    const maxLimit = cat ? 2000 : 200;
+    const limit =
+      typeof limitRaw === "number" && Number.isFinite(limitRaw)
+        ? Math.max(1, Math.min(maxLimit, Math.floor(limitRaw)))
+        : 50;
+
+    // Ensure a cost book exists (seed from Golden on-demand).
+    const costBook = await ensureCompanyPriceListForCompany(user.companyId);
+
+    const where: any = {
+      companyPriceListId: costBook.id,
+    };
+
+    if (cat) {
+      where.cat = { equals: cat, mode: "insensitive" };
+    }
+    if (sel) {
+      where.sel = { equals: sel, mode: "insensitive" };
+    }
+
+    if (q) {
+      where.OR = [
+        { description: { contains: q, mode: "insensitive" } },
+        { cat: { contains: q, mode: "insensitive" } },
+        { sel: { contains: q, mode: "insensitive" } },
+        { groupCode: { contains: q, mode: "insensitive" } },
+        { groupDescription: { contains: q, mode: "insensitive" } },
+      ];
+    }
+
+    const items = await this.prisma.companyPriceListItem.findMany({
+      where,
+      orderBy: [
+        { cat: "asc" },
+        { sel: "asc" },
+        { description: "asc" },
+      ],
+      take: limit,
+    });
+
+    return {
+      companyPriceListId: costBook.id,
+      query: q || null,
+      filters: {
+        cat: cat || null,
+        sel: sel || null,
+      },
+      items,
+    };
+  }
+
   // Import Golden price list component breakdowns from a CSV file. This will
   // create a PRICE_LIST_COMPONENTS ImportJob that is processed by the worker.
   // The CSV is expected to contain Cat, Sel, Activity, Desc, Component Code,

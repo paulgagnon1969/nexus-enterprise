@@ -3,7 +3,7 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuditService } from "../../common/audit.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import type { Prisma } from "@prisma/client";
-import { GlobalRole, Role, ProjectRole, ProjectParticleType, ProjectParticipantScope, ProjectVisibilityLevel } from "@prisma/client";
+import { GlobalRole, Role, ProjectRole, ProjectParticleType, ProjectParticipantScope, ProjectVisibilityLevel, MessageThreadType, PetlReconciliationEntryKind } from "@prisma/client";
 import { CreateProjectDto, UpdateProjectDto } from "./dto/project.dto";
 import { importXactCsvForProject, importXactComponentsCsvForEstimate, allocateComponentsForEstimate } from "@repo/database";
 import { TaxJurisdictionService } from "./tax-jurisdiction.service";
@@ -841,6 +841,9 @@ export class ProjectService {
       });
       await tx.petlEditSession.deleteMany({ where: { projectId } });
 
+      // 1b) PETL reconciliation (cascades to entries/events)
+      await tx.petlReconciliationCase.deleteMany({ where: { projectId } });
+
       // 2) SOW items and raw rows
       await tx.sowItem.deleteMany({
         where: {
@@ -1086,19 +1089,681 @@ export class ProjectService {
       };
     }
 
-    const items = await this.prisma.sowItem.findMany({
-      where: { estimateVersionId: latestVersion.id },
-      orderBy: { lineNo: "asc" },
-      include: {
-        projectParticle: true,
-      },
-    });
+    const [items, reconciliationEntries] = await Promise.all([
+      this.prisma.sowItem.findMany({
+        where: { estimateVersionId: latestVersion.id },
+        orderBy: { lineNo: "asc" },
+        include: {
+          projectParticle: true,
+        },
+      }),
+      this.prisma.petlReconciliationEntry.findMany({
+        where: {
+          projectId,
+          estimateVersionId: latestVersion.id,
+          rcvAmount: { not: null },
+        },
+        orderBy: { createdAt: "asc" },
+        include: { projectParticle: true },
+      }),
+    ]);
 
     return {
       projectId,
       estimateVersionId: latestVersion.id,
       items,
+      reconciliationEntries,
     };
+  }
+
+  private buildRcvBreakdownForSowItem(item: {
+    qty: number | null;
+    unitCost: number | null;
+    itemAmount: number | null;
+    salesTaxAmount: number | null;
+    rcvAmount: number | null;
+  }) {
+    const qty = item.qty ?? null;
+    const unitCost = item.unitCost ?? null;
+
+    const itemAmount = item.itemAmount ?? null;
+    const salesTaxAmount = item.salesTaxAmount ?? null;
+
+    const rcvAmount = (item.rcvAmount ?? itemAmount ?? 0) as number;
+
+    // Treat anything above (item + tax) as "O&P/other" for display.
+    const opRaw = rcvAmount - ((itemAmount ?? 0) + (salesTaxAmount ?? 0));
+    const opAmount = Math.max(0, opRaw);
+
+    return {
+      qty,
+      unitCost,
+      itemAmount,
+      salesTaxAmount,
+      opAmount,
+      rcvAmount,
+    };
+  }
+
+  private computeSelectedRcvAmount(
+    breakdown: {
+      itemAmount: number | null;
+      salesTaxAmount: number | null;
+      opAmount: number;
+    },
+    components?: { itemAmount?: boolean; salesTaxAmount?: boolean; opAmount?: boolean },
+  ) {
+    const includeItem = components?.itemAmount ?? true;
+    const includeTax = components?.salesTaxAmount ?? true;
+    const includeOp = components?.opAmount ?? true;
+
+    const amount =
+      (includeItem ? breakdown.itemAmount ?? 0 : 0) +
+      (includeTax ? breakdown.salesTaxAmount ?? 0 : 0) +
+      (includeOp ? breakdown.opAmount ?? 0 : 0);
+
+    return amount;
+  }
+
+  private async findPetlReconciliationCaseForSowItem(options: {
+    projectId: string;
+    sowItemId: string;
+  }) {
+    const { projectId, sowItemId } = options;
+
+    const sowItem = await this.prisma.sowItem.findUnique({
+      where: { id: sowItemId },
+      select: { logicalItemId: true },
+    });
+
+    if (!sowItem) {
+      return null;
+    }
+
+    return this.prisma.petlReconciliationCase.findFirst({
+      where: {
+        projectId,
+        OR: [
+          { sowItemId },
+          { logicalItemId: sowItem.logicalItemId },
+        ],
+      },
+      include: {
+        entries: { orderBy: { createdAt: "asc" } },
+        events: { orderBy: { createdAt: "asc" } },
+      },
+    });
+  }
+
+  private async getOrCreatePetlReconciliationCaseForSowItem(options: {
+    projectId: string;
+    companyId: string;
+    actor: AuthenticatedUser;
+    sowItemId: string;
+  }) {
+    const { projectId, companyId, actor, sowItemId } = options;
+
+    // Validate access + project existence
+    await this.getProjectByIdForUser(projectId, actor);
+
+    const sowItem = await this.prisma.sowItem.findUnique({
+      where: { id: sowItemId },
+      include: {
+        projectParticle: {
+          select: { projectId: true },
+        },
+      },
+    });
+
+    if (!sowItem || sowItem.projectParticle?.projectId !== projectId) {
+      throw new NotFoundException("SOW item not found for this project");
+    }
+
+    const existing = await this.prisma.petlReconciliationCase.findFirst({
+      where: {
+        projectId,
+        OR: [
+          { sowItemId: sowItem.id },
+          { logicalItemId: sowItem.logicalItemId },
+        ],
+      },
+    });
+
+    if (existing) {
+      // Keep sowItemId updated to the latest version's row when possible.
+      if (!existing.sowItemId || existing.sowItemId !== sowItem.id) {
+        await this.prisma.petlReconciliationCase.update({
+          where: { id: existing.id },
+          data: {
+            sowItemId: sowItem.id,
+            estimateVersionId: sowItem.estimateVersionId,
+          },
+        });
+      }
+
+      return existing;
+    }
+
+    // Create a dedicated JOURNAL thread for notes/attachments.
+    const thread = await this.prisma.messageThread.create({
+      data: {
+        companyId,
+        projectId,
+        createdById: actor.userId,
+        type: MessageThreadType.JOURNAL,
+        subject: `PETL Reconciliation: ${sowItem.description}`,
+      },
+    });
+
+    const created = await this.prisma.petlReconciliationCase.create({
+      data: {
+        projectId,
+        estimateVersionId: sowItem.estimateVersionId,
+        sowItemId: sowItem.id,
+        logicalItemId: sowItem.logicalItemId,
+        noteThreadId: thread.id,
+        createdByUserId: actor.userId,
+        events: {
+          create: {
+            projectId,
+            estimateVersionId: sowItem.estimateVersionId,
+            eventType: "CASE_CREATED",
+            payloadJson: {
+              sowItemId: sowItem.id,
+              logicalItemId: sowItem.logicalItemId,
+            },
+            createdByUserId: actor.userId,
+          },
+        },
+      },
+    });
+
+    return created;
+  }
+
+  async getPetlReconciliationForSowItem(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    sowItemId: string,
+  ) {
+    await this.getProjectByIdForUser(projectId, actor);
+
+    const sowItem = await this.prisma.sowItem.findUnique({
+      where: { id: sowItemId },
+      include: {
+        projectParticle: true,
+      },
+    });
+
+    if (!sowItem || sowItem.projectParticle?.projectId !== projectId) {
+      throw new NotFoundException("SOW item not found for this project");
+    }
+
+    const breakdown = this.buildRcvBreakdownForSowItem({
+      qty: sowItem.qty ?? null,
+      unitCost: sowItem.unitCost ?? null,
+      itemAmount: sowItem.itemAmount ?? null,
+      salesTaxAmount: sowItem.salesTaxAmount ?? null,
+      rcvAmount: sowItem.rcvAmount ?? null,
+    });
+
+    const existingCase = await this.findPetlReconciliationCaseForSowItem({
+      projectId,
+      sowItemId,
+    });
+
+    return {
+      projectId,
+      sowItemId: sowItem.id,
+      estimateVersionId: sowItem.estimateVersionId,
+      projectParticleId: sowItem.projectParticleId,
+      sowItem,
+      rcvBreakdown: breakdown,
+      reconciliationCase: existingCase,
+    };
+  }
+
+  async createPetlReconciliationPlaceholder(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    sowItemId: string,
+    body: { kind?: string; note?: string | null },
+  ) {
+    const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
+      projectId,
+      companyId,
+      actor,
+      sowItemId,
+    });
+
+    const sowItem = await this.prisma.sowItem.findUnique({
+      where: { id: sowItemId },
+      select: {
+        estimateVersionId: true,
+        projectParticleId: true,
+      },
+    });
+
+    if (!sowItem) {
+      throw new NotFoundException("SOW item not found");
+    }
+
+    const kind =
+      body.kind === "CHANGE_ORDER_CLIENT_PAY"
+        ? PetlReconciliationEntryKind.CHANGE_ORDER_CLIENT_PAY
+        : body.kind === "REIMBURSE_OWNER"
+          ? PetlReconciliationEntryKind.REIMBURSE_OWNER
+          : PetlReconciliationEntryKind.NOTE_ONLY;
+
+    const entry = await this.prisma.petlReconciliationEntry.create({
+      data: {
+        projectId,
+        estimateVersionId: sowItem.estimateVersionId,
+        caseId: theCase.id,
+        parentSowItemId: sowItemId,
+        projectParticleId: sowItem.projectParticleId,
+        kind,
+        note: body.note ?? null,
+        rcvAmount: null,
+        percentComplete: 0,
+        isPercentCompleteLocked: true,
+        createdByUserId: actor.userId,
+        events: {
+          create: {
+            projectId,
+            estimateVersionId: sowItem.estimateVersionId,
+            caseId: theCase.id,
+            eventType: "ENTRY_CREATED",
+            payloadJson: { kind, note: body.note ?? null },
+            createdByUserId: actor.userId,
+          },
+        },
+      },
+      include: {
+        case: {
+          include: {
+            entries: { orderBy: { createdAt: "asc" } },
+            events: { orderBy: { createdAt: "asc" } },
+          },
+        },
+      },
+    });
+
+    return { entry, reconciliationCase: entry.case };
+  }
+
+  async createPetlReconciliationCredit(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    sowItemId: string,
+    body: {
+      note?: string | null;
+      components?: { itemAmount?: boolean; salesTaxAmount?: boolean; opAmount?: boolean };
+    },
+  ) {
+    const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
+      projectId,
+      companyId,
+      actor,
+      sowItemId,
+    });
+
+    const sowItem = await this.prisma.sowItem.findUnique({
+      where: { id: sowItemId },
+      select: {
+        estimateVersionId: true,
+        projectParticleId: true,
+        description: true,
+        categoryCode: true,
+        selectionCode: true,
+        unit: true,
+        qty: true,
+        unitCost: true,
+        itemAmount: true,
+        salesTaxAmount: true,
+        rcvAmount: true,
+      },
+    });
+
+    if (!sowItem) {
+      throw new NotFoundException("SOW item not found");
+    }
+
+    const breakdown = this.buildRcvBreakdownForSowItem({
+      qty: sowItem.qty ?? null,
+      unitCost: sowItem.unitCost ?? null,
+      itemAmount: sowItem.itemAmount ?? null,
+      salesTaxAmount: sowItem.salesTaxAmount ?? null,
+      rcvAmount: sowItem.rcvAmount ?? null,
+    });
+
+    const selected = this.computeSelectedRcvAmount(breakdown, body.components);
+
+    if (selected <= 0) {
+      throw new BadRequestException("Credit amount must be greater than 0");
+    }
+
+    const entry = await this.prisma.petlReconciliationEntry.create({
+      data: {
+        projectId,
+        estimateVersionId: sowItem.estimateVersionId,
+        caseId: theCase.id,
+        parentSowItemId: sowItemId,
+        projectParticleId: sowItem.projectParticleId,
+        kind: PetlReconciliationEntryKind.CREDIT,
+        description: sowItem.description,
+        categoryCode: sowItem.categoryCode,
+        selectionCode: sowItem.selectionCode,
+        unit: sowItem.unit,
+        qty: sowItem.qty,
+        unitCost: sowItem.unitCost,
+        itemAmount: breakdown.itemAmount,
+        salesTaxAmount: breakdown.salesTaxAmount,
+        opAmount: breakdown.opAmount,
+        rcvAmount: -1 * selected,
+        rcvComponentsJson: {
+          itemAmount: body.components?.itemAmount ?? true,
+          salesTaxAmount: body.components?.salesTaxAmount ?? true,
+          opAmount: body.components?.opAmount ?? true,
+        },
+        note: body.note ?? null,
+        percentComplete: 0,
+        isPercentCompleteLocked: true,
+        createdByUserId: actor.userId,
+        events: {
+          create: {
+            projectId,
+            estimateVersionId: sowItem.estimateVersionId,
+            caseId: theCase.id,
+            eventType: "ENTRY_CREATED",
+            payloadJson: { kind: "CREDIT", amount: -1 * selected },
+            createdByUserId: actor.userId,
+          },
+        },
+      },
+      include: {
+        case: {
+          include: {
+            entries: { orderBy: { createdAt: "asc" } },
+            events: { orderBy: { createdAt: "asc" } },
+          },
+        },
+      },
+    });
+
+    return { entry, reconciliationCase: entry.case };
+  }
+
+  async createPetlReconciliationAddManual(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    sowItemId: string,
+    body: {
+      description?: string | null;
+      categoryCode?: string | null;
+      selectionCode?: string | null;
+      unit?: string | null;
+      qty?: number | null;
+      unitCost?: number | null;
+      itemAmount?: number | null;
+      salesTaxAmount?: number | null;
+      opAmount?: number | null;
+      rcvAmount?: number | null;
+      note?: string | null;
+    },
+  ) {
+    const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
+      projectId,
+      companyId,
+      actor,
+      sowItemId,
+    });
+
+    const sowItem = await this.prisma.sowItem.findUnique({
+      where: { id: sowItemId },
+      select: {
+        estimateVersionId: true,
+        projectParticleId: true,
+        description: true,
+      },
+    });
+
+    if (!sowItem) {
+      throw new NotFoundException("SOW item not found");
+    }
+
+    const qty = body.qty ?? null;
+    const unitCost = body.unitCost ?? null;
+    const itemAmount =
+      body.itemAmount ?? (qty != null && unitCost != null ? qty * unitCost : null);
+
+    const salesTaxAmount = body.salesTaxAmount ?? null;
+    const opAmount = body.opAmount ?? null;
+
+    const rcvAmount =
+      body.rcvAmount ??
+      ((itemAmount ?? 0) + (salesTaxAmount ?? 0) + (opAmount ?? 0));
+
+    const entry = await this.prisma.petlReconciliationEntry.create({
+      data: {
+        projectId,
+        estimateVersionId: sowItem.estimateVersionId,
+        caseId: theCase.id,
+        parentSowItemId: sowItemId,
+        projectParticleId: sowItem.projectParticleId,
+        kind: PetlReconciliationEntryKind.ADD,
+        description: body.description ?? sowItem.description,
+        categoryCode: body.categoryCode ?? null,
+        selectionCode: body.selectionCode ?? null,
+        unit: body.unit ?? null,
+        qty,
+        unitCost,
+        itemAmount,
+        salesTaxAmount,
+        opAmount,
+        rcvAmount,
+        rcvComponentsJson: {
+          itemAmount: itemAmount != null,
+          salesTaxAmount: salesTaxAmount != null,
+          opAmount: opAmount != null,
+        },
+        note: body.note ?? null,
+        percentComplete: 0,
+        isPercentCompleteLocked: false,
+        createdByUserId: actor.userId,
+        events: {
+          create: {
+            projectId,
+            estimateVersionId: sowItem.estimateVersionId,
+            caseId: theCase.id,
+            eventType: "ENTRY_CREATED",
+            payloadJson: { kind: "ADD", amount: rcvAmount },
+            createdByUserId: actor.userId,
+          },
+        },
+      },
+      include: {
+        case: {
+          include: {
+            entries: { orderBy: { createdAt: "asc" } },
+            events: { orderBy: { createdAt: "asc" } },
+          },
+        },
+      },
+    });
+
+    return { entry, reconciliationCase: entry.case };
+  }
+
+  async createPetlReconciliationAddFromCostBook(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    sowItemId: string,
+    body: {
+      companyPriceListItemId: string;
+      qty?: number | null;
+      unitCostOverride?: number | null;
+      note?: string | null;
+    },
+  ) {
+    const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
+      projectId,
+      companyId,
+      actor,
+      sowItemId,
+    });
+
+    const sowItem = await this.prisma.sowItem.findUnique({
+      where: { id: sowItemId },
+      select: {
+        estimateVersionId: true,
+        projectParticleId: true,
+        qty: true,
+      },
+    });
+
+    if (!sowItem) {
+      throw new NotFoundException("SOW item not found");
+    }
+
+    const costBookItem = await this.prisma.companyPriceListItem.findFirst({
+      where: {
+        id: body.companyPriceListItemId,
+        companyPriceList: {
+          companyId,
+          isActive: true,
+        },
+      },
+    });
+
+    if (!costBookItem) {
+      throw new NotFoundException("Cost book item not found for this company");
+    }
+
+    const qty = body.qty ?? sowItem.qty ?? 1;
+    const unitCost = body.unitCostOverride ?? costBookItem.unitPrice ?? 0;
+    const itemAmount = qty * unitCost;
+
+    const entry = await this.prisma.petlReconciliationEntry.create({
+      data: {
+        projectId,
+        estimateVersionId: sowItem.estimateVersionId,
+        caseId: theCase.id,
+        parentSowItemId: sowItemId,
+        projectParticleId: sowItem.projectParticleId,
+        kind: PetlReconciliationEntryKind.ADD,
+        description: costBookItem.description,
+        categoryCode: costBookItem.cat,
+        selectionCode: costBookItem.sel,
+        unit: costBookItem.unit,
+        qty,
+        unitCost,
+        itemAmount,
+        salesTaxAmount: 0,
+        opAmount: 0,
+        rcvAmount: itemAmount,
+        rcvComponentsJson: {
+          itemAmount: true,
+          salesTaxAmount: false,
+          opAmount: false,
+        },
+        companyPriceListItemId: costBookItem.id,
+        sourceSnapshotJson: {
+          id: costBookItem.id,
+          cat: costBookItem.cat,
+          sel: costBookItem.sel,
+          description: costBookItem.description,
+          unit: costBookItem.unit,
+          unitPrice: costBookItem.unitPrice,
+          rawJson: costBookItem.rawJson,
+          companyPriceListId: costBookItem.companyPriceListId,
+          lastPriceChangedAt: costBookItem.lastPriceChangedAt,
+        },
+        note: body.note ?? null,
+        percentComplete: 0,
+        isPercentCompleteLocked: false,
+        createdByUserId: actor.userId,
+        events: {
+          create: {
+            projectId,
+            estimateVersionId: sowItem.estimateVersionId,
+            caseId: theCase.id,
+            eventType: "ENTRY_CREATED",
+            payloadJson: {
+              kind: "ADD_FROM_COST_BOOK",
+              companyPriceListItemId: costBookItem.id,
+              amount: itemAmount,
+            },
+            createdByUserId: actor.userId,
+          },
+        },
+      },
+      include: {
+        case: {
+          include: {
+            entries: { orderBy: { createdAt: "asc" } },
+            events: { orderBy: { createdAt: "asc" } },
+          },
+        },
+      },
+    });
+
+    return { entry, reconciliationCase: entry.case };
+  }
+
+  async updatePetlReconciliationEntryPercent(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    entryId: string,
+    newPercent: number,
+  ) {
+    await this.getProjectByIdForUser(projectId, actor);
+
+    const entry = await this.prisma.petlReconciliationEntry.findUnique({
+      where: { id: entryId },
+      include: { case: true },
+    });
+
+    if (!entry || entry.projectId !== projectId) {
+      throw new NotFoundException("Reconciliation entry not found for this project");
+    }
+
+    if (entry.isPercentCompleteLocked) {
+      throw new BadRequestException("Percent complete is locked for this entry");
+    }
+
+    const updated = await this.prisma.petlReconciliationEntry.update({
+      where: { id: entryId },
+      data: {
+        percentComplete: newPercent,
+        events: {
+          create: {
+            projectId,
+            estimateVersionId: entry.estimateVersionId,
+            caseId: entry.caseId,
+            eventType: "ENTRY_PERCENT_UPDATED",
+            payloadJson: { newPercent },
+            createdByUserId: actor.userId,
+          },
+        },
+      },
+      include: {
+        case: {
+          include: {
+            entries: { orderBy: { createdAt: "asc" } },
+            events: { orderBy: { createdAt: "asc" } },
+          },
+        },
+      },
+    });
+
+    return { entry: updated, reconciliationCase: updated.case };
   }
 
   async applySinglePetlPercentEdit(
@@ -1395,10 +2060,20 @@ export class ProjectService {
       return { projectId, groups: [] };
     }
 
-    const items = await this.prisma.sowItem.findMany({
-      where: { estimateVersionId: latestVersion.id },
-      include: { projectParticle: true }
-    });
+    const [items, reconEntries] = await Promise.all([
+      this.prisma.sowItem.findMany({
+        where: { estimateVersionId: latestVersion.id },
+        include: { projectParticle: true }
+      }),
+      this.prisma.petlReconciliationEntry.findMany({
+        where: {
+          projectId,
+          estimateVersionId: latestVersion.id,
+          rcvAmount: { not: null },
+        },
+        include: { projectParticle: true },
+      }),
+    ]);
 
     type GroupAgg = {
       particleId: string | null;
@@ -1438,6 +2113,34 @@ export class ProjectService {
 
       const basePct = item.percentComplete ?? 0;
       const pct = item.isAcvOnly ? 0 : basePct;
+      agg.completedAmount += lineTotal * (pct / 100);
+    }
+
+    // Apply reconciliation adjustments to room totals / percent complete.
+    for (const entry of reconEntries) {
+      const particle = entry.projectParticle;
+      const key = particle ? particle.id : "__project__";
+      const roomName =
+        particle?.fullLabel ?? particle?.name ?? "Whole Project";
+
+      let agg = byParticle.get(key);
+      if (!agg) {
+        agg = {
+          particleId: particle ? particle.id : null,
+          roomName,
+          itemsCount: 0,
+          totalAmount: 0,
+          completedAmount: 0,
+          percentComplete: 0,
+        };
+        byParticle.set(key, agg);
+      }
+
+      const lineTotal = entry.rcvAmount ?? 0;
+      agg.itemsCount += 1;
+      agg.totalAmount += lineTotal;
+
+      const pct = entry.isPercentCompleteLocked ? 0 : (entry.percentComplete ?? 0);
       agg.completedAmount += lineTotal * (pct / 100);
     }
 
@@ -1547,9 +2250,23 @@ export class ProjectService {
       where.selectionCode = filters.selectionCode;
     }
 
-    const items = await this.prisma.sowItem.findMany({ where });
+    const [items, reconEntries] = await Promise.all([
+      this.prisma.sowItem.findMany({ where }),
+      this.prisma.petlReconciliationEntry.findMany({
+        where: {
+          projectId,
+          estimateVersionId: latestVersion.id,
+          rcvAmount: { not: null },
+          ...(filters.roomParticleId
+            ? { projectParticleId: filters.roomParticleId }
+            : {}),
+          ...(filters.categoryCode ? { categoryCode: filters.categoryCode } : {}),
+          ...(filters.selectionCode ? { selectionCode: filters.selectionCode } : {}),
+        },
+      }),
+    ]);
 
-    if (items.length === 0) {
+    if (items.length === 0 && reconEntries.length === 0) {
       return {
         projectId,
         estimateVersionId: latestVersion.id,
@@ -1569,6 +2286,14 @@ export class ProjectService {
       const lineTotal = item.rcvAmount ?? item.itemAmount ?? 0;
       const basePct = item.percentComplete ?? 0;
       const pct = item.isAcvOnly ? 0 : basePct;
+      itemCount += 1;
+      totalAmount += lineTotal;
+      completedAmount += lineTotal * (pct / 100);
+    }
+
+    for (const entry of reconEntries) {
+      const lineTotal = entry.rcvAmount ?? 0;
+      const pct = entry.isPercentCompleteLocked ? 0 : (entry.percentComplete ?? 0);
       itemCount += 1;
       totalAmount += lineTotal;
       completedAmount += lineTotal * (pct / 100);
@@ -2209,22 +2934,37 @@ export class ProjectService {
       };
     }
 
-    const [agg, componentsCount] = await Promise.all([
-      this.prisma.sowItem.aggregate({
+    const [sowItems, reconEntries, componentsCount] = await Promise.all([
+      this.prisma.sowItem.findMany({
         where: { estimateVersionId: latestVersion.id },
-        _count: { _all: true },
-        _sum: { rcvAmount: true },
+        select: { rcvAmount: true, itemAmount: true },
+      }),
+      this.prisma.petlReconciliationEntry.findMany({
+        where: {
+          projectId,
+          estimateVersionId: latestVersion.id,
+          rcvAmount: { not: null },
+        },
+        select: { rcvAmount: true },
       }),
       this.prisma.componentSummary.count({
         where: { estimateVersionId: latestVersion.id },
       }),
     ]);
 
+    let totalAmount = 0;
+    for (const item of sowItems) {
+      totalAmount += item.rcvAmount ?? item.itemAmount ?? 0;
+    }
+    for (const entry of reconEntries) {
+      totalAmount += entry.rcvAmount ?? 0;
+    }
+
     return {
       projectId,
       estimateVersionId: latestVersion.id,
-      itemCount: agg._count._all ?? 0,
-      totalAmount: agg._sum.rcvAmount ?? 0,
+      itemCount: sowItems.length + reconEntries.length,
+      totalAmount,
       componentsCount,
     };
   }
@@ -2313,7 +3053,18 @@ export class ProjectService {
 
     const forceRefresh = options?.forceRefresh === true;
 
-    // Try to use an existing snapshot if it is from today and not forced to refresh.
+    const reconAgg = await this.prisma.petlReconciliationEntry.aggregate({
+      where: {
+        projectId,
+        estimateVersionId: latestVersion.id,
+        rcvAmount: { not: null },
+      },
+      _max: { updatedAt: true },
+    });
+    const reconUpdatedAt = reconAgg._max.updatedAt ?? null;
+
+    // Try to use an existing snapshot if it is from today, not forced to refresh,
+    // and no reconciliation entries have been updated since the snapshot.
     if (!forceRefresh) {
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
@@ -2324,10 +3075,10 @@ export class ProjectService {
           estimateVersionId: latestVersion.id,
           snapshotDate: { gte: todayStart },
         },
-        orderBy: { snapshotDate: "desc" },
+        orderBy: [{ snapshotDate: "desc" }, { computedAt: "desc" }],
       });
 
-      if (existing) {
+      if (existing && (!reconUpdatedAt || existing.computedAt >= reconUpdatedAt)) {
         return {
           projectId,
           estimateVersionId: latestVersion.id,
@@ -2349,16 +3100,30 @@ export class ProjectService {
       }
     }
 
-    const items = await this.prisma.sowItem.findMany({
-      where: { estimateVersionId: latestVersion.id },
-      select: {
-        rcvAmount: true,
-        itemAmount: true,
-        acvAmount: true,
-        percentComplete: true,
-        isAcvOnly: true,
-      },
-    });
+    const [items, reconEntries] = await Promise.all([
+      this.prisma.sowItem.findMany({
+        where: { estimateVersionId: latestVersion.id },
+        select: {
+          rcvAmount: true,
+          itemAmount: true,
+          acvAmount: true,
+          percentComplete: true,
+          isAcvOnly: true,
+        },
+      }),
+      this.prisma.petlReconciliationEntry.findMany({
+        where: {
+          projectId,
+          estimateVersionId: latestVersion.id,
+          rcvAmount: { not: null },
+        },
+        select: {
+          rcvAmount: true,
+          percentComplete: true,
+          isPercentCompleteLocked: true,
+        },
+      }),
+    ]);
 
     let totalRcvClaim = 0;
     let totalAcvClaim = 0;
@@ -2379,6 +3144,13 @@ export class ProjectService {
       if (item.isAcvOnly) {
         acvReturn += acv;
       }
+    }
+
+    for (const entry of reconEntries) {
+      const rcv = entry.rcvAmount ?? 0;
+      const pct = entry.isPercentCompleteLocked ? 0 : (entry.percentComplete ?? 0);
+      totalRcvClaim += rcv;
+      workCompleteRcv += rcv * (pct / 100);
     }
 
     // Use a 25% O&P factor for ACV, matching current spreadsheet behavior.

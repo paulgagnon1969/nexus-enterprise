@@ -264,6 +264,11 @@ model User {
 
   // Tasks created by this user (Todos, NTT workflows, etc.)
   createdTasks Task[] @relation("TaskCreatedBy")
+
+  // PETL reconciliation audit trail
+  petlReconciliationCasesCreated  PetlReconciliationCase[]  @relation("PetlReconCaseCreatedBy")
+  petlReconciliationEntriesCreated PetlReconciliationEntry[] @relation("PetlReconEntryCreatedBy")
+  petlReconciliationEventsCreated PetlReconciliationEvent[] @relation("PetlReconEventCreatedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -313,6 +318,8 @@ model MessageThread {
   participants MessageParticipant[]
   messages     Message[]
   nttTickets   NttTicket[]
+
+  petlReconciliationCases PetlReconciliationCase[] @relation("PetlReconCaseNoteThread")
 
   @@index([companyId, updatedAt], map: "MessageThread_company_updated_idx")
   @@index([companyId, type, updatedAt], map: "MessageThread_company_type_updated_idx")
@@ -787,6 +794,9 @@ model Project {
   importJobs           ImportJob[]
   parcels              Parcel[]
   petlEditSessions     PetlEditSession[]
+  petlReconciliationCases   PetlReconciliationCase[]
+  petlReconciliationEntries PetlReconciliationEntry[]
+  petlReconciliationEvents  PetlReconciliationEvent[]
   company              Company                   @relation(fields: [companyId], references: [id])
   buildings            ProjectBuilding[]
   memberships          ProjectMembership[]
@@ -1013,6 +1023,7 @@ model ProjectParticle {
   sowLogicalItems          SowLogicalItem[]
   tasks                    Task[]
   dailyLogs                DailyLog[]          @relation("ProjectParticleDailyLogs")
+  petlReconciliationEntries PetlReconciliationEntry[]
 }
 
 model AdminAuditLog {
@@ -1154,6 +1165,9 @@ model EstimateVersion {
   sows                 Sow[]
   componentAllocations SowComponentAllocation[]
   sowItems             SowItem[]
+  petlReconciliationCases   PetlReconciliationCase[]
+  petlReconciliationEntries PetlReconciliationEntry[]
+  petlReconciliationEvents  PetlReconciliationEvent[]
 
   @@index([projectId, sequenceNo], map: "EstimateVersion_project_sequence_idx")
 }
@@ -1362,6 +1376,7 @@ model SowLogicalItem {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   items             SowItem[]
+  petlReconciliationCases PetlReconciliationCase[]
   project           Project         @relation(fields: [projectId], references: [id])
   projectParticle   ProjectParticle @relation(fields: [projectParticleId], references: [id])
 }
@@ -1411,6 +1426,8 @@ model SowItem {
   qtyReviewStatus      String?
 
   petlEditChanges      PetlEditChange[]
+  petlReconciliationCases   PetlReconciliationCase[]   @relation("PetlReconCaseSowItem")
+  petlReconciliationEntries PetlReconciliationEntry[] @relation("PetlReconEntryParentSowItem")
   componentAllocations SowComponentAllocation[]
   estimateVersion      EstimateVersion          @relation(fields: [estimateVersionId], references: [id])
   logicalItem          SowLogicalItem           @relation(fields: [logicalItemId], references: [id])
@@ -1503,6 +1520,118 @@ model PetlEditChange {
   updatedAt   DateTime        @updatedAt
   session     PetlEditSession @relation(fields: [sessionId], references: [id])
   sowItem     SowItem         @relation(fields: [sowItemId], references: [id])
+}
+
+enum PetlReconciliationCaseStatus {
+  OPEN
+  CLOSED
+}
+
+enum PetlReconciliationEntryKind {
+  NOTE_ONLY
+  CREDIT
+  ADD
+  CHANGE_ORDER_CLIENT_PAY
+  REIMBURSE_OWNER
+}
+
+model PetlReconciliationCase {
+  id                String                      @id @default(cuid())
+  projectId         String
+  estimateVersionId String
+  sowItemId         String?
+  logicalItemId     String?
+  noteThreadId      String?
+  status            PetlReconciliationCaseStatus @default(OPEN)
+  createdByUserId   String?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+
+  project         Project          @relation(fields: [projectId], references: [id])
+  estimateVersion EstimateVersion  @relation(fields: [estimateVersionId], references: [id])
+  sowItem         SowItem?         @relation("PetlReconCaseSowItem", fields: [sowItemId], references: [id])
+  logicalItem     SowLogicalItem?  @relation(fields: [logicalItemId], references: [id])
+  noteThread      MessageThread?   @relation("PetlReconCaseNoteThread", fields: [noteThreadId], references: [id])
+  createdBy       User?            @relation("PetlReconCaseCreatedBy", fields: [createdByUserId], references: [id])
+  entries         PetlReconciliationEntry[]
+  events          PetlReconciliationEvent[]
+
+  @@unique([projectId, logicalItemId], map: "PetlReconCase_project_logical_key")
+  @@unique([projectId, sowItemId], map: "PetlReconCase_project_sow_key")
+  @@index([projectId, estimateVersionId], map: "PetlReconCase_project_estimate_idx")
+}
+
+model PetlReconciliationEntry {
+  id                String                     @id @default(cuid())
+  projectId         String
+  estimateVersionId String
+  caseId            String
+  parentSowItemId   String?
+  projectParticleId String
+  kind              PetlReconciliationEntryKind @default(NOTE_ONLY)
+
+  // Snapshot of the reconciled / added line item (RCV breakdown)
+  description       String?
+  categoryCode      String?
+  selectionCode     String?
+  unit              String?
+  qty               Float?
+  unitCost           Float?
+  itemAmount        Float?
+  salesTaxAmount    Float?
+  opAmount          Float?
+  rcvAmount         Float?
+  rcvComponentsJson Json?
+
+  // Work tracking
+  percentComplete        Float    @default(0)
+  isPercentCompleteLocked Boolean @default(false)
+
+  // Optional provenance for "added" lines sourced from the tenant price list
+  companyPriceListItemId String?
+  sourceSnapshotJson     Json?
+
+  // Notes / placeholder semantics (rcvAmount null excludes from rollups)
+  note             String?
+
+  createdByUserId  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  project         Project               @relation(fields: [projectId], references: [id])
+  estimateVersion EstimateVersion       @relation(fields: [estimateVersionId], references: [id])
+  case            PetlReconciliationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  parentSowItem   SowItem?              @relation("PetlReconEntryParentSowItem", fields: [parentSowItemId], references: [id])
+  projectParticle ProjectParticle       @relation(fields: [projectParticleId], references: [id])
+  companyPriceListItem CompanyPriceListItem? @relation(fields: [companyPriceListItemId], references: [id])
+  createdBy       User?                 @relation("PetlReconEntryCreatedBy", fields: [createdByUserId], references: [id])
+  events          PetlReconciliationEvent[]
+
+  @@index([projectId, estimateVersionId], map: "PetlReconEntry_project_estimate_idx")
+  @@index([caseId], map: "PetlReconEntry_case_idx")
+  @@index([projectParticleId], map: "PetlReconEntry_particle_idx")
+}
+
+model PetlReconciliationEvent {
+  id                String   @id @default(cuid())
+  projectId         String
+  estimateVersionId String
+  caseId            String
+  entryId           String?
+  eventType         String
+  payloadJson       Json?
+  createdByUserId   String?
+  createdAt         DateTime @default(now())
+
+  project         Project               @relation(fields: [projectId], references: [id])
+  estimateVersion EstimateVersion       @relation(fields: [estimateVersionId], references: [id])
+  case            PetlReconciliationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  entry           PetlReconciliationEntry? @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  createdBy       User?                 @relation("PetlReconEventCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([projectId, estimateVersionId, createdAt], map: "PetlReconEvent_project_estimate_created_idx")
+  @@index([caseId, createdAt], map: "PetlReconEvent_case_created_idx")
+  @@index([entryId], map: "PetlReconEvent_entry_idx")
 }
 
 model DailyLog {
@@ -1959,6 +2088,7 @@ model CompanyPriceListItem {
   companyPriceList   CompanyPriceList  @relation(fields: [companyPriceListId], references: [id])
   priceListItem      PriceListItem?    @relation(fields: [priceListItemId], references: [id])
   priceUpdates       TenantPriceUpdateLog[]
+  petlReconciliationEntries PetlReconciliationEntry[]
 
   @@index([companyPriceListId, canonicalKeyHash])
   @@index([companyPriceListId, cat, sel])
@@ -2046,6 +2176,7 @@ enum ImportJobType {
   PRICE_LIST_COMPONENTS
   BIA_LCP
   COMPANY_PRICE_LIST
+  FORTIFIED_PAYROLL_ADMIN
 }
 
 enum ImportJobStatus {

@@ -151,6 +151,59 @@ export class ImportJobsController {
     return { jobId: job.id, savedFiles };
   }
 
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post("fortified-payroll-admin")
+  async enqueueFortifiedPayrollAdmin(@Req() req: FastifyRequest) {
+    const user = (req as any).user as AuthenticatedUser;
+
+    const parts = (req as any).files
+      ? (req as any).files()
+      : (async function* () {})();
+
+    const baseTmpDir = process.env.NCC_UPLOAD_TMP_DIR || os.tmpdir();
+    const importDir = path.join(baseTmpDir, "ncc_uploads", "fortified_payroll_admin");
+    await fs.promises.mkdir(importDir, { recursive: true });
+
+    let savedFile: string | null = null;
+
+    for await (const part of parts as any) {
+      if (!part.file || (part.fieldname && part.fieldname !== "file" && part.fieldname !== "files")) {
+        continue;
+      }
+
+      if (savedFile) {
+        throw new BadRequestException("Only one CSV file is allowed for this import.");
+      }
+
+      const safeName = (part.filename || "upload.csv").replace(/[^a-zA-Z0-9_.-]/g, "_");
+      const dest = path.join(
+        importDir,
+        `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`,
+      );
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of part.file) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      await fs.promises.writeFile(dest, Buffer.concat(chunks));
+      savedFile = dest;
+    }
+
+    if (!savedFile) {
+      throw new BadRequestException("A CSV file is required for the Fortified payroll admin import.");
+    }
+
+    const job = await this.jobs.createJob({
+      companyId: user.companyId,
+      projectId: undefined,
+      createdByUserId: user.userId,
+      type: "FORTIFIED_PAYROLL_ADMIN" as ImportJobType,
+      csvPath: savedFile,
+    });
+
+    return { jobId: job.id, savedFile };
+  }
+
   @Get("xact-components/report")
   async xactComponentsReport(@Req() req: any) {
     const user = req.user as AuthenticatedUser;

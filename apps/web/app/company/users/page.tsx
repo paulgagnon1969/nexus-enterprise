@@ -132,6 +132,15 @@ function CompanyUsersPageInner() {
   const [importPeopleError, setImportPeopleError] = useState<string | null>(null);
   const [importPeopleResult, setImportPeopleResult] = useState<string | null>(null);
 
+  // Fortified payroll admin import (CSV)
+  const [fortifiedFile, setFortifiedFile] = useState<File | null>(null);
+  const [fortifiedImporting, setFortifiedImporting] = useState(false);
+  const [fortifiedImportError, setFortifiedImportError] = useState<string | null>(null);
+  const [fortifiedImportResult, setFortifiedImportResult] = useState<string | null>(null);
+  const [fortifiedJobId, setFortifiedJobId] = useState<string | null>(null);
+  const [fortifiedJobStatus, setFortifiedJobStatus] = useState<any | null>(null);
+  const [fortifiedJobError, setFortifiedJobError] = useState<string | null>(null);
+
   // Inline reset password panel (for admins)
   const [resetEmail, setResetEmail] = useState<string | null>(null);
   const [resetRole, setResetRole] = useState<CompanyRole | null>(null);
@@ -185,6 +194,57 @@ function CompanyUsersPageInner() {
     }
   }
 
+  async function handleFortifiedImport(e: FormEvent) {
+    e.preventDefault();
+    setFortifiedImportError(null);
+    setFortifiedImportResult(null);
+
+    if (!fortifiedFile) {
+      setFortifiedImportError("Choose a CSV file first.");
+      return;
+    }
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setFortifiedImportError("Missing access token. Please log in again.");
+      return;
+    }
+
+    try {
+      setFortifiedImporting(true);
+
+      const form = new FormData();
+      form.append("file", fortifiedFile);
+
+      const res = await fetch(`${API_BASE}/import-jobs/fortified-payroll-admin`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: form,
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Import failed (${res.status}) ${text}`);
+      }
+
+      const json = await res.json().catch(() => ({}));
+      const nextJobId = json?.jobId ?? null;
+      setFortifiedJobId(nextJobId);
+      setFortifiedJobStatus(null);
+      setFortifiedJobError(null);
+      setFortifiedImportResult(
+        `Import queued. Job ID: ${nextJobId ?? "(unknown)"}`
+      );
+      setFortifiedFile(null);
+    } catch (err: any) {
+      setFortifiedImportError(err?.message ?? "Failed to queue import.");
+    } finally {
+      setFortifiedImporting(false);
+    }
+  }
+
   useEffect(() => {
     return () => {
       if (copyTimerRef.current != null) {
@@ -192,6 +252,46 @@ function CompanyUsersPageInner() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!fortifiedJobId) return;
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const poll = async () => {
+      const token = localStorage.getItem("accessToken");
+      if (!token) {
+        setFortifiedJobError("Missing access token. Please log in again.");
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/import-jobs/${fortifiedJobId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Failed to fetch job status (${res.status}) ${text}`);
+        }
+        const json = await res.json();
+        if (cancelled) return;
+        setFortifiedJobStatus(json);
+        const done = json?.status === "SUCCEEDED" || json?.status === "FAILED";
+        if (!done) {
+          timer = window.setTimeout(poll, 4000);
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        setFortifiedJobError(err?.message ?? "Failed to fetch job status.");
+        timer = window.setTimeout(poll, 8000);
+      }
+    };
+
+    poll();
+    return () => {
+      cancelled = true;
+      if (timer != null) window.clearTimeout(timer);
+    };
+  }, [fortifiedJobId]);
 
   // Allow deep-links like /company/users?tab=candidates or tab=importExport
   useEffect(() => {
@@ -1610,6 +1710,114 @@ function CompanyUsersPageInner() {
                 >
                   {importPeopleResult}
                 </pre>
+              )}
+            </div>
+
+            <div>
+              <h3 style={{ fontSize: 14, margin: 0 }}>Fortified payroll admin import (CSV)</h3>
+              <p style={{ fontSize: 12, color: "#4b5563", marginTop: 4 }}>
+                Upload the payroll admin CSV to add missing users to Nexus Fortified Structures
+                and update their HR banking records.
+              </p>
+              <form
+                onSubmit={handleFortifiedImport}
+                style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}
+              >
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={e => setFortifiedFile(e.target.files?.[0] ?? null)}
+                  style={{ fontSize: 12 }}
+                />
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button
+                    type="submit"
+                    disabled={fortifiedImporting || !fortifiedFile}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #0f172a",
+                      backgroundColor:
+                        fortifiedImporting || !fortifiedFile ? "#e5e7eb" : "#0f172a",
+                      color:
+                        fortifiedImporting || !fortifiedFile ? "#4b5563" : "#f9fafb",
+                      cursor:
+                        fortifiedImporting || !fortifiedFile ? "default" : "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    {fortifiedImporting ? "Uploading…" : "Queue Fortified import"}
+                  </button>
+                </div>
+              </form>
+              {fortifiedImportError && (
+                <p style={{ marginTop: 4, fontSize: 12, color: "#b91c1c" }}>
+                  {fortifiedImportError}
+                </p>
+              )}
+              {fortifiedImportResult && (
+                <p style={{ marginTop: 4, fontSize: 12, color: "#16a34a" }}>
+                  {fortifiedImportResult}
+                </p>
+              )}
+              {(fortifiedJobStatus || fortifiedJobError) && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: 8,
+                    borderRadius: 6,
+                    background: "#ffffff",
+                    border: "1px solid #e5e7eb",
+                    fontSize: 12,
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>Import job status</div>
+                  {fortifiedJobError && (
+                    <div style={{ color: "#b91c1c", marginBottom: 4 }}>
+                      {fortifiedJobError}
+                    </div>
+                  )}
+                  {fortifiedJobStatus && (
+                    <>
+                      <div>
+                        <strong>Target company:</strong>{" "}
+                        {fortifiedJobStatus.companyId ?? "—"}
+                      </div>
+                      <div>
+                        <strong>Status:</strong>{" "}
+                        {fortifiedJobStatus.status ?? "UNKNOWN"}
+                      </div>
+                      <div>
+                        <strong>Progress:</strong>{" "}
+                        {typeof fortifiedJobStatus.progress === "number"
+                          ? `${fortifiedJobStatus.progress}%`
+                          : "—"}
+                      </div>
+                      {fortifiedJobStatus.message && (
+                        <div>
+                          <strong>Message:</strong>{" "}
+                          {fortifiedJobStatus.message}
+                        </div>
+                      )}
+                      {fortifiedJobStatus.resultJson && (
+                        <div style={{ marginTop: 6 }}>
+                          <strong>Result:</strong>
+                          <pre
+                            style={{
+                              marginTop: 4,
+                              padding: 6,
+                              background: "#f8fafc",
+                              borderRadius: 4,
+                              whiteSpace: "pre-wrap",
+                            }}
+                          >
+                            {JSON.stringify(fortifiedJobStatus.resultJson, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               )}
             </div>
           </div>
