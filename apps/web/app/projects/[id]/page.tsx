@@ -6721,21 +6721,33 @@ export default function ProjectDetailPage({
               <option value="100">100%</option>
               <option value="ACV">ACV only</option>
             </select>
-            <button
-              type="submit"
-              disabled={bulkSaving || petlItems.length === 0}
+            <div
               style={{
-                padding: "6px 10px",
-                borderRadius: 4,
-                border: "1px solid #0f172a",
-                backgroundColor: bulkSaving ? "#e5e7eb" : "#0f172a",
-                color: bulkSaving ? "#4b5563" : "#f9fafb",
-                fontSize: 12,
-                cursor: bulkSaving ? "default" : "pointer",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-end",
+                gap: 2,
               }}
             >
-              {bulkSaving ? "Applying…" : "Apply"}
-            </button>
+              <div style={{ fontSize: 11, color: "#4b5563", lineHeight: 1 }}>
+                Apply percent complete to Filtered Line Items
+              </div>
+              <button
+                type="submit"
+                disabled={bulkSaving || petlItems.length === 0}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #0f172a",
+                  backgroundColor: bulkSaving ? "#e5e7eb" : "#0f172a",
+                  color: bulkSaving ? "#4b5563" : "#f9fafb",
+                  fontSize: 12,
+                  cursor: bulkSaving ? "default" : "pointer",
+                }}
+              >
+                {bulkSaving ? "Applying…" : "Apply"}
+              </button>
+            </div>
           </form>
 
           {bulkMessage && (

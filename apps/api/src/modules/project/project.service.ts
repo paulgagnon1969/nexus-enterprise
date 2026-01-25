@@ -1529,6 +1529,8 @@ export class ProjectService {
         projectParticleId: true,
         logicalItemId: true,
         estimateVersionId: true,
+        percentComplete: true,
+        isAcvOnly: true,
       },
     });
 
@@ -1558,6 +1560,23 @@ export class ProjectService {
       return Math.trunc(n);
     };
 
+    const parsePercentLoose = (value: any): number | null => {
+      if (value == null) return null;
+      const raw = String(value).trim();
+      if (!raw) return null;
+
+      const hasPercent = raw.includes("%") || raw.toLowerCase().includes("percent");
+      const normalized = raw.replace(/%/g, "").replace(/,/g, "").trim();
+      const n = Number(normalized);
+      if (!Number.isFinite(n)) return null;
+
+      // If input is a fraction (0-1) and wasn't explicitly a percent, treat it as fraction.
+      const pct = !hasPercent && n > 0 && n <= 1 ? n * 100 : n;
+      if (!Number.isFinite(pct)) return null;
+
+      return Math.max(0, Math.min(100, pct));
+    };
+
     // Parse CSV as a loose matrix and locate the detail header row.
     const rows: any[] = parse(csvText, {
       relax_column_count: true,
@@ -1579,26 +1598,50 @@ export class ProjectService {
 
     const header: string[] = (rows[headerIdx] as any[]).map((c) => String(c ?? "").trim());
 
+    // Reconciliation tables may not exist in some environments if the migration
+    // hasn't been applied yet. In that case, we still want to update % complete,
+    // but we must skip note/case/entry creation to avoid 500s.
+    let reconTablesAvailable = true;
+
     // Preload existing imported-style placeholders so we don't duplicate notes.
-    const existing = await this.prisma.petlReconciliationEntry.findMany({
-      where: {
-        projectId,
-        estimateVersionId: latestVersion.id,
-        rcvAmount: null,
-        kind: {
-          in: [
-            PetlReconciliationEntryKind.NOTE_ONLY,
-            PetlReconciliationEntryKind.REIMBURSE_OWNER,
-            PetlReconciliationEntryKind.CHANGE_ORDER_CLIENT_PAY,
-          ],
+    let existing: { parentSowItemId: string | null; kind: PetlReconciliationEntryKind; note: string | null }[] = [];
+    try {
+      // Touch both Entry + Case tables up front.
+      await this.prisma.petlReconciliationCase.findFirst({
+        where: { projectId },
+        select: { id: true },
+      });
+
+      existing = await this.prisma.petlReconciliationEntry.findMany({
+        where: {
+          projectId,
+          estimateVersionId: latestVersion.id,
+          rcvAmount: null,
+          kind: {
+            in: [
+              PetlReconciliationEntryKind.NOTE_ONLY,
+              PetlReconciliationEntryKind.REIMBURSE_OWNER,
+              PetlReconciliationEntryKind.CHANGE_ORDER_CLIENT_PAY,
+            ],
+          },
         },
-      },
-      select: {
-        parentSowItemId: true,
-        kind: true,
-        note: true,
-      },
-    });
+        select: {
+          parentSowItemId: true,
+          kind: true,
+          note: true,
+        },
+      });
+    } catch (err: any) {
+      if (
+        this.isMissingPrismaTableError(err, "PetlReconciliationEntry") ||
+        this.isMissingPrismaTableError(err, "PetlReconciliationCase")
+      ) {
+        reconTablesAvailable = false;
+        existing = [];
+      } else {
+        throw err;
+      }
+    }
 
     const existingKey = new Set<string>();
     for (const e of existing) {
@@ -1609,10 +1652,17 @@ export class ProjectService {
 
     const caseCache = new Map<string, { id: string }>();
 
+    // Track percent complete updates keyed by SowItem.id
+    const percentBySowItemId = new Map<string, number>();
+
     let totalCsvDetailRows = 0;
     let matched = 0;
     let missing = 0;
     let mismatchMeta = 0;
+    let percentSeen = 0;
+    let percentInvalid = 0;
+    let percentApplied = 0;
+    let percentNoop = 0;
     let createdCases = 0;
     let createdEntries = 0;
     let skippedExisting = 0;
@@ -1655,6 +1705,18 @@ export class ProjectService {
         mismatchMeta += 1;
       }
 
+      // Percent complete updates
+      const pctRaw = rec["% Complete"];
+      const pct = parsePercentLoose(pctRaw);
+      if (pctRaw != null && String(pctRaw).trim()) {
+        if (pct == null) {
+          percentInvalid += 1;
+        } else {
+          percentSeen += 1;
+          percentBySowItemId.set(sowItem.id, pct);
+        }
+      }
+
       const notes: { kind: PetlReconciliationEntryKind; note: string; column: string }[] = [];
 
       const ro = cleanText(rec["Reimburish Owner"], 5000);
@@ -1684,7 +1746,13 @@ export class ProjectService {
         });
       }
 
-      if (notes.length === 0) {
+      // If we have no notes, we still might have a percent update; only skip when neither.
+      if (notes.length === 0 && !percentBySowItemId.has(sowItem.id)) {
+        continue;
+      }
+
+      // If reconciliation tables are not available, skip note creation.
+      if (!reconTablesAvailable || notes.length === 0) {
         continue;
       }
 
@@ -1694,13 +1762,22 @@ export class ProjectService {
           // We don't create cases in dry-run; just count notes.
           theCase = { id: "dry-run" };
         } else {
-          const existingCase = await this.prisma.petlReconciliationCase.findFirst({
-            where: {
-              projectId,
-              OR: [{ sowItemId: sowItem.id }, { logicalItemId: sowItem.logicalItemId }],
-            },
-            select: { id: true },
-          });
+          let existingCase: { id: string } | null = null;
+          try {
+            existingCase = await this.prisma.petlReconciliationCase.findFirst({
+              where: {
+                projectId,
+                OR: [{ sowItemId: sowItem.id }, { logicalItemId: sowItem.logicalItemId }],
+              },
+              select: { id: true },
+            });
+          } catch (err: any) {
+            if (!this.isMissingPrismaTableError(err, "PetlReconciliationCase")) {
+              throw err;
+            }
+            // If table is missing, we should have already set reconTablesAvailable=false
+            existingCase = null;
+          }
 
           if (existingCase) {
             theCase = existingCase;
@@ -1773,13 +1850,68 @@ export class ProjectService {
       }
     }
 
+    // Apply percent complete updates (independent from reconciliation note tables).
+    if (percentBySowItemId.size > 0) {
+      const byId = new Map<string, (typeof sowItems)[number]>(sowItems.map((s) => [s.id, s]));
+      const updates = Array.from(percentBySowItemId.entries());
+
+      if (!dryRun) {
+        await this.prisma.$transaction(async (tx) => {
+          for (const [sowItemId, nextPct] of updates) {
+            const currentRow = byId.get(sowItemId);
+            if (!currentRow) continue;
+
+            const currentPct = Number(currentRow.percentComplete ?? 0);
+            const needsUpdate =
+              currentRow.isAcvOnly || Math.abs(currentPct - nextPct) > 0.0001;
+
+            if (!needsUpdate) {
+              percentNoop += 1;
+              continue;
+            }
+
+            await tx.sowItem.update({
+              where: { id: sowItemId },
+              data: {
+                percentComplete: nextPct,
+                isAcvOnly: false,
+              },
+            });
+
+            percentApplied += 1;
+          }
+        });
+      } else {
+        for (const [sowItemId, nextPct] of updates) {
+          const currentRow = byId.get(sowItemId);
+          if (!currentRow) continue;
+
+          const currentPct = Number(currentRow.percentComplete ?? 0);
+          const needsUpdate =
+            currentRow.isAcvOnly || Math.abs(currentPct - nextPct) > 0.0001;
+
+          if (!needsUpdate) {
+            percentNoop += 1;
+            continue;
+          }
+
+          percentApplied += 1;
+        }
+      }
+    }
+
     return {
       projectId,
       estimateVersionId: latestVersion.id,
+      reconciliationTablesAvailable: reconTablesAvailable,
       totalCsvDetailRows,
       matched,
       missing,
       mismatchMeta,
+      percentSeen,
+      percentInvalid,
+      percentApplied,
+      percentNoop,
       createdCases,
       createdEntries,
       skippedExisting,
