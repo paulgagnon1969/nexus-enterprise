@@ -53,6 +53,41 @@ function safeError(err: unknown) {
   return { message: String(err) };
 }
 
+async function getLatestEstimateVersionId(prisma: PrismaService, projectId: string) {
+  let latest = await prisma.estimateVersion.findFirst({
+    where: {
+      projectId,
+      sows: {
+        some: {
+          items: {
+            some: {},
+          },
+        },
+      },
+    },
+    orderBy: [
+      { sequenceNo: "desc" },
+      { importedAt: "desc" },
+      { createdAt: "desc" },
+    ],
+    select: { id: true },
+  });
+
+  if (!latest) {
+    latest = await prisma.estimateVersion.findFirst({
+      where: { projectId },
+      orderBy: [
+        { sequenceNo: "desc" },
+        { importedAt: "desc" },
+        { createdAt: "desc" },
+      ],
+      select: { id: true },
+    });
+  }
+
+  return latest?.id ?? null;
+}
+
 function normalizeEmail(email: string | undefined | null): string | null {
   const e = (email ?? "").trim();
   if (!e) return null;
@@ -729,6 +764,174 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
     return;
   }
 
+  if (job.type === ImportJobType.PROJECT_PETL_PERCENT) {
+    console.log("[worker] PROJECT_PETL_PERCENT start", {
+      importJobId,
+      projectId: job.projectId,
+      csvPath,
+    });
+
+    if (!job.projectId) {
+      throw new Error("PROJECT_PETL_PERCENT import job is missing projectId");
+    }
+
+    let effectiveCsvPath = csvPath;
+    if ((!effectiveCsvPath || !fs.existsSync(effectiveCsvPath)) && fileUri) {
+      console.log("[worker] PROJECT_PETL_PERCENT using fileUri, downloading from GCS", {
+        importJobId,
+        fileUri,
+      });
+      effectiveCsvPath = await downloadGcsToTmp(fileUri);
+      console.log("[worker] PROJECT_PETL_PERCENT downloaded GCS file", {
+        importJobId,
+        fileUri,
+        effectiveCsvPath,
+      });
+    }
+
+    if (!effectiveCsvPath || !fs.existsSync(effectiveCsvPath)) {
+      throw new Error(
+        "PROJECT_PETL_PERCENT import job has no usable csvPath or fileUri to read from.",
+      );
+    }
+
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        status: ImportJobStatus.RUNNING,
+        startedAt: new Date(),
+        progress: 10,
+        message: "Importing PETL percent complete updates...",
+      },
+    });
+
+    const rawContent = fs.readFileSync(effectiveCsvPath, "utf8");
+    const lines = rawContent.replace(/^\uFEFF/, "").split(/\r?\n/);
+    const startIndex = lines.findIndex(line => line.replace(/[\s,]+/g, "").trim());
+    const normalizedContent =
+      startIndex >= 0 ? lines.slice(startIndex).join("\n") : rawContent;
+
+    const rows = parse(normalizedContent, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    }) as Array<Record<string, string>>;
+
+    const parsedRowCount = rows.length;
+    const estimateVersionId = await getLatestEstimateVersionId(prisma, job.projectId);
+
+    if (!estimateVersionId) {
+      throw new Error("No estimate version found for project PETL percent import.");
+    }
+
+    const lineNoToPercent = new Map<number, number>();
+    let rowsWithPercent = 0;
+
+    for (const row of rows) {
+      const lineRaw = row["#"] ?? row["Line"] ?? row["Line No"] ?? row["LineNo"];
+      const pctRaw = row["% Complete"] ?? row["Percent Complete"] ?? row["Percent"];
+
+      const lineNo = Number(String(lineRaw ?? "").replace(/[^0-9]/g, ""));
+      if (!lineNo || Number.isNaN(lineNo)) continue;
+
+      if (pctRaw == null) continue;
+      const cleaned = String(pctRaw).replace(/[^0-9.]/g, "");
+      if (!cleaned) continue;
+      let pct = Number(cleaned);
+      if (Number.isNaN(pct)) continue;
+      pct = Math.max(0, Math.min(100, pct));
+
+      lineNoToPercent.set(lineNo, pct);
+      rowsWithPercent += 1;
+    }
+
+    const targetLineNos = [...lineNoToPercent.keys()];
+    const items = await prisma.sowItem.findMany({
+      where: {
+        estimateVersionId,
+        lineNo: { in: targetLineNos },
+      },
+      select: {
+        id: true,
+        lineNo: true,
+        percentComplete: true,
+      },
+    });
+
+    const matchedCount = items.length;
+    const matchedIds = new Map<number, (typeof items)[number]>(
+      items.map(i => [i.lineNo, i]),
+    );
+
+    let updatedCount = 0;
+    let skippedNoMatch = 0;
+
+    await prisma.$transaction(async (tx) => {
+      const startedAt = new Date();
+      const endedAt = new Date();
+
+      const session = await tx.petlEditSession.create({
+        data: {
+          projectId: job.projectId!,
+          userId: job.createdByUserId ?? null,
+          source: "petl-percent-csv",
+          startedAt,
+          endedAt,
+        },
+      });
+
+      for (const [lineNo, pct] of lineNoToPercent.entries()) {
+        const item = matchedIds.get(lineNo);
+        if (!item) {
+          skippedNoMatch += 1;
+          continue;
+        }
+
+        const oldPercent = item.percentComplete ?? 0;
+        const next = pct;
+
+        await tx.petlEditChange.create({
+          data: {
+            sessionId: session.id,
+            sowItemId: item.id,
+            field: "percent_complete",
+            oldValue: oldPercent,
+            newValue: next,
+            effectiveAt: endedAt,
+          },
+        });
+
+        await tx.sowItem.update({
+          where: { id: item.id },
+          data: {
+            percentComplete: next,
+            isAcvOnly: false,
+          },
+        });
+        updatedCount += 1;
+      }
+    });
+
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        status: ImportJobStatus.SUCCEEDED,
+        finishedAt: new Date(),
+        progress: 100,
+        message: "PETL percent import complete",
+        estimateVersionId,
+        resultJson: {
+          parsedRowCount,
+          rowsWithPercent,
+          matchedCount,
+          updatedCount,
+          skippedNoMatch,
+        } as any,
+      },
+    });
+
+    return;
+  }
   if (job.type === ("FORTIFIED_PAYROLL_ADMIN" as ImportJobType)) {
     console.log("[worker] FORTIFIED_PAYROLL_ADMIN start", {
       importJobId,

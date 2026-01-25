@@ -316,12 +316,105 @@ export default function ProjectDetailPage({
     }
   };
 
+  useEffect(() => {
+    if (!petlPercentJobId) return;
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const poll = async () => {
+      const token = localStorage.getItem("accessToken");
+      if (!token) {
+        setPetlPercentJobError("Missing access token.");
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/import-jobs/${petlPercentJobId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Failed to fetch job status (${res.status}) ${text}`);
+        }
+        const json = await res.json();
+        if (cancelled) return;
+        setPetlPercentJob(json);
+        const done = json?.status === "SUCCEEDED" || json?.status === "FAILED";
+        if (!done) {
+          timer = window.setTimeout(poll, 4000);
+        } else {
+          // refresh PETL once import completes
+          setPetlReloadTick((t) => t + 1);
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        setPetlPercentJobError(err?.message ?? "Failed to fetch job status.");
+        timer = window.setTimeout(poll, 8000);
+      }
+    };
+
+    poll();
+    return () => {
+      cancelled = true;
+      if (timer != null) window.clearTimeout(timer);
+    };
+  }, [petlPercentJobId]);
+
+  async function handlePetlPercentImport(e: FormEvent) {
+    e.preventDefault();
+    setPetlPercentImportError(null);
+
+    if (!petlPercentFile) {
+      setPetlPercentImportError("Choose a CSV file first.");
+      return;
+    }
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setPetlPercentImportError("Missing access token.");
+      return;
+    }
+
+    try {
+      setPetlPercentImporting(true);
+      const form = new FormData();
+      form.append("file", petlPercentFile);
+
+      const res = await fetch(`${API_BASE}/projects/${id}/import-jobs/petl-percent`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Import failed (${res.status}) ${text}`);
+      }
+
+      const json = await res.json().catch(() => ({}));
+      const nextJobId = json?.jobId ?? null;
+      setPetlPercentJobId(nextJobId);
+      setPetlPercentJob(null);
+      setPetlPercentJobError(null);
+      setPetlPercentFile(null);
+    } catch (err: any) {
+      setPetlPercentImportError(err?.message ?? "Failed to queue import.");
+    } finally {
+      setPetlPercentImporting(false);
+    }
+  }
+
   const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
 
   const [operation, setOperation] = useState<"set" | "increment" | "decrement">("set");
   const [operationPercent, setOperationPercent] = useState<string>("0");
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+  const [petlPercentFile, setPetlPercentFile] = useState<File | null>(null);
+  const [petlPercentImporting, setPetlPercentImporting] = useState(false);
+  const [petlPercentImportError, setPetlPercentImportError] = useState<string | null>(null);
+  const [petlPercentJobId, setPetlPercentJobId] = useState<string | null>(null);
+  const [petlPercentJob, setPetlPercentJob] = useState<any | null>(null);
+  const [petlPercentJobError, setPetlPercentJobError] = useState<string | null>(null);
 
   const [selectionSummary, setSelectionSummary] = useState<{
     itemCount: number;
@@ -6379,6 +6472,109 @@ export default function ProjectDetailPage({
           {bulkMessage && (
             <div style={{ fontSize: 12, color: "#4b5563", marginTop: 6, width: "100%" }}>
               {bulkMessage}
+            </div>
+          )}
+        </div>
+      )}
+
+      {petlItems.length > 0 && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: 10,
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            background: "#f9fafb",
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+            Import % Complete (CSV)
+          </div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>
+            Uses line item number (#) and % Complete to update PETL line percentages for the latest estimate.
+          </div>
+          <form
+            onSubmit={handlePetlPercentImport}
+            style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}
+          >
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={e => setPetlPercentFile(e.target.files?.[0] ?? null)}
+              style={{ fontSize: 12 }}
+            />
+            <button
+              type="submit"
+              disabled={petlPercentImporting || !petlPercentFile}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 4,
+                border: "1px solid #0f172a",
+                backgroundColor: petlPercentImporting || !petlPercentFile ? "#e5e7eb" : "#0f172a",
+                color: petlPercentImporting || !petlPercentFile ? "#4b5563" : "#f9fafb",
+                cursor: petlPercentImporting || !petlPercentFile ? "default" : "pointer",
+                fontSize: 12,
+              }}
+            >
+              {petlPercentImporting ? "Uploading…" : "Queue percent import"}
+            </button>
+          </form>
+          {petlPercentImportError && (
+            <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>
+              {petlPercentImportError}
+            </div>
+          )}
+          {(petlPercentJob || petlPercentJobError) && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: 8,
+                borderRadius: 6,
+                background: "#ffffff",
+                border: "1px solid #e5e7eb",
+                fontSize: 12,
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>Import job status</div>
+              {petlPercentJobError && (
+                <div style={{ color: "#b91c1c", marginBottom: 4 }}>
+                  {petlPercentJobError}
+                </div>
+              )}
+              {petlPercentJob && (
+                <>
+                  <div>
+                    <strong>Status:</strong> {petlPercentJob.status ?? "UNKNOWN"}
+                  </div>
+                  <div>
+                    <strong>Progress:</strong>{" "}
+                    {typeof petlPercentJob.progress === "number"
+                      ? `${petlPercentJob.progress}%`
+                      : "—"}
+                  </div>
+                  {petlPercentJob.message && (
+                    <div>
+                      <strong>Message:</strong> {petlPercentJob.message}
+                    </div>
+                  )}
+                  {petlPercentJob.resultJson && (
+                    <div style={{ marginTop: 6 }}>
+                      <strong>Result:</strong>
+                      <pre
+                        style={{
+                          marginTop: 4,
+                          padding: 6,
+                          background: "#f8fafc",
+                          borderRadius: 4,
+                          whiteSpace: "pre-wrap",
+                        }}
+                      >
+                        {JSON.stringify(petlPercentJob.resultJson, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
