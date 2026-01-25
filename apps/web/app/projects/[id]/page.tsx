@@ -210,7 +210,7 @@ type TabKey =
   | "FILES"
   | "FINANCIAL";
 
-type PetlDisplayMode = "PROJECT_GROUPING" | "LINE_SEQUENCE";
+type PetlDisplayMode = "PROJECT_GROUPING" | "LINE_SEQUENCE" | "RECONCILIATION_ONLY";
 
 // Logical project state buckets backed by Project.status
 // OPEN  -> status "open" (or "active")
@@ -235,6 +235,11 @@ export default function ProjectDetailPage({
   const [petlItems, setPetlItems] = useState<PetlItem[]>([]);
   const [petlReconciliationEntries, setPetlReconciliationEntries] = useState<any[]>([]);
   const [petlLoading, setPetlLoading] = useState(false);
+
+  // Reconciliation activity (any reconciliation entry exists for this sowItem)
+  const [petlReconActivityIds, setPetlReconActivityIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   // PETL load diagnostics (helps debug prod issues like 500s / misconfigured API base)
   const [petlLoadError, setPetlLoadError] = useState<string | null>(null);
@@ -307,10 +312,22 @@ export default function ProjectDetailPage({
   // PETL view toggle: project organization grouping vs line sequence
   // Default to LINE_SEQUENCE (and persist per-project) so the cost book / line-by-line
   // reconciliation workflow is the primary view.
+  const petlDisplayModeKey = `petlDisplayMode:v2:${id}`;
+
   const [petlDisplayMode, setPetlDisplayMode] = useState<PetlDisplayMode>(() => {
     if (typeof window === "undefined") return "LINE_SEQUENCE";
-    const raw = localStorage.getItem(`petlDisplayMode:${id}`);
-    if (raw === "PROJECT_GROUPING" || raw === "LINE_SEQUENCE") return raw;
+
+    // v2 key intentionally resets old defaults so new projects/users land on
+    // LINE_SEQUENCE by default.
+    const raw = localStorage.getItem(petlDisplayModeKey);
+    if (
+      raw === "PROJECT_GROUPING" ||
+      raw === "LINE_SEQUENCE" ||
+      raw === "RECONCILIATION_ONLY"
+    ) {
+      return raw;
+    }
+
     return "LINE_SEQUENCE";
   });
 
@@ -329,7 +346,13 @@ export default function ProjectDetailPage({
   const setPetlDisplayModePersisted = (mode: PetlDisplayMode) => {
     setPetlDisplayMode(mode);
     if (typeof window !== "undefined") {
-      localStorage.setItem(`petlDisplayMode:${id}`, mode);
+      try {
+        localStorage.setItem(petlDisplayModeKey, mode);
+        // Best effort: clear legacy key so we don't flip back after refresh.
+        localStorage.removeItem(`petlDisplayMode:${id}`);
+      } catch {
+        // ignore storage errors
+      }
     }
   };
 
@@ -904,6 +927,10 @@ export default function ProjectDetailPage({
     return Array.from(set.values()).sort();
   }, [petlItems, petlReconciliationEntries]);
 
+  const hasReconciliationActivity = (sowItemId: string) => {
+    return petlReconActivityIds.has(sowItemId);
+  };
+
   const matchesFilters = (item: PetlItem) => {
     if (roomFilter) {
       const particleId = item.projectParticle?.id;
@@ -1108,18 +1135,27 @@ export default function ProjectDetailPage({
           const recon: any[] = Array.isArray(petl.reconciliationEntries)
             ? petl.reconciliationEntries
             : [];
+          const activityIds: string[] = Array.isArray(petl.reconciliationActivitySowItemIds)
+            ? petl.reconciliationActivitySowItemIds
+            : [];
+
           setPetlItems(items);
           setPetlReconciliationEntries(recon);
+          setPetlReconActivityIds(
+            new Set(activityIds.filter((v) => typeof v === "string" && v.length > 0)),
+          );
 
           debug.petl.estimateVersionId = petl?.estimateVersionId ?? null;
           debug.petl.itemsCount = items.length;
           debug.petl.reconciliationEntriesCount = recon.length;
+          debug.petl.reconciliationActivitySowItemIdsCount = activityIds.length;
         } else if (!cancelled && !petlRes.ok) {
           const text = await petlRes.text().catch(() => "");
           debug.petl.errorText = text.slice(0, 5000);
 
           setPetlItems([]);
           setPetlReconciliationEntries([]);
+          setPetlReconActivityIds(new Set());
 
           setPetlLoadError(
             `PETL fetch failed (${petlRes.status}). ${text || "<empty response>"}`.slice(0, 8000),
@@ -1159,6 +1195,7 @@ export default function ProjectDetailPage({
         if (cancelled) return;
         setPetlItems([]);
         setPetlReconciliationEntries([]);
+        setPetlReconActivityIds(new Set());
         setPetlLoadError(err?.message ?? "PETL fetch failed (network error)");
         setPetlShowDiagnostics(true);
         setPetlLastLoadDebug({
@@ -6421,6 +6458,23 @@ export default function ProjectDetailPage({
           >
             Line sequence
           </button>
+          <button
+            type="button"
+            onClick={() => setPetlDisplayModePersisted("RECONCILIATION_ONLY")}
+            style={{
+              padding: "4px 10px",
+              fontSize: 12,
+              border: "none",
+              cursor: "pointer",
+              background:
+                petlDisplayMode === "RECONCILIATION_ONLY" ? "#0f172a" : "#ffffff",
+              color:
+                petlDisplayMode === "RECONCILIATION_ONLY" ? "#f9fafb" : "#111827",
+              borderLeft: "1px solid #d1d5db",
+            }}
+          >
+            Recon only
+          </button>
         </div>
       </div>
 
@@ -7114,10 +7168,16 @@ export default function ProjectDetailPage({
                                     .sort((a, b) => a.lineNo - b.lineNo)
                                     .map(item => {
                                       const flagged = isPetlReconFlagged(item.id);
+                                      const hasRecon = hasReconciliationActivity(item.id);
+                                      const bg = flagged
+                                        ? "#fef3c7"
+                                        : hasRecon
+                                          ? "#e0f2fe"
+                                          : "transparent";
                                       return (
                                     <tr
                                       key={item.id}
-                                      style={{ backgroundColor: flagged ? "#fef3c7" : "transparent" }}
+                                      style={{ backgroundColor: bg }}
                                     >
                                       <td
                                         style={{
@@ -8309,9 +8369,15 @@ export default function ProjectDetailPage({
         <p style={{ fontSize: 13, color: "#6b7280" }}>Loading PETL items…</p>
       )}
 
-      {petlDisplayMode === "LINE_SEQUENCE" && !petlLoading && petlItems.length > 0 && (
-        <div style={{ marginTop: 16 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Estimate items</h2>
+      {(petlDisplayMode === "LINE_SEQUENCE" || petlDisplayMode === "RECONCILIATION_ONLY") &&
+        !petlLoading &&
+        petlItems.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
+              {petlDisplayMode === "RECONCILIATION_ONLY"
+                ? "Estimate items (Reconciliation activity only)"
+                : "Estimate items"}
+            </h2>
           <div
             style={{
               height: "calc(100vh - 320px)",
@@ -8346,15 +8412,27 @@ export default function ProjectDetailPage({
               </thead>
               <tbody>
                 {petlItems
-                  .filter(matchesFilters)
+                  .filter((it) => {
+                    if (!matchesFilters(it)) return false;
+                    if (petlDisplayMode === "RECONCILIATION_ONLY") {
+                      return hasReconciliationActivity(it.id);
+                    }
+                    return true;
+                  })
                   .slice()
                   .sort((a, b) => a.lineNo - b.lineNo)
                   .map(item => {
                     const flagged = isPetlReconFlagged(item.id);
+                    const hasRecon = hasReconciliationActivity(item.id);
+                    const bg = flagged
+                      ? "#fef3c7"
+                      : hasRecon
+                        ? "#e0f2fe"
+                        : "transparent";
                     return (
                   <tr
                     key={item.id}
-                    style={{ backgroundColor: flagged ? "#fef3c7" : "transparent" }}
+                    style={{ backgroundColor: bg }}
                   >
                     <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
                       {item.lineNo}
