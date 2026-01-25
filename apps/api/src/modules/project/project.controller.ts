@@ -12,6 +12,8 @@ import {
   UseGuards,
   Query
 } from "@nestjs/common";
+import type { FastifyRequest } from "fastify";
+import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
 import { ProjectService } from "./project.service";
 import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
@@ -505,6 +507,37 @@ export class ProjectController {
       user.companyId,
       user
     );
+  }
+
+  // Import note columns (Reimburse Owner / CO Customer Pay / Add to POL) from the
+  // PWC Reconcile2 Summary Detail export and attach them as reconciliation entries.
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post(":id/petl/import-reconcile-notes")
+  async importPetlReconcileNotes(
+    @Req() req: FastifyRequest,
+    @Param("id") projectId: string,
+    @Query("dryRun") dryRun?: string,
+  ) {
+    const user = (req as any).user as AuthenticatedUser;
+
+    const { file: filePart } = await readSingleFileFromMultipart(req, {
+      fieldName: "file",
+    });
+
+    const buffer = await filePart.toBuffer();
+    const csvText = buffer.toString("utf8");
+
+    const shouldDryRun = dryRun === "1" || dryRun === "true";
+
+    return this.projects.importPetlReconcileNotesFromCsv({
+      projectId,
+      companyId: user.companyId,
+      actor: user,
+      csvText,
+      dryRun: shouldDryRun,
+      fileName: filePart.filename,
+    });
   }
 
   // Field PETL (scope-only) view for PUDL / Daily Logs.
