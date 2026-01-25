@@ -236,6 +236,11 @@ export default function ProjectDetailPage({
   const [petlReconciliationEntries, setPetlReconciliationEntries] = useState<any[]>([]);
   const [petlLoading, setPetlLoading] = useState(false);
 
+  // PETL load diagnostics (helps debug prod issues like 500s / misconfigured API base)
+  const [petlLoadError, setPetlLoadError] = useState<string | null>(null);
+  const [petlLastLoadDebug, setPetlLastLoadDebug] = useState<any | null>(null);
+  const [petlShowDiagnostics, setPetlShowDiagnostics] = useState(false);
+
   // Increment to force reloads of PETL + groups after reconciliation mutations.
   const [petlReloadTick, setPetlReloadTick] = useState(0);
 
@@ -1055,20 +1060,48 @@ export default function ProjectDetailPage({
     let cancelled = false;
 
     const loadPetl = async () => {
+      const petlUrl = `${API_BASE}/projects/${project.id}/petl`;
+      const groupsUrl = `${API_BASE}/projects/${project.id}/petl-groups`;
+      const summaryUrl = `${API_BASE}/projects/${project.id}/estimate-summary`;
+
       try {
         setPetlLoading(true);
+        setPetlLoadError(null);
+
         const [petlRes, groupsRes, summaryRes] = await Promise.all([
-          fetch(`${API_BASE}/projects/${project.id}/petl`, {
+          fetch(petlUrl, {
             headers: { Authorization: `Bearer ${token}` },
           }),
-          fetch(`${API_BASE}/projects/${project.id}/petl-groups`, {
+          fetch(groupsUrl, {
             headers: { Authorization: `Bearer ${token}` },
           }),
-          fetch(`${API_BASE}/projects/${project.id}/estimate-summary`, {
+          fetch(summaryUrl, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);
 
+        const debug: any = {
+          requestedAt: new Date().toISOString(),
+          apiBase: API_BASE,
+          projectId: project.id,
+          petl: {
+            url: petlUrl,
+            status: petlRes.status,
+            ok: petlRes.ok,
+          },
+          groups: {
+            url: groupsUrl,
+            status: groupsRes.status,
+            ok: groupsRes.ok,
+          },
+          estimateSummary: {
+            url: summaryUrl,
+            status: summaryRes.status,
+            ok: summaryRes.ok,
+          },
+        };
+
+        // PETL
         if (!cancelled && petlRes.ok) {
           const petl: any = await petlRes.json();
           const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
@@ -1077,19 +1110,63 @@ export default function ProjectDetailPage({
             : [];
           setPetlItems(items);
           setPetlReconciliationEntries(recon);
+
+          debug.petl.estimateVersionId = petl?.estimateVersionId ?? null;
+          debug.petl.itemsCount = items.length;
+          debug.petl.reconciliationEntriesCount = recon.length;
+        } else if (!cancelled && !petlRes.ok) {
+          const text = await petlRes.text().catch(() => "");
+          debug.petl.errorText = text.slice(0, 5000);
+
+          setPetlItems([]);
+          setPetlReconciliationEntries([]);
+
+          setPetlLoadError(
+            `PETL fetch failed (${petlRes.status}). ${text || "<empty response>"}`.slice(0, 8000),
+          );
+          setPetlShowDiagnostics(true);
         }
 
+        // Groups
         if (!cancelled && groupsRes.ok) {
           const json: any = await groupsRes.json();
           setGroups(Array.isArray(json.groups) ? json.groups : []);
+          debug.groups.groupsCount = Array.isArray(json.groups) ? json.groups.length : 0;
+        } else if (!cancelled && !groupsRes.ok) {
+          const text = await groupsRes.text().catch(() => "");
+          debug.groups.errorText = text.slice(0, 2000);
         }
 
+        // Estimate summary
         if (!cancelled && summaryRes.ok) {
           const summary: any = await summaryRes.json();
           setPetlItemCount(typeof summary.itemCount === "number" ? summary.itemCount : null);
           setPetlTotalAmount(typeof summary.totalAmount === "number" ? summary.totalAmount : null);
           setComponentsCount(typeof summary.componentsCount === "number" ? summary.componentsCount : null);
+
+          debug.estimateSummary.itemCount = summary?.itemCount ?? null;
+          debug.estimateSummary.totalAmount = summary?.totalAmount ?? null;
+          debug.estimateSummary.componentsCount = summary?.componentsCount ?? null;
+        } else if (!cancelled && !summaryRes.ok) {
+          const text = await summaryRes.text().catch(() => "");
+          debug.estimateSummary.errorText = text.slice(0, 2000);
         }
+
+        if (!cancelled) {
+          setPetlLastLoadDebug(debug);
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        setPetlItems([]);
+        setPetlReconciliationEntries([]);
+        setPetlLoadError(err?.message ?? "PETL fetch failed (network error)");
+        setPetlShowDiagnostics(true);
+        setPetlLastLoadDebug({
+          requestedAt: new Date().toISOString(),
+          apiBase: API_BASE,
+          projectId: project.id,
+          error: err?.message ?? String(err),
+        });
       } finally {
         if (!cancelled) setPetlLoading(false);
       }
@@ -6117,6 +6194,91 @@ export default function ProjectDetailPage({
       {/* PETL tab content */}
       {activeTab === "PETL" && (
         <div>
+          {/* PETL diagnostics */}
+          <div
+            style={{
+              marginBottom: 12,
+              padding: 10,
+              borderRadius: 8,
+              border: `1px solid ${petlLoadError ? "#b91c1c" : "#e5e7eb"}`,
+              background: petlLoadError ? "#fef2f2" : "#f8fafc",
+              fontSize: 12,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ fontWeight: 600 }}>
+                PETL Diagnostics{petlLoadError ? " (error)" : ""}
+              </div>
+              <button
+                type="button"
+                onClick={() => setPetlShowDiagnostics((s) => !s)}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  border: "1px solid #d1d5db",
+                  background: "#ffffff",
+                  cursor: "pointer",
+                  fontSize: 12,
+                }}
+              >
+                {petlShowDiagnostics ? "Hide" : "Show"}
+              </button>
+            </div>
+
+            {(petlShowDiagnostics || petlLoadError) ? (
+              <>
+                <div style={{ marginTop: 6, fontSize: 11, color: "#4b5563" }}>
+                  <div>
+                    <strong>API_BASE</strong>: {API_BASE}
+                  </div>
+                  <div>
+                    <strong>Project</strong>: {id}
+                  </div>
+                  <div>
+                    <strong>Local</strong>: petlItems={petlItems.length}, recon={petlReconciliationEntries.length}
+                  </div>
+                </div>
+
+                {petlLoadError && (
+                  <pre
+                    style={{
+                      marginTop: 8,
+                      marginBottom: 0,
+                      whiteSpace: "pre-wrap",
+                      color: "#b91c1c",
+                      fontSize: 11,
+                    }}
+                  >
+                    {petlLoadError}
+                  </pre>
+                )}
+
+                {petlShowDiagnostics && petlLastLoadDebug && (
+                  <pre
+                    style={{
+                      marginTop: 8,
+                      marginBottom: 0,
+                      padding: 8,
+                      borderRadius: 6,
+                      background: "#ffffff",
+                      border: "1px solid #e5e7eb",
+                      whiteSpace: "pre-wrap",
+                      fontSize: 11,
+                      maxHeight: 260,
+                      overflow: "auto",
+                    }}
+                  >
+                    {JSON.stringify(petlLastLoadDebug, null, 2)}
+                  </pre>
+                )}
+              </>
+            ) : (
+              <div style={{ marginTop: 6, fontSize: 11, color: "#6b7280" }}>
+                Hidden (click Show)
+              </div>
+            )}
+          </div>
+
           {/* Project hierarchy: Job (property) → Buildings / Structures → Units → Rooms */}
           {hierarchy && (
             <div style={{ marginBottom: 12 }}>

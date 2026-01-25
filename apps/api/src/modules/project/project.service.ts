@@ -1053,6 +1053,37 @@ export class ProjectService {
     return latestVersion;
   }
 
+  private async resolveProjectParticlesForProject(options: {
+    projectId: string;
+    particleIds: string[];
+  }) {
+    const { projectId, particleIds } = options;
+
+    const ids = Array.from(new Set(particleIds.filter(Boolean)));
+    if (ids.length === 0) return new Map<string, { id: string; name: string; fullLabel: string }>();
+
+    // NOTE: We intentionally do NOT rely on Prisma relation includes here.
+    // Some legacy/imported rows in prod can have orphaned foreign keys, and
+    // Prisma will throw when it tries to hydrate a required relation.
+    const particles = await this.prisma.projectParticle.findMany({
+      where: {
+        id: { in: ids },
+        projectId,
+      },
+      select: {
+        id: true,
+        name: true,
+        fullLabel: true,
+      },
+    });
+
+    const byId = new Map<string, { id: string; name: string; fullLabel: string }>();
+    for (const p of particles) {
+      byId.set(p.id, p);
+    }
+    return byId;
+  }
+
   async getPetlForProject(
     projectId: string,
     companyId: string,
@@ -1089,16 +1120,17 @@ export class ProjectService {
         projectId,
         estimateVersionId: null,
         items: [],
+        reconciliationEntries: [],
       };
     }
 
-    const [items, reconciliationEntries] = await Promise.all([
+    // IMPORTANT: Do NOT include required relations like projectParticle here.
+    // In some prod data, orphaned particle IDs can exist and Prisma will throw
+    // when hydrating a required relation include.
+    const [itemsRaw, reconciliationEntriesRaw] = await Promise.all([
       this.prisma.sowItem.findMany({
         where: { estimateVersionId: latestVersion.id },
         orderBy: { lineNo: "asc" },
-        include: {
-          projectParticle: true,
-        },
       }),
       this.prisma.petlReconciliationEntry.findMany({
         where: {
@@ -1107,9 +1139,26 @@ export class ProjectService {
           rcvAmount: { not: null },
         },
         orderBy: { createdAt: "asc" },
-        include: { projectParticle: true },
       }),
     ]);
+
+    const particleById = await this.resolveProjectParticlesForProject({
+      projectId,
+      particleIds: [
+        ...itemsRaw.map((i) => i.projectParticleId),
+        ...reconciliationEntriesRaw.map((e) => e.projectParticleId),
+      ],
+    });
+
+    const items = itemsRaw.map((i) => ({
+      ...i,
+      projectParticle: particleById.get(i.projectParticleId) ?? null,
+    }));
+
+    const reconciliationEntries = reconciliationEntriesRaw.map((e) => ({
+      ...e,
+      projectParticle: particleById.get(e.projectParticleId) ?? null,
+    }));
 
     return {
       projectId,
@@ -1211,14 +1260,17 @@ export class ProjectService {
 
     const sowItem = await this.prisma.sowItem.findUnique({
       where: { id: sowItemId },
-      include: {
-        projectParticle: {
-          select: { projectId: true },
-        },
+      select: {
+        id: true,
+        estimateVersionId: true,
+        logicalItemId: true,
+        projectParticleId: true,
+        description: true,
+        estimateVersion: { select: { projectId: true } },
       },
     });
 
-    if (!sowItem || sowItem.projectParticle?.projectId !== projectId) {
+    if (!sowItem || sowItem.estimateVersion.projectId !== projectId) {
       throw new NotFoundException("SOW item not found for this project");
     }
 
@@ -1295,20 +1347,30 @@ export class ProjectService {
     const sowItem = await this.prisma.sowItem.findUnique({
       where: { id: sowItemId },
       include: {
-        projectParticle: true,
+        estimateVersion: { select: { projectId: true } },
       },
     });
 
-    if (!sowItem || sowItem.projectParticle?.projectId !== projectId) {
+    if (!sowItem || sowItem.estimateVersion.projectId !== projectId) {
       throw new NotFoundException("SOW item not found for this project");
     }
 
+    const particleById = await this.resolveProjectParticlesForProject({
+      projectId,
+      particleIds: [sowItem.projectParticleId],
+    });
+
+    const sowItemWithParticle = {
+      ...sowItem,
+      projectParticle: particleById.get(sowItem.projectParticleId) ?? null,
+    };
+
     const breakdown = this.buildRcvBreakdownForSowItem({
-      qty: sowItem.qty ?? null,
-      unitCost: sowItem.unitCost ?? null,
-      itemAmount: sowItem.itemAmount ?? null,
-      salesTaxAmount: sowItem.salesTaxAmount ?? null,
-      rcvAmount: sowItem.rcvAmount ?? null,
+      qty: sowItemWithParticle.qty ?? null,
+      unitCost: sowItemWithParticle.unitCost ?? null,
+      itemAmount: sowItemWithParticle.itemAmount ?? null,
+      salesTaxAmount: sowItemWithParticle.salesTaxAmount ?? null,
+      rcvAmount: sowItemWithParticle.rcvAmount ?? null,
     });
 
     const existingCase = await this.findPetlReconciliationCaseForSowItem({
@@ -1318,10 +1380,10 @@ export class ProjectService {
 
     return {
       projectId,
-      sowItemId: sowItem.id,
-      estimateVersionId: sowItem.estimateVersionId,
-      projectParticleId: sowItem.projectParticleId,
-      sowItem,
+      sowItemId: sowItemWithParticle.id,
+      estimateVersionId: sowItemWithParticle.estimateVersionId,
+      projectParticleId: sowItemWithParticle.projectParticleId,
+      sowItem: sowItemWithParticle,
       rcvBreakdown: breakdown,
       reconciliationCase: existingCase,
     };
@@ -2361,7 +2423,6 @@ export class ProjectService {
     const [items, reconEntries] = await Promise.all([
       this.prisma.sowItem.findMany({
         where: { estimateVersionId: latestVersion.id },
-        include: { projectParticle: true }
       }),
       this.prisma.petlReconciliationEntry.findMany({
         where: {
@@ -2369,9 +2430,16 @@ export class ProjectService {
           estimateVersionId: latestVersion.id,
           rcvAmount: { not: null },
         },
-        include: { projectParticle: true },
       }),
     ]);
+
+    const particleById = await this.resolveProjectParticlesForProject({
+      projectId,
+      particleIds: [
+        ...items.map((i) => i.projectParticleId),
+        ...reconEntries.map((e) => e.projectParticleId),
+      ],
+    });
 
     type GroupAgg = {
       particleId: string | null;
@@ -2385,10 +2453,9 @@ export class ProjectService {
     const byParticle = new Map<string, GroupAgg>();
 
     for (const item of items) {
-      const particle = item.projectParticle;
+      const particle = particleById.get(item.projectParticleId) ?? null;
       const key = particle ? particle.id : "__project__";
-      const roomName =
-        particle?.fullLabel ?? particle?.name ?? "Whole Project";
+      const roomName = particle?.fullLabel ?? particle?.name ?? "Whole Project";
 
       let agg = byParticle.get(key);
       if (!agg) {
@@ -2416,10 +2483,9 @@ export class ProjectService {
 
     // Apply reconciliation adjustments to room totals / percent complete.
     for (const entry of reconEntries) {
-      const particle = entry.projectParticle;
+      const particle = particleById.get(entry.projectParticleId) ?? null;
       const key = particle ? particle.id : "__project__";
-      const roomName =
-        particle?.fullLabel ?? particle?.name ?? "Whole Project";
+      const roomName = particle?.fullLabel ?? particle?.name ?? "Whole Project";
 
       let agg = byParticle.get(key);
       if (!agg) {
@@ -2684,28 +2750,33 @@ export class ProjectService {
 
     const items = await this.prisma.sowItem.findMany({
       where: { estimateVersionId: latestVersion.id },
-      include: {
-        projectParticle: true,
-      },
       orderBy: [{ lineNo: "asc" }],
     });
 
-    const mapped = items.map((item) => ({
-      id: item.id,
-      lineNo: item.lineNo,
-      roomParticleId: item.projectParticleId,
-      roomName: item.projectParticle?.fullLabel ?? item.projectParticle?.name ?? null,
-      categoryCode: item.categoryCode ?? null,
-      selectionCode: item.selectionCode ?? null,
-      activity: item.activity ?? null,
-      description: item.description,
-      unit: item.unit ?? null,
-      originalQty: item.originalQty ?? item.qty ?? null,
-      qty: item.qty ?? null,
-      qtyFlaggedIncorrect: item.qtyFlaggedIncorrect,
-      qtyFieldReported: item.qtyFieldReported ?? null,
-      qtyReviewStatus: item.qtyReviewStatus ?? null,
-    }));
+    const particleById = await this.resolveProjectParticlesForProject({
+      projectId,
+      particleIds: items.map((i) => i.projectParticleId),
+    });
+
+    const mapped = items.map((item) => {
+      const particle = particleById.get(item.projectParticleId) ?? null;
+      return {
+        id: item.id,
+        lineNo: item.lineNo,
+        roomParticleId: item.projectParticleId,
+        roomName: particle?.fullLabel ?? particle?.name ?? null,
+        categoryCode: item.categoryCode ?? null,
+        selectionCode: item.selectionCode ?? null,
+        activity: item.activity ?? null,
+        description: item.description,
+        unit: item.unit ?? null,
+        originalQty: item.originalQty ?? item.qty ?? null,
+        qty: item.qty ?? null,
+        qtyFlaggedIncorrect: item.qtyFlaggedIncorrect,
+        qtyFieldReported: item.qtyFieldReported ?? null,
+        qtyReviewStatus: item.qtyReviewStatus ?? null,
+      };
+    });
 
     return {
       projectId,
