@@ -29,6 +29,15 @@ import {
   CertifiedPayrollSource,
 } from "@repo/database";
 
+function normalizeQueryStringArray(value?: string | string[]): string[] | undefined {
+  if (!value) return undefined;
+  const arr = Array.isArray(value) ? value : [value];
+  const cleaned = arr
+    .map((v) => String(v ?? "").trim())
+    .filter((v) => !!v);
+  return cleaned.length ? cleaned : undefined;
+}
+
 @Controller("projects")
 export class ProjectController {
   constructor(
@@ -767,9 +776,9 @@ export class ProjectController {
   getPetlSelectionSummary(
     @Req() req: any,
     @Param("id") projectId: string,
-    @Query("roomParticleId") roomParticleId?: string,
-    @Query("categoryCode") categoryCode?: string,
-    @Query("selectionCode") selectionCode?: string
+    @Query("roomParticleId") roomParticleId?: string | string[],
+    @Query("categoryCode") categoryCode?: string | string[],
+    @Query("selectionCode") selectionCode?: string | string[],
   ) {
     const user = req.user as AuthenticatedUser;
     return this.projects.getPetlSelectionSummaryForProject(
@@ -777,10 +786,10 @@ export class ProjectController {
       user.companyId,
       user,
       {
-        roomParticleId: roomParticleId || undefined,
-        categoryCode: categoryCode || undefined,
-        selectionCode: selectionCode || undefined
-      }
+        roomParticleIds: normalizeQueryStringArray(roomParticleId),
+        categoryCodes: normalizeQueryStringArray(categoryCode),
+        selectionCodes: normalizeQueryStringArray(selectionCode),
+      },
     );
   }
 
@@ -789,9 +798,9 @@ export class ProjectController {
   getPetlComponentsForSelection(
     @Req() req: any,
     @Param("id") projectId: string,
-    @Query("roomParticleId") roomParticleId?: string,
-    @Query("categoryCode") categoryCode?: string,
-    @Query("selectionCode") selectionCode?: string
+    @Query("roomParticleId") roomParticleId?: string | string[],
+    @Query("categoryCode") categoryCode?: string | string[],
+    @Query("selectionCode") selectionCode?: string | string[],
   ) {
     const user = req.user as AuthenticatedUser;
     return this.projects.getPetlComponentsForSelection(
@@ -799,10 +808,10 @@ export class ProjectController {
       user.companyId,
       user,
       {
-        roomParticleId: roomParticleId || undefined,
-        categoryCode: categoryCode || undefined,
-        selectionCode: selectionCode || undefined
-      }
+        roomParticleIds: normalizeQueryStringArray(roomParticleId),
+        categoryCodes: normalizeQueryStringArray(categoryCode),
+        selectionCodes: normalizeQueryStringArray(selectionCode),
+      },
     );
   }
 

@@ -1,11 +1,200 @@
 "use client";
 
 import * as React from "react";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { uploadImageFileToNexusUploads } from "../../lib/uploads";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+type CheckboxMultiSelectOption = { value: string; label: string };
+
+function CheckboxMultiSelect(props: {
+  placeholder: string;
+  options: CheckboxMultiSelectOption[];
+  selectedValues: string[];
+  onChangeSelectedValues: (next: string[]) => void;
+  minWidth?: number;
+  // Optional minimum height for the scroll area; actual height will expand to the
+  // bottom of the viewport when opened.
+  minListHeight?: number;
+}) {
+  const {
+    placeholder,
+    options,
+    selectedValues,
+    onChangeSelectedValues,
+    minWidth = 140,
+    minListHeight = 180,
+  } = props;
+
+  const [open, setOpen] = useState(false);
+  const [panelMaxHeight, setPanelMaxHeight] = useState<number>(320);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const computeMaxHeight = () => {
+      const el = rootRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      // Leave a little breathing room so we don't touch the bottom edge.
+      const available = Math.floor(window.innerHeight - rect.bottom - 12);
+      setPanelMaxHeight(Math.max(180, available));
+    };
+
+    computeMaxHeight();
+
+    const onPointerDown = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (rootRef.current && !rootRef.current.contains(target)) {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("resize", computeMaxHeight);
+    window.addEventListener("scroll", computeMaxHeight, true);
+
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("resize", computeMaxHeight);
+      window.removeEventListener("scroll", computeMaxHeight, true);
+    };
+  }, [open]);
+
+  const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues]);
+
+  const buttonLabel = useMemo(() => {
+    if (selectedValues.length === 0) return placeholder;
+    if (selectedValues.length === 1) {
+      const only = selectedValues[0];
+      const match = options.find((o) => o.value === only);
+      return match?.label ?? only;
+    }
+    return `${selectedValues.length} selected`;
+  }, [options, placeholder, selectedValues]);
+
+  const toggleValue = (value: string) => {
+    onChangeSelectedValues(
+      selectedSet.has(value)
+        ? selectedValues.filter((v) => v !== value)
+        : [...selectedValues, value],
+    );
+  };
+
+  return (
+    <div ref={rootRef} style={{ position: "relative" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: minWidth,
+          padding: "4px 6px",
+          borderRadius: 4,
+          border: "1px solid #d1d5db",
+          fontSize: 12,
+          background: "#ffffff",
+          cursor: "pointer",
+          textAlign: "left",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {buttonLabel}
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            minWidth,
+            zIndex: 50,
+            background: "#ffffff",
+            border: "1px solid #d1d5db",
+            borderRadius: 8,
+            boxShadow: "0 10px 20px rgba(0,0,0,0.10)",
+            padding: 8,
+            maxHeight: panelMaxHeight,
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
+              marginBottom: 6,
+            }}
+          >
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={selectedValues.length === 0}
+                onChange={() => onChangeSelectedValues([])}
+              />
+              <span style={{ fontWeight: 600 }}>All</span>
+            </label>
+            {selectedValues.length > 0 && (
+              <button
+                type="button"
+                onClick={() => onChangeSelectedValues([])}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  fontSize: 12,
+                  color: "#2563eb",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          <div
+            style={{
+              // Expand to the bottom of the viewport, but keep a sensible minimum.
+              maxHeight: Math.max(minListHeight, panelMaxHeight - 44),
+              overflow: "auto",
+            }}
+          >
+            {options.map((opt) => {
+              const checked = selectedSet.has(opt.value);
+              return (
+                <label
+                  key={opt.value}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "4px 2px",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleValue(opt.value)}
+                  />
+                  <span style={{ whiteSpace: "nowrap" }}>{opt.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Project {
   id: string;
@@ -305,9 +494,23 @@ export default function ProjectDetailPage({
     () => new Set(),
   );
 
-  const [roomFilter, setRoomFilter] = useState<string>("");
-  const [categoryFilter, setCategoryFilter] = useState<string>("");
-  const [selectionFilter, setSelectionFilter] = useState<string>("");
+  // PETL filters (multi-select). Empty array means "All".
+  const [roomParticleIdFilters, setRoomParticleIdFilters] = useState<string[]>([]);
+  const [categoryCodeFilters, setCategoryCodeFilters] = useState<string[]>([]);
+  const [selectionCodeFilters, setSelectionCodeFilters] = useState<string[]>([]);
+
+  const roomParticleIdFilterSet = useMemo(
+    () => new Set(roomParticleIdFilters),
+    [roomParticleIdFilters],
+  );
+  const categoryCodeFilterSet = useMemo(
+    () => new Set(categoryCodeFilters),
+    [categoryCodeFilters],
+  );
+  const selectionCodeFilterSet = useMemo(
+    () => new Set(selectionCodeFilters),
+    [selectionCodeFilters],
+  );
 
   // PETL view toggle: project organization grouping vs line sequence
   // Default to LINE_SEQUENCE (and persist per-project) so the cost book / line-by-line
@@ -342,6 +545,46 @@ export default function ProjectDetailPage({
   const [petlReconcileNotesImporting, setPetlReconcileNotesImporting] = useState(false);
   const [petlReconcileNotesImportError, setPetlReconcileNotesImportError] = useState<string | null>(null);
   const [petlReconcileNotesImportResult, setPetlReconcileNotesImportResult] = useState<any | null>(null);
+
+  // Rarely used: keep import UIs behind a modal so they don't affect initial render/layout.
+  const [importsModalOpen, setImportsModalOpen] = useState(false);
+
+  const closeImportsModal = useCallback(() => {
+    setImportsModalOpen(false);
+    // Clear selected files so we don't end up with enabled submit buttons after remount.
+    setPetlPercentFile(null);
+    setPetlReconcileNotesFile(null);
+    // Clear transient errors (results/job status can remain).
+    setPetlPercentImportError(null);
+    setPetlReconcileNotesImportError(null);
+  }, []);
+
+  const downloadPetlPercentCsv = useCallback(() => {
+    const header = ["#", "% Complete"];
+    const rows = [...petlItems]
+      .sort((a, b) => a.lineNo - b.lineNo)
+      .map((i: PetlItem) => {
+        const lineNo = String(i.lineNo).trim();
+        // If a line is marked ACV-only, leave % blank so uploading the template
+        // won't accidentally flip it to non-ACV-only.
+        const pct = i.isAcvOnly ? "" : String(i.percentComplete ?? "");
+        // Values are numeric/blank; no escaping needed.
+        return `${lineNo},${pct}`;
+      });
+
+    const csv = [header.join(","), ...rows].join("\n");
+    const fileName = `petl-percent-import-${id}.csv`;
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [id, petlItems]);
 
   const setPetlDisplayModePersisted = (mode: PetlDisplayMode) => {
     setPetlDisplayMode(mode);
@@ -747,8 +990,19 @@ export default function ProjectDetailPage({
       const particleId = item.projectParticle?.id;
       if (!particleId) continue;
 
-      if (categoryFilter && item.categoryCode !== categoryFilter) continue;
-      if (selectionFilter && item.selectionCode !== selectionFilter) continue;
+      if (roomParticleIdFilterSet.size > 0 && !roomParticleIdFilterSet.has(particleId)) {
+        continue;
+      }
+
+      if (categoryCodeFilterSet.size > 0) {
+        const code = item.categoryCode ?? "";
+        if (!code || !categoryCodeFilterSet.has(code)) continue;
+      }
+
+      if (selectionCodeFilterSet.size > 0) {
+        const code = item.selectionCode ?? "";
+        if (!code || !selectionCodeFilterSet.has(code)) continue;
+      }
 
       const existing = map.get(particleId);
       if (existing) existing.push(item);
@@ -761,7 +1015,7 @@ export default function ProjectDetailPage({
     }
 
     return map;
-  }, [petlItems, categoryFilter, selectionFilter]);
+  }, [petlItems, roomParticleIdFilterSet, categoryCodeFilterSet, selectionCodeFilterSet]);
 
   // Derived list of known project participants for use in the Daily Log
   // "Person/s onsite" multi-select. We include both myOrganization and
@@ -994,12 +1248,22 @@ export default function ProjectDetailPage({
   };
 
   const matchesFilters = (item: PetlItem) => {
-    if (roomFilter) {
-      const particleId = item.projectParticle?.id;
-      if (!particleId || particleId !== roomFilter) return false;
+    const particleId = item.projectParticle?.id ?? null;
+
+    if (roomParticleIdFilterSet.size > 0) {
+      if (!particleId || !roomParticleIdFilterSet.has(particleId)) return false;
     }
-    if (categoryFilter && item.categoryCode !== categoryFilter) return false;
-    if (selectionFilter && item.selectionCode !== selectionFilter) return false;
+
+    if (categoryCodeFilterSet.size > 0) {
+      const code = item.categoryCode ?? "";
+      if (!code || !categoryCodeFilterSet.has(code)) return false;
+    }
+
+    if (selectionCodeFilterSet.size > 0) {
+      const code = item.selectionCode ?? "";
+      if (!code || !selectionCodeFilterSet.has(code)) return false;
+    }
+
     return true;
   };
 
@@ -1552,9 +1816,16 @@ export default function ProjectDetailPage({
     if (!token || !project) return;
 
     const params = new URLSearchParams();
-    if (roomFilter) params.append("roomParticleId", roomFilter);
-    if (categoryFilter) params.append("categoryCode", categoryFilter);
-    if (selectionFilter) params.append("selectionCode", selectionFilter);
+
+    for (const roomParticleId of roomParticleIdFilters) {
+      params.append("roomParticleId", roomParticleId);
+    }
+    for (const categoryCode of categoryCodeFilters) {
+      params.append("categoryCode", categoryCode);
+    }
+    for (const selectionCode of selectionCodeFilters) {
+      params.append("selectionCode", selectionCode);
+    }
 
     let cancelled = false;
 
@@ -1583,7 +1854,7 @@ export default function ProjectDetailPage({
     return () => {
       cancelled = true;
     };
-  }, [project, roomFilter, categoryFilter, selectionFilter, petlItems]);
+  }, [project, roomParticleIdFilters, categoryCodeFilters, selectionCodeFilters, petlItems]);
 
   // Lazy-load financial summary only when Financial tab is opened
   useEffect(() => {
@@ -2033,7 +2304,10 @@ export default function ProjectDetailPage({
 
   const openRoomComponentsPanel = async (roomId: string | null, roomName: string) => {
     if (!roomId) return;
-    setRoomFilter(roomId);
+
+    // Preserve old behavior: clicking "Components" scopes the Room filter to that room.
+    setRoomParticleIdFilters([roomId]);
+
     setRoomComponentsPanel({
       open: true,
       loading: true,
@@ -2055,8 +2329,10 @@ export default function ProjectDetailPage({
     try {
       const params = new URLSearchParams();
       params.set("roomParticleId", roomId);
-      if (categoryFilter) params.set("categoryCode", categoryFilter);
-      if (selectionFilter) params.set("selectionCode", selectionFilter);
+
+      // Multi-select filters: repeat query params.
+      for (const cat of categoryCodeFilters) params.append("categoryCode", cat);
+      for (const sel of selectionCodeFilters) params.append("selectionCode", sel);
 
       const res = await fetch(
         `${API_BASE}/projects/${id}/petl-components?${params.toString()}`,
@@ -2793,7 +3069,9 @@ export default function ProjectDetailPage({
 
           {selectionSummary && (
             <div>
-              {roomFilter || categoryFilter || selectionFilter
+              {roomParticleIdFilters.length ||
+              categoryCodeFilters.length ||
+              selectionCodeFilters.length
                 ? "Current selection: "
                 : "Current selection (all items): "}
               {selectionSummary.percentComplete.toFixed(2)}%
@@ -6469,68 +6747,104 @@ export default function ProjectDetailPage({
           flexWrap: "wrap",
           gap: 12,
           alignItems: "center",
+          justifyContent: "space-between",
           marginTop: 8,
           marginBottom: 8,
         }}
       >
-        <div style={{ fontSize: 12, color: "#4b5563" }}>View:</div>
-        <div
-          style={{
-            display: "flex",
-            border: "1px solid #d1d5db",
-            borderRadius: 999,
-            overflow: "hidden",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setPetlDisplayModePersisted("PROJECT_GROUPING")}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+          <div style={{ fontSize: 12, color: "#4b5563" }}>View:</div>
+          <div
             style={{
-              padding: "4px 10px",
-              fontSize: 12,
-              border: "none",
-              cursor: "pointer",
-              background:
-                petlDisplayMode === "PROJECT_GROUPING" ? "#0f172a" : "#ffffff",
-              color:
-                petlDisplayMode === "PROJECT_GROUPING" ? "#f9fafb" : "#111827",
+              display: "flex",
+              border: "1px solid #d1d5db",
+              borderRadius: 999,
+              overflow: "hidden",
             }}
           >
-            Project grouping
-          </button>
-          <button
-            type="button"
-            onClick={() => setPetlDisplayModePersisted("LINE_SEQUENCE")}
+            <button
+              type="button"
+              onClick={() => setPetlDisplayModePersisted("PROJECT_GROUPING")}
+              style={{
+                padding: "4px 10px",
+                fontSize: 12,
+                border: "none",
+                cursor: "pointer",
+                background:
+                  petlDisplayMode === "PROJECT_GROUPING" ? "#0f172a" : "#ffffff",
+                color:
+                  petlDisplayMode === "PROJECT_GROUPING" ? "#f9fafb" : "#111827",
+              }}
+            >
+              Project grouping
+            </button>
+            <button
+              type="button"
+              onClick={() => setPetlDisplayModePersisted("LINE_SEQUENCE")}
+              style={{
+                padding: "4px 10px",
+                fontSize: 12,
+                border: "none",
+                cursor: "pointer",
+                background:
+                  petlDisplayMode === "LINE_SEQUENCE" ? "#0f172a" : "#ffffff",
+                color:
+                  petlDisplayMode === "LINE_SEQUENCE" ? "#f9fafb" : "#111827",
+                borderLeft: "1px solid #d1d5db",
+              }}
+            >
+              Line sequence
+            </button>
+            <button
+              type="button"
+              onClick={() => setPetlDisplayModePersisted("RECONCILIATION_ONLY")}
+              style={{
+                padding: "4px 10px",
+                fontSize: 12,
+                border: "none",
+                cursor: "pointer",
+                background:
+                  petlDisplayMode === "RECONCILIATION_ONLY" ? "#0f172a" : "#ffffff",
+                color:
+                  petlDisplayMode === "RECONCILIATION_ONLY" ? "#f9fafb" : "#111827",
+                borderLeft: "1px solid #d1d5db",
+              }}
+            >
+              Recon only
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div
             style={{
-              padding: "4px 10px",
-              fontSize: 12,
-              border: "none",
-              cursor: "pointer",
-              background:
-                petlDisplayMode === "LINE_SEQUENCE" ? "#0f172a" : "#ffffff",
-              color:
-                petlDisplayMode === "LINE_SEQUENCE" ? "#f9fafb" : "#111827",
-              borderLeft: "1px solid #d1d5db",
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#2563eb",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              maxWidth: 420,
             }}
           >
-            Line sequence
-          </button>
+            Apply % complete to filtered items
+          </div>
+
           <button
             type="button"
-            onClick={() => setPetlDisplayModePersisted("RECONCILIATION_ONLY")}
+            onClick={() => setImportsModalOpen(true)}
             style={{
-              padding: "4px 10px",
+              padding: "5px 10px",
+              borderRadius: 999,
+              border: "1px solid #2563eb",
+              background: "#eff6ff",
+              color: "#1d4ed8",
               fontSize: 12,
-              border: "none",
               cursor: "pointer",
-              background:
-                petlDisplayMode === "RECONCILIATION_ONLY" ? "#0f172a" : "#ffffff",
-              color:
-                petlDisplayMode === "RECONCILIATION_ONLY" ? "#f9fafb" : "#111827",
-              borderLeft: "1px solid #d1d5db",
+              whiteSpace: "nowrap",
             }}
           >
-            Recon only
+            Reconcile Imports
           </button>
         </div>
       </div>
@@ -6548,68 +6862,38 @@ export default function ProjectDetailPage({
         >
           <div>
             <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Room</div>
-            <select
-              value={roomFilter}
-              onChange={e => setRoomFilter(e.target.value)}
-              style={{
-                padding: "4px 6px",
-                borderRadius: 4,
-                border: "1px solid #d1d5db",
-                fontSize: 12,
-                minWidth: 140,
-              }}
-            >
-              <option value="">All rooms</option>
-              {roomOptions.map(opt => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+            <CheckboxMultiSelect
+              placeholder="All rooms"
+              options={roomOptions}
+              selectedValues={roomParticleIdFilters}
+              onChangeSelectedValues={setRoomParticleIdFilters}
+              minWidth={180}
+              minListHeight={220}
+            />
           </div>
 
           <div>
             <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Cat</div>
-            <select
-              value={categoryFilter}
-              onChange={e => setCategoryFilter(e.target.value)}
-              style={{
-                padding: "4px 6px",
-                borderRadius: 4,
-                border: "1px solid #d1d5db",
-                fontSize: 12,
-                minWidth: 90,
-              }}
-            >
-              <option value="">All</option>
-              {categoryOptions.map(cat => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </select>
+            <CheckboxMultiSelect
+              placeholder="All"
+              options={categoryOptions.map((cat) => ({ value: cat, label: cat }))}
+              selectedValues={categoryCodeFilters}
+              onChangeSelectedValues={setCategoryCodeFilters}
+              minWidth={110}
+              minListHeight={220}
+            />
           </div>
 
           <div>
             <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Sel</div>
-            <select
-              value={selectionFilter}
-              onChange={e => setSelectionFilter(e.target.value)}
-              style={{
-                padding: "4px 6px",
-                borderRadius: 4,
-                border: "1px solid #d1d5db",
-                fontSize: 12,
-                minWidth: 90,
-              }}
-            >
-              <option value="">All</option>
-              {selectionOptions.map(sel => (
-                <option key={sel} value={sel}>
-                  {sel}
-                </option>
-              ))}
-            </select>
+            <CheckboxMultiSelect
+              placeholder="All"
+              options={selectionOptions.map((sel) => ({ value: sel, label: sel }))}
+              selectedValues={selectionCodeFilters}
+              onChangeSelectedValues={setSelectionCodeFilters}
+              minWidth={110}
+              minListHeight={220}
+            />
           </div>
 
           <form
@@ -6646,9 +6930,15 @@ export default function ProjectDetailPage({
                 selectionCodes?: string[];
               } = {};
 
-              if (roomFilter) filters.roomParticleIds = [roomFilter];
-              if (categoryFilter) filters.categoryCodes = [categoryFilter];
-              if (selectionFilter) filters.selectionCodes = [selectionFilter];
+              if (roomParticleIdFilters.length) {
+                filters.roomParticleIds = roomParticleIdFilters;
+              }
+              if (categoryCodeFilters.length) {
+                filters.categoryCodes = categoryCodeFilters;
+              }
+              if (selectionCodeFilters.length) {
+                filters.selectionCodes = selectionCodeFilters;
+              }
 
               try {
                 setBulkSaving(true);
@@ -6734,50 +7024,26 @@ export default function ProjectDetailPage({
               }
             }}
             style={{
-              display: "grid",
-              gridTemplateColumns: "auto auto auto auto",
-              columnGap: 6,
-              rowGap: 2,
-              alignItems: "end",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
               marginLeft: "auto",
             }}
           >
-            <div
+            <span
               style={{
-                gridColumn: 4,
-                gridRow: 1,
-                fontSize: 13,
-                fontWeight: 600,
-                color: "#2563eb",
-                lineHeight: 1.15,
-                maxWidth: 220,
-                textAlign: "right",
-                justifySelf: "end",
-              }}
-            >
-              Apply percent complete to filtered line items
-            </div>
-
-            <div
-              style={{
-                gridColumn: 1,
-                gridRow: 2,
                 fontSize: 12,
                 fontWeight: 600,
                 color: "#2563eb",
-                lineHeight: 1,
-                paddingBottom: 1,
+                whiteSpace: "nowrap",
               }}
             >
               Operation
-            </div>
-
+            </span>
             <select
               value={operation}
               onChange={e => setOperation(e.target.value as any)}
               style={{
-                gridColumn: 2,
-                gridRow: 2,
                 padding: "4px 6px",
                 borderRadius: 4,
                 border: "1px solid #d1d5db",
@@ -6793,8 +7059,6 @@ export default function ProjectDetailPage({
               value={operationPercent}
               onChange={e => setOperationPercent(e.target.value)}
               style={{
-                gridColumn: 3,
-                gridRow: 2,
                 padding: "4px 6px",
                 borderRadius: 4,
                 border: "1px solid #d1d5db",
@@ -6819,8 +7083,6 @@ export default function ProjectDetailPage({
               type="submit"
               disabled={bulkSaving || petlItems.length === 0}
               style={{
-                gridColumn: 4,
-                gridRow: 2,
                 padding: "6px 10px",
                 borderRadius: 4,
                 border: "1px solid #0f172a",
@@ -6828,7 +7090,6 @@ export default function ProjectDetailPage({
                 color: bulkSaving ? "#4b5563" : "#f9fafb",
                 fontSize: 12,
                 cursor: bulkSaving ? "default" : "pointer",
-                justifySelf: "end",
               }}
             >
               {bulkSaving ? "Applying…" : "Apply"}
@@ -6843,188 +7104,303 @@ export default function ProjectDetailPage({
         </div>
       )}
 
-      {petlItems.length > 0 && (
+      {/* Imports modal (rarely used; keep off initial render) */}
+      {importsModalOpen && (
         <div
           style={{
-            marginBottom: 12,
-            padding: 10,
-            borderRadius: 8,
-            border: "1px solid #e5e7eb",
-            background: "#f9fafb",
+            position: "fixed",
+            inset: 0,
+            zIndex: 60,
+            backgroundColor: "rgba(15, 23, 42, 0.35)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "flex-start",
+            padding: "8vh 12px",
           }}
+          onClick={closeImportsModal}
         >
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-            Import % Complete (CSV)
-          </div>
-          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>
-            Uses line item number (#) and % Complete to update PETL line percentages for the latest estimate.
-          </div>
-          <form
-            onSubmit={handlePetlPercentImport}
-            style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}
+          <div
+            style={{
+              width: 960,
+              maxWidth: "96vw",
+              backgroundColor: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 12px 32px rgba(15,23,42,0.18)",
+              overflow: "hidden",
+            }}
+            onClick={e => e.stopPropagation()}
           >
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={e => setPetlPercentFile(e.target.files?.[0] ?? null)}
-              style={{ fontSize: 12 }}
-            />
-            <button
-              type="submit"
-              disabled={petlPercentImporting || !petlPercentFile}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 4,
-                border: "1px solid #0f172a",
-                backgroundColor: petlPercentImporting || !petlPercentFile ? "#e5e7eb" : "#0f172a",
-                color: petlPercentImporting || !petlPercentFile ? "#4b5563" : "#f9fafb",
-                cursor: petlPercentImporting || !petlPercentFile ? "default" : "pointer",
-                fontSize: 12,
-              }}
-            >
-              {petlPercentImporting ? "Uploading…" : "Queue percent import"}
-            </button>
-          </form>
-          {petlPercentImportError && (
-            <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>
-              {petlPercentImportError}
-            </div>
-          )}
-          {(petlPercentJob || petlPercentJobError) && (
             <div
               style={{
-                marginTop: 8,
-                padding: 8,
-                borderRadius: 6,
-                background: "#ffffff",
-                border: "1px solid #e5e7eb",
-                fontSize: 12,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "10px 12px",
+                borderBottom: "1px solid #e5e7eb",
+                backgroundColor: "#f8fafc",
               }}
             >
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>Import job status</div>
-              {petlPercentJobError && (
-                <div style={{ color: "#b91c1c", marginBottom: 4 }}>
-                  {petlPercentJobError}
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>Reconcile Imports</div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>
+                  Percent complete import and reconcile notes import.
                 </div>
-              )}
-              {petlPercentJob && (
-                <>
-                  <div>
-                    <strong>Status:</strong> {petlPercentJob.status ?? "UNKNOWN"}
-                  </div>
-                  <div>
-                    <strong>Progress:</strong>{" "}
-                    {typeof petlPercentJob.progress === "number"
-                      ? `${petlPercentJob.progress}%`
-                      : "—"}
-                  </div>
-                  {petlPercentJob.message && (
-                    <div>
-                      <strong>Message:</strong> {petlPercentJob.message}
+              </div>
+              <button
+                type="button"
+                onClick={closeImportsModal}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: 18,
+                  lineHeight: 1,
+                  padding: 6,
+                }}
+                aria-label="Close imports modal"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ padding: 12 }}>
+              {petlItems.length === 0 ? (
+                <div style={{ fontSize: 12, color: "#4b5563" }}>
+                  Imports are available after estimate items have been loaded for this project.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-start" }}>
+                  <div
+                    style={{
+                      flex: "1 1 420px",
+                      minWidth: 360,
+                      padding: 10,
+                      borderRadius: 8,
+                      border: "1px solid #e5e7eb",
+                      background: "#f9fafb",
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                      Import % Complete (CSV)
                     </div>
-                  )}
-                  {petlPercentJob.resultJson && (
-                    <div style={{ marginTop: 6 }}>
-                      <strong>Result:</strong>
-                      <pre
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>
+                      Uses line item number (#) and % Complete to update PETL line percentages.
+                    </div>
+                    <form
+                      onSubmit={handlePetlPercentImport}
+                      style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}
+                    >
+                      <input
+                        type="file"
+                        accept=".csv,text/csv"
+                        onChange={e => setPetlPercentFile(e.target.files?.[0] ?? null)}
+                        style={{ fontSize: 12 }}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={downloadPetlPercentCsv}
+                        disabled={petlItems.length === 0}
                         style={{
-                          marginTop: 4,
-                          padding: 6,
-                          background: "#f8fafc",
+                          padding: "6px 10px",
                           borderRadius: 4,
-                          whiteSpace: "pre-wrap",
+                          border: "1px solid #94a3b8",
+                          backgroundColor: petlItems.length === 0 ? "#e5e7eb" : "#ffffff",
+                          color: petlItems.length === 0 ? "#4b5563" : "#0f172a",
+                          cursor: petlItems.length === 0 ? "default" : "pointer",
+                          fontSize: 12,
                         }}
                       >
-                        {JSON.stringify(petlPercentJob.resultJson, null, 2)}
-                      </pre>
+                        Download CSV
+                      </button>
+
+                      <button
+                        type="submit"
+                        disabled={petlPercentImporting || !petlPercentFile}
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 4,
+                          border: "1px solid #0f172a",
+                          backgroundColor:
+                            petlPercentImporting || !petlPercentFile ? "#e5e7eb" : "#0f172a",
+                          color:
+                            petlPercentImporting || !petlPercentFile ? "#4b5563" : "#f9fafb",
+                          cursor:
+                            petlPercentImporting || !petlPercentFile ? "default" : "pointer",
+                          fontSize: 12,
+                        }}
+                      >
+                        {petlPercentImporting ? "Uploading…" : "Queue percent import"}
+                      </button>
+                    </form>
+                    {petlPercentImportError && (
+                      <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>
+                        {petlPercentImportError}
+                      </div>
+                    )}
+                    {(petlPercentJob || petlPercentJobError) && (
+                      <div
+                        style={{
+                          marginTop: 8,
+                          padding: 8,
+                          borderRadius: 6,
+                          background: "#ffffff",
+                          border: "1px solid #e5e7eb",
+                          fontSize: 12,
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, marginBottom: 4 }}>Import job status</div>
+                        {petlPercentJobError && (
+                          <div style={{ color: "#b91c1c", marginBottom: 4 }}>
+                            {petlPercentJobError}
+                          </div>
+                        )}
+                        {petlPercentJob && (
+                          <>
+                            <div>
+                              <strong>Status:</strong> {petlPercentJob.status ?? "UNKNOWN"}
+                            </div>
+                            <div>
+                              <strong>Progress:</strong>{" "}
+                              {typeof petlPercentJob.progress === "number"
+                                ? `${petlPercentJob.progress}%`
+                                : "—"}
+                            </div>
+                            {petlPercentJob.message && (
+                              <div>
+                                <strong>Message:</strong> {petlPercentJob.message}
+                              </div>
+                            )}
+
+                            {petlPercentJob.status === "FAILED" && petlPercentJob.errorJson && (
+                              <div style={{ marginTop: 6 }}>
+                                <strong>Error:</strong>
+                                <pre
+                                  style={{
+                                    marginTop: 4,
+                                    padding: 6,
+                                    background: "#fef2f2",
+                                    borderRadius: 4,
+                                    whiteSpace: "pre-wrap",
+                                  }}
+                                >
+                                  {JSON.stringify(petlPercentJob.errorJson, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+
+                            {petlPercentJob.resultJson && (
+                              <div style={{ marginTop: 6 }}>
+                                <strong>Result:</strong>
+                                <pre
+                                  style={{
+                                    marginTop: 4,
+                                    padding: 6,
+                                    background: "#f8fafc",
+                                    borderRadius: 4,
+                                    whiteSpace: "pre-wrap",
+                                  }}
+                                >
+                                  {JSON.stringify(petlPercentJob.resultJson, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div
+                    style={{
+                      flex: "1 1 420px",
+                      minWidth: 360,
+                      padding: 10,
+                      borderRadius: 8,
+                      border: "1px solid #e5e7eb",
+                      background: "#f9fafb",
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                      Import Reconcile Notes (CSV)
                     </div>
-                  )}
-                </>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>
+                      Attaches notes to PETL line items by line number (#).
+                    </div>
+                    <form
+                      onSubmit={handlePetlReconcileNotesImport}
+                      style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}
+                    >
+                      <input
+                        type="file"
+                        accept=".csv,text/csv"
+                        onChange={e => {
+                          setPetlReconcileNotesImportResult(null);
+                          setPetlReconcileNotesFile(e.target.files?.[0] ?? null);
+                        }}
+                        style={{ fontSize: 12 }}
+                      />
+                      <button
+                        type="submit"
+                        disabled={petlReconcileNotesImporting || !petlReconcileNotesFile}
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 4,
+                          border: "1px solid #0f172a",
+                          backgroundColor:
+                            petlReconcileNotesImporting || !petlReconcileNotesFile
+                              ? "#e5e7eb"
+                              : "#0f172a",
+                          color:
+                            petlReconcileNotesImporting || !petlReconcileNotesFile
+                              ? "#4b5563"
+                              : "#f9fafb",
+                          cursor:
+                            petlReconcileNotesImporting || !petlReconcileNotesFile
+                              ? "default"
+                              : "pointer",
+                          fontSize: 12,
+                        }}
+                      >
+                        {petlReconcileNotesImporting ? "Importing…" : "Import notes"}
+                      </button>
+                    </form>
+                    {petlReconcileNotesImportError && (
+                      <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>
+                        {petlReconcileNotesImportError}
+                      </div>
+                    )}
+                    {petlReconcileNotesImportResult && (
+                      <div
+                        style={{
+                          marginTop: 8,
+                          padding: 8,
+                          borderRadius: 6,
+                          background: "#ffffff",
+                          border: "1px solid #e5e7eb",
+                          fontSize: 12,
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, marginBottom: 4 }}>Import result</div>
+                        <pre
+                          style={{
+                            marginTop: 4,
+                            padding: 6,
+                            background: "#f8fafc",
+                            borderRadius: 4,
+                            whiteSpace: "pre-wrap",
+                          }}
+                        >
+                          {JSON.stringify(petlReconcileNotesImportResult, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
-          )}
-        </div>
-      )}
-
-      {petlItems.length > 0 && (
-        <div
-          style={{
-            marginBottom: 12,
-            padding: 10,
-            borderRadius: 8,
-            border: "1px solid #e5e7eb",
-            background: "#f9fafb",
-          }}
-        >
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-            Import Reconcile Notes (CSV)
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>
-            Attaches notes to PETL line items by line number (#). Reads columns:
-            Reimburish Owner, Change Orders - Customer Pay, Add to POL.
-          </div>
-          <form
-            onSubmit={handlePetlReconcileNotesImport}
-            style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}
-          >
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={e => {
-                setPetlReconcileNotesImportResult(null);
-                setPetlReconcileNotesFile(e.target.files?.[0] ?? null);
-              }}
-              style={{ fontSize: 12 }}
-            />
-            <button
-              type="submit"
-              disabled={petlReconcileNotesImporting || !petlReconcileNotesFile}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 4,
-                border: "1px solid #0f172a",
-                backgroundColor:
-                  petlReconcileNotesImporting || !petlReconcileNotesFile ? "#e5e7eb" : "#0f172a",
-                color:
-                  petlReconcileNotesImporting || !petlReconcileNotesFile ? "#4b5563" : "#f9fafb",
-                cursor:
-                  petlReconcileNotesImporting || !petlReconcileNotesFile ? "default" : "pointer",
-                fontSize: 12,
-              }}
-            >
-              {petlReconcileNotesImporting ? "Importing…" : "Import notes"}
-            </button>
-          </form>
-          {petlReconcileNotesImportError && (
-            <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>
-              {petlReconcileNotesImportError}
-            </div>
-          )}
-          {petlReconcileNotesImportResult && (
-            <div
-              style={{
-                marginTop: 8,
-                padding: 8,
-                borderRadius: 6,
-                background: "#ffffff",
-                border: "1px solid #e5e7eb",
-                fontSize: 12,
-              }}
-            >
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>Import result</div>
-              <pre
-                style={{
-                  marginTop: 4,
-                  padding: 6,
-                  background: "#f8fafc",
-                  borderRadius: 4,
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                {JSON.stringify(petlReconcileNotesImportResult, null, 2)}
-              </pre>
-            </div>
-          )}
         </div>
       )}
 
@@ -7050,7 +7426,10 @@ export default function ProjectDetailPage({
                 </tr>
               </thead>
               <tbody>
-                {(roomFilter ? groups.filter(g => g.particleId === roomFilter) : groups).map((g) => {
+                {(roomParticleIdFilters.length
+                  ? groups.filter((g) => g.particleId && roomParticleIdFilterSet.has(g.particleId))
+                  : groups
+                ).map((g) => {
                   const itemsForRoom = filteredItemsForRoom(g.particleId);
                   const isExpanded = g.particleId ? expandedRooms.has(g.particleId) : false;
  
