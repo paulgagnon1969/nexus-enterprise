@@ -316,6 +316,11 @@ export default function ProjectDetailPage({
   const [petlPercentJob, setPetlPercentJob] = useState<any | null>(null);
   const [petlPercentJobError, setPetlPercentJobError] = useState<string | null>(null);
 
+  const [petlReconcileNotesFile, setPetlReconcileNotesFile] = useState<File | null>(null);
+  const [petlReconcileNotesImporting, setPetlReconcileNotesImporting] = useState(false);
+  const [petlReconcileNotesImportError, setPetlReconcileNotesImportError] = useState<string | null>(null);
+  const [petlReconcileNotesImportResult, setPetlReconcileNotesImportResult] = useState<any | null>(null);
+
   const setPetlDisplayModePersisted = (mode: PetlDisplayMode) => {
     setPetlDisplayMode(mode);
     if (typeof window !== "undefined") {
@@ -407,6 +412,53 @@ export default function ProjectDetailPage({
       setPetlPercentImportError(err?.message ?? "Failed to queue import.");
     } finally {
       setPetlPercentImporting(false);
+    }
+  }
+
+  async function handlePetlReconcileNotesImport(e: React.FormEvent) {
+    e.preventDefault();
+    setPetlReconcileNotesImportError(null);
+
+    if (!petlReconcileNotesFile) {
+      setPetlReconcileNotesImportError("Choose a CSV file first.");
+      return;
+    }
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setPetlReconcileNotesImportError("Missing access token.");
+      return;
+    }
+
+    try {
+      setPetlReconcileNotesImporting(true);
+      const form = new FormData();
+      form.append("file", petlReconcileNotesFile);
+
+      const res = await fetch(`${API_BASE}/projects/${id}/petl/import-reconcile-notes`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Import failed (${res.status}) ${text}`);
+      }
+
+      const json = await res.json().catch(() => ({}));
+      setPetlReconcileNotesImportResult(json);
+      setPetlReconcileNotesFile(null);
+
+      // Refresh PETL/rollups + reconciliation drawer data.
+      setPetlReloadTick((t) => t + 1);
+      if (petlReconPanel.open && petlReconPanel.sowItemId) {
+        void loadPetlReconciliation(petlReconPanel.sowItemId);
+      }
+    } catch (err: any) {
+      setPetlReconcileNotesImportError(err?.message ?? "Failed to import notes.");
+    } finally {
+      setPetlReconcileNotesImporting(false);
     }
   }
 
@@ -6576,6 +6628,88 @@ export default function ProjectDetailPage({
                   )}
                 </>
               )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {petlItems.length > 0 && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: 10,
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            background: "#f9fafb",
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+            Import Reconcile Notes (CSV)
+          </div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>
+            Attaches notes to PETL line items by line number (#). Reads columns:
+            Reimburish Owner, Change Orders - Customer Pay, Add to POL.
+          </div>
+          <form
+            onSubmit={handlePetlReconcileNotesImport}
+            style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}
+          >
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={e => {
+                setPetlReconcileNotesImportResult(null);
+                setPetlReconcileNotesFile(e.target.files?.[0] ?? null);
+              }}
+              style={{ fontSize: 12 }}
+            />
+            <button
+              type="submit"
+              disabled={petlReconcileNotesImporting || !petlReconcileNotesFile}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 4,
+                border: "1px solid #0f172a",
+                backgroundColor:
+                  petlReconcileNotesImporting || !petlReconcileNotesFile ? "#e5e7eb" : "#0f172a",
+                color:
+                  petlReconcileNotesImporting || !petlReconcileNotesFile ? "#4b5563" : "#f9fafb",
+                cursor:
+                  petlReconcileNotesImporting || !petlReconcileNotesFile ? "default" : "pointer",
+                fontSize: 12,
+              }}
+            >
+              {petlReconcileNotesImporting ? "Importing…" : "Import notes"}
+            </button>
+          </form>
+          {petlReconcileNotesImportError && (
+            <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>
+              {petlReconcileNotesImportError}
+            </div>
+          )}
+          {petlReconcileNotesImportResult && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: 8,
+                borderRadius: 6,
+                background: "#ffffff",
+                border: "1px solid #e5e7eb",
+                fontSize: 12,
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>Import result</div>
+              <pre
+                style={{
+                  marginTop: 4,
+                  padding: 6,
+                  background: "#f8fafc",
+                  borderRadius: 4,
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {JSON.stringify(petlReconcileNotesImportResult, null, 2)}
+              </pre>
             </div>
           )}
         </div>

@@ -11,6 +11,7 @@
     "check-types": "tsc -p tsconfig.json --noEmit",
     "lint": "echo 'lint disabled'",
     "import:xact": "ts-node src/run-import-xact.ts",
+    "import:petl-notes": "ts-node src/run-import-petl-notes.ts",
     "import:xact-components": "ts-node src/run-import-xact-components.ts",
     "allocate:xact-components": "ts-node src/run-allocate-xact-components.ts",
     "import:pricelist": "ts-node src/run-import-pricelist.ts",

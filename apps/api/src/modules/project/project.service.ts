@@ -3,6 +3,7 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuditService } from "../../common/audit.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import type { Prisma } from "@prisma/client";
+import { parse } from "csv-parse/sync";
 import { GlobalRole, Role, ProjectRole, ProjectParticleType, ProjectParticipantScope, ProjectVisibilityLevel, MessageThreadType, PetlReconciliationEntryKind } from "@prisma/client";
 import { CreateProjectDto, UpdateProjectDto } from "./dto/project.dto";
 import { importXactCsvForProject, importXactComponentsCsvForEstimate, allocateComponentsForEstimate } from "@repo/database";
@@ -1019,6 +1020,39 @@ export class ProjectService {
     };
   }
 
+  private async getLatestEstimateVersionForPetl(projectId: string) {
+    let latestVersion = await this.prisma.estimateVersion.findFirst({
+      where: {
+        projectId,
+        sows: {
+          some: {
+            items: {
+              some: {},
+            },
+          },
+        },
+      },
+      orderBy: [
+        { sequenceNo: "desc" },
+        { importedAt: "desc" },
+        { createdAt: "desc" },
+      ],
+    });
+
+    if (!latestVersion) {
+      latestVersion = await this.prisma.estimateVersion.findFirst({
+        where: { projectId },
+        orderBy: [
+          { sequenceNo: "desc" },
+          { importedAt: "desc" },
+          { createdAt: "desc" },
+        ],
+      });
+    }
+
+    return latestVersion;
+  }
+
   async getPetlForProject(
     projectId: string,
     companyId: string,
@@ -1047,39 +1081,8 @@ export class ProjectService {
       }
     }
 
-    // Prefer the latest estimate version that actually has PETL rows. This avoids
-    // picking placeholder or empty versions that would make the PETL view look
-    // blank even though a newer import populated SOW items.
-    let latestVersion = await this.prisma.estimateVersion.findFirst({
-      where: {
-        projectId,
-        sows: {
-          some: {
-            items: {
-              some: {},
-            },
-          },
-        },
-      },
-      orderBy: [
-        { sequenceNo: "desc" },
-        { importedAt: "desc" },
-        { createdAt: "desc" },
-      ],
-    });
-
-    // Fallback: if no estimate version has SOW items yet, use the latest version
-    // regardless, so callers can still see an empty PETL for brand-new projects.
-    if (!latestVersion) {
-      latestVersion = await this.prisma.estimateVersion.findFirst({
-        where: { projectId },
-        orderBy: [
-          { sequenceNo: "desc" },
-          { importedAt: "desc" },
-          { createdAt: "desc" },
-        ],
-      });
-    }
+    // Prefer the latest estimate version that actually has PETL rows.
+    const latestVersion = await this.getLatestEstimateVersionForPetl(projectId);
 
     if (!latestVersion) {
       return {
@@ -1392,6 +1395,301 @@ export class ProjectService {
     });
 
     return { entry, reconciliationCase: entry.case };
+  }
+
+  async importPetlReconcileNotesFromCsv(args: {
+    projectId: string;
+    companyId: string;
+    actor: AuthenticatedUser;
+    csvText: string;
+    dryRun?: boolean;
+    fileName?: string | null;
+  }) {
+    const {
+      projectId,
+      companyId,
+      actor,
+      csvText,
+      dryRun = false,
+      fileName = null,
+    } = args;
+
+    // Validate access + project existence
+    await this.getProjectByIdForUser(projectId, actor);
+
+    const latestVersion = await this.getLatestEstimateVersionForPetl(projectId);
+    if (!latestVersion) {
+      throw new BadRequestException("No estimate version found for this project");
+    }
+
+    // Load PETL rows for matching.
+    const sowItems = await this.prisma.sowItem.findMany({
+      where: { estimateVersionId: latestVersion.id },
+      select: {
+        id: true,
+        lineNo: true,
+        description: true,
+        categoryCode: true,
+        selectionCode: true,
+        projectParticleId: true,
+        logicalItemId: true,
+        estimateVersionId: true,
+      },
+    });
+
+    const byLineNo = new Map<number, (typeof sowItems)[number]>();
+    for (const it of sowItems) {
+      if (!byLineNo.has(it.lineNo)) byLineNo.set(it.lineNo, it);
+    }
+
+    const cleanText = (value: any, max = 5000): string | null => {
+      if (value == null) return null;
+      const s = String(value)
+        .replace(/\r?\n/g, " ")
+        .replace(/[\u0000-\u001F]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!s) return null;
+      return s.length > max ? s.slice(0, max) : s;
+    };
+
+    const parseIntLoose = (value: any): number | null => {
+      if (value == null) return null;
+      const s = String(value).trim();
+      if (!s) return null;
+      const normalized = s.replace(/,/g, "");
+      const n = Number(normalized);
+      if (!Number.isFinite(n)) return null;
+      return Math.trunc(n);
+    };
+
+    // Parse CSV as a loose matrix and locate the detail header row.
+    const rows: any[] = parse(csvText, {
+      relax_column_count: true,
+      relax_quotes: true,
+      skip_empty_lines: true,
+    });
+
+    const headerIdx = rows.findIndex((r) => {
+      const first = String(r?.[0] ?? "").trim();
+      if (first !== "ACV Pay") return false;
+      return (r as any[]).some((c: any) => String(c ?? "").includes("Reimburish Owner"));
+    });
+
+    if (headerIdx < 0) {
+      throw new BadRequestException(
+        "Could not locate reconcile detail header row (expected first cell 'ACV Pay').",
+      );
+    }
+
+    const header: string[] = (rows[headerIdx] as any[]).map((c) => String(c ?? "").trim());
+
+    // Preload existing imported-style placeholders so we don't duplicate notes.
+    const existing = await this.prisma.petlReconciliationEntry.findMany({
+      where: {
+        projectId,
+        estimateVersionId: latestVersion.id,
+        rcvAmount: null,
+        kind: {
+          in: [
+            PetlReconciliationEntryKind.NOTE_ONLY,
+            PetlReconciliationEntryKind.REIMBURSE_OWNER,
+            PetlReconciliationEntryKind.CHANGE_ORDER_CLIENT_PAY,
+          ],
+        },
+      },
+      select: {
+        parentSowItemId: true,
+        kind: true,
+        note: true,
+      },
+    });
+
+    const existingKey = new Set<string>();
+    for (const e of existing) {
+      if (!e.parentSowItemId) continue;
+      const k = `${e.parentSowItemId}::${e.kind}::${e.note ?? ""}`;
+      existingKey.add(k);
+    }
+
+    const caseCache = new Map<string, { id: string }>();
+
+    let totalCsvDetailRows = 0;
+    let matched = 0;
+    let missing = 0;
+    let mismatchMeta = 0;
+    let createdCases = 0;
+    let createdEntries = 0;
+    let skippedExisting = 0;
+
+    for (let i = headerIdx + 1; i < rows.length; i += 1) {
+      const row = rows[i] as any[];
+      if (!Array.isArray(row) || row.length === 0) continue;
+
+      const rec: Record<string, any> = {};
+      for (let j = 0; j < header.length; j += 1) {
+        rec[header[j] ?? String(j)] = row[j];
+      }
+
+      const lineNo = parseIntLoose(rec["#"]);
+      if (lineNo == null) continue;
+
+      totalCsvDetailRows += 1;
+
+      const sowItem = byLineNo.get(lineNo) ?? null;
+      if (!sowItem) {
+        missing += 1;
+        continue;
+      }
+
+      matched += 1;
+
+      // Optional sanity check (do not block import)
+      const csvCat = cleanText(rec["Cat"], 50) ?? "";
+      const csvSel = cleanText(rec["Sel"], 50) ?? "";
+      const csvDesc = cleanText(rec["Desc"], 2000) ?? "";
+      const dbCat = (sowItem.categoryCode ?? "").trim();
+      const dbSel = (sowItem.selectionCode ?? "").trim();
+      const dbDesc = (sowItem.description ?? "").trim();
+
+      if (
+        (csvCat && dbCat && csvCat.toLowerCase() !== dbCat.toLowerCase()) ||
+        (csvSel && dbSel && csvSel.toLowerCase() !== dbSel.toLowerCase()) ||
+        (csvDesc && dbDesc && csvDesc.toLowerCase() !== dbDesc.toLowerCase())
+      ) {
+        mismatchMeta += 1;
+      }
+
+      const notes: { kind: PetlReconciliationEntryKind; note: string; column: string }[] = [];
+
+      const ro = cleanText(rec["Reimburish Owner"], 5000);
+      if (ro) {
+        notes.push({
+          kind: PetlReconciliationEntryKind.REIMBURSE_OWNER,
+          note: ro,
+          column: "Reimburish Owner",
+        });
+      }
+
+      const co = cleanText(rec["Change Orders - Customer Pay"], 5000);
+      if (co) {
+        notes.push({
+          kind: PetlReconciliationEntryKind.CHANGE_ORDER_CLIENT_PAY,
+          note: co,
+          column: "Change Orders - Customer Pay",
+        });
+      }
+
+      const pol = cleanText(rec["Add to POL"], 5000);
+      if (pol) {
+        notes.push({
+          kind: PetlReconciliationEntryKind.NOTE_ONLY,
+          note: `Add to POL: ${pol}`,
+          column: "Add to POL",
+        });
+      }
+
+      if (notes.length === 0) {
+        continue;
+      }
+
+      let theCase = caseCache.get(sowItem.id) ?? null;
+      if (!theCase) {
+        if (dryRun) {
+          // We don't create cases in dry-run; just count notes.
+          theCase = { id: "dry-run" };
+        } else {
+          const existingCase = await this.prisma.petlReconciliationCase.findFirst({
+            where: {
+              projectId,
+              OR: [{ sowItemId: sowItem.id }, { logicalItemId: sowItem.logicalItemId }],
+            },
+            select: { id: true },
+          });
+
+          if (existingCase) {
+            theCase = existingCase;
+          } else {
+            const created = await this.getOrCreatePetlReconciliationCaseForSowItem({
+              projectId,
+              companyId,
+              actor,
+              sowItemId: sowItem.id,
+            });
+            theCase = { id: created.id };
+            createdCases += 1;
+          }
+        }
+
+        caseCache.set(sowItem.id, theCase);
+      }
+
+      for (const n of notes) {
+        const key = `${sowItem.id}::${n.kind}::${n.note}`;
+        if (existingKey.has(key)) {
+          skippedExisting += 1;
+          continue;
+        }
+
+        createdEntries += 1;
+        existingKey.add(key);
+
+        if (dryRun) {
+          continue;
+        }
+
+        await this.prisma.petlReconciliationEntry.create({
+          data: {
+            projectId,
+            estimateVersionId: sowItem.estimateVersionId,
+            caseId: theCase.id,
+            parentSowItemId: sowItem.id,
+            projectParticleId: sowItem.projectParticleId,
+            kind: n.kind,
+            note: n.note,
+            rcvAmount: null,
+            percentComplete: 0,
+            isPercentCompleteLocked: true,
+            createdByUserId: actor.userId,
+            sourceSnapshotJson: {
+              source: "PWC Reconcile2 - Xactimate POL - Summary Detail",
+              fileName,
+              lineNo,
+              column: n.column,
+            },
+            events: {
+              create: {
+                projectId,
+                estimateVersionId: sowItem.estimateVersionId,
+                caseId: theCase.id,
+                eventType: "ENTRY_CREATED_IMPORT",
+                payloadJson: {
+                  kind: n.kind,
+                  note: n.note,
+                  column: n.column,
+                  lineNo,
+                  fileName,
+                },
+                createdByUserId: actor.userId,
+              },
+            },
+          },
+        });
+      }
+    }
+
+    return {
+      projectId,
+      estimateVersionId: latestVersion.id,
+      totalCsvDetailRows,
+      matched,
+      missing,
+      mismatchMeta,
+      createdCases,
+      createdEntries,
+      skippedExisting,
+      dryRun,
+    };
   }
 
   async createPetlReconciliationCredit(
