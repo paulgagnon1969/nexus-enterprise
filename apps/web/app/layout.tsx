@@ -4,6 +4,7 @@ import Providers from "./providers";
 import { AppShell } from "./ui-shell";
 import { cookies, headers } from "next/headers";
 import { LanguageProvider, Locale } from "./language-context";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata = {
   title: "Nexus Enterprise",
@@ -58,6 +59,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             <AppShell>{children}</AppShell>
           </Providers>
         </LanguageProvider>
+        <Analytics />
       </body>
     </html>
   );
