@@ -44,6 +44,59 @@ export class ProjectImportJobsController {
   }
 
   @Roles(Role.OWNER, Role.ADMIN)
+  @Post("petl-percent")
+  async enqueuePetlPercent(@Req() req: FastifyRequest, @Param("projectId") projectId: string) {
+    const user = (req as any).user as AuthenticatedUser;
+
+    const parts = (req as any).files
+      ? (req as any).files()
+      : (async function* () {})();
+
+    const baseTmpDir = process.env.NCC_UPLOAD_TMP_DIR || os.tmpdir();
+    const importDir = path.join(baseTmpDir, "ncc_uploads", "petl_percent");
+    await fs.promises.mkdir(importDir, { recursive: true });
+
+    let savedFile: string | null = null;
+
+    for await (const part of parts as any) {
+      if (!part.file || (part.fieldname && part.fieldname !== "file" && part.fieldname !== "files")) {
+        continue;
+      }
+
+      if (savedFile) {
+        throw new BadRequestException("Only one CSV file is allowed for this import.");
+      }
+
+      const safeName = (part.filename || "upload.csv").replace(/[^a-zA-Z0-9_.-]/g, "_");
+      const dest = path.join(
+        importDir,
+        `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`,
+      );
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of part.file) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      await fs.promises.writeFile(dest, Buffer.concat(chunks));
+      savedFile = dest;
+    }
+
+    if (!savedFile) {
+      throw new BadRequestException("A CSV file is required for the PETL percent import.");
+    }
+
+    const job = await this.jobs.createJob({
+      companyId: user.companyId,
+      projectId,
+      createdByUserId: user.userId,
+      type: ImportJobType.PROJECT_PETL_PERCENT,
+      csvPath: savedFile,
+    });
+
+    return { jobId: job.id, savedFile };
+  }
+
+  @Roles(Role.OWNER, Role.ADMIN)
   @Post("xact-components")
   async enqueueXactComponents(
     @Req() req: any,

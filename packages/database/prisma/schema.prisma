@@ -2177,6 +2177,7 @@ enum ImportJobType {
   BIA_LCP
   COMPANY_PRICE_LIST
   FORTIFIED_PAYROLL_ADMIN
+  PROJECT_PETL_PERCENT
 }
 
 enum ImportJobStatus {
