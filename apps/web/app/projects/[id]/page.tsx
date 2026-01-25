@@ -366,7 +366,7 @@ export default function ProjectDetailPage({
     };
   }, [petlPercentJobId]);
 
-  async function handlePetlPercentImport(e: FormEvent) {
+  async function handlePetlPercentImport(e: React.FormEvent) {
     e.preventDefault();
     setPetlPercentImportError(null);
 
