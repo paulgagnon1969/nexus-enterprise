@@ -556,6 +556,135 @@ export class ProjectController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get(":id/petl/:sowItemId/reconciliation")
+  getPetlReconciliation(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("sowItemId") sowItemId: string
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getPetlReconciliationForSowItem(
+      projectId,
+      user.companyId,
+      user,
+      sowItemId,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl/:sowItemId/reconciliation/placeholder")
+  createPetlReconciliationPlaceholder(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("sowItemId") sowItemId: string,
+    @Body() body: { kind?: string; note?: string | null }
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.createPetlReconciliationPlaceholder(
+      projectId,
+      user.companyId,
+      user,
+      sowItemId,
+      body,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl/:sowItemId/reconciliation/credit")
+  createPetlReconciliationCredit(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("sowItemId") sowItemId: string,
+    @Body()
+    body: {
+      note?: string | null;
+      components?: { itemAmount?: boolean; salesTaxAmount?: boolean; opAmount?: boolean };
+    }
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.createPetlReconciliationCredit(
+      projectId,
+      user.companyId,
+      user,
+      sowItemId,
+      body,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl/:sowItemId/reconciliation/add-manual")
+  createPetlReconciliationAddManual(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("sowItemId") sowItemId: string,
+    @Body()
+    body: {
+      description?: string | null;
+      categoryCode?: string | null;
+      selectionCode?: string | null;
+      unit?: string | null;
+      qty?: number | null;
+      unitCost?: number | null;
+      itemAmount?: number | null;
+      salesTaxAmount?: number | null;
+      opAmount?: number | null;
+      rcvAmount?: number | null;
+      note?: string | null;
+    }
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.createPetlReconciliationAddManual(
+      projectId,
+      user.companyId,
+      user,
+      sowItemId,
+      body,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl/:sowItemId/reconciliation/add-from-cost-book")
+  createPetlReconciliationAddFromCostBook(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("sowItemId") sowItemId: string,
+    @Body()
+    body: {
+      companyPriceListItemId: string;
+      qty?: number | null;
+      unitCostOverride?: number | null;
+      note?: string | null;
+    }
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.createPetlReconciliationAddFromCostBook(
+      projectId,
+      user.companyId,
+      user,
+      sowItemId,
+      body,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl-reconciliation/entries/:entryId/percent")
+  updatePetlReconciliationEntryPercent(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("entryId") entryId: string,
+    @Body() body: { newPercent: number }
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.updatePetlReconciliationEntryPercent(
+      projectId,
+      user.companyId,
+      user,
+      entryId,
+      body.newPercent,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(":id/petl-groups")
   getPetlGroups(@Req() req: any, @Param("id") projectId: string) {
     const user = req.user as AuthenticatedUser;

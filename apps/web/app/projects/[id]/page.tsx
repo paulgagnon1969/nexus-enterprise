@@ -210,6 +210,8 @@ type TabKey =
   | "FILES"
   | "FINANCIAL";
 
+type PetlDisplayMode = "PROJECT_GROUPING" | "LINE_SEQUENCE";
+
 // Logical project state buckets backed by Project.status
 // OPEN  -> status "open" (or "active")
 // ARCHIVED -> status "archived"
@@ -231,7 +233,11 @@ export default function ProjectDetailPage({
   const [petlTotalAmount, setPetlTotalAmount] = useState<number | null>(null);
   const [componentsCount, setComponentsCount] = useState<number | null>(null);
   const [petlItems, setPetlItems] = useState<PetlItem[]>([]);
+  const [petlReconciliationEntries, setPetlReconciliationEntries] = useState<any[]>([]);
   const [petlLoading, setPetlLoading] = useState(false);
+
+  // Increment to force reloads of PETL + groups after reconciliation mutations.
+  const [petlReloadTick, setPetlReloadTick] = useState(0);
 
   const [participants, setParticipants] = useState<
     | {
@@ -282,9 +288,22 @@ export default function ProjectDetailPage({
     percentComplete: number;
   }[]>([]);
 
+  // Lightweight "needs reconciliation" flags for PETL lines.
+  // For now this is stored in localStorage (per project) so PMs can quickly mark
+  // rows that need follow-up (e.g. CO note without amount).
+  const [petlReconFlagIds, setPetlReconFlagIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+
   const [roomFilter, setRoomFilter] = useState<string>("");
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [selectionFilter, setSelectionFilter] = useState<string>("");
+
+  // PETL view toggle: project organization grouping vs line sequence
+  const [petlDisplayMode, setPetlDisplayMode] = useState<PetlDisplayMode>(
+    "PROJECT_GROUPING",
+  );
+
   const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
 
   const [operation, setOperation] = useState<"set" | "increment" | "decrement">("set");
@@ -342,6 +361,49 @@ export default function ProjectDetailPage({
     roomName: string;
     components: RoomComponentAgg[];
   }>({ open: false, loading: false, error: null, roomName: "", components: [] });
+
+  // PETL reconciliation drawer
+  const [petlReconPanel, setPetlReconPanel] = useState<{
+    open: boolean;
+    sowItemId: string | null;
+    loading: boolean;
+    error: string | null;
+    data: any | null;
+  }>({ open: false, sowItemId: null, loading: false, error: null, data: null });
+
+  const [reconCreditComponents, setReconCreditComponents] = useState<{
+    itemAmount: boolean;
+    salesTaxAmount: boolean;
+    opAmount: boolean;
+  }>({ itemAmount: true, salesTaxAmount: true, opAmount: true });
+
+  const [reconNote, setReconNote] = useState<string>("");
+  const [reconPlaceholderKind, setReconPlaceholderKind] = useState<string>(
+    "NOTE_ONLY",
+  );
+
+  const [costBookModalOpen, setCostBookModalOpen] = useState(false);
+  const [costBookCatFilter, setCostBookCatFilter] = useState<string>("");
+  const [costBookSelFilter, setCostBookSelFilter] = useState<string>("");
+  const [costBookQuery, setCostBookQuery] = useState<string>("");
+
+  const normalizeCatCode = (raw: any) => {
+    const s = String(raw ?? "").trim();
+    if (!s) return "";
+    // Prefer the first token (some UI strings include "03 - Demo" / "03-Demo" etc.).
+    return s.split(/[\s-]+/)[0]?.split(":")[0]?.trim() ?? "";
+  };
+
+  const normalizeSelCode = (raw: any) => {
+    const s = String(raw ?? "").trim();
+    if (!s) return "";
+    // Selection codes are usually token-like; keep the first whitespace token.
+    return s.split(/\s+/)[0]?.split(":")[0]?.trim() ?? "";
+  };
+  const [costBookQty, setCostBookQty] = useState<string>("1");
+  const [costBookResults, setCostBookResults] = useState<any[]>([]);
+  const [costBookSearching, setCostBookSearching] = useState(false);
+  const [costBookSearchError, setCostBookSearchError] = useState<string | null>(null);
 
   const [importRoomBuckets, setImportRoomBuckets] = useState<ImportRoomBucket[] | null>(null);
   const [importRoomBucketsLoading, setImportRoomBucketsLoading] = useState(false);
@@ -536,6 +598,35 @@ export default function ProjectDetailPage({
   const [structureOpen, setStructureOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("SUMMARY");
 
+  // Load/save reconciliation flags per project.
+  useEffect(() => {
+    if (!project || typeof window === "undefined") return;
+    const key = `petlReconFlags:${project.id}`;
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) {
+        setPetlReconFlagIds(new Set());
+        return;
+      }
+      const ids = JSON.parse(raw);
+      if (Array.isArray(ids)) {
+        setPetlReconFlagIds(new Set(ids.filter((v) => typeof v === "string")));
+      }
+    } catch {
+      setPetlReconFlagIds(new Set());
+    }
+  }, [project]);
+
+  useEffect(() => {
+    if (!project || typeof window === "undefined") return;
+    const key = `petlReconFlags:${project.id}`;
+    try {
+      window.localStorage.setItem(key, JSON.stringify(Array.from(petlReconFlagIds)));
+    } catch {
+      // ignore storage errors
+    }
+  }, [project, petlReconFlagIds]);
+
   // Default Time Accounting link to "today" for this project
   const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -581,10 +672,13 @@ export default function ProjectDetailPage({
   }, [searchParams]);
 
   const overallSummary = useMemo(() => {
-    if (!petlItems.length) return null;
+    if (petlItems.length === 0 && petlReconciliationEntries.length === 0) {
+      return null;
+    }
     let count = 0;
     let total = 0;
     let completed = 0;
+
     for (const item of petlItems) {
       const amt = item.rcvAmount ?? item.itemAmount ?? 0;
       const basePct = item.percentComplete ?? 0;
@@ -593,13 +687,22 @@ export default function ProjectDetailPage({
       total += amt;
       completed += amt * (pct / 100);
     }
+
+    for (const entry of petlReconciliationEntries) {
+      const amt = entry?.rcvAmount ?? 0;
+      const pct = entry?.isPercentCompleteLocked ? 0 : (entry?.percentComplete ?? 0);
+      count += 1;
+      total += amt;
+      completed += amt * (pct / 100);
+    }
+
     return {
       itemCount: count,
       totalAmount: total,
       completedAmount: completed,
       percentComplete: total > 0 ? (completed / total) * 100 : 0
     };
-  }, [petlItems]);
+  }, [petlItems, petlReconciliationEntries]);
 
   // Derived filter options
   const roomOptions = useMemo(() => {
@@ -619,16 +722,24 @@ export default function ProjectDetailPage({
     for (const item of petlItems) {
       if (item.categoryCode) set.add(item.categoryCode);
     }
+    for (const entry of petlReconciliationEntries) {
+      const cat = entry?.categoryCode;
+      if (typeof cat === "string" && cat.trim()) set.add(cat);
+    }
     return Array.from(set.values()).sort();
-  }, [petlItems]);
+  }, [petlItems, petlReconciliationEntries]);
 
   const selectionOptions = useMemo(() => {
     const set = new Set<string>();
     for (const item of petlItems) {
       if (item.selectionCode) set.add(item.selectionCode);
     }
+    for (const entry of petlReconciliationEntries) {
+      const sel = entry?.selectionCode;
+      if (typeof sel === "string" && sel.trim()) set.add(sel);
+    }
     return Array.from(set.values()).sort();
-  }, [petlItems]);
+  }, [petlItems, petlReconciliationEntries]);
 
   const matchesFilters = (item: PetlItem) => {
     if (roomFilter) {
@@ -788,11 +899,14 @@ export default function ProjectDetailPage({
     const loadPetl = async () => {
       try {
         setPetlLoading(true);
-        const [petlRes, groupsRes] = await Promise.all([
+        const [petlRes, groupsRes, summaryRes] = await Promise.all([
           fetch(`${API_BASE}/projects/${project.id}/petl`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
           fetch(`${API_BASE}/projects/${project.id}/petl-groups`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE}/projects/${project.id}/estimate-summary`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);
@@ -800,12 +914,23 @@ export default function ProjectDetailPage({
         if (!cancelled && petlRes.ok) {
           const petl: any = await petlRes.json();
           const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
+          const recon: any[] = Array.isArray(petl.reconciliationEntries)
+            ? petl.reconciliationEntries
+            : [];
           setPetlItems(items);
+          setPetlReconciliationEntries(recon);
         }
 
         if (!cancelled && groupsRes.ok) {
           const json: any = await groupsRes.json();
           setGroups(Array.isArray(json.groups) ? json.groups : []);
+        }
+
+        if (!cancelled && summaryRes.ok) {
+          const summary: any = await summaryRes.json();
+          setPetlItemCount(typeof summary.itemCount === "number" ? summary.itemCount : null);
+          setPetlTotalAmount(typeof summary.totalAmount === "number" ? summary.totalAmount : null);
+          setComponentsCount(typeof summary.componentsCount === "number" ? summary.componentsCount : null);
         }
       } finally {
         if (!cancelled) setPetlLoading(false);
@@ -817,7 +942,7 @@ export default function ProjectDetailPage({
     return () => {
       cancelled = true;
     };
-  }, [project, activeTab]);
+  }, [project, activeTab, petlReloadTick]);
 
   // Load hierarchy lazily when STRUCTURE tab is opened
   useEffect(() => {
@@ -1097,53 +1222,33 @@ export default function ProjectDetailPage({
     if (categoryFilter) params.append("categoryCode", categoryFilter);
     if (selectionFilter) params.append("selectionCode", selectionFilter);
 
-    // If any filters are active, ask the server for an authoritative rollup.
-    if (roomFilter || categoryFilter || selectionFilter) {
-      fetch(
-        `${API_BASE}/projects/${project.id}/petl-selection-summary?${params.toString()}`,
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      )
-        .then(res => (res.ok ? res.json() : null))
-        .then(json => {
-          if (!json) return;
-          setSelectionSummary({
-            itemCount: json.itemCount ?? 0,
-            totalAmount: json.totalAmount ?? 0,
-            completedAmount: json.completedAmount ?? 0,
-            percentComplete: json.percentComplete ?? 0
-          });
-        })
-        .catch(() => {
-          // ignore
+    let cancelled = false;
+
+    // Always use the server for selection rollups so reconciliation adjustments
+    // are included (even when no filters are set).
+    fetch(
+      `${API_BASE}/projects/${project.id}/petl-selection-summary?${params.toString()}`,
+      {
+        headers: { Authorization: `Bearer ${token}` }
+      }
+    )
+      .then(res => (res.ok ? res.json() : null))
+      .then(json => {
+        if (cancelled || !json) return;
+        setSelectionSummary({
+          itemCount: json.itemCount ?? 0,
+          totalAmount: json.totalAmount ?? 0,
+          completedAmount: json.completedAmount ?? 0,
+          percentComplete: json.percentComplete ?? 0
         });
-      return;
-    }
+      })
+      .catch(() => {
+        // ignore
+      });
 
-    // No server-side filters; recompute from local items
-    if (petlItems.length === 0) {
-      setSelectionSummary(null);
-      return;
-    }
-
-    let count = 0;
-    let total = 0;
-    let completed = 0;
-    for (const item of petlItems) {
-      const amt = item.rcvAmount ?? item.itemAmount ?? 0;
-      const basePct = item.percentComplete ?? 0;
-      const pct = item.isAcvOnly ? 0 : basePct;
-      count += 1;
-      total += amt;
-      completed += amt * (pct / 100);
-    }
-    setSelectionSummary({
-      itemCount: count,
-      totalAmount: total,
-      completedAmount: completed,
-      percentComplete: total > 0 ? (completed / total) * 100 : 0
-    });
+    return () => {
+      cancelled = true;
+    };
   }, [project, roomFilter, categoryFilter, selectionFilter, petlItems]);
 
   // Lazy-load financial summary only when Financial tab is opened
@@ -1241,6 +1346,351 @@ export default function ProjectDetailPage({
       return next;
     });
   };
+
+  const isPetlReconFlagged = (sowItemId: string) => petlReconFlagIds.has(sowItemId);
+
+  const togglePetlReconFlag = (sowItemId: string) => {
+    setPetlReconFlagIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(sowItemId)) next.delete(sowItemId);
+      else next.add(sowItemId);
+      return next;
+    });
+  };
+
+  const loadPetlReconciliation = async (sowItemId: string) => {
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setPetlReconPanel({
+        open: true,
+        sowItemId,
+        loading: false,
+        error: "Missing access token. Please login again.",
+        data: null,
+      });
+      return;
+    }
+
+    setPetlReconPanel(prev => ({
+      ...prev,
+      open: true,
+      sowItemId,
+      loading: true,
+      error: null,
+    }));
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${id}/petl/${sowItemId}/reconciliation`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        setPetlReconPanel(prev => ({
+          ...prev,
+          loading: false,
+          error: `Failed to load reconciliation (${res.status}) ${text}`,
+          data: null,
+        }));
+        return;
+      }
+
+      const json: any = await res.json();
+      setPetlReconPanel(prev => ({
+        ...prev,
+        loading: false,
+        error: null,
+        data: json,
+      }));
+
+      const baselineQty = json?.rcvBreakdown?.qty;
+      if (typeof baselineQty === "number" && Number.isFinite(baselineQty)) {
+        setCostBookQty(String(baselineQty));
+      }
+
+      // Prescreen cost book search based on the line we're reconciling.
+      // Start broad (CAT only) so we show plenty of options, and highlight the exact CAT+SEL match.
+      const baselineCat = normalizeCatCode(json?.sowItem?.categoryCode ?? "");
+      setCostBookCatFilter(baselineCat);
+      setCostBookSelFilter("");
+      setCostBookQuery("");
+      setCostBookResults([]);
+      setCostBookSearchError(null);
+    } catch (err: any) {
+      setPetlReconPanel(prev => ({
+        ...prev,
+        loading: false,
+        error: err?.message ?? "Failed to load reconciliation",
+        data: null,
+      }));
+    }
+  };
+
+  const openPetlReconciliation = (sowItemId: string) => {
+    setReconNote("");
+    setReconCreditComponents({ itemAmount: true, salesTaxAmount: true, opAmount: true });
+    setReconPlaceholderKind("NOTE_ONLY");
+    setCostBookQuery("");
+    setCostBookResults([]);
+    setCostBookSearchError(null);
+    void loadPetlReconciliation(sowItemId);
+  };
+
+  const submitReconCredit = async () => {
+    const sowItemId = petlReconPanel.sowItemId;
+    if (!sowItemId) return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token; please log in again.");
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${id}/petl/${sowItemId}/reconciliation/credit`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            note: reconNote || null,
+            components: reconCreditComponents,
+          }),
+        },
+      );
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        alert(`Failed to create credit (${res.status}) ${text}`);
+        return;
+      }
+
+      setPetlReloadTick(t => t + 1);
+      await loadPetlReconciliation(sowItemId);
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to create credit");
+    }
+  };
+
+  const submitReconPlaceholder = async () => {
+    const sowItemId = petlReconPanel.sowItemId;
+    if (!sowItemId) return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token; please log in again.");
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${id}/petl/${sowItemId}/reconciliation/placeholder`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            kind: reconPlaceholderKind,
+            note: reconNote || null,
+          }),
+        },
+      );
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        alert(`Failed to create placeholder (${res.status}) ${text}`);
+        return;
+      }
+
+      setPetlReloadTick(t => t + 1);
+      await loadPetlReconciliation(sowItemId);
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to create placeholder");
+    }
+  };
+
+  const runCostBookSearch = async (mode: "auto" | "user" = "user") => {
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setCostBookSearchError("Missing access token. Please login again.");
+      return;
+    }
+
+    setCostBookSearching(true);
+    setCostBookSearchError(null);
+
+    try {
+      const body =
+        mode === "auto"
+          ? {
+              // Load a large, sorted slice of the CAT so we can scroll above/below
+              // the highlighted line item.
+              query: "",
+              cat: costBookCatFilter || undefined,
+              limit: 2000,
+            }
+          : {
+              query: costBookQuery,
+              cat: costBookCatFilter || undefined,
+              sel: costBookSelFilter || undefined,
+              limit: 200,
+            };
+
+      const res = await fetch(`${API_BASE}/pricing/company-price-list/search`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        setCostBookSearchError(`Search failed (${res.status}) ${text}`);
+        setCostBookResults([]);
+        return;
+      }
+
+      const json: any = await res.json();
+      setCostBookResults(Array.isArray(json.items) ? json.items : []);
+    } catch (err: any) {
+      setCostBookSearchError(err?.message ?? "Search failed");
+      setCostBookResults([]);
+    } finally {
+      setCostBookSearching(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!costBookModalOpen) return;
+    if (costBookSearching) return;
+    if (costBookResults.length > 0) return;
+
+    // Auto-load the CAT list when the modal opens so the user immediately sees
+    // cost book line items (and we can scroll to the highlighted match).
+    void runCostBookSearch("auto");
+  }, [costBookModalOpen, costBookCatFilter]);
+
+  const submitAddFromCostBook = async (companyPriceListItemId: string) => {
+    const sowItemId = petlReconPanel.sowItemId;
+    if (!sowItemId) return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token; please log in again.");
+      return;
+    }
+
+    const qty = Number(costBookQty);
+    if (Number.isNaN(qty) || qty <= 0) {
+      alert("Qty must be a positive number");
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${id}/petl/${sowItemId}/reconciliation/add-from-cost-book`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            companyPriceListItemId,
+            qty,
+            note: reconNote || null,
+          }),
+        },
+      );
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        alert(`Failed to add from cost book (${res.status}) ${text}`);
+        return;
+      }
+
+      setCostBookModalOpen(false);
+      setPetlReloadTick(t => t + 1);
+      await loadPetlReconciliation(sowItemId);
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to add from cost book");
+    }
+  };
+
+  const submitReconEntryPercent = async (entryId: string, newPercent: number) => {
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token; please log in again.");
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${id}/petl-reconciliation/entries/${entryId}/percent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ newPercent }),
+        },
+      );
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        alert(`Failed to update percent (${res.status}) ${text}`);
+        return;
+      }
+
+      setPetlReloadTick(t => t + 1);
+      if (petlReconPanel.sowItemId) {
+        await loadPetlReconciliation(petlReconPanel.sowItemId);
+      }
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to update percent");
+    }
+  };
+
+  // When the modal opens and we have results, auto-scroll to the baseline match if present.
+  useEffect(() => {
+    if (!costBookModalOpen) return;
+    if (!petlReconPanel.data) return;
+    if (!Array.isArray(costBookResults) || costBookResults.length === 0) return;
+    if (typeof window === "undefined") return;
+
+    const baselineCat = normalizeCatCode(petlReconPanel.data?.sowItem?.categoryCode ?? "")
+      .trim()
+      .toUpperCase();
+    const baselineSel = normalizeSelCode(petlReconPanel.data?.sowItem?.selectionCode ?? "")
+      .trim()
+      .toUpperCase();
+
+    if (!baselineCat || !baselineSel) return;
+
+    const match = costBookResults.find((r: any) => {
+      const cat = normalizeCatCode(r?.cat ?? "").trim().toUpperCase();
+      const sel = normalizeSelCode(r?.sel ?? "").trim().toUpperCase();
+      return cat === baselineCat && sel === baselineSel;
+    });
+
+    if (!match?.id) return;
+
+    const el = document.getElementById(`costbook-row-${match.id}`);
+    if (el) {
+      el.scrollIntoView({ block: "center" });
+    }
+  }, [costBookModalOpen, costBookResults, petlReconPanel.data]);
 
   const filteredItemsForRoom = (particleId: string | null) => {
     if (!particleId) return [] as PetlItem[];
@@ -5598,282 +6048,334 @@ export default function ProjectDetailPage({
         </div>
       )}
 
-      {/* Room / zone summary, similar to old NCC "Sub Projects (Rooms)" block */}
-      {!groupLoading && groups.length > 0 && (
-        <div style={{ marginTop: 16 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Rooms / Zones</h2>
-
-          {/* Progress controls: filters + operation */}
-          <div
+      {/* PETL view toggle */}
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 12,
+          alignItems: "center",
+          marginTop: 8,
+          marginBottom: 8,
+        }}
+      >
+        <div style={{ fontSize: 12, color: "#4b5563" }}>View:</div>
+        <div
+          style={{
+            display: "flex",
+            border: "1px solid #d1d5db",
+            borderRadius: 999,
+            overflow: "hidden",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setPetlDisplayMode("PROJECT_GROUPING")}
             style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 8,
-              marginBottom: 8,
-              alignItems: "flex-end",
+              padding: "4px 10px",
+              fontSize: 12,
+              border: "none",
+              cursor: "pointer",
+              background:
+                petlDisplayMode === "PROJECT_GROUPING" ? "#0f172a" : "#ffffff",
+              color:
+                petlDisplayMode === "PROJECT_GROUPING" ? "#f9fafb" : "#111827",
             }}
           >
-            <div>
-              <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Room</div>
-              <select
-                        value={roomFilter}
-                        onChange={e => setRoomFilter(e.target.value)}
-                style={{
-                  padding: "4px 6px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                  minWidth: 140,
-                }}
-              >
-                <option value="">All rooms</option>
-                {roomOptions.map(opt => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            Project grouping
+          </button>
+          <button
+            type="button"
+            onClick={() => setPetlDisplayMode("LINE_SEQUENCE")}
+            style={{
+              padding: "4px 10px",
+              fontSize: 12,
+              border: "none",
+              cursor: "pointer",
+              background:
+                petlDisplayMode === "LINE_SEQUENCE" ? "#0f172a" : "#ffffff",
+              color:
+                petlDisplayMode === "LINE_SEQUENCE" ? "#f9fafb" : "#111827",
+              borderLeft: "1px solid #d1d5db",
+            }}
+          >
+            Line sequence
+          </button>
+        </div>
+      </div>
 
-            <div>
-              <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Cat</div>
-              <select
-                value={categoryFilter}
-                onChange={e => setCategoryFilter(e.target.value)}
-                style={{
-                  padding: "4px 6px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                  minWidth: 90,
-                }}
-              >
-                <option value="">All</option>
-                {categoryOptions.map(cat => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Sel</div>
-              <select
-                value={selectionFilter}
-                onChange={e => setSelectionFilter(e.target.value)}
-                style={{
-                  padding: "4px 6px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                  minWidth: 90,
-                }}
-              >
-                <option value="">All</option>
-                {selectionOptions.map(sel => (
-                  <option key={sel} value={sel}>
-                    {sel}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                setBulkMessage(null);
-
-                const raw = operationPercent.trim();
-                const isAcv = raw === "ACV";
-
-                if (isAcv && operation !== "set") {
-                  setBulkMessage("ACV only can only be used with the 'Set to' operation.");
-                  return;
-                }
-
-                let pct = 0;
-                if (!isAcv) {
-                  pct = Number(raw);
-                  if (Number.isNaN(pct) || pct < 0 || pct > 100) {
-                    setBulkMessage("Enter a percent between 0 and 100, or choose ACV only.");
-                    return;
-                  }
-                }
-
-                const token = localStorage.getItem("accessToken");
-                if (!token) {
-                  setBulkMessage("Missing access token.");
-                  return;
-                }
-
-        const filters: {
-          roomParticleIds?: string[];
-          categoryCodes?: string[];
-          selectionCodes?: string[];
-        } = {};
-
-        if (roomFilter) filters.roomParticleIds = [roomFilter];
-        if (categoryFilter) filters.categoryCodes = [categoryFilter];
-        if (selectionFilter) filters.selectionCodes = [selectionFilter];
-
-                try {
-                  setBulkSaving(true);
-                  const res = await fetch(`${API_BASE}/projects/${id}/petl/percentage-edits`, {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${token}`,
-                    },
-                    body: JSON.stringify({
-                      filters,
-                      operation,
-                      percent: pct,
-                      acvOnly: isAcv,
-                    }),
-                  });
-                  const json = await res.json().catch(() => null);
-
-                  if (!res.ok) {
-                    setBulkMessage(
-                      `Bulk update failed (${res.status}). ${json ? JSON.stringify(json) : ""}`,
-                    );
-                    return;
-                  }
-
-                  // Optimistically update local items that match filters
-                  setPetlItems(prev =>
-                    prev.map(it => {
-                      if (!matchesFilters(it)) return it;
-
-                      // For ACV-only bulk set, flag as ACV and zero out percent.
-                      if (isAcv && operation === "set") {
-                        return { ...it, percentComplete: 0, isAcvOnly: true };
-                      }
-
-                      const current = it.percentComplete ?? 0;
-                      let next = current;
-                      if (operation === "set") next = pct;
-                      else if (operation === "increment") next = current + pct;
-                      else if (operation === "decrement") next = current - pct;
-                      next = Math.max(0, Math.min(100, next));
-                      return { ...it, percentComplete: next, isAcvOnly: false };
-                    }),
-                  );
-
-                  // Refresh PETL from server so the UI always reflects persisted values
-                  try {
-                    const petlRes = await fetch(`${API_BASE}/projects/${id}/petl`, {
-                      headers: { Authorization: `Bearer ${token}` },
-                    });
-                    if (petlRes.ok) {
-                      const petl: any = await petlRes.json();
-                      const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
-                      setPetlItems(items);
-                    }
-                  } catch {
-                    // ignore
-                  }
-
-                  if (json?.status === "noop") {
-                    setBulkMessage("No matching items found for the current filters.");
-                  }
-
-                  // Refresh groups
-                  try {
-                    setGroupLoading(true);
-                    const groupsRes = await fetch(
-                      `${API_BASE}/projects/${id}/petl-groups`,
-                      {
-                        headers: { Authorization: `Bearer ${token}` },
-                      },
-                    );
-                    if (groupsRes.ok) {
-                      const json: any = await groupsRes.json();
-                      setGroups(Array.isArray(json.groups) ? json.groups : []);
-                    }
-                  } finally {
-                    setGroupLoading(false);
-                  }
-
-                  setBulkMessage("Updated selection.");
-                } catch (err: any) {
-                  setBulkMessage(err.message ?? "Bulk update failed.");
-                } finally {
-                  setBulkSaving(false);
-                }
-              }}
+      {/* Progress controls: filters + operation */}
+      {petlItems.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+            marginBottom: 12,
+            alignItems: "flex-end",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Room</div>
+            <select
+              value={roomFilter}
+              onChange={e => setRoomFilter(e.target.value)}
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                marginLeft: "auto",
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+                minWidth: 140,
               }}
             >
-              <div style={{ fontSize: 11, color: "#4b5563" }}>Operation</div>
-              <select
-                value={operation}
-                onChange={e => setOperation(e.target.value as any)}
-                style={{
-                  padding: "4px 6px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                }}
-              >
-                <option value="set">Set to</option>
-                <option value="increment">Increase by</option>
-                <option value="decrement">Decrease by</option>
-              </select>
-              <select
-                value={operationPercent}
-                onChange={e => setOperationPercent(e.target.value)}
-                style={{
-                  padding: "4px 6px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                }}
-              >
-                <option value="0">0%</option>
-                <option value="10">10%</option>
-                <option value="20">20%</option>
-                <option value="30">30%</option>
-                <option value="40">40%</option>
-                <option value="50">50%</option>
-                <option value="60">60%</option>
-                <option value="70">70%</option>
-                <option value="80">80%</option>
-                <option value="90">90%</option>
-                <option value="100">100%</option>
-                <option value="ACV">ACV only</option>
-              </select>
-              <button
-                type="submit"
-                disabled={bulkSaving || petlItems.length === 0}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 4,
-                  border: "1px solid #0f172a",
-                  backgroundColor: bulkSaving ? "#e5e7eb" : "#0f172a",
-                  color: bulkSaving ? "#4b5563" : "#f9fafb",
-                  fontSize: 12,
-                  cursor: bulkSaving ? "default" : "pointer",
-                }}
-              >
-                {bulkSaving ? "Applying…" : "Apply"}
-              </button>
-            </form>
+              <option value="">All rooms</option>
+              {roomOptions.map(opt => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
 
+          <div>
+            <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Cat</div>
+            <select
+              value={categoryFilter}
+              onChange={e => setCategoryFilter(e.target.value)}
+              style={{
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+                minWidth: 90,
+              }}
+            >
+              <option value="">All</option>
+              {categoryOptions.map(cat => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Sel</div>
+            <select
+              value={selectionFilter}
+              onChange={e => setSelectionFilter(e.target.value)}
+              style={{
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+                minWidth: 90,
+              }}
+            >
+              <option value="">All</option>
+              {selectionOptions.map(sel => (
+                <option key={sel} value={sel}>
+                  {sel}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBulkMessage(null);
+
+              const raw = operationPercent.trim();
+              const isAcv = raw === "ACV";
+
+              if (isAcv && operation !== "set") {
+                setBulkMessage("ACV only can only be used with the 'Set to' operation.");
+                return;
+              }
+
+              let pct = 0;
+              if (!isAcv) {
+                pct = Number(raw);
+                if (Number.isNaN(pct) || pct < 0 || pct > 100) {
+                  setBulkMessage("Enter a percent between 0 and 100, or choose ACV only.");
+                  return;
+                }
+              }
+
+              const token = localStorage.getItem("accessToken");
+              if (!token) {
+                setBulkMessage("Missing access token.");
+                return;
+              }
+
+              const filters: {
+                roomParticleIds?: string[];
+                categoryCodes?: string[];
+                selectionCodes?: string[];
+              } = {};
+
+              if (roomFilter) filters.roomParticleIds = [roomFilter];
+              if (categoryFilter) filters.categoryCodes = [categoryFilter];
+              if (selectionFilter) filters.selectionCodes = [selectionFilter];
+
+              try {
+                setBulkSaving(true);
+                const res = await fetch(`${API_BASE}/projects/${id}/petl/percentage-edits`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({
+                    filters,
+                    operation,
+                    percent: pct,
+                    acvOnly: isAcv,
+                  }),
+                });
+                const json = await res.json().catch(() => null);
+
+                if (!res.ok) {
+                  setBulkMessage(
+                    `Bulk update failed (${res.status}). ${json ? JSON.stringify(json) : ""}`,
+                  );
+                  return;
+                }
+
+                // Optimistically update local items that match filters
+                setPetlItems(prev =>
+                  prev.map(it => {
+                    if (!matchesFilters(it)) return it;
+
+                    // For ACV-only bulk set, flag as ACV and zero out percent.
+                    if (isAcv && operation === "set") {
+                      return { ...it, percentComplete: 0, isAcvOnly: true };
+                    }
+
+                    const current = it.percentComplete ?? 0;
+                    let next = current;
+                    if (operation === "set") next = pct;
+                    else if (operation === "increment") next = current + pct;
+                    else if (operation === "decrement") next = current - pct;
+                    next = Math.max(0, Math.min(100, next));
+                    return { ...it, percentComplete: next, isAcvOnly: false };
+                  }),
+                );
+
+                // Refresh PETL from server so the UI always reflects persisted values
+                try {
+                  const petlRes = await fetch(`${API_BASE}/projects/${id}/petl`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                  });
+                  if (petlRes.ok) {
+                    const petl: any = await petlRes.json();
+                    const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
+                    setPetlItems(items);
+                  }
+                } catch {
+                  // ignore
+                }
+
+                if (json?.status === "noop") {
+                  setBulkMessage("No matching items found for the current filters.");
+                }
+
+                // Refresh groups
+                try {
+                  setGroupLoading(true);
+                  const groupsRes = await fetch(`${API_BASE}/projects/${id}/petl-groups`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                  });
+                  if (groupsRes.ok) {
+                    const json: any = await groupsRes.json();
+                    setGroups(Array.isArray(json.groups) ? json.groups : []);
+                  }
+                } finally {
+                  setGroupLoading(false);
+                }
+
+                setBulkMessage("Updated selection.");
+              } catch (err: any) {
+                setBulkMessage(err.message ?? "Bulk update failed.");
+              } finally {
+                setBulkSaving(false);
+              }
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginLeft: "auto",
+            }}
+          >
+            <div style={{ fontSize: 11, color: "#4b5563" }}>Operation</div>
+            <select
+              value={operation}
+              onChange={e => setOperation(e.target.value as any)}
+              style={{
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            >
+              <option value="set">Set to</option>
+              <option value="increment">Increase by</option>
+              <option value="decrement">Decrease by</option>
+            </select>
+            <select
+              value={operationPercent}
+              onChange={e => setOperationPercent(e.target.value)}
+              style={{
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            >
+              <option value="0">0%</option>
+              <option value="10">10%</option>
+              <option value="20">20%</option>
+              <option value="30">30%</option>
+              <option value="40">40%</option>
+              <option value="50">50%</option>
+              <option value="60">60%</option>
+              <option value="70">70%</option>
+              <option value="80">80%</option>
+              <option value="90">90%</option>
+              <option value="100">100%</option>
+              <option value="ACV">ACV only</option>
+            </select>
+            <button
+              type="submit"
+              disabled={bulkSaving || petlItems.length === 0}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 4,
+                border: "1px solid #0f172a",
+                backgroundColor: bulkSaving ? "#e5e7eb" : "#0f172a",
+                color: bulkSaving ? "#4b5563" : "#f9fafb",
+                fontSize: 12,
+                cursor: bulkSaving ? "default" : "pointer",
+              }}
+            >
+              {bulkSaving ? "Applying…" : "Apply"}
+            </button>
+          </form>
+
           {bulkMessage && (
-            <div style={{ fontSize: 12, color: "#4b5563", marginBottom: 4 }}>
+            <div style={{ fontSize: 12, color: "#4b5563", marginTop: 6, width: "100%" }}>
               {bulkMessage}
             </div>
           )}
+        </div>
+      )}
 
-          {/* Selection summary is now shown globally above the divider */}
-
+      {/* Room / zone summary, similar to old NCC "Sub Projects (Rooms)" block */}
+      {petlDisplayMode === "PROJECT_GROUPING" && !groupLoading && groups.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Rooms / Zones</h2>
           <div
             style={{
               borderRadius: 8,
@@ -5892,7 +6394,7 @@ export default function ProjectDetailPage({
                 </tr>
               </thead>
               <tbody>
-                {groups.map((g) => {
+                {(roomFilter ? groups.filter(g => g.particleId === roomFilter) : groups).map((g) => {
                   const itemsForRoom = filteredItemsForRoom(g.particleId);
                   const isExpanded = g.particleId ? expandedRooms.has(g.particleId) : false;
  
@@ -6096,11 +6598,22 @@ export default function ProjectDetailPage({
                                     <th style={{ textAlign: "left", padding: "4px 8px" }}>
                                       PUDL
                                     </th>
+                                    <th style={{ textAlign: "left", padding: "4px 8px" }}>
+                                      Recon
+                                    </th>
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {itemsForRoom.map(item => (
-                                    <tr key={item.id}>
+                                  {itemsForRoom
+                                    .slice()
+                                    .sort((a, b) => a.lineNo - b.lineNo)
+                                    .map(item => {
+                                      const flagged = isPetlReconFlagged(item.id);
+                                      return (
+                                    <tr
+                                      key={item.id}
+                                      style={{ backgroundColor: flagged ? "#fef3c7" : "transparent" }}
+                                    >
                                       <td
                                         style={{
                                           padding: "3px 8px",
@@ -6328,8 +6841,56 @@ export default function ProjectDetailPage({
                                           PUDL
                                         </button>
                                       </td>
+                                      <td
+                                        style={{
+                                          padding: "3px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                        }}
+                                      >
+                                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                          <button
+                                            type="button"
+                                            onClick={e => {
+                                              e.stopPropagation();
+                                              togglePetlReconFlag(item.id);
+                                            }}
+                                            style={{
+                                              padding: "2px 6px",
+                                              borderRadius: 999,
+                                              border: flagged
+                                                ? "1px solid #b45309"
+                                                : "1px solid #d1d5db",
+                                              background: flagged ? "#fffbeb" : "#ffffff",
+                                              fontSize: 11,
+                                              cursor: "pointer",
+                                              color: flagged ? "#92400e" : "#374151",
+                                            }}
+                                          >
+                                            {flagged ? "Needs review" : "Flag"}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={e => {
+                                              e.stopPropagation();
+                                              openPetlReconciliation(item.id);
+                                            }}
+                                            style={{
+                                              padding: "2px 6px",
+                                              borderRadius: 999,
+                                              border: "1px solid #2563eb",
+                                              background: "#eff6ff",
+                                              fontSize: 11,
+                                              cursor: "pointer",
+                                              color: "#1d4ed8",
+                                            }}
+                                          >
+                                            Reconcile
+                                          </button>
+                                        </div>
+                                      </td>
                                     </tr>
-                                  ))}
+                                      );
+                                    })}
                                 </tbody>
                               </table>
                             </div>
@@ -6442,31 +7003,20 @@ export default function ProjectDetailPage({
                   >
                     <thead>
                       <tr style={{ backgroundColor: "#f9fafb" }}>
-                        <th style={{ textAlign: "left", padding: "4px 6px" }}>
-                          Code
-                        </th>
-                        <th style={{ textAlign: "left", padding: "4px 6px" }}>
-                          Description
-                        </th>
-                        <th style={{ textAlign: "right", padding: "4px 6px" }}>
-                          Qty
-                        </th>
-                        <th style={{ textAlign: "right", padding: "4px 6px" }}>
-                          Unit
-                        </th>
-                        <th style={{ textAlign: "right", padding: "4px 6px" }}>
-                          Total
-                        </th>
+                        <th style={{ textAlign: "left", padding: "4px 6px" }}>Code</th>
+                        <th style={{ textAlign: "left", padding: "4px 6px" }}>Description</th>
+                        <th style={{ textAlign: "right", padding: "4px 6px" }}>Qty</th>
+                        <th style={{ textAlign: "right", padding: "4px 6px" }}>Unit</th>
+                        <th style={{ textAlign: "right", padding: "4px 6px" }}>Total</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {roomComponentsPanel.components.map(c => (
+                      {roomComponentsPanel.components.map((c) => (
                         <tr key={c.code}>
                           <td
                             style={{
                               padding: "4px 6px",
                               borderTop: "1px solid #e5e7eb",
-                              whiteSpace: "nowrap",
                             }}
                           >
                             {c.code}
@@ -6475,12 +7025,7 @@ export default function ProjectDetailPage({
                             style={{
                               padding: "4px 6px",
                               borderTop: "1px solid #e5e7eb",
-                              maxWidth: 160,
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
                             }}
-                            title={c.description ?? undefined}
                           >
                             {c.description ?? ""}
                           </td>
@@ -6525,14 +7070,752 @@ export default function ProjectDetailPage({
         </div>
       ) : null}
 
+      {/* PETL reconciliation side drawer */}
+      {petlReconPanel.open ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 45,
+            display: "flex",
+            justifyContent: "flex-end",
+            backgroundColor: "rgba(15,23,42,0.35)",
+          }}
+          onClick={() =>
+            setPetlReconPanel(prev => ({
+              ...prev,
+              open: false,
+            }))
+          }
+        >
+          <div
+            style={{
+              position: "relative",
+              top: 0,
+              bottom: 0,
+              width: 520,
+              maxWidth: "92vw",
+              backgroundColor: "#ffffff",
+              borderLeft: "1px solid #e5e7eb",
+              boxShadow: "-4px 0 12px rgba(15,23,42,0.12)",
+              display: "flex",
+              flexDirection: "column",
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: "10px 12px",
+                borderBottom: "1px solid #e5e7eb",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: 13,
+                fontWeight: 600,
+                backgroundColor: "#f3f4f6",
+              }}
+            >
+              <div>
+                PETL Reconciliation
+                <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>
+                  {petlReconPanel.data?.sowItem?.description || ""}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setPetlReconPanel(prev => ({
+                    ...prev,
+                    open: false,
+                  }))
+                }
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: 18,
+                  lineHeight: 1,
+                }}
+                aria-label="Close reconciliation panel"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ padding: 12, fontSize: 12, flex: 1, overflow: "auto" }}>
+              {petlReconPanel.loading && (
+                <div style={{ color: "#6b7280" }}>Loading reconciliation…</div>
+              )}
+
+              {!petlReconPanel.loading && petlReconPanel.error && (
+                <div style={{ color: "#b91c1c" }}>{petlReconPanel.error}</div>
+              )}
+
+              {!petlReconPanel.loading && !petlReconPanel.error && petlReconPanel.data && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                      RCV breakdown (baseline)
+                    </div>
+                    <div
+                      style={{
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 8,
+                        padding: 10,
+                        background: "#f9fafb",
+                      }}
+                    >
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                        <div>Qty: {petlReconPanel.data.rcvBreakdown?.qty ?? ""}</div>
+                        <div>Unit cost: {petlReconPanel.data.rcvBreakdown?.unitCost ?? ""}</div>
+                        <div>
+                          Item: {petlReconPanel.data.rcvBreakdown?.itemAmount ?? 0}
+                        </div>
+                        <div>
+                          Tax: {petlReconPanel.data.rcvBreakdown?.salesTaxAmount ?? 0}
+                        </div>
+                        <div>O&P/Other: {petlReconPanel.data.rcvBreakdown?.opAmount ?? 0}</div>
+                        <div style={{ fontWeight: 600 }}>
+                          RCV: {petlReconPanel.data.rcvBreakdown?.rcvAmount ?? 0}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Note</div>
+                    <textarea
+                      value={reconNote}
+                      onChange={e => setReconNote(e.target.value)}
+                      placeholder="Add a journal note for this reconciliation action..."
+                      style={{
+                        width: "100%",
+                        minHeight: 70,
+                        padding: 8,
+                        border: "1px solid #d1d5db",
+                        borderRadius: 8,
+                        fontSize: 12,
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Create credit</div>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                      {(
+                        [
+                          { key: "itemAmount", label: "Item" },
+                          { key: "salesTaxAmount", label: "Tax" },
+                          { key: "opAmount", label: "O&P/Other" },
+                        ] as const
+                      ).map(opt => (
+                        <label key={opt.key} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <input
+                            type="checkbox"
+                            checked={reconCreditComponents[opt.key]}
+                            onChange={e =>
+                              setReconCreditComponents(prev => ({
+                                ...prev,
+                                [opt.key]: e.target.checked,
+                              }))
+                            }
+                          />
+                          {opt.label}
+                        </label>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={submitReconCredit}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 8,
+                        border: "1px solid #0f172a",
+                        background: "#0f172a",
+                        color: "#f9fafb",
+                        cursor: "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      Create credit
+                    </button>
+                  </div>
+
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Placeholder / note-only</div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <select
+                        value={reconPlaceholderKind}
+                        onChange={e => setReconPlaceholderKind(e.target.value)}
+                        style={{
+                          padding: "6px 8px",
+                          borderRadius: 8,
+                          border: "1px solid #d1d5db",
+                          fontSize: 12,
+                        }}
+                      >
+                        <option value="NOTE_ONLY">Note only</option>
+                        <option value="CHANGE_ORDER_CLIENT_PAY">Change order (client pay)</option>
+                        <option value="REIMBURSE_OWNER">Reimburse owner</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={submitReconPlaceholder}
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 8,
+                          border: "1px solid #d1d5db",
+                          background: "#ffffff",
+                          cursor: "pointer",
+                          fontSize: 12,
+                        }}
+                      >
+                        Add placeholder
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Add from Cost Book</div>
+
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCostBookModalOpen(true);
+                          void runCostBookSearch("auto");
+                        }}
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 8,
+                          border: "1px solid #2563eb",
+                          background: "#eff6ff",
+                          cursor: "pointer",
+                          fontSize: 12,
+                          color: "#1d4ed8",
+                        }}
+                      >
+                        Open Cost Book
+                      </button>
+                      <div style={{ fontSize: 11, color: "#6b7280" }}>
+                        Pre-filtered to current CAT; current CAT/SEL line is highlighted.
+                      </div>
+                    </div>
+
+                    {costBookModalOpen && (
+                      <div
+                        style={{
+                          position: "fixed",
+                          inset: 0,
+                          zIndex: 60,
+                          background: "rgba(15,23,42,0.45)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: 16,
+                        }}
+                        onClick={() => setCostBookModalOpen(false)}
+                      >
+                        <div
+                          style={{
+                            width: "min(1300px, 98vw)",
+                            height: "92vh",
+                            maxHeight: "92vh",
+                            overflow: "hidden",
+                            background: "#ffffff",
+                            borderRadius: 12,
+                            border: "1px solid #e5e7eb",
+                            boxShadow: "0 12px 32px rgba(15,23,42,0.25)",
+                            display: "flex",
+                            flexDirection: "column",
+                          }}
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <div
+                            style={{
+                              padding: "10px 12px",
+                              borderBottom: "1px solid #e5e7eb",
+                              background: "#f3f4f6",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 12,
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 700 }}>Cost Book</div>
+                              <div style={{ fontSize: 11, color: "#6b7280" }}>
+                                Select a replacement line item for this reconciliation.
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setCostBookModalOpen(false)}
+                              style={{
+                                border: "none",
+                                background: "transparent",
+                                cursor: "pointer",
+                                fontSize: 18,
+                                lineHeight: 1,
+                              }}
+                              aria-label="Close cost book modal"
+                            >
+                              ×
+                            </button>
+                          </div>
+
+                          <div
+                            style={{
+                              padding: 12,
+                              overflow: "hidden",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 12,
+                              flex: 1,
+                            }}
+                          >
+                            <div
+                              style={{
+                                border: "1px solid #e5e7eb",
+                                borderRadius: 10,
+                                padding: 10,
+                                background: "#f9fafb",
+                                marginBottom: 12,
+                              }}
+                            >
+                              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+                                Current line (baseline)
+                              </div>
+                              <div
+                                style={{
+                                  display: "grid",
+                                  gridTemplateColumns: "90px 1fr 90px 1fr",
+                                  gap: 8,
+                                  fontSize: 12,
+                                }}
+                              >
+                                <div style={{ color: "#6b7280" }}>CAT</div>
+                                <div style={{ fontWeight: 600 }}>
+                                  {petlReconPanel.data?.sowItem?.categoryCode ?? ""}
+                                </div>
+                                <div style={{ color: "#6b7280" }}>SEL</div>
+                                <div style={{ fontWeight: 600 }}>
+                                  {petlReconPanel.data?.sowItem?.selectionCode ?? ""}
+                                </div>
+                                <div style={{ color: "#6b7280" }}>Description</div>
+                                <div style={{ gridColumn: "span 3", fontWeight: 600 }}>
+                                  {petlReconPanel.data?.sowItem?.description ?? ""}
+                                </div>
+                                <div style={{ color: "#6b7280" }}>Qty</div>
+                                <div style={{ fontWeight: 600 }}>
+                                  {petlReconPanel.data?.rcvBreakdown?.qty ?? ""}
+                                </div>
+                                <div style={{ color: "#6b7280" }}>Unit Cost</div>
+                                <div style={{ fontWeight: 600 }}>
+                                  {petlReconPanel.data?.rcvBreakdown?.unitCost ?? ""}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "200px 200px 1fr 110px 110px",
+                                gap: 8,
+                                alignItems: "end",
+                                marginBottom: 10,
+                              }}
+                            >
+                              <div>
+                                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
+                                  CAT
+                                </div>
+                                <input
+                                  value={costBookCatFilter}
+                                  onChange={e => setCostBookCatFilter(e.target.value)}
+                                  placeholder="(any)"
+                                  list="costbook-cat-options"
+                                  style={{
+                                    width: "100%",
+                                    padding: "6px 8px",
+                                    borderRadius: 8,
+                                    border: "1px solid #d1d5db",
+                                    fontSize: 12,
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
+                                  SEL
+                                </div>
+                                <input
+                                  value={costBookSelFilter}
+                                  onChange={e => setCostBookSelFilter(e.target.value)}
+                                  placeholder="(any)"
+                                  list="costbook-sel-options"
+                                  style={{
+                                    width: "100%",
+                                    padding: "6px 8px",
+                                    borderRadius: 8,
+                                    border: "1px solid #d1d5db",
+                                    fontSize: 12,
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
+                                  Description
+                                </div>
+                                <input
+                                  value={costBookQuery}
+                                  onChange={e => setCostBookQuery(e.target.value)}
+                                  placeholder="Search description"
+                                  list="costbook-desc-options"
+                                  style={{
+                                    width: "100%",
+                                    padding: "6px 8px",
+                                    borderRadius: 8,
+                                    border: "1px solid #d1d5db",
+                                    fontSize: 12,
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
+                                  Qty
+                                </div>
+                                <input
+                                  value={costBookQty}
+                                  onChange={e => setCostBookQty(e.target.value)}
+                                  style={{
+                                    width: "100%",
+                                    padding: "6px 8px",
+                                    borderRadius: 8,
+                                    border: "1px solid #d1d5db",
+                                    fontSize: 12,
+                                  }}
+                                />
+                              </div>
+                              <div style={{ display: "flex", gap: 8 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => void runCostBookSearch("user")}
+                                  disabled={costBookSearching}
+                                  style={{
+                                    flex: 1,
+                                    padding: "6px 10px",
+                                    borderRadius: 8,
+                                    border: "1px solid #d1d5db",
+                                    background: "#ffffff",
+                                    cursor: costBookSearching ? "default" : "pointer",
+                                    fontSize: 12,
+                                    opacity: costBookSearching ? 0.7 : 1,
+                                  }}
+                                >
+                                  {costBookSearching ? "Searching..." : "Search"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const baselineCat = (petlReconPanel.data?.sowItem?.categoryCode ?? "").trim();
+                                    setCostBookCatFilter(baselineCat);
+                                    setCostBookSelFilter("");
+                                    setCostBookQuery("");
+                                    void runCostBookSearch("auto");
+                                  }}
+                                  style={{
+                                    padding: "6px 10px",
+                                    borderRadius: 8,
+                                    border: "1px solid #d1d5db",
+                                    background: "#ffffff",
+                                    cursor: "pointer",
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  Reset
+                                </button>
+                              </div>
+                            </div>
+
+                            <datalist id="costbook-cat-options">
+                              {Array.from(
+                                new Set(
+                                  [
+                                    petlReconPanel.data?.sowItem?.categoryCode,
+                                    ...costBookResults.map((r: any) => r?.cat),
+                                  ]
+                                    .map(v => String(v ?? "").trim())
+                                    .filter(Boolean)
+                                )
+                              )
+                                .sort()
+                                .slice(0, 250)
+                                .map(v => (
+                                  <option key={v} value={v} />
+                                ))}
+                            </datalist>
+                            <datalist id="costbook-sel-options">
+                              {Array.from(
+                                new Set(
+                                  [
+                                    petlReconPanel.data?.sowItem?.selectionCode,
+                                    ...costBookResults.map((r: any) => r?.sel),
+                                  ]
+                                    .map(v => String(v ?? "").trim())
+                                    .filter(Boolean)
+                                )
+                              )
+                                .sort()
+                                .slice(0, 250)
+                                .map(v => (
+                                  <option key={v} value={v} />
+                                ))}
+                            </datalist>
+                            <datalist id="costbook-desc-options">
+                              {Array.from(
+                                new Set(
+                                  [
+                                    petlReconPanel.data?.sowItem?.description,
+                                    ...costBookResults.map((r: any) => r?.description),
+                                  ]
+                                    .map(v => String(v ?? "").trim())
+                                    .filter(Boolean)
+                                )
+                              )
+                                .slice(0, 50)
+                                .map(v => (
+                                  <option key={v} value={v} />
+                                ))}
+                            </datalist>
+
+                            {costBookSearchError && (
+                              <div style={{ marginBottom: 10, color: "#b91c1c", fontSize: 12 }}>
+                                {costBookSearchError}
+                              </div>
+                            )}
+
+                            {!costBookSearching && costBookResults.length === 0 && !costBookSearchError && (
+                              <div style={{ marginBottom: 10, color: "#6b7280", fontSize: 12 }}>
+                                No results yet — click Search.
+                              </div>
+                            )}
+
+                            <div
+                              style={{
+                                border: "1px solid #e5e7eb",
+                                borderRadius: 10,
+                                overflow: "auto",
+                                flex: 1,
+                                minHeight: 420,
+
+                                // Add a right-side buffer so the scrollbar doesn't cover
+                                // the last column controls (macOS overlay scrollbars).
+                                paddingRight: 18,
+                                paddingBottom: 6,
+                              }}
+                            >
+                              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                                <thead>
+                                  <tr style={{ background: "#f9fafb" }}>
+                                    <th style={{ textAlign: "left", padding: "8px 10px" }}>Cat</th>
+                                    <th style={{ textAlign: "left", padding: "8px 10px" }}>Sel</th>
+                                    <th style={{ textAlign: "left", padding: "8px 10px" }}>Description</th>
+                                    <th style={{ textAlign: "right", padding: "8px 10px" }}>Unit</th>
+                                    <th style={{ textAlign: "right", padding: "8px 10px" }}>Unit Price</th>
+                                    <th style={{ textAlign: "right", padding: "8px 10px" }}>Line Total</th>
+                                    <th style={{ textAlign: "right", padding: "8px 10px" }} />
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {costBookResults.map((r: any) => {
+                                    const baselineCat = normalizeCatCode(
+                                      petlReconPanel.data?.sowItem?.categoryCode ?? "",
+                                    )
+                                      .trim()
+                                      .toUpperCase();
+                                    const baselineSel = normalizeSelCode(
+                                      petlReconPanel.data?.sowItem?.selectionCode ?? "",
+                                    )
+                                      .trim()
+                                      .toUpperCase();
+                                    const cat = normalizeCatCode(r?.cat ?? "").trim().toUpperCase();
+                                    const sel = normalizeSelCode(r?.sel ?? "").trim().toUpperCase();
+                                    const isMatch = baselineCat && baselineSel && cat === baselineCat && sel === baselineSel;
+
+                                    const qty = Number(costBookQty);
+                                    const unitPrice = Number(r?.unitPrice ?? 0);
+                                    const lineTotal = !Number.isNaN(qty) ? qty * unitPrice : 0;
+
+                                    return (
+                                      <tr
+                                        key={r.id}
+                                        id={`costbook-row-${r.id}`}
+                                        style={{
+                                          background: isMatch ? "#dcfce7" : "transparent",
+                                        }}
+                                      >
+                                        <td style={{ padding: "8px 10px", borderTop: "1px solid #e5e7eb" }}>
+                                          {r.cat ?? ""}
+                                        </td>
+                                        <td style={{ padding: "8px 10px", borderTop: "1px solid #e5e7eb" }}>
+                                          {r.sel ?? ""}
+                                        </td>
+                                        <td style={{ padding: "8px 10px", borderTop: "1px solid #e5e7eb" }}>
+                                          {r.description ?? ""}
+                                        </td>
+                                        <td style={{ padding: "8px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                          {r.unit ?? ""}
+                                        </td>
+                                        <td style={{ padding: "8px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                          {(r.unitPrice ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                        </td>
+                                        <td style={{ padding: "8px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                          {lineTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                        </td>
+                                        <td style={{ padding: "8px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              void submitAddFromCostBook(r.id);
+                                            }}
+                                            style={{
+                                              padding: "6px 10px",
+                                              borderRadius: 8,
+                                              border: "1px solid #2563eb",
+                                              background: "#eff6ff",
+                                              cursor: "pointer",
+                                              fontSize: 12,
+                                              color: "#1d4ed8",
+                                            }}
+                                          >
+                                            Select
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Reconciliation entries</div>
+                    {(petlReconPanel.data.reconciliationCase?.entries || []).length === 0 ? (
+                      <div style={{ color: "#6b7280" }}>No entries yet.</div>
+                    ) : (
+                      <div
+                        style={{
+                          border: "1px solid #e5e7eb",
+                          borderRadius: 8,
+                          overflow: "hidden",
+                        }}
+                      >
+                        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                          <thead>
+                            <tr style={{ background: "#f9fafb" }}>
+                              <th style={{ textAlign: "left", padding: "6px 8px" }}>Kind</th>
+                              <th style={{ textAlign: "right", padding: "6px 8px" }}>RCV</th>
+                              <th style={{ textAlign: "right", padding: "6px 8px" }}>%</th>
+                              <th style={{ textAlign: "left", padding: "6px 8px" }}>Note</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(petlReconPanel.data.reconciliationCase?.entries || []).map((e: any) => {
+                              const pct = e.isPercentCompleteLocked ? 0 : (e.percentComplete ?? 0);
+                              return (
+                                <tr key={e.id}>
+                                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                    {e.kind}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "6px 8px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      textAlign: "right",
+                                    }}
+                                  >
+                                    {(e.rcvAmount ?? 0).toLocaleString(undefined, {
+                                      maximumFractionDigits: 2,
+                                    })}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "6px 8px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      textAlign: "right",
+                                    }}
+                                  >
+                                    {e.isPercentCompleteLocked ? (
+                                      "—"
+                                    ) : (
+                                      <select
+                                        value={String(pct)}
+                                        onChange={(ev) => {
+                                          const next = Number(ev.target.value);
+                                          if (Number.isNaN(next)) return;
+                                          void submitReconEntryPercent(e.id, next);
+                                        }}
+                                        style={{
+                                          width: 70,
+                                          padding: "2px 4px",
+                                          borderRadius: 6,
+                                          border: "1px solid #d1d5db",
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        <option value="0">0%</option>
+                                        <option value="10">10%</option>
+                                        <option value="20">20%</option>
+                                        <option value="30">30%</option>
+                                        <option value="40">40%</option>
+                                        <option value="50">50%</option>
+                                        <option value="60">60%</option>
+                                        <option value="70">70%</option>
+                                        <option value="80">80%</option>
+                                        <option value="90">90%</option>
+                                        <option value="100">100%</option>
+                                      </select>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                    {e.note ?? ""}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {petlLoading && (
         <p style={{ fontSize: 13, color: "#6b7280" }}>Loading PETL items…</p>
       )}
 
-      {!petlLoading && petlItems.length > 0 && (
+      {petlDisplayMode === "LINE_SEQUENCE" && !petlLoading && petlItems.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Estimate items</h2>
-          <div style={{ maxHeight: 420, overflow: "auto" }}>
+          <div
+            style={{
+              height: "calc(100vh - 320px)",
+              overflow: "auto",
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              backgroundColor: "#ffffff",
+            }}
+          >
             <table
               id="petl-items-table"
               style={{
@@ -6553,11 +7836,21 @@ export default function ProjectDetailPage({
                   <th style={{ textAlign: "right", padding: "6px 8px" }}>%</th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>Cat</th>
                   <th style={{ textAlign: "left", padding: "6px 8px" }}>Sel</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Recon</th>
                 </tr>
               </thead>
               <tbody>
-                {petlItems.filter(matchesFilters).map(item => (
-                  <tr key={item.id}>
+                {petlItems
+                  .filter(matchesFilters)
+                  .slice()
+                  .sort((a, b) => a.lineNo - b.lineNo)
+                  .map(item => {
+                    const flagged = isPetlReconFlagged(item.id);
+                    return (
+                  <tr
+                    key={item.id}
+                    style={{ backgroundColor: flagged ? "#fef3c7" : "transparent" }}
+                  >
                     <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
                       {item.lineNo}
                     </td>
@@ -6735,8 +8028,43 @@ export default function ProjectDetailPage({
                     <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
                       {item.selectionCode ?? ""}
                     </td>
+                    <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <button
+                          type="button"
+                          onClick={() => togglePetlReconFlag(item.id)}
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: 999,
+                            border: flagged ? "1px solid #b45309" : "1px solid #d1d5db",
+                            background: flagged ? "#fffbeb" : "#ffffff",
+                            fontSize: 11,
+                            cursor: "pointer",
+                            color: flagged ? "#92400e" : "#374151",
+                          }}
+                        >
+                          {flagged ? "Needs review" : "Flag"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openPetlReconciliation(item.id)}
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: 999,
+                            border: "1px solid #2563eb",
+                            background: "#eff6ff",
+                            fontSize: 11,
+                            cursor: "pointer",
+                            color: "#1d4ed8",
+                          }}
+                        >
+                          Reconcile
+                        </button>
+                      </div>
+                    </td>
                   </tr>
-                ))}
+                    );
+                  })}
               </tbody>
             </table>
           </div>

@@ -14,10 +14,14 @@ import {
   importGoldenComponentsFromFile,
   importBiaWorkers,
 } from "@repo/database";
-import { ImportJobStatus, ImportJobType } from "@prisma/client";
+import { ImportJobStatus, ImportJobType, Role } from "@prisma/client";
 import { importPriceListFromFile, importCompanyPriceListFromFile } from "./modules/pricing/pricing.service";
 import { Storage } from "@google-cloud/storage";
 import { parse } from "csv-parse/sync";
+import argon2 from "argon2";
+import { decryptPortfolioHrJson, encryptPortfolioHrJson } from "./common/crypto/portfolio-hr.crypto";
+
+const DEFAULT_PASSWORD = "Nexus2026.01";
 
 type ParentJobPayload = {
   kind?: "parent";
@@ -47,6 +51,86 @@ function safeError(err: unknown) {
     return { message: err.message, stack: err.stack };
   }
   return { message: String(err) };
+}
+
+function normalizeEmail(email: string | undefined | null): string | null {
+  const e = (email ?? "").trim();
+  if (!e) return null;
+  return e.toLowerCase();
+}
+
+function parseCurrency(raw?: string): number | null {
+  if (!raw) return null;
+  const cleaned = raw.replace(/[^0-9.\-]/g, "").trim();
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return Number.isNaN(n) ? null : n;
+}
+
+function last4(raw?: string | null): string | null {
+  if (!raw) return null;
+  const digits = String(raw).replace(/[^0-9]/g, "");
+  if (!digits) return null;
+  return digits.slice(-4);
+}
+
+async function upsertHrPortfolio(prisma: PrismaService, params: {
+  companyId: string;
+  userId: string;
+  bankName?: string | null;
+  bankAccountNumber?: string | null;
+  bankRoutingNumber?: string | null;
+}) {
+  const { companyId, userId, bankName, bankAccountNumber, bankRoutingNumber } = params;
+
+  const portfolio = await prisma.userPortfolio.upsert({
+    where: {
+      UserPortfolio_company_user_key: {
+        companyId,
+        userId,
+      },
+    },
+    update: {},
+    create: {
+      companyId,
+      userId,
+    },
+    select: { id: true },
+  });
+
+  const existing = await prisma.userPortfolioHr.findUnique({
+    where: { portfolioId: portfolio.id },
+    select: { encryptedJson: true },
+  });
+
+  const currentPayload = existing
+    ? (decryptPortfolioHrJson(Buffer.from(existing.encryptedJson)) as any)
+    : {};
+
+  const nextPayload = {
+    ...currentPayload,
+    ...(bankName !== undefined ? { bankName } : {}),
+    ...(bankAccountNumber !== undefined ? { bankAccountNumber } : {}),
+    ...(bankRoutingNumber !== undefined ? { bankRoutingNumber } : {}),
+  };
+
+  const encryptedJson = encryptPortfolioHrJson(nextPayload);
+  const encryptedBytes = Uint8Array.from(encryptedJson);
+
+  await prisma.userPortfolioHr.upsert({
+    where: { portfolioId: portfolio.id },
+    update: {
+      encryptedJson: encryptedBytes,
+      bankAccountLast4: last4(nextPayload.bankAccountNumber ?? null),
+      bankRoutingLast4: last4(nextPayload.bankRoutingNumber ?? null),
+    },
+    create: {
+      portfolioId: portfolio.id,
+      encryptedJson: encryptedBytes,
+      bankAccountLast4: last4(nextPayload.bankAccountNumber ?? null),
+      bankRoutingLast4: last4(nextPayload.bankRoutingNumber ?? null),
+    },
+  });
 }
 
 async function downloadGcsToTmp(fileUri: string): Promise<string> {
@@ -640,6 +724,232 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       companyId: job.companyId,
       durationMs: tenantDurationMs,
       resultSummary: tenantResult,
+    });
+
+    return;
+  }
+
+  if (job.type === ("FORTIFIED_PAYROLL_ADMIN" as ImportJobType)) {
+    console.log("[worker] FORTIFIED_PAYROLL_ADMIN start", {
+      importJobId,
+      companyId: job.companyId,
+      csvPath,
+    });
+
+    let effectiveCsvPath = csvPath;
+    if ((!effectiveCsvPath || !fs.existsSync(effectiveCsvPath)) && fileUri) {
+      console.log("[worker] FORTIFIED_PAYROLL_ADMIN using fileUri, downloading from GCS", {
+        importJobId,
+        fileUri,
+      });
+      effectiveCsvPath = await downloadGcsToTmp(fileUri);
+      console.log("[worker] FORTIFIED_PAYROLL_ADMIN downloaded GCS file", {
+        importJobId,
+        fileUri,
+        effectiveCsvPath,
+      });
+    }
+
+    if (!effectiveCsvPath || !fs.existsSync(effectiveCsvPath)) {
+      throw new Error(
+        "FORTIFIED_PAYROLL_ADMIN import job has no usable csvPath or fileUri to read from.",
+      );
+    }
+
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        status: ImportJobStatus.RUNNING,
+        startedAt: new Date(),
+        progress: 10,
+        message: "Importing Fortified payroll admin users...",
+      },
+    });
+
+    const rawContent = fs.readFileSync(effectiveCsvPath, "utf8");
+    const lines = rawContent.replace(/^\uFEFF/, "").split(/\r?\n/);
+    const startIndex = lines.findIndex(line => line.replace(/[\s,]+/g, "").trim());
+    const normalizedContent =
+      startIndex >= 0 ? lines.slice(startIndex).join("\n") : rawContent;
+
+    const rows = parse(normalizedContent, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    }) as Array<Record<string, string>>;
+
+    const passwordHash = await argon2.hash(DEFAULT_PASSWORD);
+    const targetCompanyId = job.companyId;
+
+    const parsedRowCount = rows.length;
+    let processed = 0;
+    let workersCreated = 0;
+    let workersUpdated = 0;
+    let usersCreated = 0;
+    let membershipsCreated = 0;
+    let hrUpdated = 0;
+    let skippedNoUserMatch = 0;
+
+    for (const row of rows) {
+      const firstNameRaw = (row["1099 First Name"] ?? "").trim();
+      const lastNameRaw = (row["1099 Last Name"] ?? "").trim();
+      const combinedRaw = (row["Combined Name LN / FN"] ?? "").trim();
+
+      let firstName = firstNameRaw;
+      let lastName = lastNameRaw;
+
+      if ((!firstName || !lastName) && combinedRaw) {
+        const [lastPart, firstPart] = combinedRaw.split(",").map(s => s.trim());
+        if (!firstName && firstPart) firstName = firstPart.split(/\s+/)[0] ?? firstPart;
+        if (!lastName && lastPart) lastName = lastPart;
+      }
+
+      const fullName = `${firstName} ${lastName}`.trim();
+      if (!fullName) {
+        continue;
+      }
+
+      processed += 1;
+
+      const email = normalizeEmail(row.email);
+      const phone = (row["Phone Number"] ?? "").trim() || null;
+      const defaultPayRate = parseCurrency(row["Pay Rate / HR"]);
+
+      const activeRaw = (row.Active ?? "").trim().toUpperCase();
+      const status = activeRaw === "YES" ? "ACTIVE" : activeRaw === "NO" ? "INACTIVE" : null;
+
+      const bankName = (row["Bank Name"] ?? "").trim() || null;
+      const bankRoutingNumber = (row["Bank Routing"] ?? "").trim() || null;
+      const bankAccountNumber = (row["Bank Acct"] ?? "").trim() || null;
+
+      const existingWorker = await prisma.worker.findFirst({
+        where: { fullName },
+      });
+
+      if (!existingWorker) {
+        await prisma.worker.create({
+          data: {
+            firstName: firstName || fullName.split(" ")[0] || "",
+            lastName:
+              lastName ||
+              fullName.split(" ").slice(1).join(" ") ||
+              firstName ||
+              "",
+            fullName,
+            email,
+            phone,
+            defaultPayRate: defaultPayRate ?? null,
+            status,
+          },
+        });
+        workersCreated += 1;
+      } else {
+        await prisma.worker.update({
+          where: { id: existingWorker.id },
+          data: {
+            ...(email ? { email } : {}),
+            ...(phone ? { phone } : {}),
+            ...(defaultPayRate != null ? { defaultPayRate } : {}),
+            ...(status ? { status } : {}),
+          },
+        });
+        workersUpdated += 1;
+      }
+
+      let user: any = null;
+      if (email) {
+        user = await prisma.user.findFirst({
+          where: { email: { equals: email, mode: "insensitive" } },
+        });
+      }
+
+      if (!user && !email) {
+        user = await prisma.user.findFirst({
+          where: {
+            firstName: { equals: firstName, mode: "insensitive" } as any,
+            lastName: { equals: lastName, mode: "insensitive" } as any,
+          },
+        });
+      }
+
+      if (!user && email) {
+        user = await prisma.user.create({
+          data: {
+            email,
+            passwordHash,
+            firstName: firstName || null,
+            lastName: lastName || null,
+          },
+        });
+        usersCreated += 1;
+      }
+
+      if (!user) {
+        skippedNoUserMatch += 1;
+        continue;
+      }
+
+      if (!user.firstName && firstName) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { firstName },
+        });
+      }
+      if (!user.lastName && lastName) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { lastName },
+        });
+      }
+
+      const membership = await prisma.companyMembership.findUnique({
+        where: {
+          userId_companyId: {
+            userId: user.id,
+            companyId: targetCompanyId,
+          },
+        },
+      });
+
+      if (!membership) {
+        await prisma.companyMembership.create({
+          data: {
+            userId: user.id,
+            companyId: targetCompanyId,
+            role: Role.MEMBER,
+          },
+        });
+        membershipsCreated += 1;
+      }
+
+      await upsertHrPortfolio(prisma, {
+        companyId: targetCompanyId,
+        userId: user.id,
+        bankName,
+        bankAccountNumber,
+        bankRoutingNumber,
+      });
+      hrUpdated += 1;
+    }
+
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        status: ImportJobStatus.SUCCEEDED,
+        finishedAt: new Date(),
+        progress: 100,
+        message: "Fortified payroll admin import complete",
+        resultJson: {
+          parsedRowCount,
+          processed,
+          workersCreated,
+          workersUpdated,
+          usersCreated,
+          membershipsCreated,
+          hrUpdated,
+          skippedNoUserMatch,
+        } as any,
+      },
     });
 
     return;

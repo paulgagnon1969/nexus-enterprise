@@ -40,8 +40,10 @@ export class ImportJobsService {
       const normalizedCsvPath = csvPath?.trim() || null;
       const normalizedFileUri = fileUri?.trim() || null;
 
-      // BIA_LCP is company-level; other types are project-scoped.
-      const requiresProject = type !== ImportJobType.BIA_LCP;
+      // BIA_LCP + fortified payroll admin are company-level; other types are project-scoped.
+      const requiresProject =
+        type !== ImportJobType.BIA_LCP &&
+        type !== ("FORTIFIED_PAYROLL_ADMIN" as ImportJobType);
       if (requiresProject) {
         if (!projectId) {
           throw new BadRequestException("projectId is required for this import type");
