@@ -309,6 +309,13 @@ export default function ProjectDetailPage({
     return "LINE_SEQUENCE";
   });
 
+  const [petlPercentFile, setPetlPercentFile] = useState<File | null>(null);
+  const [petlPercentImporting, setPetlPercentImporting] = useState(false);
+  const [petlPercentImportError, setPetlPercentImportError] = useState<string | null>(null);
+  const [petlPercentJobId, setPetlPercentJobId] = useState<string | null>(null);
+  const [petlPercentJob, setPetlPercentJob] = useState<any | null>(null);
+  const [petlPercentJobError, setPetlPercentJobError] = useState<string | null>(null);
+
   const setPetlDisplayModePersisted = (mode: PetlDisplayMode) => {
     setPetlDisplayMode(mode);
     if (typeof window !== "undefined") {
@@ -409,12 +416,6 @@ export default function ProjectDetailPage({
   const [operationPercent, setOperationPercent] = useState<string>("0");
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
-  const [petlPercentFile, setPetlPercentFile] = useState<File | null>(null);
-  const [petlPercentImporting, setPetlPercentImporting] = useState(false);
-  const [petlPercentImportError, setPetlPercentImportError] = useState<string | null>(null);
-  const [petlPercentJobId, setPetlPercentJobId] = useState<string | null>(null);
-  const [petlPercentJob, setPetlPercentJob] = useState<any | null>(null);
-  const [petlPercentJobError, setPetlPercentJobError] = useState<string | null>(null);
 
   const [selectionSummary, setSelectionSummary] = useState<{
     itemCount: number;
