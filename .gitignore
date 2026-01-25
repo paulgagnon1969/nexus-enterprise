@@ -11,6 +11,9 @@ build/
 **/.next/
 logs/
 
+# TypeScript incremental build info
+**/*.tsbuildinfo
+
 # Env files (keep examples tracked)
 .env
 .env.*

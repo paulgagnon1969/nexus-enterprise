@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { uploadImageFileToNexusUploads } from "../../lib/uploads";
 
@@ -700,6 +700,68 @@ export default function ProjectDetailPage({
     buildings: any[];
     units: any[];
   } | null>(null);
+
+  // Precompute a breadcrumb label for each room particle so click handlers don't
+  // have to walk/flatten the hierarchy tree (helps INP on PETL buttons).
+  const roomBreadcrumbByParticleId = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!hierarchy) return map;
+
+    const formatBuilding = (b: any) => `${b?.code || ""} ${b?.name || ""}`.trim();
+    const formatUnit = (u: any) => {
+      if (!u) return "";
+      const floorLabel = typeof u.floor === "number" ? ` (Floor ${u.floor})` : "";
+      return `${u.label || ""}${floorLabel}`.trim();
+    };
+    const formatRoom = (p: any) => (p?.fullLabel || p?.name || "").trim();
+
+    for (const b of hierarchy.buildings ?? []) {
+      for (const u of b.units ?? []) {
+        for (const p of u.particles ?? []) {
+          const parts = [formatBuilding(b), formatUnit(u), formatRoom(p)].filter(Boolean);
+          if (p?.id) map.set(p.id, parts.join(" · "));
+        }
+      }
+      for (const p of b.particles ?? []) {
+        const parts = [formatBuilding(b), formatRoom(p)].filter(Boolean);
+        if (p?.id) map.set(p.id, parts.join(" · "));
+      }
+    }
+
+    for (const u of hierarchy.units ?? []) {
+      for (const p of u.particles ?? []) {
+        const parts = [formatUnit(u), formatRoom(p)].filter(Boolean);
+        if (p?.id) map.set(p.id, parts.join(" · "));
+      }
+    }
+
+    return map;
+  }, [hierarchy]);
+
+  // Avoid O(rooms * items) filtering during render of the Rooms/Zones table.
+  // Build a lookup map once per PETL/filter change.
+  const petlItemsByRoomParticleId = useMemo(() => {
+    const map = new Map<string, PetlItem[]>();
+
+    for (const item of petlItems) {
+      const particleId = item.projectParticle?.id;
+      if (!particleId) continue;
+
+      if (categoryFilter && item.categoryCode !== categoryFilter) continue;
+      if (selectionFilter && item.selectionCode !== selectionFilter) continue;
+
+      const existing = map.get(particleId);
+      if (existing) existing.push(item);
+      else map.set(particleId, [item]);
+    }
+
+    // Ensure consistent ordering for the per-room expanded list.
+    for (const items of map.values()) {
+      items.sort((a, b) => a.lineNo - b.lineNo);
+    }
+
+    return map;
+  }, [petlItems, categoryFilter, selectionFilter]);
 
   // Derived list of known project participants for use in the Daily Log
   // "Person/s onsite" multi-select. We include both myOrganization and
@@ -1609,7 +1671,7 @@ export default function ProjectDetailPage({
     };
   }, [activeTab, project, payrollEmployees]);
 
-  const toggleRoomExpanded = (particleId: string | null) => {
+  const toggleRoomExpanded = useCallback((particleId: string | null) => {
     if (!particleId) return;
     setExpandedRooms(prev => {
       const next = new Set(prev);
@@ -1617,7 +1679,7 @@ export default function ProjectDetailPage({
       else next.add(particleId);
       return next;
     });
-  };
+  }, []);
 
   const isPetlReconFlagged = (sowItemId: string) => petlReconFlagIds.has(sowItemId);
 
@@ -1966,12 +2028,7 @@ export default function ProjectDetailPage({
 
   const filteredItemsForRoom = (particleId: string | null) => {
     if (!particleId) return [] as PetlItem[];
-    return petlItems.filter(item => {
-      if (!item.projectParticle || item.projectParticle.id !== particleId) return false;
-      if (categoryFilter && item.categoryCode !== categoryFilter) return false;
-      if (selectionFilter && item.selectionCode !== selectionFilter) return false;
-      return true;
-    });
+    return petlItemsByRoomParticleId.get(particleId) ?? ([] as PetlItem[]);
   };
 
   const openRoomComponentsPanel = async (roomId: string | null, roomName: string) => {
@@ -6677,17 +6734,50 @@ export default function ProjectDetailPage({
               }
             }}
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
+              display: "grid",
+              gridTemplateColumns: "auto auto auto auto",
+              columnGap: 6,
+              rowGap: 2,
+              alignItems: "end",
               marginLeft: "auto",
             }}
           >
-            <div style={{ fontSize: 11, color: "#4b5563" }}>Operation</div>
+            <div
+              style={{
+                gridColumn: 4,
+                gridRow: 1,
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#2563eb",
+                lineHeight: 1.15,
+                maxWidth: 220,
+                textAlign: "right",
+                justifySelf: "end",
+              }}
+            >
+              Apply percent complete to filtered line items
+            </div>
+
+            <div
+              style={{
+                gridColumn: 1,
+                gridRow: 2,
+                fontSize: 12,
+                fontWeight: 600,
+                color: "#2563eb",
+                lineHeight: 1,
+                paddingBottom: 1,
+              }}
+            >
+              Operation
+            </div>
+
             <select
               value={operation}
               onChange={e => setOperation(e.target.value as any)}
               style={{
+                gridColumn: 2,
+                gridRow: 2,
                 padding: "4px 6px",
                 borderRadius: 4,
                 border: "1px solid #d1d5db",
@@ -6698,10 +6788,13 @@ export default function ProjectDetailPage({
               <option value="increment">Increase by</option>
               <option value="decrement">Decrease by</option>
             </select>
+
             <select
               value={operationPercent}
               onChange={e => setOperationPercent(e.target.value)}
               style={{
+                gridColumn: 3,
+                gridRow: 2,
                 padding: "4px 6px",
                 borderRadius: 4,
                 border: "1px solid #d1d5db",
@@ -6721,33 +6814,25 @@ export default function ProjectDetailPage({
               <option value="100">100%</option>
               <option value="ACV">ACV only</option>
             </select>
-            <div
+
+            <button
+              type="submit"
+              disabled={bulkSaving || petlItems.length === 0}
               style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "flex-end",
-                gap: 2,
+                gridColumn: 4,
+                gridRow: 2,
+                padding: "6px 10px",
+                borderRadius: 4,
+                border: "1px solid #0f172a",
+                backgroundColor: bulkSaving ? "#e5e7eb" : "#0f172a",
+                color: bulkSaving ? "#4b5563" : "#f9fafb",
+                fontSize: 12,
+                cursor: bulkSaving ? "default" : "pointer",
+                justifySelf: "end",
               }}
             >
-              <div style={{ fontSize: 11, color: "#4b5563", lineHeight: 1 }}>
-                Apply percent complete to Filtered Line Items
-              </div>
-              <button
-                type="submit"
-                disabled={bulkSaving || petlItems.length === 0}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 4,
-                  border: "1px solid #0f172a",
-                  backgroundColor: bulkSaving ? "#e5e7eb" : "#0f172a",
-                  color: bulkSaving ? "#4b5563" : "#f9fafb",
-                  fontSize: 12,
-                  cursor: bulkSaving ? "default" : "pointer",
-                }}
-              >
-                {bulkSaving ? "Applying…" : "Apply"}
-              </button>
-            </div>
+              {bulkSaving ? "Applying…" : "Apply"}
+            </button>
           </form>
 
           {bulkMessage && (
@@ -7012,44 +7097,10 @@ export default function ProjectDetailPage({
                                 type="button"
                                 onClick={e => {
                                   e.stopPropagation();
-                                  // Derive a simple breadcrumb from hierarchy + room
-                                  let breadcrumb: string | null = g.roomName;
-                                  if (hierarchy) {
-                                    const room = hierarchy.buildings
-                                      .flatMap((b: any) =>
-                                        (b.units || []).flatMap((u: any) =>
-                                          (u.particles || []).map((p: any) => ({
-                                            b,
-                                            u,
-                                            p,
-                                          })),
-                                        ),
-                                      )
-                                      .concat(
-                                        hierarchy.units
-                                          .flatMap((u: any) =>
-                                            (u.particles || []).map((p: any) => ({
-                                              b: null,
-                                              u,
-                                              p,
-                                            })),
-                                          ),
-                                      )
-                                      .find((r: any) => r.p.id === g.particleId);
-                                    if (room) {
-                                      const parts: string[] = [];
-                                      if (room.b) parts.push(`${room.b.code || ""} ${room.b.name}`.trim());
-                                      if (room.u) {
-                                        const floorLabel =
-                                          typeof room.u.floor === "number"
-                                            ? ` (Floor ${room.u.floor})`
-                                            : "";
-                                        parts.push(`${room.u.label}${floorLabel}`);
-                                      }
-                                      parts.push(room.p.fullLabel || room.p.name);
-                                      breadcrumb = parts.filter(Boolean).join("  b7 ");
-                                    }
-                                  }
+
+                                  const breadcrumb =
+                                    (g.particleId && roomBreadcrumbByParticleId.get(g.particleId)) ||
+                                    g.roomName;
 
                                   setPudlContext({
                                     open: true,
@@ -7175,10 +7226,7 @@ export default function ProjectDetailPage({
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {itemsForRoom
-                                    .slice()
-                                    .sort((a, b) => a.lineNo - b.lineNo)
-                                    .map(item => {
+                                  {itemsForRoom.map(item => {
                                       const flagged = isPetlReconFlagged(item.id);
                                       const hasRecon = hasReconciliationActivity(item.id);
                                       const bg = flagged
