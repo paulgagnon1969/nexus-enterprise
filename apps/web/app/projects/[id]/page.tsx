@@ -300,9 +300,21 @@ export default function ProjectDetailPage({
   const [selectionFilter, setSelectionFilter] = useState<string>("");
 
   // PETL view toggle: project organization grouping vs line sequence
-  const [petlDisplayMode, setPetlDisplayMode] = useState<PetlDisplayMode>(
-    "PROJECT_GROUPING",
-  );
+  // Default to LINE_SEQUENCE (and persist per-project) so the cost book / line-by-line
+  // reconciliation workflow is the primary view.
+  const [petlDisplayMode, setPetlDisplayMode] = useState<PetlDisplayMode>(() => {
+    if (typeof window === "undefined") return "LINE_SEQUENCE";
+    const raw = localStorage.getItem(`petlDisplayMode:${id}`);
+    if (raw === "PROJECT_GROUPING" || raw === "LINE_SEQUENCE") return raw;
+    return "LINE_SEQUENCE";
+  });
+
+  const setPetlDisplayModePersisted = (mode: PetlDisplayMode) => {
+    setPetlDisplayMode(mode);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`petlDisplayMode:${id}`, mode);
+    }
+  };
 
   const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
 
@@ -6070,7 +6082,7 @@ export default function ProjectDetailPage({
         >
           <button
             type="button"
-            onClick={() => setPetlDisplayMode("PROJECT_GROUPING")}
+            onClick={() => setPetlDisplayModePersisted("PROJECT_GROUPING")}
             style={{
               padding: "4px 10px",
               fontSize: 12,
@@ -6086,7 +6098,7 @@ export default function ProjectDetailPage({
           </button>
           <button
             type="button"
-            onClick={() => setPetlDisplayMode("LINE_SEQUENCE")}
+            onClick={() => setPetlDisplayModePersisted("LINE_SEQUENCE")}
             style={{
               padding: "4px 10px",
               fontSize: 12,
