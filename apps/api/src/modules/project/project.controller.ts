@@ -18,6 +18,21 @@ import { ProjectService } from "./project.service";
 import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateProjectDto, AddProjectMemberDto, ImportXactDto, ImportXactComponentsDto, UpdateProjectDto } from "./dto/project.dto";
+import {
+  AddInvoiceLineItemDto,
+  ApplyPaymentToInvoiceDto,
+  CreateOrGetDraftInvoiceDto,
+  IssueInvoiceDto,
+  RecordInvoicePaymentDto,
+  RecordProjectPaymentDto,
+  UpdateInvoiceLineItemDto,
+  UpdateInvoicePetlLineDto,
+} from "./dto/project-invoice.dto";
+import {
+  AttachProjectBillFileDto,
+  CreateProjectBillDto,
+  UpdateProjectBillDto,
+} from "./dto/project-bill.dto";
 import { ImportJobsService } from "../import-jobs/import-jobs.service";
 import { ImportJobType } from "@prisma/client";
 import { GcsService } from "../../infra/storage/gcs.service";
@@ -518,6 +533,26 @@ export class ProjectController {
     );
   }
 
+  // Admin+ destructive action: delete a single PETL line item (and any related reconciliation/edit data).
+  @UseGuards(JwtAuthGuard)
+  @Delete(":id/petl/:sowItemId")
+  deletePetlLineItem(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("sowItemId") sowItemId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.deletePetlLineItemForProject(projectId, user.companyId, user, sowItemId);
+  }
+
+  // Admin+ destructive action: delete all PETL + components data for this project (wipe estimate imports).
+  @UseGuards(JwtAuthGuard)
+  @Delete(":id/petl")
+  deletePetlAndComponents(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.deletePetlAndComponentsForProject(projectId, user.companyId, user);
+  }
+
   // Import note columns (Reimburse Owner / CO Customer Pay / Add to POL) from the
   // PWC Reconcile2 Summary Detail export and attach them as reconciliation entries.
   @UseGuards(JwtAuthGuard)
@@ -581,6 +616,39 @@ export class ProjectController {
     );
   }
 
+  // Pending PETL percent updates (crew/field proposals -> PM approval)
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/petl/percent-updates/pending")
+  listPendingPetlPercentUpdates(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.listPendingPetlPercentUpdateSessions(projectId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl/percent-updates/:sessionId/approve")
+  approvePetlPercentUpdateSession(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() body: { reviewNote?: string | null },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.approvePetlPercentUpdateSession(projectId, sessionId, user, body.reviewNote ?? null);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl/percent-updates/:sessionId/reject")
+  rejectPetlPercentUpdateSession(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("sessionId") sessionId: string,
+    @Body() body: { reviewNote?: string | null },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.rejectPetlPercentUpdateSession(projectId, sessionId, user, body.reviewNote ?? null);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get(":id/petl/:sowItemId/components")
   getPetlComponents(
@@ -619,7 +687,7 @@ export class ProjectController {
     @Req() req: any,
     @Param("id") projectId: string,
     @Param("sowItemId") sowItemId: string,
-    @Body() body: { kind?: string; note?: string | null }
+    @Body() body: { kind?: string; tag?: string | null; note?: string | null }
   ) {
     const user = req.user as AuthenticatedUser;
     return this.projects.createPetlReconciliationPlaceholder(
@@ -640,6 +708,7 @@ export class ProjectController {
     @Body()
     body: {
       note?: string | null;
+      tag?: string | null;
       components?: { itemAmount?: boolean; salesTaxAmount?: boolean; opAmount?: boolean };
     }
   ) {
@@ -671,6 +740,7 @@ export class ProjectController {
       salesTaxAmount?: number | null;
       opAmount?: number | null;
       rcvAmount?: number | null;
+      tag?: string | null;
       note?: string | null;
     }
   ) {
@@ -695,11 +765,39 @@ export class ProjectController {
       companyPriceListItemId: string;
       qty?: number | null;
       unitCostOverride?: number | null;
+      tag?: string | null;
       note?: string | null;
     }
   ) {
     const user = req.user as AuthenticatedUser;
     return this.projects.createPetlReconciliationAddFromCostBook(
+      projectId,
+      user.companyId,
+      user,
+      sowItemId,
+      body,
+    );
+  }
+
+  // GAAP-style replacement: credit the original line (zero it out) and add a replacement
+  // line item from the tenant cost book. Restricted to PM/Owner/Admin.
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl/:sowItemId/reconciliation/replace-from-cost-book")
+  replacePetlLineItemFromCostBook(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("sowItemId") sowItemId: string,
+    @Body()
+    body: {
+      companyPriceListItemId: string;
+      qty?: number | null;
+      unitCostOverride?: number | null;
+      tag?: string | null;
+      note?: string | null;
+    }
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.replacePetlLineItemFromCostBook(
       projectId,
       user.companyId,
       user,
@@ -723,6 +821,40 @@ export class ProjectController {
       user,
       entryId,
       body.newPercent,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(":id/petl-reconciliation/entries/:entryId")
+  updatePetlReconciliationEntry(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("entryId") entryId: string,
+    @Body()
+    body: {
+      kind?: string | null;
+      tag?: string | null;
+      description?: string | null;
+      categoryCode?: string | null;
+      selectionCode?: string | null;
+      unit?: string | null;
+      qty?: number | null;
+      unitCost?: number | null;
+      itemAmount?: number | null;
+      salesTaxAmount?: number | null;
+      opAmount?: number | null;
+      rcvAmount?: number | null;
+      note?: string | null;
+      isPercentCompleteLocked?: boolean | null;
+    },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.updatePetlReconciliationEntry(
+      projectId,
+      user.companyId,
+      user,
+      entryId,
+      body,
     );
   }
 
@@ -769,6 +901,202 @@ export class ProjectController {
       user,
       { forceRefresh: forceRefresh === "true" },
     );
+  }
+
+  // Project bills (expenses)
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/bills")
+  listProjectBills(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.listProjectBills(projectId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/bills")
+  createProjectBill(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body() dto: CreateProjectBillDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.createProjectBill(projectId, dto, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(":id/bills/:billId")
+  updateProjectBill(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("billId") billId: string,
+    @Body() dto: UpdateProjectBillDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.updateProjectBill(projectId, billId, dto, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/bills/:billId/attachments")
+  attachProjectBillFile(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("billId") billId: string,
+    @Body() dto: AttachProjectBillFileDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.attachProjectBillFile(projectId, billId, dto, user);
+  }
+
+  // Project billing (invoices + payments)
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/invoices")
+  listProjectInvoices(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.listProjectInvoices(projectId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/invoices/draft")
+  createOrGetDraftInvoice(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body() dto: CreateOrGetDraftInvoiceDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.createOrGetDraftInvoice(projectId, dto, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/invoices/:invoiceId")
+  getProjectInvoice(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getProjectInvoice(projectId, invoiceId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(":id/invoices/:invoiceId/petl-lines/:lineId")
+  updateInvoicePetlLine(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Param("lineId") lineId: string,
+    @Body() dto: UpdateInvoicePetlLineDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.updateInvoicePetlLine(projectId, invoiceId, lineId, dto, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/invoices/:invoiceId/lines")
+  addInvoiceLineItem(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() dto: AddInvoiceLineItemDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.addInvoiceLineItem(projectId, invoiceId, dto, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(":id/invoices/:invoiceId/lines/:lineId")
+  updateInvoiceLineItem(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Param("lineId") lineId: string,
+    @Body() dto: UpdateInvoiceLineItemDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.updateInvoiceLineItem(projectId, invoiceId, lineId, dto, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete(":id/invoices/:invoiceId/lines/:lineId")
+  deleteInvoiceLineItem(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Param("lineId") lineId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.deleteInvoiceLineItem(projectId, invoiceId, lineId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/invoices/:invoiceId/issue")
+  issueInvoice(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() dto: IssueInvoiceDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.issueInvoice(projectId, invoiceId, dto, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/invoices/:invoiceId/payments")
+  recordInvoicePayment(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() dto: RecordInvoicePaymentDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.recordInvoicePayment(projectId, invoiceId, dto, user);
+  }
+
+  // Project payments (cash receipts) - can exist without being tied to an invoice.
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/payments")
+  listProjectPayments(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.listProjectPayments(projectId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/payments")
+  recordProjectPayment(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body() dto: RecordProjectPaymentDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.recordProjectPayment(projectId, dto, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/payments/:paymentId/apply")
+  applyProjectPaymentToInvoice(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("paymentId") paymentId: string,
+    @Body() dto: ApplyPaymentToInvoiceDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.applyProjectPaymentToInvoice(projectId, paymentId, dto, user);
+  }
+
+  // Remove/unapply a payment from a specific invoice.
+  // - For application-based payments: deletes the ProjectPaymentApplication row.
+  // - For legacy invoice-linked payments: detaches the payment (sets invoiceId to null).
+  @UseGuards(JwtAuthGuard)
+  @Delete(":id/payments/:paymentId/apply/:invoiceId")
+  unapplyProjectPaymentFromInvoice(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("paymentId") paymentId: string,
+    @Param("invoiceId") invoiceId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.unapplyProjectPaymentFromInvoice(projectId, paymentId, invoiceId, user);
   }
 
   @UseGuards(JwtAuthGuard)

@@ -14,7 +14,10 @@ import {
   importGoldenComponentsFromFile,
   importBiaWorkers,
 } from "@repo/database";
-import { ImportJobStatus, ImportJobType, Role } from "@prisma/client";
+import { ImportJobStatus, ImportJobType, Role as DbRole } from "@prisma/client";
+import type { AuthenticatedUser } from "./modules/auth/jwt.strategy";
+import { GlobalRole as AuthGlobalRole, Role as AuthRole } from "./modules/auth/auth.guards";
+import { ProjectService } from "./modules/project/project.service";
 import { importPriceListFromFile, importCompanyPriceListFromFile } from "./modules/pricing/pricing.service";
 import { Storage } from "@google-cloud/storage";
 import { parse } from "csv-parse/sync";
@@ -51,6 +54,93 @@ function safeError(err: unknown) {
     return { message: err.message, stack: err.stack };
   }
   return { message: String(err) };
+}
+
+async function buildActorForImportJob(prisma: PrismaService, params: {
+  companyId: string;
+  createdByUserId: string | null;
+}): Promise<AuthenticatedUser | null> {
+  const { companyId, createdByUserId } = params;
+  if (!companyId || !createdByUserId) return null;
+
+  const [user, membership] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: createdByUserId },
+      select: {
+        id: true,
+        email: true,
+        globalRole: true,
+        userType: true,
+      },
+    }),
+    prisma.companyMembership.findUnique({
+      where: {
+        userId_companyId: {
+          userId: createdByUserId,
+          companyId,
+        },
+      },
+      include: {
+        profile: { select: { code: true } },
+      },
+    }),
+  ]);
+
+  if (!user?.email) return null;
+
+  const role = (membership?.role as any) ?? AuthRole.MEMBER;
+  const globalRole = (user.globalRole as any) ?? AuthGlobalRole.NONE;
+  const profileCode = (membership as any)?.profile?.code ?? null;
+
+  return {
+    userId: user.id,
+    companyId,
+    role,
+    email: user.email,
+    globalRole,
+    userType: user.userType ?? null,
+    profileCode,
+  };
+}
+
+async function autoCreateOrSyncDraftInvoiceFromPetl(params: {
+  prisma: PrismaService;
+  projectService: ProjectService;
+  importJobId: string;
+  companyId: string;
+  projectId: string | null;
+  createdByUserId: string | null;
+  reason: string;
+}) {
+  const { prisma, projectService, importJobId, companyId, projectId, createdByUserId, reason } = params;
+  if (!projectId) return;
+
+  try {
+    const actor = await buildActorForImportJob(prisma, { companyId, createdByUserId });
+    if (!actor) {
+      console.warn("[worker] auto invoice sync skipped: cannot resolve actor", {
+        importJobId,
+        projectId,
+        reason,
+      });
+      return;
+    }
+
+    await projectService.createOrGetDraftInvoice(projectId, {}, actor);
+
+    console.log("[worker] auto-synced living draft invoice from PETL", {
+      importJobId,
+      projectId,
+      reason,
+    });
+  } catch (err: any) {
+    console.error("[worker] failed to auto-sync living draft invoice from PETL", {
+      importJobId,
+      projectId,
+      reason,
+      error: err?.message ?? String(err),
+    });
+  }
 }
 
 async function getLatestEstimateVersionId(prisma: PrismaService, projectId: string) {
@@ -491,7 +581,11 @@ async function runXactComponentsAllocationJob(prisma: PrismaService, job: any) {
   });
 }
 
-async function processImportJob(prisma: PrismaService, importJobId: string) {
+async function processImportJob(
+  prisma: PrismaService,
+  projectService: ProjectService,
+  importJobId: string,
+) {
   const job = await prisma.importJob.findUnique({ where: { id: importJobId } });
   if (!job) {
     throw new Error(`ImportJob not found: ${importJobId}`);
@@ -584,13 +678,31 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
 
     const durationMs = Date.now() - startedAt;
 
+    await autoCreateOrSyncDraftInvoiceFromPetl({
+      prisma,
+      projectService,
+      importJobId,
+      companyId: job.companyId,
+      projectId: job.projectId,
+      createdByUserId: job.createdByUserId,
+      reason: "XACT_RAW",
+    });
+
+    const csvCount = (result as any)?.trace?.csv?.recordCount ?? null;
+    const rawInserted = (result as any)?.trace?.phases?.rawRows?.inserted ?? null;
+    const sowBuilt = (result as any)?.trace?.phases?.sowItems?.built ?? null;
+    const sowInserted = (result as any)?.trace?.phases?.sowItems?.inserted ?? null;
+
     await prisma.importJob.update({
       where: { id: importJobId },
       data: {
         status: ImportJobStatus.SUCCEEDED,
         finishedAt: new Date(),
         progress: 100,
-        message: "Import complete",
+        message:
+          csvCount != null && sowInserted != null
+            ? `Import complete (${sowInserted}/${csvCount} line items)`
+            : "Import complete",
         resultJson: result as any,
       },
     });
@@ -603,6 +715,10 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       resultSummary: {
         estimateVersionId: (result as any)?.estimateVersionId,
         itemCount: (result as any)?.itemCount,
+        csvRecordCount: csvCount,
+        rawInserted,
+        sowBuilt,
+        sowInserted,
         totalAmount: (result as any)?.totalAmount,
       },
     });
@@ -1139,6 +1255,16 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
       );
     }
 
+    await autoCreateOrSyncDraftInvoiceFromPetl({
+      prisma,
+      projectService,
+      importJobId,
+      companyId: job.companyId,
+      projectId: job.projectId,
+      createdByUserId: job.createdByUserId,
+      reason: "PROJECT_PETL_PERCENT",
+    });
+
     await prisma.importJob.update({
       where: { id: importJobId },
       data: {
@@ -1355,7 +1481,7 @@ async function processImportJob(prisma: PrismaService, importJobId: string) {
           data: {
             userId: user.id,
             companyId: targetCompanyId,
-            role: Role.MEMBER,
+            role: DbRole.MEMBER,
           },
         });
         membershipsCreated += 1;
@@ -1548,26 +1674,42 @@ async function processImportChunk(prisma: PrismaService, payload: ChunkJobPayloa
         return;
       }
 
-      const total = latest.totalChunks ?? chunkCount ?? 1;
-      const completed = (latest.completedChunks ?? 0) + 1;
-      const progress = 10 + Math.floor(80 * (completed / total));
+      // IMPORTANT: use an atomic increment to avoid races when multiple chunks
+      // finish concurrently.
+      const updated = await tx.importJob.update({
+        where: { id: importJobId },
+        data: {
+          completedChunks: { increment: 1 },
+        },
+        select: {
+          completedChunks: true,
+          totalChunks: true,
+        },
+      });
 
+      const total = updated.totalChunks ?? chunkCount ?? 1;
+      const completed = updated.completedChunks ?? 0;
+
+      // Keep progress below 100 until allocation completes.
+      const progress = Math.min(90, 10 + Math.floor(80 * (completed / total)));
+
+      // Update progress/message every chunk so the UI can poll for status.
       await tx.importJob.update({
         where: { id: importJobId },
         data: {
-          completedChunks: completed,
           progress,
+          message: `Ingested ${completed}/${total} component chunk(s)`,
         },
       });
 
       if (completed >= total) {
         isLastChunk = true;
+        // Do NOT mark the job SUCCEEDED yet; allocation still needs to run.
         await tx.importJob.update({
           where: { id: importJobId },
           data: {
-            status: ImportJobStatus.SUCCEEDED,
-            finishedAt: new Date(),
-            message: "Xact components ingestion (chunked) complete; allocation job will be queued",
+            progress: 90,
+            message: "All component chunks ingested; allocating components…",
           },
         });
       }
@@ -1589,6 +1731,16 @@ async function processImportChunk(prisma: PrismaService, payload: ChunkJobPayloa
           `Parent ImportJob ${importJobId} is missing estimateVersionId for allocation`,
         );
       }
+
+      // Mark allocation as RUNNING so the UI doesn't think the job is "done".
+      await prisma.importJob.update({
+        where: { id: importJobId },
+        data: {
+          status: ImportJobStatus.RUNNING,
+          progress: 92,
+          message: "Allocating components to PETL…",
+        },
+      });
 
       const allocationResult = await allocateComponentsForEstimate({
         estimateVersionId: parent.estimateVersionId,
@@ -1621,6 +1773,7 @@ export async function startWorker() {
   });
 
   const prisma = app.get(PrismaService);
+  const projectService = app.get(ProjectService);
 
   const worker = new Worker<ImportJobPayload>(
     IMPORT_QUEUE_NAME,
@@ -1629,7 +1782,7 @@ export async function startWorker() {
       if ((data as ChunkJobPayload).kind === "chunk") {
         await processImportChunk(prisma, data as ChunkJobPayload);
       } else {
-        await processImportJob(prisma, (data as ParentJobPayload).importJobId);
+        await processImportJob(prisma, projectService, (data as ParentJobPayload).importJobId);
       }
     },
     {

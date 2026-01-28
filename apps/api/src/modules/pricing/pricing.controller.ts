@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Controller,
+  Get,
   Post,
   Req,
   UseGuards,
@@ -448,7 +449,90 @@ export class PricingController {
     }
   }
 
-  // Search tenant cost book (CompanyPriceListItem) by cat/sel/description.
+  // List distinct CAT codes from the tenant cost book.
+  @UseGuards(JwtAuthGuard)
+  @Get("company-price-list/cats")
+  async listCompanyPriceListCats(@Req() req: FastifyRequest) {
+    const anyReq: any = req as any;
+    const user = anyReq.user as AuthenticatedUser | undefined;
+
+    if (!user?.companyId) {
+      throw new BadRequestException("Missing company context for cost book cats");
+    }
+
+    // Ensure a cost book exists (seed from Golden on-demand).
+    let costBook;
+    try {
+      costBook = await ensureCompanyPriceListForCompany(user.companyId);
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.error("[pricing] company-price-list/cats: ensureCompanyPriceListForCompany failed", {
+        companyId: user.companyId,
+        message: err?.message ?? String(err),
+      });
+      throw new BadRequestException(err?.message ?? "Failed to initialize company cost book");
+    }
+
+    const rows = await this.prisma.companyPriceListItem.findMany({
+      where: {
+        companyPriceListId: costBook.id,
+        cat: { not: null },
+      },
+      distinct: ["cat"],
+      select: { cat: true },
+      orderBy: { cat: "asc" },
+    });
+
+    const cats = rows
+      .map((r) => String(r.cat ?? "").trim())
+      .filter(Boolean);
+
+    return { companyPriceListId: costBook.id, cats };
+  }
+
+  // List distinct Activity values from the tenant cost book.
+  @UseGuards(JwtAuthGuard)
+  @Get("company-price-list/activities")
+  async listCompanyPriceListActivities(@Req() req: FastifyRequest) {
+    const anyReq: any = req as any;
+    const user = anyReq.user as AuthenticatedUser | undefined;
+
+    if (!user?.companyId) {
+      throw new BadRequestException("Missing company context for cost book activities");
+    }
+
+    // Ensure a cost book exists (seed from Golden on-demand).
+    let costBook;
+    try {
+      costBook = await ensureCompanyPriceListForCompany(user.companyId);
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.error("[pricing] company-price-list/activities: ensureCompanyPriceListForCompany failed", {
+        companyId: user.companyId,
+        message: err?.message ?? String(err),
+      });
+      throw new BadRequestException(err?.message ?? "Failed to initialize company cost book");
+    }
+
+    const rows = await this.prisma.companyPriceListItem.findMany({
+      where: {
+        companyPriceListId: costBook.id,
+        activity: { not: null },
+      },
+      distinct: ["activity"],
+      select: { activity: true },
+      orderBy: { activity: "asc" },
+      take: 500,
+    });
+
+    const activities = rows
+      .map((r) => String(r.activity ?? "").trim())
+      .filter(Boolean);
+
+    return { companyPriceListId: costBook.id, activities };
+  }
+
+  // Search tenant cost book (CompanyPriceListItem) by cat/sel/activity/description.
   @UseGuards(JwtAuthGuard)
   @Post("company-price-list/search")
   async searchCompanyPriceList(@Req() req: FastifyRequest) {
@@ -461,40 +545,79 @@ export class PricingController {
 
     const anyBody: any = (anyReq.body ?? {}) as any;
     const q = typeof anyBody.query === "string" ? anyBody.query.trim() : "";
+
+    // Back-compat: allow old `{ cat: "03" }` payloads.
     const cat = typeof anyBody.cat === "string" ? anyBody.cat.trim() : "";
+
+    const catsRaw = anyBody.cats;
+    const cats = Array.isArray(catsRaw)
+      ? catsRaw
+          .map((v: any) => (typeof v === "string" ? v.trim() : ""))
+          .filter(Boolean)
+      : [];
+
     const sel = typeof anyBody.sel === "string" ? anyBody.sel.trim() : "";
+    const activity = typeof anyBody.activity === "string" ? anyBody.activity.trim() : "";
     const limitRaw = anyBody.limit;
 
-    // Browsing a single CAT in the UI often needs more than 200 rows so the user
+    // Browsing specific CAT(s) in the UI often needs more than 200 rows so the user
     // can scroll above/below the highlighted match. Keep the unfiltered cap low.
-    const maxLimit = cat ? 2000 : 200;
+    const hasCatFilter = cats.length > 0 || !!cat;
+    const maxLimit = hasCatFilter ? 2000 : 200;
     const limit =
       typeof limitRaw === "number" && Number.isFinite(limitRaw)
         ? Math.max(1, Math.min(maxLimit, Math.floor(limitRaw)))
         : 50;
 
     // Ensure a cost book exists (seed from Golden on-demand).
-    const costBook = await ensureCompanyPriceListForCompany(user.companyId);
+    let costBook;
+    try {
+      costBook = await ensureCompanyPriceListForCompany(user.companyId);
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.error("[pricing] company-price-list/search: ensureCompanyPriceListForCompany failed", {
+        companyId: user.companyId,
+        message: err?.message ?? String(err),
+      });
+      throw new BadRequestException(err?.message ?? "Failed to initialize company cost book");
+    }
 
     const where: any = {
       companyPriceListId: costBook.id,
     };
 
-    if (cat) {
-      where.cat = { equals: cat, mode: "insensitive" };
+    const and: any[] = [];
+
+    const catsToUse = cats.length > 0 ? cats : cat ? [cat] : [];
+    if (catsToUse.length > 0) {
+      and.push({
+        OR: catsToUse.map((c) => ({ cat: { equals: c, mode: "insensitive" } })),
+      });
     }
+
     if (sel) {
-      where.sel = { equals: sel, mode: "insensitive" };
+      and.push({ sel: { equals: sel, mode: "insensitive" } });
+    }
+
+    if (activity) {
+      and.push({ activity: { equals: activity, mode: "insensitive" } });
     }
 
     if (q) {
-      where.OR = [
-        { description: { contains: q, mode: "insensitive" } },
-        { cat: { contains: q, mode: "insensitive" } },
-        { sel: { contains: q, mode: "insensitive" } },
-        { groupCode: { contains: q, mode: "insensitive" } },
-        { groupDescription: { contains: q, mode: "insensitive" } },
-      ];
+      and.push({
+        OR: [
+          { description: { contains: q, mode: "insensitive" } },
+          { cat: { contains: q, mode: "insensitive" } },
+          { sel: { contains: q, mode: "insensitive" } },
+          { activity: { contains: q, mode: "insensitive" } },
+          { groupCode: { contains: q, mode: "insensitive" } },
+          { groupDescription: { contains: q, mode: "insensitive" } },
+        ],
+      });
+    }
+
+    if (and.length > 0) {
+      where.AND = and;
     }
 
     const items = await this.prisma.companyPriceListItem.findMany({
@@ -512,7 +635,9 @@ export class PricingController {
       query: q || null,
       filters: {
         cat: cat || null,
+        cats: cats.length > 0 ? cats : null,
         sel: sel || null,
+        activity: activity || null,
       },
       items,
     };

@@ -468,6 +468,15 @@ export function AppShell({ children }: { children: ReactNode }) {
             {h.files}
           </Link>
           <Link
+            href="/documents"
+            className={
+              "app-nav-link" +
+              (isActive("/documents") ? " app-nav-link-active" : "")
+            }
+          >
+            Documents
+          </Link>
+          <Link
             href="/messaging"
             className={
               "app-nav-link" +

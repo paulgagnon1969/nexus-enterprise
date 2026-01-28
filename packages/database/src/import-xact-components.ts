@@ -71,7 +71,8 @@ export async function importXactComponentsRecordsForEstimate(options: {
   const now = new Date();
 
   const rawRowsData = records.map((record) => {
-    const code = record["Code"] as string | undefined;
+    // Some Xactimate CSV exports include a UTF-8 BOM on the first header ("\uFEFFCode").
+    const code = (record["Code"] ?? record["\uFEFFCode"]) as string | undefined;
     const description = record["Description"] as string | undefined;
     const taxStatus = record["Tax Status"] as string | undefined;
     const contractorSupplied = record["Contractor Supplied"] as string | undefined;
@@ -103,7 +104,8 @@ export async function importXactComponentsRecordsForEstimate(options: {
   await prisma.rawComponentRow.createMany({ data: rawRowsData });
 
   const summariesData = records.map((record) => {
-    const code = record["Code"] as string | undefined;
+    // Some Xactimate CSV exports include a UTF-8 BOM on the first header ("\uFEFFCode").
+    const code = (record["Code"] ?? record["\uFEFFCode"]) as string | undefined;
     const description = record["Description"] as string | undefined;
     const taxStatus = record["Tax Status"] as string | undefined;
     const contractorSupplied = record["Contractor Supplied"] as string | undefined;

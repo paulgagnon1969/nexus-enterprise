@@ -218,16 +218,30 @@ export async function importPetlNotesFromReconcileCsv(args: {
       projectParticleId: true,
       logicalItemId: true,
       estimateVersionId: true,
+      rawRow: {
+        select: {
+          lineNo: true,
+        },
+      },
     },
   });
 
-  const byLineNo = new Map<number, (typeof sowItems)[number]>();
+  const byPetlLineNo = new Map<number, (typeof sowItems)[number]>();
+  const byXactLineNo = new Map<number, (typeof sowItems)[number]>();
+
   for (const it of sowItems) {
-    if (!byLineNo.has(it.lineNo)) byLineNo.set(it.lineNo, it);
+    if (!byPetlLineNo.has(it.lineNo)) byPetlLineNo.set(it.lineNo, it);
+    const xactLineNo = it.rawRow?.lineNo;
+    if (typeof xactLineNo === "number" && xactLineNo > 0 && !byXactLineNo.has(xactLineNo)) {
+      byXactLineNo.set(xactLineNo, it);
+    }
   }
 
   const csvText = fs.readFileSync(resolvedPath, "utf8");
   const detailRows = parseReconcileDetailRows(csvText);
+
+  const maxCsvLineNo = detailRows.reduce((m, r) => (r.lineNo > m ? r.lineNo : m), 0);
+  const preferXactLineNo = maxCsvLineNo > sowItems.length;
 
   let matched = 0;
   let missing = 0;
@@ -238,7 +252,11 @@ export async function importPetlNotesFromReconcileCsv(args: {
   let skippedExisting = 0;
 
   for (const row of detailRows) {
-    const sowItem = byLineNo.get(row.lineNo) ?? null;
+    const sowItem = (
+      preferXactLineNo
+        ? byXactLineNo.get(row.lineNo) ?? byPetlLineNo.get(row.lineNo)
+        : byPetlLineNo.get(row.lineNo) ?? byXactLineNo.get(row.lineNo)
+    ) ?? null;
     if (!sowItem) {
       missing += 1;
       continue;
