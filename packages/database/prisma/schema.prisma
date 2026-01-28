@@ -12,6 +12,13 @@ enum MessageHeaderRole {
   BCC
 }
 
+enum DocumentTemplateType {
+  INVOICE
+  QUOTE
+  SOP
+  GENERIC
+}
+
 model Company {
   id                        String      @id @default(cuid())
   name                      String
@@ -90,6 +97,18 @@ model Company {
   maintenanceTodos       MaintenanceTodo[]
   maintenanceReviewSettings MaintenanceReviewSettings?
   assetMeterReadings     AssetMeterReading[]
+
+  // Project billing (invoices + payments)
+  projectInvoices            ProjectInvoice[]
+  projectPayments            ProjectPayment[]
+  projectPaymentApplications ProjectPaymentApplication[]
+  invoiceCounter             CompanyInvoiceCounter?
+
+  // Document templates (internal docs)
+  documentTemplates DocumentTemplate[]
+
+  // Project expenses (bills)
+  projectBills ProjectBill[]
 }
 
 model OrganizationTemplate {
@@ -198,6 +217,45 @@ model OrganizationModuleOverride {
   @@index([companyId], map: "OrgModuleOverride_company_idx")
 }
 
+model DocumentTemplate {
+  id               String               @id @default(cuid())
+  companyId        String
+  type             DocumentTemplateType @default(GENERIC)
+  code             String
+  label            String
+  description      String?
+  active           Boolean              @default(true)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  currentVersionId String?              @unique
+
+  company        Company                  @relation(fields: [companyId], references: [id])
+  currentVersion DocumentTemplateVersion? @relation("DocTemplateCurrentVersion", fields: [currentVersionId], references: [id])
+  versions       DocumentTemplateVersion[]
+
+  @@unique([companyId, code], name: "DocumentTemplate_company_code_key")
+  @@index([companyId], map: "DocumentTemplate_company_idx")
+  @@index([companyId, type], map: "DocumentTemplate_company_type_idx")
+}
+
+model DocumentTemplateVersion {
+  id          String   @id @default(cuid())
+  templateId  String
+  versionNo   Int
+  label       String?
+  notes       String?
+  html        String
+  contentHash String?
+  createdAt   DateTime @default(now())
+  createdByUserId String?
+
+  template          DocumentTemplate  @relation(fields: [templateId], references: [id])
+  currentForTemplate DocumentTemplate? @relation("DocTemplateCurrentVersion")
+
+  @@unique([templateId, versionNo], name: "DocTemplateVersion_template_version_no")
+  @@index([templateId], map: "DocTemplateVersion_template_idx")
+}
+
 model User {
   id                        String                 @id @default(cuid())
   email                     String                 @unique
@@ -229,6 +287,14 @@ model User {
   createdDailyLogs          DailyLog[]
   goldenPriceUpdates        GoldenPriceUpdateLog[]
   createdImportJobs         ImportJob[]            @relation("ImportJobCreatedBy")
+
+  // Project billing created-by audit
+  projectInvoicesCreated             ProjectInvoice[]            @relation("ProjectInvoiceCreatedBy")
+  projectPaymentsCreated             ProjectPayment[]            @relation("ProjectPaymentCreatedBy")
+  projectPaymentApplicationsCreated  ProjectPaymentApplication[] @relation("ProjectPaymentApplicationCreatedBy")
+
+  // Project bills (expenses) created-by audit
+  projectBillsCreated ProjectBill[] @relation("ProjectBillCreatedBy")
   onboardingSessions        OnboardingSession[]
   projectMemberships        ProjectMembership[]
   assignedTasks             Task[]                 @relation("TaskAssignee")
@@ -269,6 +335,10 @@ model User {
   petlReconciliationCasesCreated  PetlReconciliationCase[]  @relation("PetlReconCaseCreatedBy")
   petlReconciliationEntriesCreated PetlReconciliationEntry[] @relation("PetlReconEntryCreatedBy")
   petlReconciliationEventsCreated PetlReconciliationEvent[] @relation("PetlReconEventCreatedBy")
+
+  // Pending PETL percent updates (field-proposed, PM-approved)
+  petlPercentUpdateSessionsCreated  PetlPercentUpdateSession[] @relation("PetlPercentUpdateSessionCreatedBy")
+  petlPercentUpdateSessionsReviewed PetlPercentUpdateSession[] @relation("PetlPercentUpdateSessionReviewedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -818,6 +888,17 @@ model Project {
   dailyTimecards       DailyTimecard[]
   timecardEditLogs     TimecardEditLog[]
 
+  // Project billing (invoices + payments)
+  invoices             ProjectInvoice[]
+  payments             ProjectPayment[]
+  paymentApplications  ProjectPaymentApplication[]
+
+  // Project expenses (bills)
+  bills ProjectBill[]
+
+  // Pending PETL percent updates
+  petlPercentUpdateSessions PetlPercentUpdateSession[]
+
   @@index([companyId, groupId], map: "Project_company_group_idx")
 }
 
@@ -936,6 +1017,7 @@ model ProjectFile {
   folder  ProjectFileFolder? @relation(fields: [folderId], references: [id])
   attachments MessageAttachment[]
   dailyLogAttachments DailyLogAttachment[]
+  billAttachments ProjectBillAttachment[]
 
   @@index([companyId, projectId], map: "ProjectFile_company_project_idx")
 }
@@ -1060,6 +1142,355 @@ model ProjectFinancialSnapshot {
   @@index([projectId, estimateVersionId, snapshotDate], map: "ProjectFinancialSnapshot_project_estimate_date_idx")
 }
 
+enum ProjectInvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  VOID
+}
+
+enum ProjectInvoiceLineItemKind {
+  MANUAL
+  BILLABLE_HOURS
+  EQUIPMENT_RENTAL
+  COST_BOOK
+  OTHER
+}
+
+enum ProjectPaymentMethod {
+  WIRE
+  ACH
+  CHECK
+  OTHER
+}
+
+enum ProjectPaymentStatus {
+  RECORDED
+  VOID
+}
+
+enum ProjectBillStatus {
+  DRAFT
+  POSTED
+  PAID
+  VOID
+}
+
+enum ProjectBillLineItemKind {
+  MATERIALS
+  LABOR
+  OTHER
+}
+
+enum ProjectBillLineItemAmountSource {
+  MANUAL
+  TIMECARDS_DERIVED
+}
+
+/// Simple per-company sequence counter for invoice numbering.
+/// We keep this in the application layer (rather than a Postgres SEQUENCE) so we can
+/// evolve numbering rules per tenant without DB-level complexity.
+model CompanyInvoiceCounter {
+  companyId     String  @id
+  lastInvoiceNo Int     @default(0)
+  updatedAt     DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+/// A project-level invoice. Draft invoices act as the "living" invoice and can be edited.
+/// Once issued, an invoice is locked and receives an invoice number.
+model ProjectInvoice {
+  id              String             @id @default(cuid())
+  companyId        String
+  projectId        String
+
+  status           ProjectInvoiceStatus @default(DRAFT)
+
+  /// Assigned when the invoice is issued. Uniqueness is enforced by (companyId, invoiceSequenceNo).
+  invoiceSequenceNo Int?
+  invoiceNo         String?
+
+  billToName  String?
+  billToEmail String?
+
+  memo        String?
+
+  issuedAt    DateTime?
+  dueAt       DateTime?
+  lockedAt    DateTime?
+
+  totalAmount Float              @default(0)
+
+  createdByUserId String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project      Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy    User?             @relation("ProjectInvoiceCreatedBy", fields: [createdByUserId], references: [id])
+
+  lineItems            ProjectInvoiceLineItem[]
+  petlLines            ProjectInvoicePetlLine[]
+  payments             ProjectPayment[]
+  paymentApplications  ProjectPaymentApplication[]
+
+  @@index([companyId, projectId, status], map: "ProjectInvoice_company_project_status_idx")
+  @@unique([companyId, invoiceSequenceNo], name: "ProjectInvoice_company_invoice_seq_key")
+}
+
+model ProjectInvoiceLineItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+
+  kind        ProjectInvoiceLineItemKind @default(MANUAL)
+
+  // Optional invoice-only classification for reporting / display.
+  billingTag  ProjectInvoicePetlLineBillingTag @default(NONE)
+
+  // Optional pointer to the tenant cost book item used to generate this line.
+  // (We also snapshot description/unitPrice directly on the invoice line so invoices
+  // remain stable if the cost book changes later.)
+  companyPriceListItemId String?
+
+  description String
+  qty         Float?
+  unitPrice   Float?
+  amount      Float
+  sortOrder   Int      @default(0)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  invoice     ProjectInvoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  companyPriceListItem CompanyPriceListItem? @relation("InvoiceLineItemCostBookItem", fields: [companyPriceListItemId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId, sortOrder], map: "ProjectInvoiceLineItem_invoice_sort_idx")
+  @@index([invoiceId, kind], map: "ProjectInvoiceLineItem_invoice_kind_idx")
+  @@index([invoiceId, billingTag], map: "ProjectInvoiceLineItem_invoice_billing_tag_idx")
+  @@index([companyPriceListItemId], map: "ProjectInvoiceLineItem_company_price_item_idx")
+}
+
+enum ProjectInvoicePetlLineKind {
+  BASE
+  ACV_HOLDBACK_CREDIT
+}
+
+enum ProjectInvoicePetlLineBillingTag {
+  NONE
+  PETL_LINE_ITEM
+  CHANGE_ORDER
+  SUPPLEMENT
+  WARRANTY
+}
+
+/// Snapshot of PETL (estimate) progress-billing values at the time an invoice draft is generated.
+///
+/// For ACV-only lines, we generate an indented credit sub-line (ACV_HOLDBACK_CREDIT) equal to
+/// -0.8 of the BASE amounts so the net billed amount is reduced.
+model ProjectInvoicePetlLine {
+  id          String                    @id @default(cuid())
+  invoiceId   String
+  kind        ProjectInvoicePetlLineKind @default(BASE)
+
+  // Optional invoice-only classification for reporting / display.
+  billingTag  ProjectInvoicePetlLineBillingTag @default(NONE)
+
+  // For indentation / sub-lines (e.g. ACV holdback credit under BASE)
+  parentLineId String?
+
+  // PETL identity (stable across imports)
+  estimateVersionId String
+  sowItemId         String
+  logicalItemId     String
+
+  // Grouping snapshots (mirrors PETL project grouping / tree)
+  projectParticleId             String
+  projectParticleLabelSnapshot  String?
+  projectUnitIdSnapshot         String?
+  projectUnitLabelSnapshot      String?
+  projectBuildingIdSnapshot     String?
+  projectBuildingLabelSnapshot  String?
+  projectTreePathSnapshot       String?
+
+  // Display snapshots
+  lineNoSnapshot        Int
+  categoryCodeSnapshot  String?
+  selectionCodeSnapshot String?
+  descriptionSnapshot   String
+  unitSnapshot          String?
+
+  // Progress snapshot
+  percentCompleteSnapshot Float
+
+  // Contract snapshot (full values)
+  contractItemAmount Float
+  contractTaxAmount  Float
+  contractOpAmount   Float
+  contractTotal      Float
+
+  // Earned-to-date (as-of this invoice)
+  earnedItemAmount Float
+  earnedTaxAmount  Float
+  earnedOpAmount   Float
+  earnedTotal      Float
+
+  // Previously billed (before this invoice)
+  prevBilledItemAmount Float
+  prevBilledTaxAmount  Float
+  prevBilledOpAmount   Float
+  prevBilledTotal      Float
+
+  // Delta for this invoice (can be negative)
+  thisInvItemAmount Float
+  thisInvTaxAmount  Float
+  thisInvOpAmount   Float
+  thisInvTotal      Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoice    ProjectInvoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  parentLine ProjectInvoicePetlLine? @relation("ProjectInvoicePetlLineParent", fields: [parentLineId], references: [id], onDelete: Cascade)
+  subLines   ProjectInvoicePetlLine[] @relation("ProjectInvoicePetlLineParent")
+
+  @@unique([invoiceId, sowItemId, kind])
+  @@index([invoiceId, projectParticleId])
+  @@index([parentLineId])
+}
+
+/// A payment record applied to an invoice (or optionally recorded as unapplied cash).
+model ProjectPayment {
+  id          String              @id @default(cuid())
+  companyId   String
+  projectId   String
+  invoiceId   String?
+
+  status      ProjectPaymentStatus @default(RECORDED)
+  method      ProjectPaymentMethod
+  paidAt      DateTime            @default(now())
+  amount      Float
+  reference   String?
+  note        String?
+
+  createdByUserId String?
+  createdAt   DateTime            @default(now())
+
+  company       Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project       Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  invoice       ProjectInvoice?          @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdBy     User?                    @relation("ProjectPaymentCreatedBy", fields: [createdByUserId], references: [id])
+  applications  ProjectPaymentApplication[]
+
+  @@index([companyId, projectId, paidAt], map: "ProjectPayment_company_project_paid_idx")
+  @@index([invoiceId], map: "ProjectPayment_invoice_idx")
+}
+
+/// Allocation of a (possibly partially) received payment to a specific invoice.
+/// This allows recording payments before an invoice exists, and later applying
+/// some or all of that cash receipt across one or more invoices.
+model ProjectPaymentApplication {
+  id          String   @id @default(cuid())
+  companyId   String
+  projectId   String
+
+  paymentId   String
+  invoiceId   String
+
+  amount      Float
+  appliedAt   DateTime @default(now())
+
+  createdByUserId String?
+  createdAt   DateTime @default(now())
+
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  payment     ProjectPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice     ProjectInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  createdBy   User?          @relation("ProjectPaymentApplicationCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@unique([paymentId, invoiceId])
+  @@index([companyId, projectId, appliedAt], map: "ProjectPaymentApplication_company_project_applied_idx")
+  @@index([paymentId], map: "ProjectPaymentApplication_payment_idx")
+  @@index([invoiceId], map: "ProjectPaymentApplication_invoice_idx")
+}
+
+model ProjectBill {
+  id        String @id @default(cuid())
+  companyId String
+  projectId String
+
+  vendorName String
+  billNumber String?
+
+  billDate DateTime
+  dueAt    DateTime?
+
+  status ProjectBillStatus @default(DRAFT)
+
+  memo String?
+
+  totalAmount Float
+
+  createdByUserId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("ProjectBillCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  lineItems   ProjectBillLineItem[]
+  attachments ProjectBillAttachment[]
+
+  @@index([companyId, projectId, billDate], map: "ProjectBill_company_project_date_idx")
+  @@index([projectId, billDate], map: "ProjectBill_project_date_idx")
+}
+
+model ProjectBillLineItem {
+  id     String @id @default(cuid())
+  billId String
+
+  kind         ProjectBillLineItemKind
+  description  String
+  amountSource ProjectBillLineItemAmountSource @default(MANUAL)
+  amount       Float
+
+  // Optional labor derivation from timecards.
+  timecardStartDate DateTime?
+  timecardEndDate   DateTime?
+  metaJson          Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bill ProjectBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId], map: "ProjectBillLineItem_bill_idx")
+}
+
+model ProjectBillAttachment {
+  id          String @id @default(cuid())
+  billId      String
+  projectFileId String
+
+  // Snapshot for display convenience.
+  fileUrl   String
+  fileName  String?
+  mimeType  String?
+  sizeBytes Int?
+
+  createdAt DateTime @default(now())
+
+  bill        ProjectBill  @relation(fields: [billId], references: [id], onDelete: Cascade)
+  projectFile ProjectFile @relation(fields: [projectFileId], references: [id], onDelete: Cascade)
+
+  @@unique([billId, projectFileId], name: "ProjectBillAttachment_bill_file_key")
+  @@index([billId], map: "ProjectBillAttachment_bill_idx")
+  @@index([projectFileId], map: "ProjectBillAttachment_project_file_idx")
+}
+
 /// Log of Golden price list updates driven by Xact RAW imports.
 /// Each row records how many items were updated and the average
 /// price deltas, along with the project, estimate, and user.
@@ -1168,6 +1599,7 @@ model EstimateVersion {
   petlReconciliationCases   PetlReconciliationCase[]
   petlReconciliationEntries PetlReconciliationEntry[]
   petlReconciliationEvents  PetlReconciliationEvent[]
+  petlPercentUpdateSessions PetlPercentUpdateSession[]
 
   @@index([projectId, sequenceNo], map: "EstimateVersion_project_sequence_idx")
 }
@@ -1428,6 +1860,7 @@ model SowItem {
   petlEditChanges      PetlEditChange[]
   petlReconciliationCases   PetlReconciliationCase[]   @relation("PetlReconCaseSowItem")
   petlReconciliationEntries PetlReconciliationEntry[] @relation("PetlReconEntryParentSowItem")
+  petlPercentUpdates       PetlPercentUpdate[]
   componentAllocations SowComponentAllocation[]
   estimateVersion      EstimateVersion          @relation(fields: [estimateVersionId], references: [id])
   logicalItem          SowLogicalItem           @relation(fields: [logicalItemId], references: [id])
@@ -1522,6 +1955,67 @@ model PetlEditChange {
   sowItem     SowItem         @relation(fields: [sowItemId], references: [id])
 }
 
+enum PetlPercentUpdateSessionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PetlPercentUpdateTargetType {
+  SOW_ITEM
+  RECON_ENTRY
+}
+
+/// Field/crew-submitted percent complete edits that must be approved before
+/// they become part of the PETL process-of-record.
+model PetlPercentUpdateSession {
+  id              String                        @id @default(cuid())
+  projectId        String
+  estimateVersionId String
+  createdByUserId  String?
+  source           String                        @default("field")
+  metaJson         Json?
+
+  status           PetlPercentUpdateSessionStatus @default(PENDING)
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
+
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  reviewNote       String?
+
+  project          Project                       @relation(fields: [projectId], references: [id])
+  estimateVersion  EstimateVersion               @relation(fields: [estimateVersionId], references: [id])
+  createdBy        User?                         @relation("PetlPercentUpdateSessionCreatedBy", fields: [createdByUserId], references: [id])
+  reviewedBy       User?                         @relation("PetlPercentUpdateSessionReviewedBy", fields: [reviewedByUserId], references: [id])
+
+  updates          PetlPercentUpdate[]
+
+  @@index([projectId, status, createdAt], map: "PetlPercentUpdateSession_project_status_created_idx")
+}
+
+model PetlPercentUpdate {
+  id          String                    @id @default(cuid())
+  sessionId   String
+  targetType  PetlPercentUpdateTargetType
+
+  sowItemId   String?
+  reconEntryId String?
+
+  oldPercent  Float
+  newPercent  Float
+
+  createdAt   DateTime                  @default(now())
+
+  session     PetlPercentUpdateSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sowItem     SowItem?                  @relation(fields: [sowItemId], references: [id])
+  reconEntry  PetlReconciliationEntry?  @relation(fields: [reconEntryId], references: [id])
+
+  @@index([sessionId], map: "PetlPercentUpdate_session_idx")
+  @@index([sowItemId], map: "PetlPercentUpdate_sowItem_idx")
+  @@index([reconEntryId], map: "PetlPercentUpdate_reconEntry_idx")
+}
+
 enum PetlReconciliationCaseStatus {
   OPEN
   CLOSED
@@ -1533,6 +2027,13 @@ enum PetlReconciliationEntryKind {
   ADD
   CHANGE_ORDER_CLIENT_PAY
   REIMBURSE_OWNER
+}
+
+enum PetlReconciliationEntryTag {
+  SUPPLEMENT
+  CHANGE_ORDER
+  OTHER
+  WARRANTY
 }
 
 model PetlReconciliationCase {
@@ -1569,6 +2070,7 @@ model PetlReconciliationEntry {
   parentSowItemId   String?
   projectParticleId String
   kind              PetlReconciliationEntryKind @default(NOTE_ONLY)
+  tag               PetlReconciliationEntryTag?
 
   // Snapshot of the reconciled / added line item (RCV breakdown)
   description       String?
@@ -1605,6 +2107,7 @@ model PetlReconciliationEntry {
   projectParticle ProjectParticle       @relation(fields: [projectParticleId], references: [id])
   companyPriceListItem CompanyPriceListItem? @relation(fields: [companyPriceListItemId], references: [id])
   createdBy       User?                 @relation("PetlReconEntryCreatedBy", fields: [createdByUserId], references: [id])
+  petlPercentUpdates PetlPercentUpdate[]
   events          PetlReconciliationEvent[]
 
   @@index([projectId, estimateVersionId], map: "PetlReconEntry_project_estimate_idx")
@@ -2089,6 +2592,7 @@ model CompanyPriceListItem {
   priceListItem      PriceListItem?    @relation(fields: [priceListItemId], references: [id])
   priceUpdates       TenantPriceUpdateLog[]
   petlReconciliationEntries PetlReconciliationEntry[]
+  invoiceLineItems          ProjectInvoiceLineItem[] @relation("InvoiceLineItemCostBookItem")
 
   @@index([companyPriceListId, canonicalKeyHash])
   @@index([companyPriceListId, cat, sel])

@@ -12,8 +12,13 @@ import type { FastifyRequest } from "fastify";
 import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { ImportJobsService } from "./import-jobs.service";
-import { CreateXactComponentsAllocationJobDto, CreateXactComponentsImportJobDto, CreateXactRawImportJobDto } from "./dto/import-jobs.dto";
+import {
+  CreateXactComponentsAllocationJobDto,
+  CreateXactComponentsImportJobDto,
+  CreateXactRawImportJobDto,
+} from "./dto/import-jobs.dto";
 import { ImportJobType } from "@prisma/client";
+import { GcsService } from "../../infra/storage/gcs.service";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -21,7 +26,10 @@ import * as path from "node:path";
 @UseGuards(JwtAuthGuard)
 @Controller("projects/:projectId/import-jobs")
 export class ProjectImportJobsController {
-  constructor(private readonly jobs: ImportJobsService) {}
+  constructor(
+    private readonly jobs: ImportJobsService,
+    private readonly gcs: GcsService,
+  ) {}
 
   @Roles(Role.OWNER, Role.ADMIN)
   @Post("xact-raw")
@@ -57,9 +65,13 @@ export class ProjectImportJobsController {
     await fs.promises.mkdir(importDir, { recursive: true });
 
     let savedFile: string | null = null;
+    let uploadedFileUri: string | null = null;
 
     for await (const part of parts as any) {
-      if (!part.file || (part.fieldname && part.fieldname !== "file" && part.fieldname !== "files")) {
+      if (
+        !part.file ||
+        (part.fieldname && part.fieldname !== "file" && part.fieldname !== "files")
+      ) {
         continue;
       }
 
@@ -67,7 +79,10 @@ export class ProjectImportJobsController {
         throw new BadRequestException("Only one CSV file is allowed for this import.");
       }
 
-      const safeName = (part.filename || "upload.csv").replace(/[^a-zA-Z0-9_.-]/g, "_");
+      const safeName = (part.filename || "upload.csv").replace(
+        /[^a-zA-Z0-9_.-]/g,
+        "_",
+      );
       const dest = path.join(
         importDir,
         `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`,
@@ -77,8 +92,34 @@ export class ProjectImportJobsController {
       for await (const chunk of part.file) {
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       }
-      await fs.promises.writeFile(dest, Buffer.concat(chunks));
+
+      const buffer = Buffer.concat(chunks);
+      await fs.promises.writeFile(dest, buffer);
       savedFile = dest;
+
+      // Best-effort: also upload to GCS so the worker can access the CSV even
+      // when it runs in a different container/service than the API.
+      try {
+        const keyParts = [
+          "petl-percent",
+          user.companyId,
+          projectId,
+          `${Date.now()}`,
+          safeName,
+        ].filter(Boolean);
+
+        const key = keyParts.join("/");
+
+        uploadedFileUri = await this.gcs.uploadBuffer({
+          key,
+          buffer,
+          contentType: part.mimetype || "text/csv",
+        });
+      } catch (err) {
+        // If GCS is not configured in dev, keep filesystem-only behavior.
+        // eslint-disable-next-line no-console
+        console.error("[import-jobs] enqueuePetlPercent: GCS upload failed", err);
+      }
     }
 
     if (!savedFile) {
@@ -91,9 +132,10 @@ export class ProjectImportJobsController {
       createdByUserId: user.userId,
       type: ImportJobType.PROJECT_PETL_PERCENT,
       csvPath: savedFile,
+      fileUri: uploadedFileUri,
     });
 
-    return { jobId: job.id, savedFile };
+    return { jobId: job.id, savedFile, fileUri: uploadedFileUri };
   }
 
   @Roles(Role.OWNER, Role.ADMIN)

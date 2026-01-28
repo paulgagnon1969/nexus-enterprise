@@ -210,13 +210,14 @@ export async function ensureCompanyPriceListForCompany(companyId: string) {
     throw new Error("No active Golden Price List is configured in Nexus System.");
   }
 
-  const seeded = await prisma.$transaction(async (tx: any) => {
-    const base = await tx.priceList.findUnique({
-      where: { id: golden.id },
-      include: {
-        items: true,
-      },
-    });
+  const seeded = await prisma.$transaction(
+    async (tx: any) => {
+      const base = await tx.priceList.findUnique({
+        where: { id: golden.id },
+        include: {
+          items: true,
+        },
+      });
 
     if (!base) {
       throw new Error("Active Golden Price List not found during seeding.");
@@ -264,8 +265,12 @@ export async function ensureCompanyPriceListForCompany(companyId: string) {
       }
     }
 
-    return companyPriceList;
-  });
+      return companyPriceList;
+    },
+    // Seeding can take longer than Prisma's default interactive transaction timeout
+    // when the Golden price list has many items.
+    { timeout: 600_000, maxWait: 60_000 },
+  );
 
   return seeded;
 }

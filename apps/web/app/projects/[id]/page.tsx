@@ -1,9 +1,22 @@
 "use client";
 
 import * as React from "react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useBusyOverlay } from "../../busy-overlay-context";
 import { uploadImageFileToNexusUploads } from "../../lib/uploads";
+import {
+  CostBookPickerModal,
+  type CostBookSelection,
+} from "../../components/cost-book-picker-modal";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -415,6 +428,7 @@ export default function ProjectDetailPage({
 }) {
   const { id } = React.use(params);
   const router = useRouter();
+  const busyOverlay = useBusyOverlay();
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -481,6 +495,25 @@ export default function ProjectDetailPage({
     id: number;
     particleId: string | null;
     roomName: string;
+    itemsCount: number;
+    totalAmount: number;
+    completedAmount: number;
+    percentComplete: number;
+  }[]>([]);
+
+  const [unitGroups, setUnitGroups] = useState<{
+    id: number;
+    unitId: string | null;
+    unitLabel: string;
+    rooms: {
+      id: number;
+      particleId: string | null;
+      roomName: string;
+      itemsCount: number;
+      totalAmount: number;
+      completedAmount: number;
+      percentComplete: number;
+    }[];
     itemsCount: number;
     totalAmount: number;
     completedAmount: number;
@@ -734,11 +767,19 @@ export default function ProjectDetailPage({
   }
 
   const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
+  const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
 
   const [operation, setOperation] = useState<"set" | "increment" | "decrement">("set");
   const [operationPercent, setOperationPercent] = useState<string>("0");
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+
+  // Pending PETL % approvals (PM/owner/admin only)
+  const [pendingPetlSessions, setPendingPetlSessions] = useState<any[] | null>(null);
+  const [pendingPetlLoading, setPendingPetlLoading] = useState(false);
+  const [pendingPetlError, setPendingPetlError] = useState<string | null>(null);
+  const [pendingPetlMessage, setPendingPetlMessage] = useState<string | null>(null);
+  const [pendingPetlReloadTick, setPendingPetlReloadTick] = useState(0);
 
   const [selectionSummary, setSelectionSummary] = useState<{
     itemCount: number;
@@ -751,6 +792,1315 @@ export default function ProjectDetailPage({
   const [financialLoading, setFinancialLoading] = useState(false);
   const [financialError, setFinancialError] = useState<string | null>(null);
 
+  // Bills (expenses)
+  const [projectBills, setProjectBills] = useState<any[] | null>(null);
+  const [projectBillsLoading, setProjectBillsLoading] = useState(false);
+  const [projectBillsError, setProjectBillsError] = useState<string | null>(null);
+  const [billsMessage, setBillsMessage] = useState<string | null>(null);
+  const [billsCollapsed, setBillsCollapsed] = useState(false);
+
+  const [billModalOpen, setBillModalOpen] = useState(false);
+  const [billModalSaving, setBillModalSaving] = useState(false);
+  const [billEditingId, setBillEditingId] = useState<string | null>(null);
+
+  const [billVendorName, setBillVendorName] = useState("");
+  const [billBillNumber, setBillBillNumber] = useState("");
+  const [billBillDate, setBillBillDate] = useState("");
+  const [billDueAt, setBillDueAt] = useState("");
+  const [billStatus, setBillStatus] = useState<string>("DRAFT");
+  const [billMemo, setBillMemo] = useState("");
+
+  const [billLineKind, setBillLineKind] = useState<string>("MATERIALS");
+  const [billLineDescription, setBillLineDescription] = useState("");
+  const [billLineAmount, setBillLineAmount] = useState("");
+  const [billLineTimecardStartDate, setBillLineTimecardStartDate] = useState("");
+  const [billLineTimecardEndDate, setBillLineTimecardEndDate] = useState("");
+
+  const [billAttachmentProjectFileIds, setBillAttachmentProjectFileIds] = useState<string[]>([]);
+  const [billEditingExistingAttachmentIds, setBillEditingExistingAttachmentIds] = useState<string[]>([]);
+  const [billAttachmentFileOptions, setBillAttachmentFileOptions] = useState<any[] | null>(null);
+  const [billAttachmentFileLoading, setBillAttachmentFileLoading] = useState(false);
+  const [billAttachmentFileError, setBillAttachmentFileError] = useState<string | null>(null);
+
+  // Invoices + payments (progress billing)
+  const [projectInvoices, setProjectInvoices] = useState<any[] | null>(null);
+  const [projectInvoicesLoading, setProjectInvoicesLoading] = useState(false);
+  const [projectInvoicesError, setProjectInvoicesError] = useState<string | null>(null);
+
+  const [activeInvoice, setActiveInvoice] = useState<any | null>(null);
+  const [activeInvoiceLoading, setActiveInvoiceLoading] = useState(false);
+  const [activeInvoiceError, setActiveInvoiceError] = useState<string | null>(null);
+
+  const [invoiceMessage, setInvoiceMessage] = useState<string | null>(null);
+  const [paymentsMessage, setPaymentsMessage] = useState<string | null>(null);
+
+  // Invoice printing
+  const [invoicePrintDialogOpen, setInvoicePrintDialogOpen] = useState(false);
+  const [invoicePrintLayout, setInvoicePrintLayout] = useState<"KEEP" | "GROUPED" | "FLAT">("KEEP");
+  const [invoicePrintGroups, setInvoicePrintGroups] = useState<"KEEP" | "COLLAPSE_ALL" | "EXPAND_ALL">("KEEP");
+  const [invoicePrintBusy, setInvoicePrintBusy] = useState(false);
+
+  // Detailed invoice view toggle: flat list vs PETL project grouping tree
+  const invoiceGroupKey = `invoicePetlGroup:v1:${id}`;
+  const [invoiceGroupEnabled, setInvoiceGroupEnabled] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const raw = localStorage.getItem(invoiceGroupKey);
+      // default ON
+      return raw !== "0";
+    } catch {
+      return true;
+    }
+  });
+
+  const setInvoiceGroupEnabledPersisted = (next: boolean) => {
+    setInvoiceGroupEnabled(next);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(invoiceGroupKey, next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const [invoiceGroupOpenBuildings, setInvoiceGroupOpenBuildings] = useState<Set<string>>(() => new Set());
+
+  // Invoice PETL line billing tags (edit on-demand to avoid rendering heavy selects for every row)
+  const [invoicePetlTagEditingLineId, setInvoicePetlTagEditingLineId] = useState<string | null>(null);
+  const [invoicePetlTagDraft, setInvoicePetlTagDraft] = useState<string>("NONE");
+  const [invoicePetlTagSaving, setInvoicePetlTagSaving] = useState(false);
+
+  const activeInvoicePetlLines = useMemo(() => {
+    const lines = activeInvoice?.petlLines;
+    return Array.isArray(lines) ? lines : [];
+  }, [activeInvoice]);
+
+  // Roll up invoiced/paid/outstanding for the Financial Overview.
+  // Exclude DRAFT + VOID.
+  const invoiceRollup = useMemo(() => {
+    if (!Array.isArray(projectInvoices)) return null;
+
+    let invoiced = 0;
+    let paid = 0;
+    let balanceDue = 0;
+    let count = 0;
+
+    for (const inv of projectInvoices) {
+      const status = String(inv?.status ?? "").trim();
+      if (!status) continue;
+      if (status === "DRAFT" || status === "VOID") continue;
+
+      count += 1;
+      invoiced += Number(inv?.totalAmount ?? 0) || 0;
+      paid += Number(inv?.paidAmount ?? 0) || 0;
+      balanceDue += Number(inv?.balanceDue ?? 0) || 0;
+    }
+
+    return { invoiced, paid, balanceDue, count };
+  }, [projectInvoices]);
+
+  const billsRollup = useMemo(() => {
+    if (!Array.isArray(projectBills)) return null;
+
+    let count = 0;
+    let total = 0;
+
+    for (const b of projectBills) {
+      count += 1;
+      total += Number(b?.totalAmount ?? 0) || 0;
+    }
+
+    return { count, total };
+  }, [projectBills]);
+
+  // When a new invoice is opened, default the grouped view to COLLAPSED.
+  // (Users can expand group → unit → room as needed.)
+  useEffect(() => {
+    if (!invoiceGroupEnabled) return;
+
+    setInvoiceGroupOpenBuildings(new Set());
+
+    // Reset any inline edit state when switching invoices.
+    setInvoicePetlTagEditingLineId(null);
+    setInvoicePetlTagDraft("NONE");
+    setInvoicePetlTagSaving(false);
+  }, [activeInvoice?.id, invoiceGroupEnabled]);
+
+  const formatMoney = (value: any) => {
+    const n = Number(value ?? 0);
+    if (!Number.isFinite(n)) return "—";
+    const abs = Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    return n < 0 ? `(${abs})` : abs;
+  };
+
+  const csvEscape = (value: any) => {
+    if (value === null || value === undefined) return "";
+    const s = String(value);
+    // RFC4180-ish: escape quotes, wrap if contains quote/comma/newline.
+    const needsWrap = /[",\n\r]/.test(s);
+    const escaped = s.replace(/"/g, '""');
+    return needsWrap ? `"${escaped}"` : escaped;
+  };
+
+  const buildCsv = (headers: string[], rows: Record<string, any>[]) => {
+    const lines: string[] = [];
+    lines.push(headers.map(csvEscape).join(","));
+    for (const row of rows) {
+      lines.push(headers.map((h) => csvEscape(row[h])).join(","));
+    }
+    return lines.join("\n") + "\n";
+  };
+
+  const downloadCsv = (filename: string, csvText: string) => {
+    try {
+      const blob = new Blob([csvText], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore
+    }
+  };
+
+  const exportInvoicesCsv = async () => {
+    if (!project) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setInvoiceMessage("Missing access token.");
+      return;
+    }
+
+    setInvoiceMessage("Exporting invoices…");
+
+    try {
+      const res = await fetch(`${API_BASE}/projects/${project.id}/invoices`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Export failed (${res.status}) ${text}`);
+      }
+
+      const invoices: any[] = await res.json();
+      const headers = [
+        "invoiceId",
+        "invoiceNo",
+        "status",
+        "issuedAt",
+        "dueAt",
+        "createdAt",
+        "totalAmount",
+        "paidAmount",
+        "balanceDue",
+        "billToName",
+        "billToEmail",
+        "memo",
+      ];
+
+      const rows = (Array.isArray(invoices) ? invoices : []).map((inv: any) => ({
+        invoiceId: inv?.id ?? "",
+        invoiceNo: inv?.invoiceNo ?? "",
+        status: inv?.status ?? "",
+        issuedAt: inv?.issuedAt ?? "",
+        dueAt: inv?.dueAt ?? "",
+        createdAt: inv?.createdAt ?? "",
+        totalAmount: inv?.totalAmount ?? 0,
+        paidAmount: inv?.paidAmount ?? 0,
+        balanceDue: inv?.balanceDue ?? 0,
+        billToName: inv?.billToName ?? "",
+        billToEmail: inv?.billToEmail ?? "",
+        memo: inv?.memo ?? "",
+      }));
+
+      const csv = buildCsv(headers, rows);
+      const dateTag = new Date().toISOString().slice(0, 10);
+      downloadCsv(`project_${project.id}_invoices_${dateTag}.csv`, csv);
+      setInvoiceMessage(`Exported ${rows.length} invoice row(s).`);
+    } catch (err: any) {
+      setInvoiceMessage(err?.message ?? "Invoice export failed.");
+    }
+  };
+
+  const exportPaymentsCsv = async () => {
+    if (!project) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setPaymentsMessage("Missing access token.");
+      return;
+    }
+
+    setPaymentsMessage("Exporting payments…");
+
+    try {
+      const [paymentsRes, invoicesRes] = await Promise.all([
+        fetch(`${API_BASE}/projects/${project.id}/payments`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`${API_BASE}/projects/${project.id}/invoices`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+
+      if (!paymentsRes.ok) {
+        const text = await paymentsRes.text().catch(() => "");
+        throw new Error(`Payments export failed (${paymentsRes.status}) ${text}`);
+      }
+      if (!invoicesRes.ok) {
+        const text = await invoicesRes.text().catch(() => "");
+        throw new Error(`Payments export failed (invoice lookup ${invoicesRes.status}) ${text}`);
+      }
+
+      const payments: any[] = await paymentsRes.json();
+      const invoices: any[] = await invoicesRes.json();
+      const invoiceById = new Map<string, any>();
+      for (const inv of Array.isArray(invoices) ? invoices : []) {
+        if (inv?.id) invoiceById.set(String(inv.id), inv);
+      }
+
+      const headers = [
+        "rowType",
+        "rowAmount",
+        "paymentId",
+        "paymentAmount",
+        "paidAt",
+        "method",
+        "reference",
+        "note",
+        "paymentCreatedAt",
+        "appliedAmount",
+        "unappliedAmount",
+        "applicationId",
+        "applicationAmount",
+        "invoiceId",
+        "invoiceNo",
+        "invoiceStatus",
+        "invoiceIssuedAt",
+        "invoiceDueAt",
+      ];
+
+      const rows: Record<string, any>[] = [];
+
+      for (const p of Array.isArray(payments) ? payments : []) {
+        const paymentId = String(p?.id ?? "");
+        const paymentAmount = Number(p?.amount ?? 0) || 0;
+        const paidAt = p?.paidAt ?? "";
+        const method = p?.method ?? "";
+        const reference = p?.reference ?? "";
+        const note = p?.note ?? "";
+        const paymentCreatedAt = p?.createdAt ?? "";
+        const appliedAmount = Number(p?.appliedAmount ?? 0) || 0;
+        const unappliedAmount = Number(p?.unappliedAmount ?? 0) || 0;
+
+        const apps: any[] = Array.isArray(p?.applications) ? p.applications : [];
+
+        for (const a of apps) {
+          const invoiceId = String(a?.invoiceId ?? "");
+          const inv = invoiceById.get(invoiceId);
+          rows.push({
+            rowType: "APPLICATION",
+            rowAmount: Number(a?.amount ?? 0) || 0,
+            paymentId,
+            paymentAmount,
+            paidAt,
+            method,
+            reference,
+            note,
+            paymentCreatedAt,
+            appliedAmount,
+            unappliedAmount,
+            applicationId: a?.id ?? "",
+            applicationAmount: a?.amount ?? 0,
+            invoiceId,
+            invoiceNo: inv?.invoiceNo ?? a?.invoiceNo ?? "",
+            invoiceStatus: inv?.status ?? "",
+            invoiceIssuedAt: inv?.issuedAt ?? "",
+            invoiceDueAt: inv?.dueAt ?? "",
+          });
+        }
+
+        if (unappliedAmount > 0) {
+          rows.push({
+            rowType: "UNAPPLIED",
+            rowAmount: unappliedAmount,
+            paymentId,
+            paymentAmount,
+            paidAt,
+            method,
+            reference,
+            note,
+            paymentCreatedAt,
+            appliedAmount,
+            unappliedAmount,
+            applicationId: "",
+            applicationAmount: "",
+            invoiceId: "",
+            invoiceNo: "",
+            invoiceStatus: "",
+            invoiceIssuedAt: "",
+            invoiceDueAt: "",
+          });
+        }
+
+        if (apps.length === 0 && unappliedAmount === 0) {
+          rows.push({
+            rowType: "PAYMENT",
+            rowAmount: 0,
+            paymentId,
+            paymentAmount,
+            paidAt,
+            method,
+            reference,
+            note,
+            paymentCreatedAt,
+            appliedAmount,
+            unappliedAmount,
+            applicationId: "",
+            applicationAmount: "",
+            invoiceId: "",
+            invoiceNo: "",
+            invoiceStatus: "",
+            invoiceIssuedAt: "",
+            invoiceDueAt: "",
+          });
+        }
+      }
+
+      const csv = buildCsv(headers, rows);
+      const dateTag = new Date().toISOString().slice(0, 10);
+      downloadCsv(`project_${project.id}_payments_${dateTag}.csv`, csv);
+      setPaymentsMessage(`Exported ${rows.length} row(s).`);
+    } catch (err: any) {
+      setPaymentsMessage(err?.message ?? "Payments export failed.");
+    }
+  };
+
+  const resetBillForm = () => {
+    setBillEditingId(null);
+    setBillVendorName("");
+    setBillBillNumber("");
+    setBillBillDate(todayIso);
+    setBillDueAt("");
+    setBillStatus("DRAFT");
+    setBillMemo("");
+
+    setBillLineKind("MATERIALS");
+    setBillLineDescription("");
+    setBillLineAmount("");
+    setBillLineTimecardStartDate("");
+    setBillLineTimecardEndDate("");
+
+    setBillAttachmentProjectFileIds([]);
+    setBillEditingExistingAttachmentIds([]);
+  };
+
+  const openCreateBillModal = () => {
+    resetBillForm();
+    setBillsMessage(null);
+    setBillModalOpen(true);
+  };
+
+  const openEditBillModal = (bill: any) => {
+    const li = Array.isArray(bill?.lineItems) ? bill.lineItems[0] : null;
+
+    setBillEditingId(String(bill?.id ?? ""));
+    setBillVendorName(String(bill?.vendorName ?? ""));
+    setBillBillNumber(String(bill?.billNumber ?? ""));
+    setBillBillDate(bill?.billDate ? String(bill.billDate).slice(0, 10) : todayIso);
+    setBillDueAt(bill?.dueAt ? String(bill.dueAt).slice(0, 10) : "");
+    setBillStatus(String(bill?.status ?? "DRAFT") || "DRAFT");
+    setBillMemo(String(bill?.memo ?? ""));
+
+    setBillLineKind(String(li?.kind ?? "MATERIALS") || "MATERIALS");
+    setBillLineDescription(String(li?.description ?? ""));
+    setBillLineAmount(li?.amount != null ? String(li.amount) : "");
+    setBillLineTimecardStartDate(li?.timecardStartDate ? String(li.timecardStartDate).slice(0, 10) : "");
+    setBillLineTimecardEndDate(li?.timecardEndDate ? String(li.timecardEndDate).slice(0, 10) : "");
+
+    const attachedIds = (Array.isArray(bill?.attachments) ? bill.attachments : [])
+      .map((a: any) => String(a?.projectFileId ?? "").trim())
+      .filter(Boolean);
+    setBillAttachmentProjectFileIds(attachedIds);
+    setBillEditingExistingAttachmentIds(attachedIds);
+
+    setBillsMessage(null);
+    setBillModalOpen(true);
+  };
+
+  const closeBillModal = () => {
+    if (billModalSaving) return;
+    setBillModalOpen(false);
+  };
+
+  const submitBillModal = async () => {
+    if (!project) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setBillsMessage("Missing access token.");
+      return;
+    }
+
+    const vendorName = billVendorName.trim();
+    if (!vendorName) {
+      setBillsMessage("Vendor name is required.");
+      return;
+    }
+
+    const billDate = billBillDate || todayIso;
+    const lineDesc = billLineDescription.trim();
+    if (!lineDesc) {
+      setBillsMessage("Line item description is required.");
+      return;
+    }
+
+    const payload: any = {
+      vendorName,
+      billNumber: billBillNumber.trim() || undefined,
+      billDate,
+      dueAt: billDueAt || undefined,
+      status: billStatus || undefined,
+      memo: billMemo.trim() || undefined,
+      lineItem: {
+        kind: billLineKind,
+        description: lineDesc,
+      },
+    };
+
+    const isLabor = String(billLineKind).toUpperCase() === "LABOR";
+
+    if (billLineAmount.trim() === "") {
+      if (isLabor) {
+        if (!billLineTimecardStartDate || !billLineTimecardEndDate) {
+          setBillsMessage("For labor, enter an Amount or set a timecard start/end range.");
+          return;
+        }
+        payload.lineItem.amount = null;
+        payload.lineItem.timecardStartDate = billLineTimecardStartDate;
+        payload.lineItem.timecardEndDate = billLineTimecardEndDate;
+      } else {
+        setBillsMessage("Amount is required.");
+        return;
+      }
+    } else {
+      const amount = Number(billLineAmount);
+      if (!Number.isFinite(amount)) {
+        setBillsMessage("Amount must be a valid number.");
+        return;
+      }
+      payload.lineItem.amount = amount;
+
+      if (isLabor && billLineTimecardStartDate && billLineTimecardEndDate) {
+        payload.lineItem.timecardStartDate = billLineTimecardStartDate;
+        payload.lineItem.timecardEndDate = billLineTimecardEndDate;
+      }
+    }
+
+    const isEdit = !!billEditingId;
+
+    if (!isEdit) {
+      payload.attachmentProjectFileIds = billAttachmentProjectFileIds;
+    }
+
+    setBillModalSaving(true);
+    setBillsMessage(null);
+
+    try {
+      if (!isEdit) {
+        const res = await fetch(`${API_BASE}/projects/${project.id}/bills`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Create failed (${res.status}) ${text}`);
+        }
+        await res.json().catch(() => null);
+      } else {
+        const res = await fetch(`${API_BASE}/projects/${project.id}/bills/${billEditingId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Update failed (${res.status}) ${text}`);
+        }
+        await res.json().catch(() => null);
+
+        // Attach any newly-selected files.
+        const toAttach = billAttachmentProjectFileIds.filter(
+          (pid) => !billEditingExistingAttachmentIds.includes(pid),
+        );
+        for (const pid of toAttach) {
+          const attachRes = await fetch(
+            `${API_BASE}/projects/${project.id}/bills/${billEditingId}/attachments`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ projectFileId: pid }),
+            },
+          );
+          if (!attachRes.ok) {
+            const text = await attachRes.text().catch(() => "");
+            throw new Error(`Attach failed (${attachRes.status}) ${text}`);
+          }
+        }
+      }
+
+      setProjectBills(null);
+      setFinancialSummary(null);
+      closeBillModal();
+      setBillsMessage("Saved.");
+    } catch (err: any) {
+      setBillsMessage(err?.message ?? "Save failed.");
+    } finally {
+      setBillModalSaving(false);
+    }
+  };
+
+  const htmlEscape = (value: any) => {
+    const s = value === null || value === undefined ? "" : String(value);
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  };
+
+  const fmtDate = (value: any) => {
+    if (!value) return "";
+    const d = new Date(value);
+    if (!Number.isFinite(d.getTime())) return String(value);
+    return d.toLocaleDateString();
+  };
+
+  const fmtCurrency = (value: any) => {
+    const n = Number(value ?? 0);
+    if (!Number.isFinite(n)) return "$0.00";
+    const abs = Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    return n < 0 ? `($${abs})` : `$${abs}`;
+  };
+
+  const printHtmlDocument = (title: string, htmlBody: string) => {
+    // Use an iframe so we can print a clean, PDF-friendly HTML document
+    // without mutating or re-styling the main app.
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("title", "invoice-print");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.style.opacity = "0";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentDocument;
+    const win = iframe.contentWindow;
+
+    if (!doc || !win) {
+      iframe.remove();
+      return;
+    }
+
+    const fullHtml = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${htmlEscape(title)}</title>
+<style>
+  @page { size: letter; margin: 0.5in; }
+  html, body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color: #111827; }
+  h1 { font-size: 18px; margin: 0; }
+  h2 { font-size: 13px; margin: 16px 0 8px; }
+  .muted { color: #6b7280; font-size: 11px; }
+  .meta { margin-top: 8px; display: grid; grid-template-columns: 1.2fr 1fr; gap: 10px; font-size: 12px; }
+  .box { border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; }
+  .kv { display: grid; grid-template-columns: 120px 1fr; row-gap: 4px; column-gap: 8px; }
+  .k { color: #6b7280; }
+  .v { color: #111827; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e7eb; background: #f9fafb; }
+  td { padding: 6px 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+  .num { text-align: right; white-space: nowrap; }
+  .group { background: #f3f4f6; font-weight: 700; }
+  .indent { padding-left: 18px; }
+  .tag { font-weight: 700; font-size: 10px; border: 1px solid #d1d5db; border-radius: 999px; padding: 2px 8px; display: inline-block; margin-left: 8px; }
+  .total-row td { font-weight: 700; background: #f9fafb; }
+  tr { page-break-inside: avoid; }
+</style>
+</head>
+<body>
+${htmlBody}
+</body>
+</html>`;
+
+    doc.open();
+    doc.write(fullHtml);
+    doc.close();
+
+    // Print after the iframe has had a moment to lay out.
+    window.setTimeout(() => {
+      try {
+        win.focus();
+        win.print();
+      } finally {
+        // Cleanup later; some browsers are finicky about removing immediately.
+        window.setTimeout(() => iframe.remove(), 5000);
+      }
+    }, 120);
+  };
+
+  const printActiveInvoiceAsHtml = (opts: { layout: "KEEP" | "GROUPED" | "FLAT"; groups: "KEEP" | "COLLAPSE_ALL" | "EXPAND_ALL"; }) => {
+    if (!activeInvoice) return;
+
+    const resolvedLayout: "GROUPED" | "FLAT" =
+      opts.layout === "KEEP" ? (invoiceGroupEnabled ? "GROUPED" : "FLAT") : opts.layout;
+
+    const wantGrouped = resolvedLayout === "GROUPED";
+
+    const getGroupKey = (g: any, idx: number) => {
+      const rawKey = String(g?.groupKey ?? g?.groupLabel ?? "").trim();
+      return rawKey || `__group_${idx}`;
+    };
+
+    const openGroups = (() => {
+      if (!wantGrouped) return new Set<string>();
+      if (opts.groups === "KEEP") return new Set(invoiceGroupOpenBuildings);
+      if (opts.groups === "COLLAPSE_ALL") return new Set<string>();
+
+      const all = new Set<string>();
+      (invoicePetlGrouped as any[]).forEach((g, idx) => all.add(getGroupKey(g, idx)));
+      return all;
+    })();
+
+    const invoiceNo = String(activeInvoice.invoiceNo ?? "Draft invoice");
+    const title = invoiceNo ? `Invoice ${invoiceNo}` : "Invoice";
+
+    const logoUrl = `${window.location.origin}/nexus-logo-mark.png`;
+
+    const headerHtml = `
+      <div class="box">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap: 12px;">
+          <div style="display:flex; align-items:center; gap: 10px;">
+            <img src="${htmlEscape(logoUrl)}" alt="Nexus" style="height:44px; width:auto;" />
+            <div>
+              <div style="font-weight:900; letter-spacing:0.06em; font-size:14px; line-height:1;">NEXUS</div>
+              <div class="muted" style="margin-top:2px;">Fortified Structures</div>
+            </div>
+          </div>
+          <div style="text-align:right;">
+            <div class="muted">Invoice</div>
+            <div style="font-weight:800; font-size:18px; line-height:1.1;">${htmlEscape(invoiceNo || "Invoice")}</div>
+          </div>
+        </div>
+
+        <div class="muted" style="margin-top: 6px;">Status: ${htmlEscape(activeInvoice.status ?? "")}</div>
+
+        <div class="meta">
+          <div class="box">
+            <div class="kv">
+              <div class="k">Bill to</div><div class="v">${htmlEscape(activeInvoice.billToName ?? "")}</div>
+              <div class="k">Email</div><div class="v">${htmlEscape(activeInvoice.billToEmail ?? "")}</div>
+              <div class="k">Memo</div><div class="v">${htmlEscape(activeInvoice.memo ?? "")}</div>
+            </div>
+          </div>
+          <div class="box">
+            <div class="kv">
+              <div class="k">Issued</div><div class="v">${htmlEscape(fmtDate(activeInvoice.issuedAt))}</div>
+              <div class="k">Due</div><div class="v">${htmlEscape(fmtDate(activeInvoice.dueAt))}</div>
+              <div class="k">Total</div><div class="v">${htmlEscape(fmtCurrency(activeInvoice.totalAmount ?? 0))}</div>
+              <div class="k">Paid</div><div class="v">${htmlEscape(fmtCurrency(activeInvoice.paidAmount ?? 0))}</div>
+              <div class="k">Balance</div><div class="v">${htmlEscape(fmtCurrency(activeInvoice.balanceDue ?? 0))}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const invoiceLinesHtml = (() => {
+      const groups = activeInvoiceLineItemGroups;
+      if (!groups || groups.length === 0) {
+        return `<h2>Invoice line items</h2><div class="muted">No invoice line items.</div>`;
+      }
+
+      const rows = groups
+        .flatMap((g) => {
+          const out: string[] = [];
+          out.push(`
+            <tr class="group">
+              <td colspan="6">${htmlEscape(g.label)} · ${htmlEscape(fmtCurrency(g.subtotal))}</td>
+            </tr>
+          `);
+
+          for (const li of g.items) {
+            const kind = String(li?.kind ?? "");
+            const tag = String(li?.billingTag ?? "");
+            out.push(`
+              <tr>
+                <td>${htmlEscape(kind)}</td>
+                <td>${htmlEscape(tag)}</td>
+                <td>${htmlEscape(li?.description ?? "")}</td>
+                <td class="num">${htmlEscape(li?.qty ?? "")}</td>
+                <td class="num">${htmlEscape(li?.unitPrice ?? "")}</td>
+                <td class="num">${htmlEscape(fmtCurrency(li?.amount ?? 0))}</td>
+              </tr>
+            `);
+          }
+          return out;
+        })
+        .join("\n");
+
+      return `
+        <h2>Invoice line items</h2>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 120px">Kind</th>
+              <th style="width: 140px">Tag</th>
+              <th>Description</th>
+              <th class="num" style="width: 70px">Qty</th>
+              <th class="num" style="width: 90px">Unit</th>
+              <th class="num" style="width: 110px">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      `;
+    })();
+
+    const petlHtml = (() => {
+      const lines = activeInvoicePetlLines;
+      if (!lines || lines.length === 0) {
+        return `<h2>Estimate line items (PETL)</h2><div class="muted">No PETL-derived invoice detail lines.</div>`;
+      }
+
+      const totalDelta = lines.reduce((sum, x) => sum + (Number(x?.thisInvTotal ?? 0) || 0), 0);
+
+      if (wantGrouped) {
+        const rows = (invoicePetlGrouped as any[])
+          .flatMap((g, idx) => {
+            const groupKey = getGroupKey(g, idx);
+            const isOpen = openGroups.has(groupKey);
+            const groupLabel = String(g?.groupLabel ?? g?.groupKey ?? "(Unlabeled)");
+
+            const out: string[] = [];
+            out.push(`
+              <tr class="group">
+                <td>${htmlEscape(groupLabel)}${!isOpen ? ` <span class="muted">(collapsed)</span>` : ""}</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">—</td>
+                <td class="num">${htmlEscape(fmtCurrency(g?.subtotal ?? 0))}</td>
+              </tr>
+            `);
+
+            if (!isOpen) return out;
+
+            const groupLines = Array.isArray(g?.lines) ? g.lines : [];
+            for (const li of groupLines) {
+              const isCredit = String(li?.kind) === "ACV_HOLDBACK_CREDIT";
+              const cat = String(li?.categoryCodeSnapshot ?? "").trim();
+              const sel = String(li?.selectionCodeSnapshot ?? "").trim();
+              const task = String(li?.descriptionSnapshot ?? "").trim();
+              const lineNo = li?.lineNoSnapshot != null ? String(li.lineNoSnapshot) : "";
+
+              const baseLabel = isCredit
+                ? "ACV holdback (80%)"
+                : `${lineNo}${cat || sel ? ` · ${cat}${sel ? `/${sel}` : ""}` : ""}${task ? ` · ${task}` : ""}`;
+
+              const effectiveTag = getInvoicePetlEffectiveTag(li);
+              const tagLabel = formatBillingTag(effectiveTag);
+
+              const pct = li?.percentCompleteSnapshot != null ? `${Number(li.percentCompleteSnapshot).toFixed(0)}%` : "—";
+              out.push(`
+                <tr>
+                  <td class="indent">${htmlEscape(baseLabel)}${tagLabel ? `<span class="tag">${htmlEscape(tagLabel)}</span>` : ""}</td>
+                  <td class="num">${htmlEscape(pct)}</td>
+                  <td class="num">${htmlEscape(fmtCurrency(li?.earnedTotal ?? 0))}</td>
+                  <td class="num">${htmlEscape(fmtCurrency(li?.prevBilledTotal ?? 0))}</td>
+                  <td class="num">${htmlEscape(fmtCurrency(li?.thisInvTotal ?? 0))}</td>
+                </tr>
+              `);
+            }
+
+            return out;
+          })
+          .join("\n");
+
+        return `
+          <h2>Estimate line items (PETL)</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Estimate Line Item</th>
+                <th class="num" style="width: 70px">%</th>
+                <th class="num" style="width: 100px">Earned</th>
+                <th class="num" style="width: 110px">Prev billed</th>
+                <th class="num" style="width: 110px">This (Δ)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+            <tfoot>
+              <tr class="total-row">
+                <td colspan="4" class="num">Total PETL (Δ)</td>
+                <td class="num">${htmlEscape(fmtCurrency(totalDelta))}</td>
+              </tr>
+            </tfoot>
+          </table>
+        `;
+      }
+
+      const sorted = [...lines].sort((a, b) => {
+        const pa = String(a?.projectTreePathSnapshot ?? "");
+        const pb = String(b?.projectTreePathSnapshot ?? "");
+        if (pa !== pb) return pa.localeCompare(pb);
+        const la = Number(a?.lineNoSnapshot ?? 0);
+        const lb = Number(b?.lineNoSnapshot ?? 0);
+        if (la !== lb) return la - lb;
+        const ka = String(a?.kind ?? "");
+        const kb = String(b?.kind ?? "");
+        return ka.localeCompare(kb);
+      });
+
+      const rows = sorted
+        .map((li: any) => {
+          const isCredit = String(li?.kind) === "ACV_HOLDBACK_CREDIT";
+          const cat = String(li?.categoryCodeSnapshot ?? "").trim();
+          const sel = String(li?.selectionCodeSnapshot ?? "").trim();
+          const task = String(li?.descriptionSnapshot ?? "").trim();
+          const lineNo = li?.lineNoSnapshot != null ? String(li.lineNoSnapshot) : "";
+
+          const baseLabel = isCredit
+            ? "ACV holdback (80%)"
+            : `${lineNo}${cat || sel ? ` · ${cat}${sel ? `/${sel}` : ""}` : ""}${task ? ` · ${task}` : ""}`;
+
+          const effectiveTag = getInvoicePetlEffectiveTag(li);
+          const tagLabel = formatBillingTag(effectiveTag);
+
+          const pct = li?.percentCompleteSnapshot != null ? `${Number(li.percentCompleteSnapshot).toFixed(0)}%` : "—";
+
+          return `
+            <tr>
+              <td>${htmlEscape(baseLabel)}${tagLabel ? `<span class="tag">${htmlEscape(tagLabel)}</span>` : ""}</td>
+              <td>${htmlEscape(li?.projectParticleLabelSnapshot ?? "")}</td>
+              <td>${htmlEscape(li?.projectUnitLabelSnapshot ?? "")}</td>
+              <td>${htmlEscape(li?.projectBuildingLabelSnapshot ?? "")}</td>
+              <td class="num">${htmlEscape(pct)}</td>
+              <td class="num">${htmlEscape(fmtCurrency(li?.earnedTotal ?? 0))}</td>
+              <td class="num">${htmlEscape(fmtCurrency(li?.prevBilledTotal ?? 0))}</td>
+              <td class="num">${htmlEscape(fmtCurrency(li?.thisInvTotal ?? 0))}</td>
+            </tr>
+          `;
+        })
+        .join("\n");
+
+      return `
+        <h2>Estimate line items (PETL)</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Estimate Line Item</th>
+              <th>Room</th>
+              <th>Unit</th>
+              <th>Building</th>
+              <th class="num" style="width: 70px">%</th>
+              <th class="num" style="width: 100px">Earned</th>
+              <th class="num" style="width: 110px">Prev billed</th>
+              <th class="num" style="width: 110px">This (Δ)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+          <tfoot>
+            <tr class="total-row">
+              <td colspan="7" class="num">Total PETL (Δ)</td>
+              <td class="num">${htmlEscape(fmtCurrency(totalDelta))}</td>
+            </tr>
+          </tfoot>
+        </table>
+      `;
+    })();
+
+    const body = `${headerHtml}\n${invoiceLinesHtml}\n${petlHtml}`;
+    printHtmlDocument(title, body);
+  };
+
+  const extractUnitGroupCode = (label: any) => {
+    const s = String(label ?? "").trim();
+    if (!s) return null;
+
+    // e.g. "RISK__E - Risk - Exterior" or "ELECTRI — Electrical Room"
+    // Note: group codes often contain underscores.
+    const dashMatch = s.match(/^([A-Za-z0-9_]+)\s*[-–—].+$/);
+    if (dashMatch) return dashMatch[1];
+
+    // e.g. "RISK__E" or "ELECTRI Electrical Room" (building label is "CODE NAME")
+    const firstToken = s.split(/\s+/)[0] ?? "";
+    if (/^[A-Z0-9_]{3,}$/.test(firstToken)) return firstToken;
+
+    return null;
+  };
+
+  const getInvoiceGroupLabels = (l: any) => {
+    const buildingRaw = String(l?.projectBuildingLabelSnapshot ?? "").trim();
+    const unitRaw = String(l?.projectUnitLabelSnapshot ?? "").trim();
+    const roomRaw = String(l?.projectParticleLabelSnapshot ?? "").trim();
+
+    const groupCode =
+      extractUnitGroupCode(buildingRaw) ??
+      extractUnitGroupCode(unitRaw) ??
+      extractUnitGroupCode(roomRaw) ??
+      null;
+
+    const stripPrefix = (raw: string) => {
+      if (!groupCode || !raw) return raw;
+      const esc = groupCode.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+      const m = raw.match(new RegExp(`^${esc}\\s*[-–—]\\s*(.+)$`));
+      return m?.[1] ? String(m[1]).trim() : raw;
+    };
+
+    const unit = stripPrefix(unitRaw) || null;
+    const room = stripPrefix(roomRaw) || null;
+
+    return {
+      groupCode: groupCode || null,
+      building: buildingRaw || null,
+      unit,
+      room,
+    };
+  };
+
+  const activeInvoiceLineItemGroups = useMemo(() => {
+    const items = Array.isArray(activeInvoice?.lineItems) ? activeInvoice.lineItems : [];
+
+    const order = ["MANUAL", "BILLABLE_HOURS", "EQUIPMENT_RENTAL", "COST_BOOK", "OTHER"];
+    const labelByKind: Record<string, string> = {
+      MANUAL: "Manual",
+      BILLABLE_HOURS: "Billable hours",
+      EQUIPMENT_RENTAL: "Equipment rental",
+      COST_BOOK: "From Cost Book",
+      OTHER: "Other",
+    };
+
+    const groups = new Map<string, any[]>();
+    for (const it of items) {
+      const kind = String(it?.kind ?? "MANUAL").trim().toUpperCase() || "MANUAL";
+      const bucket = groups.get(kind) ?? [];
+      bucket.push(it);
+      groups.set(kind, bucket);
+    }
+
+    const seen = new Set(order);
+    const remainingKinds = [...groups.keys()]
+      .filter((k) => !seen.has(k))
+      .sort((a, b) => a.localeCompare(b));
+
+    return [...order, ...remainingKinds]
+      .map((kind) => {
+        const groupItems = groups.get(kind) ?? [];
+        const subtotal = groupItems.reduce(
+          (sum, li) => sum + (Number(li?.amount ?? 0) || 0),
+          0,
+        );
+        return {
+          kind,
+          label: labelByKind[kind] ?? kind,
+          items: groupItems,
+          subtotal,
+        };
+      })
+      .filter((g) => g.items.length > 0);
+  }, [activeInvoice?.lineItems]);
+
+  const submitAddInvoiceLinesFromCostBook = async (selection: CostBookSelection[]) => {
+    if (!project) return;
+
+    if (!activeInvoice || activeInvoice.status !== "DRAFT") {
+      setInvoiceMessage("Open a draft invoice first (Open living invoice), then add Cost Book lines.");
+      return;
+    }
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setInvoiceMessage("Missing access token.");
+      return;
+    }
+
+    if (!selection || selection.length === 0) {
+      setInvoiceMessage("No cost book items selected.");
+      return;
+    }
+
+    setInvoiceMessage(null);
+    setInvoiceCostBookPickerBusy(true);
+
+    try {
+      let lastInvoiceJson: any = null;
+
+      // Add sequentially to preserve a predictable line ordering.
+      for (const sel of selection) {
+        const item = sel.item;
+        const qty = sel.qty;
+
+        const cat = String(item.cat ?? "").trim();
+        const selCode = String(item.sel ?? "").trim();
+        const baseDesc = String(item.description ?? "").trim();
+        const prefix = cat || selCode ? `${cat}${selCode ? `/${selCode}` : ""}` : "";
+        const description = prefix ? `${prefix}${baseDesc ? ` - ${baseDesc}` : ""}` : baseDesc;
+
+        const unitPrice =
+          typeof item.unitPrice === "number" && Number.isFinite(item.unitPrice) ? item.unitPrice : 0;
+
+        const res = await fetch(
+          `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              description: description || "(Cost Book item)",
+              kind: "COST_BOOK",
+              companyPriceListItemId: item.id,
+              qty,
+              unitPrice,
+            }),
+          },
+        );
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Failed to add cost book line (${res.status}) ${text}`);
+        }
+
+        lastInvoiceJson = await res.json();
+      }
+
+      if (lastInvoiceJson) {
+        setActiveInvoice(lastInvoiceJson);
+        setProjectInvoices(null);
+      }
+
+      setInvoiceMessage(`Added ${selection.length} cost book line(s).`);
+      setInvoiceCostBookPickerOpen(false);
+    } catch (err: any) {
+      setInvoiceMessage(err?.message ?? "Failed to add cost book lines.");
+    } finally {
+      setInvoiceCostBookPickerBusy(false);
+    }
+  };
+
+  const toggleInvoiceBuildingOpen = (buildingKey: string) => {
+    setInvoiceGroupOpenBuildings((prev) => {
+      const next = new Set(prev);
+      if (next.has(buildingKey)) next.delete(buildingKey);
+      else next.add(buildingKey);
+      return next;
+    });
+  };
+
+
+
+  const invoicePetlBillingTagById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const l of activeInvoicePetlLines) {
+      const id = String(l?.id ?? "").trim();
+      if (!id) continue;
+      const tag = String(l?.billingTag ?? "NONE").trim() || "NONE";
+      map.set(id, tag);
+    }
+    return map;
+  }, [activeInvoicePetlLines]);
+
+  const getInvoicePetlEffectiveTag = (line: any): string => {
+    const tag = String(line?.billingTag ?? "NONE").trim() || "NONE";
+    if (tag !== "NONE") return tag;
+
+    const parentId = String(line?.parentLineId ?? "").trim();
+    if (!parentId) return "NONE";
+
+    const parentTag = invoicePetlBillingTagById.get(parentId) ?? "NONE";
+    return parentTag || "NONE";
+  };
+
+  const formatBillingTag = (tag: string) => {
+    switch (tag) {
+      case "PETL_LINE_ITEM":
+        return "PETL Line Item";
+      case "CHANGE_ORDER":
+        return "Change Order";
+      case "SUPPLEMENT":
+        return "Supplement";
+      case "WARRANTY":
+        return "Warranty";
+      default:
+        return "";
+    }
+  };
+
+  const invoicePetlGrouped = useMemo(() => {
+    type Line = any;
+    type Group = { groupKey: string; groupLabel: string; lines: Line[]; subtotal: number };
+
+    // Goal: make Unit 01..15 the primary groups (no synthetic "Estimate line items" group row).
+    // If a line has no Unit snapshot, fall back to group code / building label.
+    const byGroup = new Map<string, Line[]>();
+
+    for (const l of activeInvoicePetlLines) {
+      const meta = getInvoiceGroupLabels(l);
+
+      const unitLabel = String(meta.unit ?? "").trim();
+      const fallbackLabel =
+        String(meta.groupCode ?? "").trim() ||
+        String(meta.building ?? "").trim() ||
+        "(No unit)";
+
+      const groupLabel = unitLabel || fallbackLabel;
+      const groupKey = groupLabel;
+
+      const bucket = byGroup.get(groupKey) ?? [];
+      bucket.push(l);
+      byGroup.set(groupKey, bucket);
+    }
+
+    const groups: Group[] = [];
+
+    const parseUnitNo = (label: string): number | null => {
+      const m = label.match(/^Unit\s*(\d+)/i);
+      if (!m) return null;
+      const n = Number(m[1]);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    for (const [groupKey, lines] of byGroup.entries()) {
+      const sorted = [...lines].sort((a, b) => {
+        const pa = String(a?.projectTreePathSnapshot ?? "");
+        const pb = String(b?.projectTreePathSnapshot ?? "");
+        if (pa !== pb) return pa.localeCompare(pb);
+        const la = Number(a?.lineNoSnapshot ?? 0);
+        const lb = Number(b?.lineNoSnapshot ?? 0);
+        if (la !== lb) return la - lb;
+        const ka = String(a?.kind ?? "");
+        const kb = String(b?.kind ?? "");
+        return ka.localeCompare(kb);
+      });
+
+      const subtotal = sorted.reduce((sum, x) => sum + (Number(x?.thisInvTotal ?? 0) || 0), 0);
+
+      groups.push({ groupKey, groupLabel: groupKey, lines: sorted, subtotal });
+    }
+
+    groups.sort((a, b) => {
+      const au = parseUnitNo(a.groupLabel);
+      const bu = parseUnitNo(b.groupLabel);
+      const aIsUnit = au != null;
+      const bIsUnit = bu != null;
+      // Put non-unit groups (e.g. ELECTRI) before unit groups.
+      if (aIsUnit !== bIsUnit) return aIsUnit ? 1 : -1;
+      // Unit groups sort numerically.
+      if (aIsUnit && bIsUnit) return (au ?? 0) - (bu ?? 0);
+      return a.groupLabel.localeCompare(b.groupLabel);
+    });
+
+    return groups;
+  }, [activeInvoicePetlLines]);
+
+  const [newInvoiceLineKind, setNewInvoiceLineKind] = useState<string>("MANUAL");
+  const [newInvoiceLineBillingTag, setNewInvoiceLineBillingTag] = useState<string>("NONE");
+  const [newInvoiceLineDesc, setNewInvoiceLineDesc] = useState("");
+  const [newInvoiceLineQty, setNewInvoiceLineQty] = useState<string>("");
+  const [newInvoiceLineUnitPrice, setNewInvoiceLineUnitPrice] = useState<string>("");
+  const [newInvoiceLineAmount, setNewInvoiceLineAmount] = useState<string>("");
+
+  const [invoiceCostBookPickerOpen, setInvoiceCostBookPickerOpen] = useState(false);
+  const [invoiceCostBookPickerBusy, setInvoiceCostBookPickerBusy] = useState(false);
+
+  const [issueBillToName, setIssueBillToName] = useState<string>("");
+  const [issueBillToEmail, setIssueBillToEmail] = useState<string>("");
+  const [issueMemo, setIssueMemo] = useState<string>("");
+  const [issueDueAt, setIssueDueAt] = useState<string>("");
+
+  const [payAmount, setPayAmount] = useState<string>("");
+  const [payMethod, setPayMethod] = useState<string>("ACH");
+  const [payPaidAt, setPayPaidAt] = useState<string>("");
+  const [payReference, setPayReference] = useState<string>("");
+  const [payNote, setPayNote] = useState<string>("");
+  const [recordPaymentSaving, setRecordPaymentSaving] = useState(false);
+
+  const [projectPayments, setProjectPayments] = useState<any[] | null>(null);
+  const [projectPaymentsLoading, setProjectPaymentsLoading] = useState(false);
+  const [projectPaymentsError, setProjectPaymentsError] = useState<string | null>(null);
+
+  // Reduce noise: keep the Payments card collapsed by default (persisted per project).
+  const paymentsCollapsedStorageKey = `financialPaymentsCollapsed:v1:${id}`;
+  const [paymentsCollapsed, setPaymentsCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const raw = window.localStorage.getItem(paymentsCollapsedStorageKey);
+    if (raw === "0") return false;
+    if (raw === "1") return true;
+    return true;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(paymentsCollapsedStorageKey, paymentsCollapsed ? "1" : "0");
+  }, [paymentsCollapsedStorageKey, paymentsCollapsed]);
+
+  // Apply UI (per payment)
+  const [applyInvoiceByPaymentId, setApplyInvoiceByPaymentId] = useState<Record<string, string>>({});
+  const [applyAmountByPaymentId, setApplyAmountByPaymentId] = useState<Record<string, string>>({});
+  const [applySavingPaymentId, setApplySavingPaymentId] = useState<string | null>(null);
+  const [applyMessageByPaymentId, setApplyMessageByPaymentId] = useState<Record<string, string>>({});
+
+  const projectPaymentsSorted = useMemo(() => {
+    const payments = projectPayments;
+    if (!Array.isArray(payments)) return [];
+
+    const sortKey = (p: any) => {
+      const raw = p?.paidAt ?? p?.createdAt ?? null;
+      const t = raw ? new Date(raw).getTime() : 0;
+      return Number.isFinite(t) ? t : 0;
+    };
+
+    return [...payments].sort((a, b) => sortKey(b) - sortKey(a));
+  }, [projectPayments]);
+
+  const projectPaymentsTotal = useMemo(() => {
+    return projectPaymentsSorted.reduce((sum, p: any) => sum + (Number(p?.amount ?? 0) || 0), 0);
+  }, [projectPaymentsSorted]);
+
+  const projectPaymentsUnappliedTotal = useMemo(() => {
+    return projectPaymentsSorted.reduce(
+      (sum, p: any) => sum + (Number(p?.unappliedAmount ?? 0) || 0),
+      0,
+    );
+  }, [projectPaymentsSorted]);
+
   // Payroll roster (who has been paid on this project, including subs/1099s)
   const [payrollEmployees, setPayrollEmployees] = useState<ProjectEmployee[] | null>(null);
   const [payrollLoading, setPayrollLoading] = useState(false);
@@ -759,6 +2109,149 @@ export default function ProjectDetailPage({
   // Actor identity + project-level roles (for header display)
   const [actorDisplayName, setActorDisplayName] = useState<string | null>(null);
   const [actorProjectRoles, setActorProjectRoles] = useState<string[] | null>(null);
+
+  const isPmOrAbove = useMemo(() => {
+    const projectRoleOk =
+      (actorProjectRoles ?? []).includes("OWNER") || (actorProjectRoles ?? []).includes("MANAGER");
+    const companyRoleOk = actorCompanyRole === "OWNER" || actorCompanyRole === "ADMIN";
+    const globalOk = actorGlobalRole === "SUPER_ADMIN";
+    return globalOk || companyRoleOk || projectRoleOk;
+  }, [actorProjectRoles, actorCompanyRole, actorGlobalRole]);
+
+  const isAdminOrAbove = useMemo(() => {
+    const companyRoleOk = actorCompanyRole === "OWNER" || actorCompanyRole === "ADMIN";
+    const globalOk = actorGlobalRole === "SUPER_ADMIN";
+    return globalOk || companyRoleOk;
+  }, [actorCompanyRole, actorGlobalRole]);
+
+  const [petlDeleteBusy, setPetlDeleteBusy] = useState(false);
+  const [petlDeleteMessage, setPetlDeleteMessage] = useState<string | null>(null);
+
+  const [petlDiagnosticsModalOpen, setPetlDiagnosticsModalOpen] = useState(false);
+  const [adminPetlToolsModalOpen, setAdminPetlToolsModalOpen] = useState(false);
+
+  const deletePetlLineItem = async (item: PetlItem) => {
+    setPetlDeleteMessage(null);
+    if (!isAdminOrAbove) {
+      setPetlDeleteMessage("Only Admin+ can delete PETL line items.");
+      return;
+    }
+
+    const ok = window.confirm(
+      `Delete PETL line #${item.lineNo}?\n\nThis will permanently remove the line item and associated reconciliation/edit history for this line.`,
+    );
+    if (!ok) return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setPetlDeleteMessage("Missing access token.");
+      return;
+    }
+
+    try {
+      setPetlDeleteBusy(true);
+
+      await busyOverlay.run(`Deleting line #${item.lineNo}…`, async () => {
+        const res = await fetch(`${API_BASE}/projects/${id}/petl/${item.id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          setPetlDeleteMessage(`Delete failed (${res.status}). ${text || ""}`.trim());
+          return;
+        }
+
+        // Update local UI immediately.
+        setPetlItems(prev => prev.filter(it => it.id !== item.id));
+        setPetlReconActivityIds(prev => {
+          const next = new Set(prev);
+          next.delete(item.id);
+          return next;
+        });
+        setPetlReconFlagIds(prev => {
+          const next = new Set(prev);
+          next.delete(item.id);
+          return next;
+        });
+
+        if (petlReconPanel.open && petlReconPanel.sowItemId === item.id) {
+          setPetlReconPanel(prev => ({ ...prev, open: false }));
+        }
+
+        // Refresh PETL + groups + summary from server.
+        setPetlReloadTick(t => t + 1);
+
+        setPetlDeleteMessage(`Deleted line #${item.lineNo}.`);
+      });
+    } catch (err: any) {
+      setPetlDeleteMessage(err?.message ?? "Delete failed.");
+    } finally {
+      setPetlDeleteBusy(false);
+    }
+  };
+
+  const deletePetlAndComponents = async () => {
+    setPetlDeleteMessage(null);
+    if (!isAdminOrAbove) {
+      setPetlDeleteMessage("Only Admin+ can delete PETL/components.");
+      return;
+    }
+
+    const ok = window.confirm(
+      "Delete PETL + Components for this project?\n\nThis wipes all imported estimate versions, PETL line items, components, and related reconciliation/edit data. This cannot be undone.",
+    );
+    if (!ok) return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setPetlDeleteMessage("Missing access token.");
+      return;
+    }
+
+    try {
+      setPetlDeleteBusy(true);
+
+      await busyOverlay.run("Deleting PETL + components…", async () => {
+        const res = await fetch(`${API_BASE}/projects/${id}/petl`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          setPetlDeleteMessage(`Delete failed (${res.status}). ${text || ""}`.trim());
+          return;
+        }
+
+        // Reset local PETL state immediately.
+        setPetlItems([]);
+        setPetlReconciliationEntries([]);
+        setPetlReconActivityIds(new Set());
+        setGroups([]);
+        setUnitGroups([]);
+        setSelectionSummary(null);
+        setPetlItemCount(0);
+        setPetlTotalAmount(0);
+        setComponentsCount(0);
+        setPetlReconFlagIds(new Set());
+
+        if (petlReconPanel.open) {
+          setPetlReconPanel(prev => ({ ...prev, open: false }));
+        }
+
+        // Reload summary endpoints.
+        setPetlReloadTick(t => t + 1);
+
+        setPetlDeleteMessage("Deleted PETL + components for this project.");
+      });
+    } catch (err: any) {
+      setPetlDeleteMessage(err?.message ?? "Delete failed.");
+    } finally {
+      setPetlDeleteBusy(false);
+    }
+  };
 
   const [dailyLogs, setDailyLogs] = useState<DailyLog[]>([]);
   const [dailyLogsLoading, setDailyLogsLoading] = useState(false);
@@ -807,32 +2300,31 @@ export default function ProjectDetailPage({
   }>({ itemAmount: true, salesTaxAmount: true, opAmount: true });
 
   const [reconNote, setReconNote] = useState<string>("");
+
+  type ReconEntryTag = "" | "SUPPLEMENT" | "CHANGE_ORDER" | "OTHER" | "WARRANTY";
+  const [reconEntryTag, setReconEntryTag] = useState<ReconEntryTag>("");
+
   const [reconPlaceholderKind, setReconPlaceholderKind] = useState<string>(
     "NOTE_ONLY",
   );
 
+  const [reconEntryEdit, setReconEntryEdit] = useState<
+    | null
+    | {
+        entry: any;
+        draft: {
+          tag: ReconEntryTag;
+          description: string;
+          note: string;
+          rcvAmount: string;
+        };
+        saving: boolean;
+        error: string | null;
+      }
+  >(null);
+
   const [costBookModalOpen, setCostBookModalOpen] = useState(false);
-  const [costBookCatFilter, setCostBookCatFilter] = useState<string>("");
-  const [costBookSelFilter, setCostBookSelFilter] = useState<string>("");
-  const [costBookQuery, setCostBookQuery] = useState<string>("");
-
-  const normalizeCatCode = (raw: any) => {
-    const s = String(raw ?? "").trim();
-    if (!s) return "";
-    // Prefer the first token (some UI strings include "03 - Demo" / "03-Demo" etc.).
-    return s.split(/[\s-]+/)[0]?.split(":")[0]?.trim() ?? "";
-  };
-
-  const normalizeSelCode = (raw: any) => {
-    const s = String(raw ?? "").trim();
-    if (!s) return "";
-    // Selection codes are usually token-like; keep the first whitespace token.
-    return s.split(/\s+/)[0]?.split(":")[0]?.trim() ?? "";
-  };
-  const [costBookQty, setCostBookQty] = useState<string>("1");
-  const [costBookResults, setCostBookResults] = useState<any[]>([]);
-  const [costBookSearching, setCostBookSearching] = useState(false);
-  const [costBookSearchError, setCostBookSearchError] = useState<string | null>(null);
+  const [petlCostBookPickerBusy, setPetlCostBookPickerBusy] = useState(false);
 
   const [importRoomBuckets, setImportRoomBuckets] = useState<ImportRoomBucket[] | null>(null);
   const [importRoomBucketsLoading, setImportRoomBucketsLoading] = useState(false);
@@ -1098,7 +2590,59 @@ export default function ProjectDetailPage({
   }
 
   const [structureOpen, setStructureOpen] = useState(false);
+
+  // Split "which tab is highlighted" from "which tab content is mounted".
+  // Switching content can be expensive (unmounting a large tab + mounting PETL), so we
+  // update the underline immediately, then transition the content change on the next frame.
   const [activeTab, setActiveTab] = useState<TabKey>("SUMMARY");
+  const [activeTabUi, setActiveTabUi] = useState<TabKey>("SUMMARY");
+  const [, startTabTransition] = useTransition();
+
+  const setTab = useCallback(
+    (next: TabKey, opts?: { deferContentSwitch?: boolean }) => {
+      setActiveTabUi(next);
+
+      if (opts?.deferContentSwitch) {
+        if (typeof window !== "undefined") {
+          window.requestAnimationFrame(() => {
+            startTabTransition(() => setActiveTab(next));
+          });
+        } else {
+          setActiveTab(next);
+        }
+        return;
+      }
+
+      setActiveTab(next);
+    },
+    [startTabTransition],
+  );
+
+  // PETL UI is very heavy to mount; show a lightweight shell first so the tab content
+  // paints quickly, then mount the full PETL UI on the next frame.
+  const [petlTabMounted, setPetlTabMounted] = useState(false);
+  useEffect(() => {
+    if (activeTab !== "PETL") {
+      setPetlTabMounted(false);
+      return;
+    }
+
+    let raf = 0;
+    raf = window.requestAnimationFrame(() => {
+      setPetlTabMounted(true);
+    });
+
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf);
+    };
+  }, [activeTab]);
+
+  // PETL fetch is expensive; avoid duplicate in-flight loads and avoid re-fetching
+  // on simple tab switches (SUMMARY <-> PETL) unless explicitly reloaded.
+  const petlLoadInFlightRef = useRef(false);
+  const petlLastSuccessfulLoadRef = useRef<null | { projectId: string; reloadTick: number }>(
+    null,
+  );
 
   // Load/save reconciliation flags per project.
   useEffect(() => {
@@ -1138,6 +2682,105 @@ export default function ProjectDetailPage({
 
   // Project header edit state
   const [editProjectMode, setEditProjectMode] = useState(false);
+
+  // The project page is very large; toggling edit mode can cause a noticeable UI stall.
+  // Track it as a transition and surface a delayed overlay (after 20ms) so the click
+  // feels responsive even when React has heavy work to do.
+  const [isEditTransitionPending, startEditTransition] = useTransition();
+  const editTransitionOverlayLabelRef = useRef<string>("Working…");
+  const editTransitionOverlayDoneRef = useRef<null | (() => void)>(null);
+
+  // PETL tab is also heavy (large tables, filtering, reconciliation drawer). Use a
+  // dedicated transition so PETL UI work yields and the delayed overlay can show.
+  const [isPetlTransitionPending, startPetlTransition] = useTransition();
+  const petlTransitionOverlayLabelRef = useRef<string>("Working…");
+  const petlTransitionOverlayDoneRef = useRef<null | (() => void)>(null);
+
+  useEffect(() => {
+    if (isEditTransitionPending) {
+      if (!editTransitionOverlayDoneRef.current) {
+        editTransitionOverlayDoneRef.current = busyOverlay.begin(
+          editTransitionOverlayLabelRef.current,
+        );
+      }
+      return;
+    }
+
+    if (editTransitionOverlayDoneRef.current) {
+      editTransitionOverlayDoneRef.current();
+      editTransitionOverlayDoneRef.current = null;
+    }
+  }, [isEditTransitionPending, busyOverlay.begin]);
+
+  useEffect(() => {
+    if (isPetlTransitionPending) {
+      if (!petlTransitionOverlayDoneRef.current) {
+        petlTransitionOverlayDoneRef.current = busyOverlay.begin(
+          petlTransitionOverlayLabelRef.current,
+        );
+      }
+      return;
+    }
+
+    if (petlTransitionOverlayDoneRef.current) {
+      petlTransitionOverlayDoneRef.current();
+      petlTransitionOverlayDoneRef.current = null;
+    }
+  }, [isPetlTransitionPending, busyOverlay.begin]);
+
+  // SOP: when PETL is doing real work (network + heavy table renders), show the
+  // delayed overlay automatically based on the existing loading flags.
+  const petlLoadingOverlayDoneRef = useRef<null | (() => void)>(null);
+  useEffect(() => {
+    // Only show this overlay when the user is actually on the PETL tab.
+    if (activeTab !== "PETL") {
+      if (petlLoadingOverlayDoneRef.current) {
+        petlLoadingOverlayDoneRef.current();
+        petlLoadingOverlayDoneRef.current = null;
+      }
+      return;
+    }
+
+    if (petlLoading) {
+      if (!petlLoadingOverlayDoneRef.current) {
+        busyOverlay.setMessage("Loading PETL…");
+        petlLoadingOverlayDoneRef.current = busyOverlay.begin("Loading PETL…");
+      }
+      return;
+    }
+
+    if (petlLoadingOverlayDoneRef.current) {
+      petlLoadingOverlayDoneRef.current();
+      petlLoadingOverlayDoneRef.current = null;
+    }
+  }, [activeTab, busyOverlay.begin, busyOverlay.setMessage, petlLoading]);
+
+  const pendingApprovalsOverlayDoneRef = useRef<null | (() => void)>(null);
+  useEffect(() => {
+    if (activeTab !== "PETL") {
+      if (pendingApprovalsOverlayDoneRef.current) {
+        pendingApprovalsOverlayDoneRef.current();
+        pendingApprovalsOverlayDoneRef.current = null;
+      }
+      return;
+    }
+
+    if (pendingPetlLoading) {
+      if (!pendingApprovalsOverlayDoneRef.current) {
+        busyOverlay.setMessage("Loading approvals…");
+        pendingApprovalsOverlayDoneRef.current = busyOverlay.begin(
+          "Loading approvals…",
+        );
+      }
+      return;
+    }
+
+    if (pendingApprovalsOverlayDoneRef.current) {
+      pendingApprovalsOverlayDoneRef.current();
+      pendingApprovalsOverlayDoneRef.current = null;
+    }
+  }, [activeTab, busyOverlay.begin, busyOverlay.setMessage, pendingPetlLoading]);
+
   const [editProject, setEditProject] = useState<
     | null
     | {
@@ -1156,9 +2799,13 @@ export default function ProjectDetailPage({
 
   const searchParams = useSearchParams();
 
+  const invoiceFullscreen = searchParams?.get("invoiceFullscreen") === "1";
+  const invoiceIdFromUrl = searchParams?.get("invoiceId") || null;
+
   useEffect(() => {
     const tab = searchParams?.get("tab");
     if (!tab) return;
+
     if (
       tab === "SUMMARY" ||
       tab === "PETL" ||
@@ -1167,11 +2814,11 @@ export default function ProjectDetailPage({
       tab === "FILES" ||
       tab === "FINANCIAL"
     ) {
-      setActiveTab(tab as TabKey);
+      setTab(tab as TabKey);
     } else if (tab.toUpperCase() === "PETL") {
-      setActiveTab("PETL");
+      setTab("PETL");
     }
-  }, [searchParams]);
+  }, [searchParams, setTab]);
 
   const overallSummary = useMemo(() => {
     if (petlItems.length === 0 && petlReconciliationEntries.length === 0) {
@@ -1219,6 +2866,42 @@ export default function ProjectDetailPage({
     return opts.sort((a, b) => a.label.localeCompare(b.label));
   }, [groups]);
 
+  // Reconciliation entries grouped by parent PETL sowItemId.
+  const reconEntriesBySowItemId = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const entry of petlReconciliationEntries) {
+      const parentId = String(entry?.parentSowItemId ?? "").trim();
+      if (!parentId) continue;
+      const arr = map.get(parentId);
+      if (arr) arr.push(entry);
+      else map.set(parentId, [entry]);
+    }
+
+    // Keep deterministic order for rendering and numbering.
+    for (const [k, arr] of map.entries()) {
+      arr.sort((a, b) => {
+        const ta = new Date(a?.createdAt ?? 0).getTime();
+        const tb = new Date(b?.createdAt ?? 0).getTime();
+        if (ta !== tb) return ta - tb;
+        return String(a?.id ?? "").localeCompare(String(b?.id ?? ""));
+      });
+      map.set(k, arr);
+    }
+
+    return map;
+  }, [petlReconciliationEntries]);
+
+  // UI: expand/collapse reconciliation sub-lines per PETL line item.
+  const [petlReconExpandedIds, setPetlReconExpandedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  // When entering "Reconciliation only" mode, auto-expand all lines that have reconciliation activity.
+  useEffect(() => {
+    if (petlDisplayMode !== "RECONCILIATION_ONLY") return;
+    setPetlReconExpandedIds(new Set(Array.from(petlReconActivityIds)));
+  }, [petlDisplayMode, petlReconActivityIds]);
+
   const categoryOptions = useMemo(() => {
     const set = new Set<string>();
     for (const item of petlItems) {
@@ -1249,23 +2932,68 @@ export default function ProjectDetailPage({
 
   const matchesFilters = (item: PetlItem) => {
     const particleId = item.projectParticle?.id ?? null;
+    const recon = reconEntriesBySowItemId.get(item.id) ?? [];
 
     if (roomParticleIdFilterSet.size > 0) {
-      if (!particleId || !roomParticleIdFilterSet.has(particleId)) return false;
+      const candidateParticleIds = new Set<string>();
+      if (particleId) candidateParticleIds.add(particleId);
+      for (const e of recon) {
+        const pid = String(e?.projectParticleId ?? "").trim();
+        if (pid) candidateParticleIds.add(pid);
+      }
+
+      // Must match at least one particle.
+      const ok = Array.from(candidateParticleIds).some((pid) => roomParticleIdFilterSet.has(pid));
+      if (!ok) return false;
     }
 
     if (categoryCodeFilterSet.size > 0) {
-      const code = item.categoryCode ?? "";
-      if (!code || !categoryCodeFilterSet.has(code)) return false;
+      const itemCode = String(item.categoryCode ?? "").trim();
+      const reconCodes = recon.map((e) => String(e?.categoryCode ?? "").trim()).filter(Boolean);
+      if (!itemCode && reconCodes.length === 0) return false;
+      const ok =
+        (itemCode && categoryCodeFilterSet.has(itemCode)) ||
+        reconCodes.some((c) => categoryCodeFilterSet.has(c));
+      if (!ok) return false;
     }
 
     if (selectionCodeFilterSet.size > 0) {
-      const code = item.selectionCode ?? "";
-      if (!code || !selectionCodeFilterSet.has(code)) return false;
+      const itemCode = String(item.selectionCode ?? "").trim();
+      const reconCodes = recon.map((e) => String(e?.selectionCode ?? "").trim()).filter(Boolean);
+      if (!itemCode && reconCodes.length === 0) return false;
+      const ok =
+        (itemCode && selectionCodeFilterSet.has(itemCode)) ||
+        reconCodes.some((c) => selectionCodeFilterSet.has(c));
+      if (!ok) return false;
     }
 
     return true;
   };
+
+
+  const petlFlatItems = useMemo(() => {
+    const filtered = petlItems.filter((it) => {
+      if (!matchesFilters(it)) return false;
+      if (petlDisplayMode === "RECONCILIATION_ONLY") {
+        return petlReconActivityIds.has(it.id);
+      }
+      return true;
+    });
+
+    filtered.sort((a, b) => a.lineNo - b.lineNo);
+    return filtered;
+  }, [
+    petlItems,
+    petlReconciliationEntries,
+    reconEntriesBySowItemId,
+    petlDisplayMode,
+    petlReconActivityIds,
+    roomParticleIdFilterSet,
+    categoryCodeFilterSet,
+    selectionCodeFilterSet,
+  ]);
+
+  const petlFlatListRef = useRef<HTMLDivElement | null>(null);
 
   const toggleImportBucketExpanded = async (bucket: ImportRoomBucket) => {
     const key = `${bucket.groupCode ?? ""}::${bucket.groupDescription ?? ""}`;
@@ -1405,14 +3133,36 @@ export default function ProjectDetailPage({
     const token = localStorage.getItem("accessToken");
     if (!token) return;
 
-    if (activeTab !== "PETL" && activeTab !== "STRUCTURE" && activeTab !== "SUMMARY") {
+    const shouldLoadPetl =
+      activeTab === "PETL" ||
+      activeTab === "STRUCTURE" ||
+      activeTab === "SUMMARY" ||
+      petlDiagnosticsModalOpen ||
+      adminPetlToolsModalOpen;
+
+    if (!shouldLoadPetl) {
       // SUMMARY also benefits from PETL data for overall/selection summaries
+      return;
+    }
+
+    // Avoid double-fetching when the user toggles tabs quickly.
+    if (petlLoadInFlightRef.current) return;
+
+    // If we already loaded successfully for the current reload tick, don't re-fetch
+    // just because the tab switched.
+    const last = petlLastSuccessfulLoadRef.current;
+    const alreadyLoadedForTick =
+      last?.projectId === project.id && last?.reloadTick === petlReloadTick;
+
+    if (alreadyLoadedForTick && !petlDiagnosticsModalOpen && !adminPetlToolsModalOpen) {
       return;
     }
 
     let cancelled = false;
 
     const loadPetl = async () => {
+      petlLoadInFlightRef.current = true;
+
       const petlUrl = `${API_BASE}/projects/${project.id}/petl`;
       const groupsUrl = `${API_BASE}/projects/${project.id}/petl-groups`;
       const summaryUrl = `${API_BASE}/projects/${project.id}/estimate-summary`;
@@ -1471,6 +3221,10 @@ export default function ProjectDetailPage({
             new Set(activityIds.filter((v) => typeof v === "string" && v.length > 0)),
           );
 
+          // Mark this reload tick as successfully loaded so tab switches don't trigger
+          // redundant refreshes.
+          petlLastSuccessfulLoadRef.current = { projectId: project.id, reloadTick: petlReloadTick };
+
           debug.petl.estimateVersionId = petl?.estimateVersionId ?? null;
           debug.petl.itemsCount = items.length;
           debug.petl.reconciliationEntriesCount = recon.length;
@@ -1493,7 +3247,9 @@ export default function ProjectDetailPage({
         if (!cancelled && groupsRes.ok) {
           const json: any = await groupsRes.json();
           setGroups(Array.isArray(json.groups) ? json.groups : []);
+          setUnitGroups(Array.isArray(json.unitGroups) ? json.unitGroups : []);
           debug.groups.groupsCount = Array.isArray(json.groups) ? json.groups.length : 0;
+          debug.groups.unitGroupsCount = Array.isArray(json.unitGroups) ? json.unitGroups.length : 0;
         } else if (!cancelled && !groupsRes.ok) {
           const text = await groupsRes.text().catch(() => "");
           debug.groups.errorText = text.slice(0, 2000);
@@ -1531,6 +3287,7 @@ export default function ProjectDetailPage({
           error: err?.message ?? String(err),
         });
       } finally {
+        petlLoadInFlightRef.current = false;
         if (!cancelled) setPetlLoading(false);
       }
     };
@@ -1540,7 +3297,65 @@ export default function ProjectDetailPage({
     return () => {
       cancelled = true;
     };
-  }, [project, activeTab, petlReloadTick]);
+  }, [project, activeTab, petlReloadTick, petlDiagnosticsModalOpen, adminPetlToolsModalOpen]);
+
+  // Load pending PETL % update sessions (PM/owner/admin only)
+  useEffect(() => {
+    if (!project) return;
+    if (activeTab !== "PETL") return;
+
+    // Clear when not allowed so we don't show stale data after role changes.
+    if (!isPmOrAbove) {
+      setPendingPetlSessions(null);
+      setPendingPetlError(null);
+      setPendingPetlLoading(false);
+      return;
+    }
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    const loadPending = async () => {
+      setPendingPetlLoading(true);
+      setPendingPetlError(null);
+      try {
+        const res = await fetch(
+          `${API_BASE}/projects/${project.id}/petl/percent-updates/pending`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+
+        if (cancelled) return;
+
+        if (res.status === 403) {
+          // Hide queue for non-PM roles.
+          setPendingPetlSessions(null);
+          return;
+        }
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Failed to load pending approvals (${res.status}) ${text}`);
+        }
+
+        const json: any = await res.json();
+        setPendingPetlSessions(Array.isArray(json) ? json : []);
+      } catch (err: any) {
+        if (!cancelled) {
+          setPendingPetlError(err?.message ?? "Failed to load pending approvals.");
+        }
+      } finally {
+        if (!cancelled) setPendingPetlLoading(false);
+      }
+    };
+
+    void loadPending();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project, activeTab, isPmOrAbove, pendingPetlReloadTick]);
 
   // Load hierarchy lazily when STRUCTURE tab is opened
   useEffect(() => {
@@ -1616,14 +3431,19 @@ export default function ProjectDetailPage({
     };
   }, [project, activeTab]);
 
-  // Load organization-related metadata (company members, tags, participants, actor roles)
-  // when SUMMARY or DAILY_LOGS tab is active.
+  // Load organization-related metadata (company members, tags, participants, actor roles).
+  // Keep this available for PM-gated actions in PETL/FINANCIAL tabs as well.
   useEffect(() => {
     if (!project) return;
     const token = localStorage.getItem("accessToken");
     if (!token) return;
-    if (activeTab !== "SUMMARY" && activeTab !== "DAILY_LOGS") return;
-    if (activeTab !== "SUMMARY" && activeTab !== "DAILY_LOGS") return;
+
+    const shouldLoad =
+      activeTab === "SUMMARY" ||
+      activeTab === "DAILY_LOGS" ||
+      activeTab === "PETL" ||
+      activeTab === "FINANCIAL";
+    if (!shouldLoad) return;
 
     let cancelled = false;
 
@@ -1906,6 +3726,197 @@ export default function ProjectDetailPage({
     };
   }, [activeTab, project, financialSummary]);
 
+  // Lazy-load bills list when Financial tab is opened
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token || !project) return;
+    if (activeTab !== "FINANCIAL") return;
+    if (projectBills) return;
+
+    let cancelled = false;
+
+    setProjectBillsLoading(true);
+    setProjectBillsError(null);
+
+    fetch(`${API_BASE}/projects/${project.id}/bills`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((json: any) => {
+        if (cancelled) return;
+        setProjectBills(Array.isArray(json) ? json : []);
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setProjectBillsError(err?.message ?? "Failed to load bills.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setProjectBillsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, project, projectBills]);
+
+  // Lazy-load project files for bill attachment picker
+  useEffect(() => {
+    if (!billModalOpen) return;
+    if (!project) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+    if (billAttachmentFileOptions) return;
+
+    let cancelled = false;
+
+    setBillAttachmentFileLoading(true);
+    setBillAttachmentFileError(null);
+
+    fetch(`${API_BASE}/projects/${project.id}/files`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((json: any) => {
+        if (cancelled) return;
+        setBillAttachmentFileOptions(Array.isArray(json) ? json : []);
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setBillAttachmentFileError(err?.message ?? "Failed to load project files.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setBillAttachmentFileLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [billModalOpen, project, billAttachmentFileOptions]);
+
+  // Lazy-load invoices list when Financial tab is opened
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token || !project) return;
+    if (activeTab !== "FINANCIAL") return;
+    if (projectInvoices) return;
+
+    let cancelled = false;
+
+    setProjectInvoicesLoading(true);
+    setProjectInvoicesError(null);
+
+    fetch(`${API_BASE}/projects/${project.id}/invoices`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((json: any) => {
+        if (cancelled) return;
+        setProjectInvoices(Array.isArray(json) ? json : []);
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setProjectInvoicesError(err?.message ?? "Failed to load invoices.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setProjectInvoicesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, project, projectInvoices]);
+
+  // If the URL requests a specific invoice, load it automatically (useful for full-screen invoice tabs).
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token || !project) return;
+    if (activeTab !== "FINANCIAL") return;
+    if (!invoiceIdFromUrl) return;
+
+    // Avoid reloading if already active.
+    if (String(activeInvoice?.id ?? "") === invoiceIdFromUrl) return;
+
+    let cancelled = false;
+
+    setActiveInvoiceLoading(true);
+    setActiveInvoiceError(null);
+
+    fetch(`${API_BASE}/projects/${project.id}/invoices/${invoiceIdFromUrl}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Failed to load invoice (${res.status}) ${text}`);
+        }
+        return res.json();
+      })
+      .then((json: any) => {
+        if (cancelled) return;
+        setActiveInvoice(json);
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setActiveInvoiceLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, project, invoiceIdFromUrl]);
+
+  // Lazy-load project payments (cash receipts) when Financial tab is opened.
+  // If the Payments card is collapsed, defer loading until the user expands it.
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token || !project) return;
+    if (activeTab !== "FINANCIAL") return;
+    if (paymentsCollapsed) return;
+    if (projectPayments) return;
+
+    let cancelled = false;
+
+    setProjectPaymentsLoading(true);
+    setProjectPaymentsError(null);
+
+    fetch(`${API_BASE}/projects/${project.id}/payments`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((json: any) => {
+        if (cancelled) return;
+        setProjectPayments(Array.isArray(json) ? json : []);
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setProjectPaymentsError(err?.message ?? "Failed to load payments.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setProjectPaymentsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, project, projectPayments, paymentsCollapsed]);
+
+  // Keep issue form defaults in sync with the currently opened invoice
+  useEffect(() => {
+    if (!activeInvoice) return;
+    setIssueBillToName(String(activeInvoice.billToName ?? ""));
+    setIssueBillToEmail(String(activeInvoice.billToEmail ?? ""));
+    setIssueMemo(String(activeInvoice.memo ?? ""));
+    setIssueDueAt(activeInvoice.dueAt ? String(activeInvoice.dueAt).slice(0, 10) : "");
+  }, [activeInvoice?.id]);
+
   // Lazy-load payroll roster when Financial tab is opened (first time).
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
@@ -1942,15 +3953,43 @@ export default function ProjectDetailPage({
     };
   }, [activeTab, project, payrollEmployees]);
 
-  const toggleRoomExpanded = useCallback((particleId: string | null) => {
-    if (!particleId) return;
-    setExpandedRooms(prev => {
-      const next = new Set(prev);
-      if (next.has(particleId)) next.delete(particleId);
-      else next.add(particleId);
-      return next;
-    });
-  }, []);
+  const toggleRoomExpanded = useCallback(
+    (particleId: string | null) => {
+      if (!particleId) return;
+
+      petlTransitionOverlayLabelRef.current = "Updating room view…";
+      busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+
+      startPetlTransition(() => {
+        setExpandedRooms(prev => {
+          const next = new Set(prev);
+          if (next.has(particleId)) next.delete(particleId);
+          else next.add(particleId);
+          return next;
+        });
+      });
+    },
+    [busyOverlay.setMessage, startPetlTransition],
+  );
+
+  const toggleUnitExpanded = useCallback(
+    (unitId: string | null) => {
+      const key = unitId ?? "__no_unit__";
+
+      petlTransitionOverlayLabelRef.current = "Updating unit view…";
+      busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+
+      startPetlTransition(() => {
+        setExpandedUnits(prev => {
+          const next = new Set(prev);
+          if (next.has(key)) next.delete(key);
+          else next.add(key);
+          return next;
+        });
+      });
+    },
+    [busyOverlay.setMessage, startPetlTransition],
+  );
 
   const isPetlReconFlagged = (sowItemId: string) => petlReconFlagIds.has(sowItemId);
 
@@ -1985,45 +4024,34 @@ export default function ProjectDetailPage({
     }));
 
     try {
-      const res = await fetch(
-        `${API_BASE}/projects/${id}/petl/${sowItemId}/reconciliation`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      await busyOverlay.run("Loading reconciliation…", async () => {
+        const res = await fetch(
+          `${API_BASE}/projects/${id}/petl/${sowItemId}/reconciliation`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          setPetlReconPanel(prev => ({
+            ...prev,
+            loading: false,
+            error: `Failed to load reconciliation (${res.status}) ${text}`,
+            data: null,
+          }));
+          return;
+        }
+
+        const json: any = await res.json();
         setPetlReconPanel(prev => ({
           ...prev,
           loading: false,
-          error: `Failed to load reconciliation (${res.status}) ${text}`,
-          data: null,
+          error: null,
+          data: json,
         }));
-        return;
-      }
+      });
 
-      const json: any = await res.json();
-      setPetlReconPanel(prev => ({
-        ...prev,
-        loading: false,
-        error: null,
-        data: json,
-      }));
-
-      const baselineQty = json?.rcvBreakdown?.qty;
-      if (typeof baselineQty === "number" && Number.isFinite(baselineQty)) {
-        setCostBookQty(String(baselineQty));
-      }
-
-      // Prescreen cost book search based on the line we're reconciling.
-      // Start broad (CAT only) so we show plenty of options, and highlight the exact CAT+SEL match.
-      const baselineCat = normalizeCatCode(json?.sowItem?.categoryCode ?? "");
-      setCostBookCatFilter(baselineCat);
-      setCostBookSelFilter("");
-      setCostBookQuery("");
-      setCostBookResults([]);
-      setCostBookSearchError(null);
     } catch (err: any) {
       setPetlReconPanel(prev => ({
         ...prev,
@@ -2033,16 +4061,752 @@ export default function ProjectDetailPage({
       }));
     }
   };
-
-  const openPetlReconciliation = (sowItemId: string) => {
+  const openPetlReconciliation = async (sowItemId: string) => {
+    // Keep this click feeling instant: open the drawer first (cheap render), then
+    // fetch details in the background.
     setReconNote("");
     setReconCreditComponents({ itemAmount: true, salesTaxAmount: true, opAmount: true });
     setReconPlaceholderKind("NOTE_ONLY");
-    setCostBookQuery("");
-    setCostBookResults([]);
-    setCostBookSearchError(null);
-    void loadPetlReconciliation(sowItemId);
+    setCostBookModalOpen(false);
+    setPetlCostBookPickerBusy(false);
+
+    // Ensure the drawer shows immediately, even if the fetch takes time.
+    setPetlReconPanel(prev => ({
+      ...prev,
+      open: true,
+      sowItemId,
+      loading: true,
+      error: null,
+      data: null,
+    }));
+
+    // Kick the network fetch to the next tick so the open-state paint can happen first.
+    window.setTimeout(() => {
+      void loadPetlReconciliation(sowItemId);
+    }, 0);
   };
+
+  // The line-sequence PETL table can be very large. Memoize its JSX so opening the
+  // reconciliation drawer doesn't force React to rebuild thousands of rows.
+  const petlLineSequenceTable = useMemo(() => {
+    // Critical: don't even *build* the large JSX tree unless the PETL tab content is mounted.
+    // (PETL data may load while on SUMMARY for the progress summary.)
+    if (activeTab !== "PETL") return null;
+
+    const shouldShow =
+      (petlDisplayMode === "LINE_SEQUENCE" || petlDisplayMode === "RECONCILIATION_ONLY") &&
+      !petlLoading &&
+      petlItems.length > 0;
+
+    if (!shouldShow) return null;
+
+    return (
+      <div style={{ marginTop: 16 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
+          {petlDisplayMode === "RECONCILIATION_ONLY"
+            ? "Estimate items (Reconciliation activity only)"
+            : "Estimate items"}
+        </h2>
+        <div
+          ref={petlFlatListRef}
+          style={{
+            height: "calc(100vh - 320px)",
+            overflow: "auto",
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            backgroundColor: "#ffffff",
+          }}
+        >
+          <table
+            id="petl-items-table"
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontSize: 12,
+            }}
+          >
+            <thead>
+              <tr style={{ backgroundColor: "#f9fafb" }}>
+                <th
+                  style={{
+                    textAlign: "left",
+                    padding: "6px 8px",
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 1,
+                    background: "#f9fafb",
+                  }}
+                >
+                  Line
+                </th>
+                <th
+                  style={{
+                    textAlign: "left",
+                    padding: "6px 8px",
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 1,
+                    background: "#f9fafb",
+                  }}
+                >
+                  Room
+                </th>
+                <th
+                  style={{
+                    textAlign: "left",
+                    padding: "6px 8px",
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 1,
+                    background: "#f9fafb",
+                  }}
+                >
+                  Task
+                </th>
+                <th
+                  style={{
+                    textAlign: "right",
+                    padding: "6px 8px",
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 1,
+                    background: "#f9fafb",
+                  }}
+                >
+                  Qty
+                </th>
+                <th
+                  style={{
+                    textAlign: "right",
+                    padding: "6px 8px",
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 1,
+                    background: "#f9fafb",
+                  }}
+                >
+                  Unit
+                </th>
+                <th
+                  style={{
+                    textAlign: "right",
+                    padding: "6px 8px",
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 1,
+                    background: "#f9fafb",
+                  }}
+                >
+                  Total
+                </th>
+                <th
+                  style={{
+                    textAlign: "right",
+                    padding: "6px 8px",
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 1,
+                    background: "#f9fafb",
+                  }}
+                >
+                  RCV
+                </th>
+                <th
+                  style={{
+                    textAlign: "right",
+                    padding: "6px 8px",
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 1,
+                    background: "#f9fafb",
+                  }}
+                >
+                  %
+                </th>
+                <th
+                  style={{
+                    textAlign: "left",
+                    padding: "6px 8px",
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 1,
+                    background: "#f9fafb",
+                  }}
+                >
+                  Cat
+                </th>
+                <th
+                  style={{
+                    textAlign: "left",
+                    padding: "6px 8px",
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 1,
+                    background: "#f9fafb",
+                  }}
+                >
+                  Sel
+                </th>
+                <th
+                  style={{
+                    textAlign: "left",
+                    padding: "6px 8px",
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 1,
+                    background: "#f9fafb",
+                  }}
+                >
+                  Recon
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {petlFlatItems.flatMap((item) => {
+                const flagged = isPetlReconFlagged(item.id);
+                const hasRecon = hasReconciliationActivity(item.id);
+
+                const allRecon = reconEntriesBySowItemId.get(item.id) ?? [];
+                const reconFinancial = allRecon.filter((e) => e?.rcvAmount != null);
+                const reconSeqById = new Map<string, number>();
+                reconFinancial.forEach((e, idx) => {
+                  if (e?.id) reconSeqById.set(String(e.id), idx + 1);
+                });
+
+                const expanded = petlReconExpandedIds.has(item.id);
+                const showSublines = expanded && reconFinancial.length > 0;
+
+                const bg = flagged
+                  ? "#fef3c7"
+                  : hasRecon
+                    ? "#e0f2fe"
+                    : "transparent";
+
+                const out: any[] = [];
+
+                out.push(
+                  <tr key={item.id} style={{ backgroundColor: bg }}>
+                    <td
+                      style={{
+                        padding: "4px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        {reconFinancial.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPetlReconExpandedIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(item.id)) next.delete(item.id);
+                                else next.add(item.id);
+                                return next;
+                              });
+                            }}
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              cursor: "pointer",
+                              padding: 0,
+                              fontSize: 12,
+                              color: "#2563eb",
+                              width: 14,
+                              textAlign: "center",
+                            }}
+                            aria-label={expanded ? "Collapse reconciliation lines" : "Expand reconciliation lines"}
+                            title={expanded ? "Collapse reconciliation lines" : `Show ${reconFinancial.length} reconciliation line(s)`}
+                          >
+                            {showSublines ? "▾" : "▸"}
+                          </button>
+                        ) : (
+                          <span style={{ width: 14 }} />
+                        )}
+                        <span>{item.lineNo}</span>
+                      </div>
+                    </td>
+                    <td
+                      title={item.projectParticle?.fullLabel ?? item.projectParticle?.name ?? ""}
+                      style={{
+                        padding: "4px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        maxWidth: 220,
+                      }}
+                    >
+                      {item.projectParticle?.fullLabel ?? item.projectParticle?.name ?? ""}
+                    </td>
+                    <td
+                      title={item.description ?? ""}
+                      style={{
+                        padding: "4px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        maxWidth: 520,
+                      }}
+                    >
+                      {item.description ?? ""}
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        textAlign: "right",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {item.qty ?? ""}
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        textAlign: "right",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {item.unit ?? ""}
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        textAlign: "right",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {item.itemAmount != null
+                        ? item.itemAmount.toLocaleString(undefined, {
+                            maximumFractionDigits: 2,
+                          })
+                        : ""}
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        textAlign: "right",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {item.rcvAmount != null
+                        ? item.rcvAmount.toLocaleString(undefined, {
+                            maximumFractionDigits: 2,
+                          })
+                        : ""}
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        textAlign: "right",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      <select
+                        value={item.isAcvOnly ? "ACV" : String(item.percentComplete)}
+                        onChange={async (e) => {
+                          const value = e.target.value;
+                          const isAcv = value === "ACV";
+                          const percent = isAcv ? 0 : Number(value);
+                          if (
+                            !isAcv &&
+                            (Number.isNaN(percent) || percent < 0 || percent > 100)
+                          ) {
+                            return;
+                          }
+
+                          const token = localStorage.getItem("accessToken");
+                          if (!token) {
+                            alert("Missing access token; please log in again.");
+                            return;
+                          }
+
+                          await busyOverlay.run(`Updating line #${item.lineNo}…`, async () => {
+                            try {
+                              setPetlItems((prev) =>
+                                prev.map((it) =>
+                                  it.id === item.id
+                                    ? {
+                                        ...it,
+                                        percentComplete: percent,
+                                        isAcvOnly: isAcv,
+                                      }
+                                    : it,
+                                ),
+                              );
+
+                              const res = await fetch(
+                                `${API_BASE}/projects/${id}/petl/${item.id}/percent`,
+                                {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                  body: JSON.stringify({
+                                    newPercent: percent,
+                                    acvOnly: isAcv,
+                                  }),
+                                },
+                              );
+                              if (!res.ok) {
+                                console.error("Per-line update failed", res.status);
+                              }
+
+                              // After a single-line edit in the flat PETL table,
+                              // also refresh the server-backed PETL + groups so the
+                              // Rooms/Zones summary reflects the current values.
+                              try {
+                                const petlRes = await fetch(`${API_BASE}/projects/${id}/petl`, {
+                                  headers: { Authorization: `Bearer ${token}` },
+                                });
+                                if (petlRes.ok) {
+                                  const petl: any = await petlRes.json();
+                                  const items: PetlItem[] = Array.isArray(petl.items)
+                                    ? petl.items
+                                    : [];
+                                  setPetlItems(items);
+                                }
+                              } catch {
+                                // non-fatal
+                              }
+
+                              try {
+                                setGroupLoading(true);
+                                const groupsRes = await fetch(
+                                  `${API_BASE}/projects/${id}/petl-groups`,
+                                  {
+                                    headers: { Authorization: `Bearer ${token}` },
+                                  },
+                                );
+                                if (groupsRes.ok) {
+                                  const json: any = await groupsRes.json();
+                                  setGroups(Array.isArray(json.groups) ? json.groups : []);
+                                  setUnitGroups(
+                                    Array.isArray(json.unitGroups) ? json.unitGroups : [],
+                                  );
+                                }
+                              } catch {
+                                // non-fatal
+                              } finally {
+                                setGroupLoading(false);
+                              }
+                            } catch (err) {
+                              console.error(err);
+                            }
+                          });
+                        }}
+                        style={{
+                          width: 80,
+                          padding: "2px 4px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 11,
+                        }}
+                      >
+                        <option value="0">0%</option>
+                        <option value="10">10%</option>
+                        <option value="20">20%</option>
+                        <option value="30">30%</option>
+                        <option value="40">40%</option>
+                        <option value="50">50%</option>
+                        <option value="60">60%</option>
+                        <option value="70">70%</option>
+                        <option value="80">80%</option>
+                        <option value="90">90%</option>
+                        <option value="100">100%</option>
+                        <option value="ACV">ACV only</option>
+                      </select>
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {item.categoryCode ?? ""}
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {item.selectionCode ?? ""}
+                    </td>
+                    <td
+                      style={{
+                        padding: "4px 8px",
+                        borderTop: "1px solid #e5e7eb",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            petlTransitionOverlayLabelRef.current = flagged
+                              ? "Removing flag…"
+                              : "Flagging for review…";
+                            busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+                            startPetlTransition(() => togglePetlReconFlag(item.id));
+                          }}
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: 999,
+                            border: flagged ? "1px solid #b45309" : "1px solid #d1d5db",
+                            background: flagged ? "#fffbeb" : "#ffffff",
+                            fontSize: 11,
+                            cursor: "pointer",
+                            color: flagged ? "#92400e" : "#374151",
+                          }}
+                        >
+                          {flagged ? "Needs review" : "Flag"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void openPetlReconciliation(item.id);
+                          }}
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: 999,
+                            border: "1px solid #2563eb",
+                            background: "#eff6ff",
+                            fontSize: 11,
+                            cursor: "pointer",
+                            color: "#1d4ed8",
+                          }}
+                        >
+                          Reconcile
+                        </button>
+                        {isAdminOrAbove && (
+                          <button
+                            type="button"
+                            disabled={petlDeleteBusy}
+                            onClick={() => {
+                              void deletePetlLineItem(item);
+                            }}
+                            style={{
+                              padding: "2px 6px",
+                              borderRadius: 999,
+                              border: "1px solid #b91c1c",
+                              background: "#fff1f2",
+                              fontSize: 11,
+                              cursor: petlDeleteBusy ? "default" : "pointer",
+                              color: "#b91c1c",
+                            }}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>,
+                );
+
+                if (showSublines) {
+                  for (const e of reconFinancial) {
+                    const entryId = String(e?.id ?? "");
+                    if (!entryId) continue;
+                    const seq = reconSeqById.get(entryId);
+                    if (!seq) continue;
+
+                    const lineLabel = `${item.lineNo}.${seq}`;
+                    const kind = String(e?.kind ?? "").trim();
+                    const desc = String(e?.description ?? "").trim();
+                    const note = String(e?.note ?? "").trim();
+                    const label = desc || note ? `${kind}: ${desc || note}` : kind;
+
+                    const itemAmt = typeof e?.itemAmount === "number" ? e.itemAmount : null;
+                    const rcvAmt = typeof e?.rcvAmount === "number" ? e.rcvAmount : null;
+                    const isCredit = kind === "CREDIT" || (rcvAmt != null && rcvAmt < 0);
+                    const pct = e?.isPercentCompleteLocked ? 0 : (e?.percentComplete ?? 0);
+
+                    out.push(
+                      <tr
+                        key={`${item.id}::recon::${entryId}`}
+                        style={{
+                          backgroundColor: "#f8fafc",
+                          color: isCredit ? "#b91c1c" : "#111827",
+                        }}
+                      >
+                        <td
+                          style={{
+                            padding: "4px 8px",
+                            borderTop: "1px solid #e5e7eb",
+                            whiteSpace: "nowrap",
+                            fontFamily:
+                              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+                          }}
+                        >
+                          <span style={{ paddingLeft: 18 }}>↳ {lineLabel}</span>
+                        </td>
+                        <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
+                          {/* under the parent row */}
+                        </td>
+                        <td
+                          title={label}
+                          style={{
+                            padding: "4px 8px",
+                            borderTop: "1px solid #e5e7eb",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            maxWidth: 520,
+                          }}
+                        >
+                          <span style={{ color: "#6b7280" }}>[{kind}]</span>{" "}
+                          {desc || note || ""}
+                        </td>
+                        <td
+                          style={{
+                            padding: "4px 8px",
+                            borderTop: "1px solid #e5e7eb",
+                            textAlign: "right",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {e?.qty ?? ""}
+                        </td>
+                        <td
+                          style={{
+                            padding: "4px 8px",
+                            borderTop: "1px solid #e5e7eb",
+                            textAlign: "right",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {e?.unit ?? ""}
+                        </td>
+                        <td
+                          style={{
+                            padding: "4px 8px",
+                            borderTop: "1px solid #e5e7eb",
+                            textAlign: "right",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {itemAmt != null
+                            ? itemAmt.toLocaleString(undefined, { maximumFractionDigits: 2 })
+                            : ""}
+                        </td>
+                        <td
+                          style={{
+                            padding: "4px 8px",
+                            borderTop: "1px solid #e5e7eb",
+                            textAlign: "right",
+                            whiteSpace: "nowrap",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {rcvAmt != null
+                            ? rcvAmt.toLocaleString(undefined, { maximumFractionDigits: 2 })
+                            : ""}
+                        </td>
+                        <td
+                          style={{
+                            padding: "4px 8px",
+                            borderTop: "1px solid #e5e7eb",
+                            textAlign: "right",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {e?.isPercentCompleteLocked ? (
+                            "—"
+                          ) : (
+                            <select
+                              value={String(pct)}
+                              onChange={(ev) => {
+                                const next = Number(ev.target.value);
+                                if (Number.isNaN(next)) return;
+                                void submitReconEntryPercent(entryId, next);
+                              }}
+                              style={{
+                                width: 80,
+                                padding: "2px 4px",
+                                borderRadius: 4,
+                                border: "1px solid #d1d5db",
+                                fontSize: 11,
+                              }}
+                            >
+                              <option value="0">0%</option>
+                              <option value="10">10%</option>
+                              <option value="20">20%</option>
+                              <option value="30">30%</option>
+                              <option value="40">40%</option>
+                              <option value="50">50%</option>
+                              <option value="60">60%</option>
+                              <option value="70">70%</option>
+                              <option value="80">80%</option>
+                              <option value="90">90%</option>
+                              <option value="100">100%</option>
+                            </select>
+                          )}
+                        </td>
+                        <td
+                          style={{
+                            padding: "4px 8px",
+                            borderTop: "1px solid #e5e7eb",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {e?.categoryCode ?? ""}
+                        </td>
+                        <td
+                          style={{
+                            padding: "4px 8px",
+                            borderTop: "1px solid #e5e7eb",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {e?.selectionCode ?? ""}
+                        </td>
+                        <td
+                          style={{
+                            padding: "4px 8px",
+                            borderTop: "1px solid #e5e7eb",
+                            whiteSpace: "nowrap",
+                            color: "#6b7280",
+                            fontSize: 11,
+                          }}
+                        >
+                          {/* no actions */}
+                        </td>
+                      </tr>,
+                    );
+                  }
+                }
+
+                return out;
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }, [
+    activeTab,
+    id,
+    isAdminOrAbove,
+    petlDeleteBusy,
+    petlDisplayMode,
+    petlFlatItems,
+    petlLoading,
+    petlReconActivityIds,
+    petlReconExpandedIds,
+    petlReconFlagIds,
+    petlItems.length,
+    reconEntriesBySowItemId,
+  ]);
 
   const submitReconCredit = async () => {
     const sowItemId = petlReconPanel.sowItemId;
@@ -2055,29 +4819,33 @@ export default function ProjectDetailPage({
     }
 
     try {
-      const res = await fetch(
-        `${API_BASE}/projects/${id}/petl/${sowItemId}/reconciliation/credit`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+      await busyOverlay.run("Creating credit…", async () => {
+        const res = await fetch(
+          `${API_BASE}/projects/${id}/petl/${sowItemId}/reconciliation/credit`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              note: reconNote || null,
+              tag: reconEntryTag || null,
+              components: reconCreditComponents,
+            }),
           },
-          body: JSON.stringify({
-            note: reconNote || null,
-            components: reconCreditComponents,
-          }),
-        },
-      );
+        );
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        alert(`Failed to create credit (${res.status}) ${text}`);
-        return;
-      }
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          alert(`Failed to create credit (${res.status}) ${text}`);
+          return;
+        }
 
-      setPetlReloadTick(t => t + 1);
-      await loadPetlReconciliation(sowItemId);
+        setPetlReloadTick(t => t + 1);
+        await loadPetlReconciliation(sowItemId);
+      });
+
     } catch (err: any) {
       alert(err?.message ?? "Failed to create credit");
     }
@@ -2094,141 +4862,86 @@ export default function ProjectDetailPage({
     }
 
     try {
-      const res = await fetch(
-        `${API_BASE}/projects/${id}/petl/${sowItemId}/reconciliation/placeholder`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+      await busyOverlay.run("Creating placeholder…", async () => {
+        const res = await fetch(
+          `${API_BASE}/projects/${id}/petl/${sowItemId}/reconciliation/placeholder`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              kind: reconPlaceholderKind,
+              tag: reconEntryTag || null,
+              note: reconNote || null,
+            }),
           },
-          body: JSON.stringify({
-            kind: reconPlaceholderKind,
-            note: reconNote || null,
-          }),
-        },
-      );
+        );
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        alert(`Failed to create placeholder (${res.status}) ${text}`);
-        return;
-      }
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          alert(`Failed to create placeholder (${res.status}) ${text}`);
+          return;
+        }
 
-      setPetlReloadTick(t => t + 1);
-      await loadPetlReconciliation(sowItemId);
+        setPetlReloadTick(t => t + 1);
+        await loadPetlReconciliation(sowItemId);
+      });
+
     } catch (err: any) {
       alert(err?.message ?? "Failed to create placeholder");
     }
   };
 
-  const runCostBookSearch = async (mode: "auto" | "user" = "user") => {
-    const token = localStorage.getItem("accessToken");
-    if (!token) {
-      setCostBookSearchError("Missing access token. Please login again.");
-      return;
-    }
-
-    setCostBookSearching(true);
-    setCostBookSearchError(null);
-
-    try {
-      const body =
-        mode === "auto"
-          ? {
-              // Load a large, sorted slice of the CAT so we can scroll above/below
-              // the highlighted line item.
-              query: "",
-              cat: costBookCatFilter || undefined,
-              limit: 2000,
-            }
-          : {
-              query: costBookQuery,
-              cat: costBookCatFilter || undefined,
-              sel: costBookSelFilter || undefined,
-              limit: 200,
-            };
-
-      const res = await fetch(`${API_BASE}/pricing/company-price-list/search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        setCostBookSearchError(`Search failed (${res.status}) ${text}`);
-        setCostBookResults([]);
-        return;
-      }
-
-      const json: any = await res.json();
-      setCostBookResults(Array.isArray(json.items) ? json.items : []);
-    } catch (err: any) {
-      setCostBookSearchError(err?.message ?? "Search failed");
-      setCostBookResults([]);
-    } finally {
-      setCostBookSearching(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!costBookModalOpen) return;
-    if (costBookSearching) return;
-    if (costBookResults.length > 0) return;
-
-    // Auto-load the CAT list when the modal opens so the user immediately sees
-    // cost book line items (and we can scroll to the highlighted match).
-    void runCostBookSearch("auto");
-  }, [costBookModalOpen, costBookCatFilter]);
-
-  const submitAddFromCostBook = async (companyPriceListItemId: string) => {
+  const submitAddFromCostBook = async (companyPriceListItemId: string, qty: number) => {
     const sowItemId = petlReconPanel.sowItemId;
-    if (!sowItemId) return;
+    if (!sowItemId) return false;
 
     const token = localStorage.getItem("accessToken");
     if (!token) {
       alert("Missing access token; please log in again.");
-      return;
+      return false;
     }
 
-    const qty = Number(costBookQty);
-    if (Number.isNaN(qty) || qty <= 0) {
+    if (!Number.isFinite(qty) || qty <= 0) {
       alert("Qty must be a positive number");
-      return;
+      return false;
     }
 
     try {
-      const res = await fetch(
-        `${API_BASE}/projects/${id}/petl/${sowItemId}/reconciliation/add-from-cost-book`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+      return await busyOverlay.run("Adding from cost book…", async () => {
+        const res = await fetch(
+          `${API_BASE}/projects/${id}/petl/${sowItemId}/reconciliation/add-from-cost-book`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              companyPriceListItemId,
+              qty,
+              tag: reconEntryTag || null,
+              note: reconNote || null,
+            }),
           },
-          body: JSON.stringify({
-            companyPriceListItemId,
-            qty,
-            note: reconNote || null,
-          }),
-        },
-      );
+        );
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        alert(`Failed to add from cost book (${res.status}) ${text}`);
-        return;
-      }
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          alert(`Failed to add from cost book (${res.status}) ${text}`);
+          return false;
+        }
 
-      setCostBookModalOpen(false);
-      setPetlReloadTick(t => t + 1);
-      await loadPetlReconciliation(sowItemId);
+        setPetlReloadTick(t => t + 1);
+        await loadPetlReconciliation(sowItemId);
+        return true;
+      });
+
     } catch (err: any) {
       alert(err?.message ?? "Failed to add from cost book");
+      return false;
     }
   };
 
@@ -2240,62 +4953,136 @@ export default function ProjectDetailPage({
     }
 
     try {
-      const res = await fetch(
-        `${API_BASE}/projects/${id}/petl-reconciliation/entries/${entryId}/percent`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+      await busyOverlay.run("Updating reconciliation percent…", async () => {
+        const res = await fetch(
+          `${API_BASE}/projects/${id}/petl-reconciliation/entries/${entryId}/percent`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ newPercent }),
           },
-          body: JSON.stringify({ newPercent }),
-        },
-      );
+        );
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        alert(`Failed to update percent (${res.status}) ${text}`);
-        return;
-      }
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          alert(`Failed to update percent (${res.status}) ${text}`);
+          return;
+        }
 
-      setPetlReloadTick(t => t + 1);
-      if (petlReconPanel.sowItemId) {
-        await loadPetlReconciliation(petlReconPanel.sowItemId);
-      }
+        setPetlReloadTick(t => t + 1);
+        if (petlReconPanel.sowItemId) {
+          await loadPetlReconciliation(petlReconPanel.sowItemId);
+        }
+      });
+
     } catch (err: any) {
       alert(err?.message ?? "Failed to update percent");
     }
   };
 
-  // When the modal opens and we have results, auto-scroll to the baseline match if present.
-  useEffect(() => {
-    if (!costBookModalOpen) return;
-    if (!petlReconPanel.data) return;
-    if (!Array.isArray(costBookResults) || costBookResults.length === 0) return;
-    if (typeof window === "undefined") return;
+  const openReconEntryEdit = (entry: any) => {
+    const tag = String(entry?.tag ?? "").trim();
+    const draftTag: ReconEntryTag =
+      tag === "SUPPLEMENT" || tag === "CHANGE_ORDER" || tag === "OTHER" || tag === "WARRANTY"
+        ? (tag as ReconEntryTag)
+        : "";
 
-    const baselineCat = normalizeCatCode(petlReconPanel.data?.sowItem?.categoryCode ?? "")
-      .trim()
-      .toUpperCase();
-    const baselineSel = normalizeSelCode(petlReconPanel.data?.sowItem?.selectionCode ?? "")
-      .trim()
-      .toUpperCase();
-
-    if (!baselineCat || !baselineSel) return;
-
-    const match = costBookResults.find((r: any) => {
-      const cat = normalizeCatCode(r?.cat ?? "").trim().toUpperCase();
-      const sel = normalizeSelCode(r?.sel ?? "").trim().toUpperCase();
-      return cat === baselineCat && sel === baselineSel;
+    setReconEntryEdit({
+      entry,
+      draft: {
+        tag: draftTag,
+        description: String(entry?.description ?? ""),
+        note: String(entry?.note ?? ""),
+        rcvAmount:
+          typeof entry?.rcvAmount === "number" && Number.isFinite(entry.rcvAmount)
+            ? String(entry.rcvAmount)
+            : "",
+      },
+      saving: false,
+      error: null,
     });
+  };
 
-    if (!match?.id) return;
+  const closeReconEntryEdit = () => setReconEntryEdit(null);
 
-    const el = document.getElementById(`costbook-row-${match.id}`);
-    if (el) {
-      el.scrollIntoView({ block: "center" });
+  const saveReconEntryEdit = async () => {
+    if (!reconEntryEdit) return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token; please log in again.");
+      return;
     }
-  }, [costBookModalOpen, costBookResults, petlReconPanel.data]);
+
+    const entry = reconEntryEdit.entry;
+    const d = reconEntryEdit.draft;
+
+    const patch: any = {};
+
+    const nextTag = d.tag || null;
+    const prevTag = entry?.tag ?? null;
+    if (nextTag !== prevTag) patch.tag = nextTag;
+
+    const nextDesc = d.description.trim() || null;
+    const prevDesc = entry?.description ?? null;
+    if (nextDesc !== prevDesc) patch.description = nextDesc;
+
+    const nextNote = d.note.trim() || null;
+    const prevNote = entry?.note ?? null;
+    if (nextNote !== prevNote) patch.note = nextNote;
+
+    const rcvRaw = d.rcvAmount.trim();
+    const nextRcv = rcvRaw === "" ? null : Number(rcvRaw);
+    if (rcvRaw !== "" && (!Number.isFinite(nextRcv) || Number.isNaN(nextRcv))) {
+      alert("RCV must be a number (or blank). ");
+      return;
+    }
+    const prevRcv = typeof entry?.rcvAmount === "number" ? entry.rcvAmount : null;
+    if (nextRcv !== prevRcv) patch.rcvAmount = nextRcv;
+
+    if (Object.keys(patch).length === 0) {
+      closeReconEntryEdit();
+      return;
+    }
+
+    setReconEntryEdit((prev) => (prev ? { ...prev, saving: true, error: null } : prev));
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${id}/petl-reconciliation/entries/${entry.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(patch),
+        },
+      );
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        setReconEntryEdit((prev) =>
+          prev ? { ...prev, saving: false, error: `Save failed (${res.status}) ${text}` } : prev,
+        );
+        return;
+      }
+
+      setPetlReloadTick((t) => t + 1);
+      if (petlReconPanel.sowItemId) {
+        await loadPetlReconciliation(petlReconPanel.sowItemId);
+      }
+
+      closeReconEntryEdit();
+    } catch (err: any) {
+      setReconEntryEdit((prev) =>
+        prev ? { ...prev, saving: false, error: err?.message ?? "Save failed" } : prev,
+      );
+    }
+  };
 
   const filteredItemsForRoom = (particleId: string | null) => {
     if (!particleId) return [] as PetlItem[];
@@ -2304,6 +5091,9 @@ export default function ProjectDetailPage({
 
   const openRoomComponentsPanel = async (roomId: string | null, roomName: string) => {
     if (!roomId) return;
+
+    // PETL interaction: show delayed overlay for potentially heavy fetch + rerender.
+    const done = busyOverlay.begin("Loading components…");
 
     // Preserve old behavior: clicking "Components" scopes the Room filter to that room.
     setRoomParticleIdFilters([roomId]);
@@ -2323,6 +5113,7 @@ export default function ProjectDetailPage({
         loading: false,
         error: "Missing access token. Please login again.",
       }));
+      done();
       return;
     }
 
@@ -2364,6 +5155,8 @@ export default function ProjectDetailPage({
         loading: false,
         error: err?.message ?? "Failed to load components",
       }));
+    } finally {
+      done();
     }
   };
 
@@ -2384,84 +5177,86 @@ export default function ProjectDetailPage({
 
     setDailyLogSaving(true);
     try {
-      const tagsArray = newDailyLog.tags
-        .split(",")
-        .map(t => t.trim())
-        .filter(Boolean);
+      await busyOverlay.run("Saving daily log…", async () => {
+        const tagsArray = newDailyLog.tags
+          .split(",")
+          .map(t => t.trim())
+          .filter(Boolean);
 
-      const body: any = {
-        logDate: newDailyLog.logDate,
-        title: newDailyLog.title || null,
-        tags: tagsArray,
-        weatherSummary: newDailyLog.weatherSummary || null,
-        crewOnSite: newDailyLog.crewOnSite || null,
-        workPerformed: newDailyLog.workPerformed || null,
-        issues: newDailyLog.issues || null,
-        safetyIncidents: newDailyLog.safetyIncidents || null,
-        manpowerOnsite: newDailyLog.manpowerOnsite || null,
-        personOnsite: newDailyLog.personOnsite || null,
-        confidentialNotes: newDailyLog.confidentialNotes || null,
-        shareInternal: newDailyLog.shareInternal,
-        shareSubs: newDailyLog.shareSubs,
-        shareClient: newDailyLog.shareClient,
-        sharePrivate: newDailyLog.sharePrivate,
-        notifyUserIds: [] as string[],
-      };
+        const body: any = {
+          logDate: newDailyLog.logDate,
+          title: newDailyLog.title || null,
+          tags: tagsArray,
+          weatherSummary: newDailyLog.weatherSummary || null,
+          crewOnSite: newDailyLog.crewOnSite || null,
+          workPerformed: newDailyLog.workPerformed || null,
+          issues: newDailyLog.issues || null,
+          safetyIncidents: newDailyLog.safetyIncidents || null,
+          manpowerOnsite: newDailyLog.manpowerOnsite || null,
+          personOnsite: newDailyLog.personOnsite || null,
+          confidentialNotes: newDailyLog.confidentialNotes || null,
+          shareInternal: newDailyLog.shareInternal,
+          shareSubs: newDailyLog.shareSubs,
+          shareClient: newDailyLog.shareClient,
+          sharePrivate: newDailyLog.sharePrivate,
+          notifyUserIds: [] as string[],
+        };
 
-      // Attach PETL context if present (PUDL scenario)
-      if (newDailyLog.buildingId) body.buildingId = newDailyLog.buildingId;
-      if (newDailyLog.unitId) body.unitId = newDailyLog.unitId;
-      if (newDailyLog.roomParticleId) body.roomParticleId = newDailyLog.roomParticleId;
-      if (newDailyLog.sowItemId) body.sowItemId = newDailyLog.sowItemId;
+        // Attach PETL context if present (PUDL scenario)
+        if (newDailyLog.buildingId) body.buildingId = newDailyLog.buildingId;
+        if (newDailyLog.unitId) body.unitId = newDailyLog.unitId;
+        if (newDailyLog.roomParticleId) body.roomParticleId = newDailyLog.roomParticleId;
+        if (newDailyLog.sowItemId) body.sowItemId = newDailyLog.sowItemId;
 
-      const res = await fetch(`${API_BASE}/projects/${id}/daily-logs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
+        const res = await fetch(`${API_BASE}/projects/${id}/daily-logs`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+          setDailyLogMessage(`Failed to save log (${res.status}).`);
+          return;
+        }
+
+        const created: DailyLog = await res.json();
+        setDailyLogs(prev => [created, ...prev]);
+
+        setNewDailyLog(prev => ({
+          ...prev,
+          title: "",
+          tags: "",
+          weatherSummary: "",
+          workPerformed: "",
+          crewOnSite: "",
+          issues: "",
+          safetyIncidents: "",
+          manpowerOnsite: "",
+          personOnsite: "",
+          confidentialNotes: "",
+          buildingId: undefined,
+          unitId: undefined,
+          roomParticleId: undefined,
+          sowItemId: undefined,
+        }));
+        setPersonOnsiteList([]);
+        setPersonOnsiteDraft("");
+        setSelectedPersonOnsiteGroupId("");
+
+        setPudlContext({
+          open: false,
+          buildingId: null,
+          unitId: null,
+          roomParticleId: null,
+          sowItemId: null,
+          breadcrumb: null,
+        });
+
+        setDailyLogMessage("Daily log saved.");
       });
-
-      if (!res.ok) {
-        setDailyLogMessage(`Failed to save log (${res.status}).`);
-        return;
-      }
-
-      const created: DailyLog = await res.json();
-      setDailyLogs(prev => [created, ...prev]);
-
-      setNewDailyLog(prev => ({
-        ...prev,
-        title: "",
-        tags: "",
-        weatherSummary: "",
-        workPerformed: "",
-        crewOnSite: "",
-        issues: "",
-        safetyIncidents: "",
-        manpowerOnsite: "",
-        personOnsite: "",
-        confidentialNotes: "",
-        buildingId: undefined,
-        unitId: undefined,
-        roomParticleId: undefined,
-        sowItemId: undefined,
-      }));
-      setPersonOnsiteList([]);
-      setPersonOnsiteDraft("");
-      setSelectedPersonOnsiteGroupId("");
-
-      setPudlContext({
-        open: false,
-        buildingId: null,
-        unitId: null,
-        roomParticleId: null,
-        sowItemId: null,
-        breadcrumb: null,
-      });
-
-      setDailyLogMessage("Daily log saved.");
     } catch (err: any) {
       setDailyLogMessage(err?.message || "Error saving daily log.");
     } finally {
@@ -2504,30 +5299,41 @@ export default function ProjectDetailPage({
 
   const beginEditProject = () => {
     if (!project) return;
-    setEditProjectMessage(null);
-    setDeleteProjectMessage(null);
-    setEditProject({
-      name: project.name,
-      status: project.status,
-      addressLine1: project.addressLine1,
-      addressLine2: project.addressLine2 ?? null,
-      city: project.city,
-      state: project.state,
+
+    editTransitionOverlayLabelRef.current = "Opening editor…";
+    busyOverlay.setMessage(editTransitionOverlayLabelRef.current);
+
+    startEditTransition(() => {
+      setEditProjectMessage(null);
+      setDeleteProjectMessage(null);
+      setEditProject({
+        name: project.name,
+        status: project.status,
+        addressLine1: project.addressLine1,
+        addressLine2: project.addressLine2 ?? null,
+        city: project.city,
+        state: project.state,
+      });
+
+      const s = (project.status || "").toLowerCase();
+      if (s === "archived") setEditProjectState("ARCHIVED");
+      else if (s === "deleted") setEditProjectState("DELETED");
+      else if (s === "warranty") setEditProjectState("WARRANTY");
+      else setEditProjectState("OPEN");
+
+      setEditProjectMode(true);
     });
-
-    const s = (project.status || "").toLowerCase();
-    if (s === "archived") setEditProjectState("ARCHIVED");
-    else if (s === "deleted") setEditProjectState("DELETED");
-    else if (s === "warranty") setEditProjectState("WARRANTY");
-    else setEditProjectState("OPEN");
-
-    setEditProjectMode(true);
   };
 
   const cancelEditProject = () => {
-    setEditProjectMode(false);
-    setEditProjectMessage(null);
-    setDeleteProjectMessage(null);
+    editTransitionOverlayLabelRef.current = "Closing editor…";
+    busyOverlay.setMessage(editTransitionOverlayLabelRef.current);
+
+    startEditTransition(() => {
+      setEditProjectMode(false);
+      setEditProjectMessage(null);
+      setDeleteProjectMessage(null);
+    });
   };
 
   const saveEditProject = async () => {
@@ -2542,38 +5348,40 @@ export default function ProjectDetailPage({
     setEditProjectMessage(null);
     setDeleteProjectMessage(null);
     try {
-      // Map the chosen state to a canonical status string
-      let nextStatus = editProject.status || project.status || "open";
-      const state = editProjectState;
-      if (state === "ARCHIVED") nextStatus = "archived";
-      else if (state === "DELETED") nextStatus = "deleted";
-      else if (state === "WARRANTY") nextStatus = "warranty";
-      else if (state === "OPEN") nextStatus = "open";
+      await busyOverlay.run("Saving project…", async () => {
+        // Map the chosen state to a canonical status string
+        let nextStatus = editProject.status || project.status || "open";
+        const state = editProjectState;
+        if (state === "ARCHIVED") nextStatus = "archived";
+        else if (state === "DELETED") nextStatus = "deleted";
+        else if (state === "WARRANTY") nextStatus = "warranty";
+        else if (state === "OPEN") nextStatus = "open";
 
-      const body: any = {
-        name: editProject.name,
-        status: nextStatus,
-        addressLine1: editProject.addressLine1,
-        addressLine2: editProject.addressLine2,
-        city: editProject.city,
-        state: editProject.state,
-      };
-      const res = await fetch(`${API_BASE}/projects/${project.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
+        const body: any = {
+          name: editProject.name,
+          status: nextStatus,
+          addressLine1: editProject.addressLine1,
+          addressLine2: editProject.addressLine2,
+          city: editProject.city,
+          state: editProject.state,
+        };
+        const res = await fetch(`${API_BASE}/projects/${project.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          setEditProjectMessage(`Failed to save project (${res.status}).`);
+          return;
+        }
+        const updated = (await res.json()) as Project;
+        setProject(updated);
+        setEditProjectMode(false);
+        setEditProjectMessage("Project updated.");
       });
-      if (!res.ok) {
-        setEditProjectMessage(`Failed to save project (${res.status}).`);
-        return;
-      }
-      const updated = (await res.json()) as Project;
-      setProject(updated);
-      setEditProjectMode(false);
-      setEditProjectMessage("Project updated.");
     } catch (err: any) {
       setEditProjectMessage(err?.message ?? "Error saving project.");
     } finally {
@@ -2585,7 +5393,20 @@ export default function ProjectDetailPage({
   // the Project state toggle + status field and saved in saveEditProject.
 
   return (
-    <div className="app-card">
+    <div
+      className="app-card"
+      style={
+        invoiceFullscreen
+          ? {
+              // Cancel app shell padding so the invoice can use the full viewport.
+              margin: "-12px -20px -24px",
+              borderRadius: 0,
+              padding: 12,
+              maxHeight: "none",
+            }
+          : undefined
+      }
+    >
       <div
         style={{
           display: "flex",
@@ -2843,6 +5664,45 @@ export default function ProjectDetailPage({
                       </button>
                     );
                   })}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPetlShowDiagnostics(true);
+                      setPetlDiagnosticsModalOpen(true);
+                    }}
+                    style={{
+                      padding: "3px 10px",
+                      borderRadius: 999,
+                      border: "1px solid #d1d5db",
+                      backgroundColor: "#ffffff",
+                      color: "#374151",
+                      fontSize: 11,
+                      cursor: "pointer",
+                    }}
+                  >
+                    PETL Diagnostics
+                  </button>
+
+                  {isAdminOrAbove && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdminPetlToolsModalOpen(true);
+                      }}
+                      style={{
+                        padding: "3px 10px",
+                        borderRadius: 999,
+                        border: "1px solid #b91c1c",
+                        backgroundColor: "#fff1f2",
+                        color: "#b91c1c",
+                        fontSize: 11,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Admin PETL Tools
+                    </button>
+                  )}
                 </div>
                 <p style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
                   This state is saved directly on the project (status field) and used
@@ -3032,23 +5892,39 @@ export default function ProjectDetailPage({
           <button
             key={tab.key}
             type="button"
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => {
+              // PETL is heavy: update underline instantly, then transition the content
+              // switch (unmounting previous tab + mounting PETL shell) on the next frame.
+              if (tab.key === "PETL") {
+                setPetlTabMounted(false);
+                setTab("PETL", { deferContentSwitch: true });
+                return;
+              }
+
+              setTab(tab.key);
+            }}
             style={{
               border: "none",
               borderBottom:
-                activeTab === tab.key ? "2px solid #2563eb" : "2px solid transparent",
+                activeTabUi === tab.key
+                  ? "2px solid #2563eb"
+                  : "2px solid transparent",
               padding: "6px 8px",
               background: "transparent",
               cursor: "pointer",
               fontSize: 13,
-              color: activeTab === tab.key ? "#111827" : "#6b7280",
-              fontWeight: activeTab === tab.key ? 600 : 400,
+              color: activeTabUi === tab.key ? "#111827" : "#6b7280",
+              fontWeight: activeTabUi === tab.key ? 600 : 400,
             }}
           >
             {tab.label}
           </button>
         ))}
       </div>
+
+      {activeTabUi === "PETL" && activeTab !== "PETL" && (
+        <div style={{ marginTop: 8, fontSize: 12, color: "#6b7280" }}>Opening PETL…</div>
+      )}
 
       {/* Global and selection percent complete summary */}
       {(overallSummary || selectionSummary) && (
@@ -4235,7 +7111,13 @@ export default function ProjectDetailPage({
 
       {/* FINANCIAL tab content */}
       {activeTab === "FINANCIAL" && (
-        <div style={{ marginTop: 8, marginBottom: 16 }}>
+        <div
+          style={
+            invoiceFullscreen
+              ? { marginTop: 0, marginBottom: 0 }
+              : { marginTop: 8, marginBottom: 16 }
+          }
+        >
           <div
             style={{
               display: "flex",
@@ -4245,25 +7127,466 @@ export default function ProjectDetailPage({
             }}
           >
             <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Financial Overview</h2>
-            <a
-              href={`/projects/${id}/timecards/${todayIso}`}
-              style={{
-                padding: "4px 8px",
-                borderRadius: 4,
-                border: "1px solid #0f172a",
-                backgroundColor: "#0f172a",
-                color: "#f9fafb",
-                fontSize: 12,
-                textDecoration: "none",
-              }}
-            >
-              Open Time Accounting
-            </a>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={exportInvoicesCsv}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 4,
+                  border: "1px solid #d1d5db",
+                  backgroundColor: "#ffffff",
+                  color: "#111827",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Export invoices (CSV)
+              </button>
+              <button
+                type="button"
+                onClick={exportPaymentsCsv}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 4,
+                  border: "1px solid #d1d5db",
+                  backgroundColor: "#ffffff",
+                  color: "#111827",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Export payments (CSV)
+              </button>
+              <button
+                type="button"
+                onClick={() => setInvoiceCostBookPickerOpen(true)}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 4,
+                  border: "1px solid #2563eb",
+                  backgroundColor: "#eff6ff",
+                  color: "#1d4ed8",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Open Tenant Cost Book
+              </button>
+              <a
+                href={`/projects/${id}/timecards/${todayIso}`}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 4,
+                  border: "1px solid #0f172a",
+                  backgroundColor: "#0f172a",
+                  color: "#f9fafb",
+                  fontSize: 12,
+                  textDecoration: "none",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Open Time Accounting
+              </a>
+            </div>
           </div>
 
-          {financialLoading && (
-            <p style={{ fontSize: 12, color: "#6b7280" }}>Loading financial summary…</p>
+          {invoiceCostBookPickerOpen && (
+            <CostBookPickerModal
+              title="Tenant Cost Book"
+              subtitle={
+                activeInvoice?.status === "DRAFT"
+                  ? "Select line items to add to the current draft invoice."
+                  : "Browse the tenant cost book. (Open a draft invoice to add selected items.)"
+              }
+              confirmLabel={invoiceCostBookPickerBusy ? "Adding…" : "Add selected to invoice"}
+              confirmDisabled={
+                invoiceCostBookPickerBusy || !activeInvoice || activeInvoice.status !== "DRAFT"
+              }
+              onConfirm={submitAddInvoiceLinesFromCostBook}
+              onClose={() => {
+                if (invoiceCostBookPickerBusy) return;
+                setInvoiceCostBookPickerOpen(false);
+              }}
+            />
           )}
+
+          {billModalOpen && (
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 70,
+                backgroundColor: "rgba(15, 23, 42, 0.35)",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "flex-start",
+                padding: "8vh 12px",
+              }}
+              onClick={closeBillModal}
+            >
+              <div
+                style={{
+                  width: 760,
+                  maxWidth: "96vw",
+                  backgroundColor: "#ffffff",
+                  borderRadius: 10,
+                  border: "1px solid #e5e7eb",
+                  boxShadow: "0 12px 32px rgba(15,23,42,0.18)",
+                  overflow: "hidden",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "10px 12px",
+                    borderBottom: "1px solid #e5e7eb",
+                    backgroundColor: "#f8fafc",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>
+                      {billEditingId ? "Edit bill" : "Add bill"}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>
+                      Single line item MVP. Add multiple attachments if needed.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeBillModal}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      cursor: billModalSaving ? "default" : "pointer",
+                      fontSize: 18,
+                      lineHeight: 1,
+                      padding: 6,
+                      opacity: billModalSaving ? 0.5 : 1,
+                    }}
+                    aria-label="Close bill modal"
+                    disabled={billModalSaving}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div style={{ padding: 12, fontSize: 12 }}>
+                  {billsMessage && (
+                    <div
+                      style={{
+                        marginBottom: 10,
+                        color: billsMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
+                      }}
+                    >
+                      {billsMessage}
+                    </div>
+                  )}
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Vendor</div>
+                      <input
+                        value={billVendorName}
+                        onChange={(e) => setBillVendorName(e.target.value)}
+                        placeholder="Vendor name"
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 6,
+                          border: "1px solid #d1d5db",
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Bill #</div>
+                      <input
+                        value={billBillNumber}
+                        onChange={(e) => setBillBillNumber(e.target.value)}
+                        placeholder="(optional)"
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 6,
+                          border: "1px solid #d1d5db",
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Bill date</div>
+                      <input
+                        type="date"
+                        value={billBillDate}
+                        onChange={(e) => setBillBillDate(e.target.value)}
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 6,
+                          border: "1px solid #d1d5db",
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Due date</div>
+                      <input
+                        type="date"
+                        value={billDueAt}
+                        onChange={(e) => setBillDueAt(e.target.value)}
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 6,
+                          border: "1px solid #d1d5db",
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Status</div>
+                      <select
+                        value={billStatus}
+                        onChange={(e) => setBillStatus(e.target.value)}
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 6,
+                          border: "1px solid #d1d5db",
+                        }}
+                      >
+                        <option value="DRAFT">Draft</option>
+                        <option value="POSTED">Posted</option>
+                        <option value="PAID">Paid</option>
+                        <option value="VOID">Void</option>
+                      </select>
+                    </div>
+
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Memo</div>
+                      <input
+                        value={billMemo}
+                        onChange={(e) => setBillMemo(e.target.value)}
+                        placeholder="(optional)"
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 6,
+                          border: "1px solid #d1d5db",
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Line kind</div>
+                      <select
+                        value={billLineKind}
+                        onChange={(e) => setBillLineKind(e.target.value)}
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 6,
+                          border: "1px solid #d1d5db",
+                        }}
+                      >
+                        <option value="MATERIALS">Materials</option>
+                        <option value="LABOR">Labor</option>
+                        <option value="OTHER">Other</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Amount</div>
+                      <input
+                        value={billLineAmount}
+                        onChange={(e) => setBillLineAmount(e.target.value)}
+                        placeholder={billLineKind === "LABOR" ? "(optional; derive from timecards)" : "Amount"}
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 6,
+                          border: "1px solid #d1d5db",
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Line description</div>
+                      <input
+                        value={billLineDescription}
+                        onChange={(e) => setBillLineDescription(e.target.value)}
+                        placeholder="What is this bill for?"
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 6,
+                          border: "1px solid #d1d5db",
+                        }}
+                      />
+                    </div>
+
+                    {billLineKind === "LABOR" && (
+                      <>
+                        <div>
+                          <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Timecards start</div>
+                          <input
+                            type="date"
+                            value={billLineTimecardStartDate}
+                            onChange={(e) => setBillLineTimecardStartDate(e.target.value)}
+                            style={{
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 6,
+                              border: "1px solid #d1d5db",
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Timecards end</div>
+                          <input
+                            type="date"
+                            value={billLineTimecardEndDate}
+                            onChange={(e) => setBillLineTimecardEndDate(e.target.value)}
+                            style={{
+                              width: "100%",
+                              padding: "6px 8px",
+                              borderRadius: 6,
+                              border: "1px solid #d1d5db",
+                            }}
+                          />
+                        </div>
+                        <div style={{ gridColumn: "1 / -1", fontSize: 11, color: "#6b7280" }}>
+                          Leave Amount blank to derive labor from timecards using each worker&apos;s default pay rate.
+                        </div>
+                      </>
+                    )}
+
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 6 }}>Attachments</div>
+                      <div
+                        style={{
+                          border: "1px solid #e5e7eb",
+                          borderRadius: 8,
+                          padding: 8,
+                          maxHeight: 220,
+                          overflowY: "auto",
+                          background: "#f9fafb",
+                        }}
+                      >
+                        {billAttachmentFileLoading && (
+                          <div style={{ color: "#6b7280" }}>Loading files…</div>
+                        )}
+                        {billAttachmentFileError && !billAttachmentFileLoading && (
+                          <div style={{ color: "#b91c1c" }}>{billAttachmentFileError}</div>
+                        )}
+                        {!billAttachmentFileLoading &&
+                          !billAttachmentFileError &&
+                          billAttachmentFileOptions &&
+                          billAttachmentFileOptions.length === 0 && (
+                            <div style={{ color: "#6b7280" }}>No project files found.</div>
+                          )}
+                        {!billAttachmentFileLoading &&
+                          !billAttachmentFileError &&
+                          billAttachmentFileOptions &&
+                          billAttachmentFileOptions.length > 0 && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              {billAttachmentFileOptions.slice(0, 50).map((f: any) => {
+                                const fileId = String(f?.id ?? "");
+                                if (!fileId) return null;
+                                const checked = billAttachmentProjectFileIds.includes(fileId);
+                                const label = String(f?.fileName ?? f?.name ?? "File");
+                                return (
+                                  <label
+                                    key={fileId}
+                                    style={{ display: "flex", alignItems: "center", gap: 8 }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => {
+                                        setBillAttachmentProjectFileIds((prev) =>
+                                          prev.includes(fileId)
+                                            ? prev.filter((x) => x !== fileId)
+                                            : [...prev, fileId],
+                                        );
+                                      }}
+                                    />
+                                    <span style={{ fontSize: 12, color: "#111827" }}>{label}</span>
+                                  </label>
+                                );
+                              })}
+                              {billAttachmentFileOptions.length > 50 && (
+                                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                                  Showing first 50 files. (Use the Files tab to manage more.)
+                                </div>
+                              )}
+                            </div>
+                          )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+                    <button
+                      type="button"
+                      onClick={closeBillModal}
+                      disabled={billModalSaving}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 6,
+                        border: "1px solid #d1d5db",
+                        background: "#ffffff",
+                        cursor: billModalSaving ? "default" : "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={submitBillModal}
+                      disabled={billModalSaving}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 6,
+                        border: "1px solid #0f172a",
+                        background: "#0f172a",
+                        color: "#f9fafb",
+                        cursor: billModalSaving ? "default" : "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      {billModalSaving ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {invoiceFullscreen && (
+            <div style={{ marginBottom: 8 }}>
+              <a
+                href={`/projects/${id}?tab=FINANCIAL`}
+                style={{ fontSize: 12, color: "#2563eb", textDecoration: "none" }}
+              >
+                ← Back to project
+              </a>
+            </div>
+          )}
+
+          {!invoiceFullscreen && (
+            <>
+              {financialLoading && (
+                <p style={{ fontSize: 12, color: "#6b7280" }}>Loading financial summary…</p>
+              )}
 
           {financialError && !financialLoading && (
             <p style={{ fontSize: 12, color: "#b91c1c" }}>{financialError}</p>
@@ -4469,18 +7792,66 @@ export default function ProjectDetailPage({
                       rowGap: 4,
                     }}
                   >
+                    <div>Invoiced to date</div>
+                    <div style={{ textAlign: "right" }}>
+                      ${(
+                        invoiceRollup?.invoiced ?? financialSummary.billedToDate
+                      ).toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+
+                    <div>Paid to date</div>
+                    <div style={{ textAlign: "right" }}>
+                      {invoiceRollup ? (
+                        <>${invoiceRollup.paid.toLocaleString(undefined, { maximumFractionDigits: 2 })}</>
+                      ) : (
+                        <span style={{ color: "#9ca3af" }}>—</span>
+                      )}
+                    </div>
+
+                    <div
+                      style={{
+                        fontWeight: 600,
+                        borderBottom: "1px solid #e5e7eb",
+                        paddingBottom: 4,
+                        marginBottom: 2,
+                      }}
+                    >
+                      Outstanding
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "right",
+                        fontWeight: 600,
+                        borderBottom: "1px solid #e5e7eb",
+                        paddingBottom: 4,
+                        marginBottom: 2,
+                      }}
+                    >
+                      {invoiceRollup ? (
+                        <>${invoiceRollup.balanceDue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</>
+                      ) : (
+                        <span style={{ color: "#9ca3af" }}>—</span>
+                      )}
+                    </div>
+
+                    <div>Work complete (earned) not yet billed</div>
+                    <div style={{ textAlign: "right" }}>
+                      ${Math.max(
+                        0,
+                        financialSummary.totalDueWorkBillable -
+                          (invoiceRollup?.invoiced ?? financialSummary.billedToDate),
+                      ).toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+
                     <div>
                       Deposit baseline ({Math.round(financialSummary.depositRate * 100)}%)
                     </div>
                     <div style={{ textAlign: "right" }}>
                       ${financialSummary.depositBaseline.toLocaleString(undefined, {
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
-
-                    <div>Billed to date</div>
-                    <div style={{ textAlign: "right" }}>
-                      ${financialSummary.billedToDate.toLocaleString(undefined, {
                         maximumFractionDigits: 2,
                       })}
                     </div>
@@ -4516,58 +7887,1206 @@ export default function ProjectDetailPage({
                   </div>
 
                   <p style={{ marginTop: 8, fontSize: 11, color: "#6b7280" }}>
-                    Rules: deposit baseline is {Math.round(financialSummary.depositRate * 100)}%
-                    of Total Due. Due Amount represents anything above that baseline which
-                    has not yet been billed.
+                    Invoiced/Paid/Outstanding are calculated from issued invoices (excluding draft/void).
+                    Deposit baseline is {Math.round(financialSummary.depositRate * 100)}% of Total Due.
+                    Work complete not yet billed includes the baseline deposit portion; Due Amount is only the portion above that baseline.
                   </p>
                 </div>
               </div>
 
-              {/* Payroll & Workforce roster */}
-              <div
+            </>
+          )}
+
+          {/* Bills (Expenses) */}
+          <div
+            style={{
+              marginTop: 16,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+            }}
+          >
+            <div
+              style={{
+                padding: "6px 10px",
+                borderBottom: billsCollapsed ? "none" : "1px solid #e5e7eb",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setBillsCollapsed((v) => !v)}
                 style={{
-                  marginTop: 16,
-                  borderRadius: 8,
-                  border: "1px solid #e5e7eb",
-                  background: "#ffffff",
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  padding: 0,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#111827",
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                  textAlign: "left",
                 }}
               >
-                <div
+                <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                  {billsCollapsed ? "▸" : "▾"}
+                </span>
+                <span>Bills (Expenses)</span>
+                {billsRollup && (
+                  <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
+                    · {billsRollup.count} · Total {formatMoney(billsRollup.total)}
+                  </span>
+                )}
+              </button>
+
+              {!billsCollapsed && (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBillsMessage(null);
+                      setProjectBills(null);
+                    }}
+                    disabled={projectBillsLoading}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #d1d5db",
+                      background: "#ffffff",
+                      cursor: projectBillsLoading ? "default" : "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    {projectBillsLoading ? "Refreshing…" : "Refresh"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openCreateBillModal}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #0f172a",
+                      background: "#0f172a",
+                      color: "#f9fafb",
+                      cursor: "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    + Add bill
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {!billsCollapsed && (
+              <div style={{ padding: 10, fontSize: 12 }}>
+                {billsMessage && (
+                  <div
+                    style={{
+                      marginBottom: 8,
+                      fontSize: 12,
+                      color: billsMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
+                    }}
+                  >
+                    {billsMessage}
+                  </div>
+                )}
+
+                {projectBillsLoading && <div style={{ color: "#6b7280" }}>Loading bills…</div>}
+                {projectBillsError && !projectBillsLoading && (
+                  <div style={{ color: "#b91c1c" }}>{projectBillsError}</div>
+                )}
+
+                {!projectBillsLoading && !projectBillsError && projectBills && projectBills.length === 0 && (
+                  <div style={{ color: "#6b7280" }}>No bills recorded yet.</div>
+                )}
+
+                {!projectBillsLoading && !projectBillsError && projectBills && projectBills.length > 0 && (
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>
+                          <th style={{ padding: "6px 8px" }}>Vendor</th>
+                          <th style={{ padding: "6px 8px" }}>Bill date</th>
+                          <th style={{ padding: "6px 8px" }}>Status</th>
+                          <th style={{ padding: "6px 8px" }}>Kind</th>
+                          <th style={{ padding: "6px 8px" }}>Description</th>
+                          <th style={{ padding: "6px 8px", textAlign: "right" }}>Amount</th>
+                          <th style={{ padding: "6px 8px" }}>Attachments</th>
+                          <th style={{ padding: "6px 8px", textAlign: "right" }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...projectBills]
+                          .sort((a, b) => {
+                            const da = String(a?.billDate ?? "");
+                            const db = String(b?.billDate ?? "");
+                            if (da !== db) return db.localeCompare(da);
+                            return String(b?.createdAt ?? "").localeCompare(String(a?.createdAt ?? ""));
+                          })
+                          .map((b: any) => {
+                            const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                            const attachments: any[] = Array.isArray(b?.attachments) ? b.attachments : [];
+                            return (
+                              <tr key={String(b?.id ?? Math.random())}>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                  {b?.vendorName ?? "—"}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
+                                  {b?.billDate ? String(b.billDate).slice(0, 10) : "—"}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
+                                  {b?.status ?? "—"}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
+                                  {li?.kind ?? "—"}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                  <div style={{ fontWeight: 600 }}>{li?.description ?? "—"}</div>
+                                  {b?.billNumber && (
+                                    <div style={{ fontSize: 11, color: "#6b7280" }}>#{String(b.billNumber)}</div>
+                                  )}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", fontWeight: 600 }}>
+                                  {formatMoney(b?.totalAmount)}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                  {attachments.length === 0 ? (
+                                    <span style={{ color: "#9ca3af" }}>—</span>
+                                  ) : (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                      {attachments.slice(0, 3).map((a: any) => (
+                                        <a
+                                          key={String(a?.id ?? a?.projectFileId ?? Math.random())}
+                                          href={String(a?.fileUrl ?? "#")}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}
+                                        >
+                                          {String(a?.fileName ?? "Attachment")}
+                                        </a>
+                                      ))}
+                                      {attachments.length > 3 && (
+                                        <span style={{ fontSize: 11, color: "#6b7280" }}>
+                                          +{attachments.length - 3} more
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditBillModal(b)}
+                                    style={{
+                                      padding: "2px 6px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      background: "#ffffff",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Edit
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Payments */}
+          <div
+            style={{
+              marginTop: 16,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+            }}
+          >
+            <div
+              style={{
+                padding: "6px 10px",
+                borderBottom: paymentsCollapsed ? "none" : "1px solid #e5e7eb",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setPaymentsCollapsed((v) => !v)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  padding: 0,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#111827",
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                  textAlign: "left",
+                }}
+              >
+                <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                  {paymentsCollapsed ? "▸" : "▾"}
+                </span>
+                <span>Payments</span>
+                {projectPayments && (
+                  <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
+                    · {projectPaymentsSorted.length} · Total {formatMoney(projectPaymentsTotal)} · Unapplied{" "}
+                    {formatMoney(projectPaymentsUnappliedTotal)}
+                  </span>
+                )}
+              </button>
+
+              {!paymentsCollapsed && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentsMessage(null);
+                    setProjectPayments(null);
+                  }}
+                  disabled={projectPaymentsLoading}
                   style={{
-                    padding: "6px 10px",
-                    borderBottom: "1px solid #e5e7eb",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    background: "#f3f4f6",
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    cursor: projectPaymentsLoading ? "default" : "pointer",
+                    fontSize: 12,
                   }}
                 >
-                  Payroll &amp; Workforce
+                  {projectPaymentsLoading ? "Refreshing…" : "Refresh"}
+                </button>
+              )}
+            </div>
+
+            {!paymentsCollapsed && (
+              <div style={{ padding: 10, fontSize: 12 }}>
+              {paymentsMessage && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    fontSize: 12,
+                    color: paymentsMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
+                  }}
+                >
+                  {paymentsMessage}
                 </div>
-                <div style={{ padding: 10, fontSize: 12 }}>
-                  <p style={{ marginTop: 0, marginBottom: 8, color: "#4b5563" }}>
-                    This roster shows everyone who has recorded payroll on this project
-                    (including subs and 1099s), based on Certified Payroll and LCP data.
-                    It does not grant them login access.
+              )}
+
+              {projectPaymentsLoading && (
+                <div style={{ color: "#6b7280" }}>Loading payments…</div>
+              )}
+              {projectPaymentsError && !projectPaymentsLoading && (
+                <div style={{ color: "#b91c1c" }}>{projectPaymentsError}</div>
+              )}
+
+              {!projectPaymentsLoading &&
+                !projectPaymentsError &&
+                projectPayments &&
+                projectPayments.length === 0 && (
+                  <div style={{ color: "#6b7280" }}>No payments recorded yet.</div>
+                )}
+
+              {!projectPaymentsLoading &&
+                !projectPaymentsError &&
+                projectPayments &&
+                projectPayments.length > 0 && (
+                  <>
+                    <div style={{ marginBottom: 8, fontSize: 11, color: "#6b7280" }}>
+                      Showing <strong>{projectPaymentsSorted.length}</strong> payments · Total{" "}
+                      <strong>{formatMoney(projectPaymentsTotal)}</strong>
+                    </div>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+                        gap: 8,
+                      }}
+                    >
+                      {projectPaymentsSorted.map((p: any) => {
+                      const paidAtLabel = p?.paidAt
+                        ? new Date(p.paidAt).toLocaleDateString()
+                        : "—";
+                      const method = String(p?.method ?? "").trim() || "—";
+                      const reference = String(p?.reference ?? "").trim();
+                      const note = String(p?.note ?? "").trim();
+
+                      const appliedAmount = Number(p?.appliedAmount ?? 0) || 0;
+                      const unappliedAmount = Number(p?.unappliedAmount ?? 0) || 0;
+                      const apps: any[] = Array.isArray(p?.applications) ? p.applications : [];
+
+                      const invoiceOptions = (projectInvoices ?? []).filter(
+                        (inv: any) => String(inv?.status) !== "VOID",
+                      );
+
+                      const paymentId = String(p?.id ?? "");
+                      const selectedInvoiceId = applyInvoiceByPaymentId[paymentId] ?? "";
+                      const selectedAmountStr = applyAmountByPaymentId[paymentId] ?? "";
+                      const applyMsg = applyMessageByPaymentId[paymentId] ?? "";
+
+                      return (
+                        <div
+                          key={paymentId}
+                          style={{
+                            flex: "0 0 auto",
+                            minWidth: 240,
+                            borderRadius: 8,
+                            border: "1px solid #e5e7eb",
+                            background: "#f9fafb",
+                            padding: 8,
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                            <div style={{ fontWeight: 700 }}>{formatMoney(p?.amount)}</div>
+                            <div style={{ fontSize: 11, color: "#6b7280" }}>{paidAtLabel}</div>
+                          </div>
+                          <div style={{ marginTop: 2, fontSize: 11, color: "#4b5563" }}>
+                            {method}
+                            {reference ? ` · ${reference}` : ""}
+                          </div>
+
+                          <div style={{ marginTop: 6, fontSize: 11, color: "#4b5563" }}>
+                            Applied: <strong>{formatMoney(appliedAmount)}</strong> · Unapplied:{" "}
+                            <strong>{formatMoney(unappliedAmount)}</strong>
+                          </div>
+
+                          {apps.length > 0 && (
+                            <div style={{ marginTop: 6, fontSize: 11, color: "#4b5563" }}>
+                              <div style={{ fontWeight: 600, marginBottom: 2 }}>Applications</div>
+                              {apps.map((a: any) => {
+                                const invId = String(a?.invoiceId ?? "").trim();
+                                const canRemove = Boolean(invId);
+                                const label = a.invoiceNo ?? "(draft)";
+
+                                return (
+                                  <div
+                                    key={a.id}
+                                    style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}
+                                  >
+                                    <span>{label}</span>
+                                    <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                      <span style={{ fontWeight: 600 }}>{formatMoney(a.amount)}</span>
+                                      {canRemove && (
+                                        <button
+                                          type="button"
+                                          onClick={async () => {
+                                            if (!project) return;
+                                            const token = localStorage.getItem("accessToken");
+                                            if (!token) {
+                                              setPaymentsMessage("Missing access token.");
+                                              return;
+                                            }
+
+                                            const ok = window.confirm(
+                                              `Remove this payment from invoice ${label}?\n\nThis does not delete the payment record; it just unassigns it so you can apply it elsewhere.`,
+                                            );
+                                            if (!ok) return;
+
+                                            setPaymentsMessage(null);
+                                            setApplyMessageByPaymentId((prev) => ({
+                                              ...prev,
+                                              [paymentId]: `Removing from ${label}…`,
+                                            }));
+
+                                            try {
+                                              const res = await fetch(
+                                                `${API_BASE}/projects/${project.id}/payments/${paymentId}/apply/${invId}`,
+                                                {
+                                                  method: "DELETE",
+                                                  headers: { Authorization: `Bearer ${token}` },
+                                                },
+                                              );
+                                              if (!res.ok) {
+                                                const text = await res.text().catch(() => "");
+                                                const msg = `Remove failed (${res.status}) ${text}`;
+                                                setPaymentsMessage(msg);
+                                                setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: msg }));
+                                                return;
+                                              }
+
+                                              // refresh lists + active invoice if open
+                                              setProjectPayments(null);
+                                              setProjectInvoices(null);
+                                              setFinancialSummary(null);
+
+                                              if (activeInvoice?.id === invId) {
+                                                const invRes = await fetch(
+                                                  `${API_BASE}/projects/${project.id}/invoices/${invId}`,
+                                                  { headers: { Authorization: `Bearer ${token}` } },
+                                                );
+                                                if (invRes.ok) {
+                                                  const json = await invRes.json();
+                                                  setActiveInvoice(json);
+                                                }
+                                              }
+
+                                              setApplyMessageByPaymentId((prev) => ({
+                                                ...prev,
+                                                [paymentId]: `Removed from ${label}.`,
+                                              }));
+                                            } catch (err: any) {
+                                              const msg = err?.message ?? "Remove failed.";
+                                              setPaymentsMessage(msg);
+                                              setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: msg }));
+                                            }
+                                          }}
+                                          style={{
+                                            padding: "2px 6px",
+                                            borderRadius: 6,
+                                            border: "1px solid #b91c1c",
+                                            background: "#fee2e2",
+                                            color: "#991b1b",
+                                            fontSize: 11,
+                                            cursor: "pointer",
+                                            whiteSpace: "nowrap",
+                                          }}
+                                        >
+                                          Remove
+                                        </button>
+                                      )}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {note && (
+                            <div style={{ marginTop: 6, fontSize: 11, color: "#6b7280" }}>
+                              {note}
+                            </div>
+                          )}
+
+                          {applyMsg && (
+                            <div
+                              style={{
+                                marginTop: 6,
+                                fontSize: 11,
+                                color: applyMsg.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
+                              }}
+                            >
+                              {applyMsg}
+                            </div>
+                          )}
+
+                          {unappliedAmount > 0 && (
+                            <div style={{ marginTop: 8 }}>
+                              <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 4 }}>
+                                Apply payment
+                              </div>
+
+                              {projectInvoicesLoading && (
+                                <div style={{ fontSize: 11, color: "#6b7280" }}>Loading invoices…</div>
+                              )}
+
+                              {!projectInvoicesLoading && invoiceOptions.length === 0 && (
+                                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                                  No invoices available to apply to.
+                                </div>
+                              )}
+
+                              {!projectInvoicesLoading && invoiceOptions.length > 0 && (
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                  <select
+                                    value={selectedInvoiceId}
+                                    onChange={(e) => {
+                                      const next = e.target.value;
+                                      setApplyInvoiceByPaymentId((prev) => ({ ...prev, [paymentId]: next }));
+                                      setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: "" }));
+                                    }}
+                                    style={{
+                                      flex: "1 1 180px",
+                                      padding: "6px 8px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      fontSize: 12,
+                                    }}
+                                  >
+                                    <option value="">Select invoice…</option>
+                                    {invoiceOptions.map((inv: any) => (
+                                      <option key={inv.id} value={inv.id}>
+                                        {(inv.invoiceNo ?? "(draft)") +
+                                          ` · ${inv.status}` +
+                                          ` · Bal ${formatMoney(inv.balanceDue ?? 0)}`}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    placeholder={`Amount (max ${formatMoney(unappliedAmount)})`}
+                                    value={selectedAmountStr}
+                                    onChange={(e) => {
+                                      const next = e.target.value;
+                                      setApplyAmountByPaymentId((prev) => ({ ...prev, [paymentId]: next }));
+                                      setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: "" }));
+                                    }}
+                                    style={{
+                                      width: 140,
+                                      padding: "6px 8px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      fontSize: 12,
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={applySavingPaymentId === paymentId}
+                                    onClick={async () => {
+                                      if (!project) return;
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) {
+                                        setPaymentsMessage("Missing access token.");
+                                        setApplyMessageByPaymentId((prev) => ({
+                                          ...prev,
+                                          [paymentId]: "Apply failed: missing access token.",
+                                        }));
+                                        return;
+                                      }
+
+                                      const invoiceId = (applyInvoiceByPaymentId[paymentId] ?? "").trim();
+                                      if (!invoiceId) {
+                                        setApplyMessageByPaymentId((prev) => ({
+                                          ...prev,
+                                          [paymentId]: "Select an invoice to apply to.",
+                                        }));
+                                        return;
+                                      }
+
+                                      const amountRaw = (applyAmountByPaymentId[paymentId] ?? "").trim();
+                                      const normalizedAmountRaw = amountRaw.replace(/[$,\s]/g, "");
+                                      const amount = Number(normalizedAmountRaw);
+                                      if (!Number.isFinite(amount) || amount <= 0) {
+                                        setApplyMessageByPaymentId((prev) => ({
+                                          ...prev,
+                                          [paymentId]: "Apply amount must be a positive number.",
+                                        }));
+                                        return;
+                                      }
+
+                                      setApplySavingPaymentId(paymentId);
+                                      setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: "Applying…" }));
+                                      setPaymentsMessage(null);
+                                      try {
+                                        const res = await fetch(
+                                          `${API_BASE}/projects/${project.id}/payments/${paymentId}/apply`,
+                                          {
+                                            method: "POST",
+                                            headers: {
+                                              "Content-Type": "application/json",
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                            body: JSON.stringify({ invoiceId, amount }),
+                                          },
+                                        );
+                                        if (!res.ok) {
+                                          const text = await res.text().catch(() => "");
+                                          const hint =
+                                            res.status >= 500 &&
+                                            (text.includes("ProjectPaymentApplication") ||
+                                              text.toLowerCase().includes("paymentapplication") ||
+                                              text.toLowerCase().includes("not migrated"))
+                                              ? " Apply requires the payment application migration; run database migrations and restart the API."
+                                              : "";
+                                          const msg = `Apply failed (${res.status}) ${text}${hint}`.trim();
+                                          setPaymentsMessage(msg);
+                                          setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: msg }));
+                                          return;
+                                        }
+
+                                        setProjectPayments(null);
+                                        setProjectInvoices(null);
+                                        setFinancialSummary(null);
+
+                                        if (activeInvoice?.id === invoiceId) {
+                                          const invRes = await fetch(
+                                            `${API_BASE}/projects/${project.id}/invoices/${invoiceId}`,
+                                            { headers: { Authorization: `Bearer ${token}` } },
+                                          );
+                                          if (invRes.ok) {
+                                            const json = await invRes.json();
+                                            setActiveInvoice(json);
+                                          }
+                                        }
+
+                                        setApplyInvoiceByPaymentId((prev) => ({ ...prev, [paymentId]: "" }));
+                                        setApplyAmountByPaymentId((prev) => ({ ...prev, [paymentId]: "" }));
+                                        setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: "Payment applied." }));
+                                        setPaymentsMessage("Payment applied.");
+                                      } catch (err: any) {
+                                        const msg = err?.message ?? "Apply failed.";
+                                        setPaymentsMessage(msg);
+                                        setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: msg }));
+                                      } finally {
+                                        setApplySavingPaymentId(null);
+                                      }
+                                    }}
+                                    style={{
+                                      padding: "6px 10px",
+                                      borderRadius: 4,
+                                      border: "1px solid #0f172a",
+                                      background: "#0f172a",
+                                      color: "#f9fafb",
+                                      fontSize: 12,
+                                      cursor: applySavingPaymentId === paymentId ? "default" : "pointer",
+                                    }}
+                                  >
+                                    {applySavingPaymentId === paymentId ? "Applying…" : "Apply"}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                      })}
+                    </div>
+                  </>
+                )}
+
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Record payment</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  <input
+                    placeholder="Amount"
+                    value={payAmount}
+                    onChange={e => setPayAmount(e.target.value)}
+                    style={{
+                      width: 120,
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                  <select
+                    value={payMethod}
+                    onChange={e => setPayMethod(e.target.value)}
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  >
+                    <option value="WIRE">WIRE</option>
+                    <option value="ACH">ACH</option>
+                    <option value="CHECK">CHECK</option>
+                    <option value="OTHER">OTHER</option>
+                  </select>
+                  <input
+                    type="date"
+                    value={payPaidAt}
+                    onChange={e => setPayPaidAt(e.target.value)}
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                  <input
+                    placeholder="Reference"
+                    value={payReference}
+                    onChange={e => setPayReference(e.target.value)}
+                    style={{
+                      width: 160,
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                  <input
+                    placeholder="Note"
+                    value={payNote}
+                    onChange={e => setPayNote(e.target.value)}
+                    style={{
+                      flex: "1 1 200px",
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={recordPaymentSaving}
+                    onClick={async () => {
+                      if (!project) return;
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) {
+                        setPaymentsMessage("Missing access token.");
+                        return;
+                      }
+
+                      const amountRaw = String(payAmount ?? "").trim();
+                      const normalizedAmountRaw = amountRaw.replace(/[$,\s]/g, "");
+                      const amount = Number(normalizedAmountRaw);
+                      if (!Number.isFinite(amount) || amount <= 0) {
+                        setPaymentsMessage("Payment amount must be a positive number.");
+                        return;
+                      }
+
+                      setRecordPaymentSaving(true);
+                      setPaymentsMessage(null);
+                      try {
+                        const res = await fetch(`${API_BASE}/projects/${project.id}/payments`, {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({
+                            amount,
+                            method: payMethod,
+                            paidAt: payPaidAt || undefined,
+                            reference: payReference.trim() || undefined,
+                            note: payNote.trim() || undefined,
+                          }),
+                        });
+                        if (!res.ok) {
+                          const text = await res.text().catch(() => "");
+                          const hint =
+                            text.includes("billing is not initialized") ||
+                            text.includes("billing tables") ||
+                            text.includes("ProjectPayment")
+                              ? " Run DB migrations + prisma generate, then restart the API."
+                              : "";
+                          setPaymentsMessage(`Record payment failed (${res.status}) ${text}${hint}`);
+                          return;
+                        }
+
+                        setProjectPayments(null);
+                        setFinancialSummary(null);
+
+                        setPayAmount("");
+                        setPayPaidAt("");
+                        setPayReference("");
+                        setPayNote("");
+                        setPaymentsMessage("Payment recorded.");
+                      } catch (err: any) {
+                        setPaymentsMessage(err?.message ?? "Record payment failed.");
+                      } finally {
+                        setRecordPaymentSaving(false);
+                      }
+                    }}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #0f172a",
+                      background: recordPaymentSaving ? "#e5e7eb" : "#0f172a",
+                      color: recordPaymentSaving ? "#4b5563" : "#f9fafb",
+                      fontSize: 12,
+                      cursor: recordPaymentSaving ? "default" : "pointer",
+                    }}
+                  >
+                    {recordPaymentSaving ? "Recording…" : "Record"}
+                  </button>
+                </div>
+              </div>
+              </div>
+            )}
+          </div>
+
+          {/* Payroll & Workforce roster */}
+          <div
+            style={{
+              marginTop: 10,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+            }}
+          >
+            <div
+              style={{
+                padding: "6px 10px",
+                borderBottom: "1px solid #e5e7eb",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
+              }}
+            >
+              Payroll &amp; Workforce
+            </div>
+            <div style={{ padding: 10, fontSize: 12 }}>
+              <p style={{ marginTop: 0, marginBottom: 8, color: "#4b5563" }}>
+                This roster shows everyone who has recorded payroll on this project
+                (including subs and 1099s), based on Certified Payroll and LCP data.
+                It does not grant them login access.
+              </p>
+
+              {payrollLoading && (
+                <p style={{ fontSize: 12, color: "#6b7280" }}>
+                  Loading payroll roster…
+                </p>
+              )}
+
+              {payrollError && !payrollLoading && (
+                <p style={{ fontSize: 12, color: "#b91c1c" }}>{payrollError}</p>
+              )}
+
+              {!payrollLoading &&
+                !payrollError &&
+                (!payrollEmployees || payrollEmployees.length === 0) && (
+                  <p style={{ fontSize: 12, color: "#6b7280" }}>
+                    No payroll records found yet for this project.
                   </p>
+                )}
 
-                  {payrollLoading && (
-                    <p style={{ fontSize: 12, color: "#6b7280" }}>
-                      Loading payroll roster…
-                    </p>
+              {!payrollLoading && !payrollError && payrollEmployees && payrollEmployees.length > 0 && (
+                <div style={{ maxHeight: "60vh", overflow: "auto" }}>
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: 12,
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ backgroundColor: "#f9fafb" }}>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Name</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Role / Class</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>SSN (last 4)</th>
+                        <th style={{ textAlign: "right", padding: "6px 8px" }}>Total Hours</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>First Week</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Last Week</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payrollEmployees.map((emp, idx) => {
+                        const name = [emp.firstName ?? "", emp.lastName ?? ""]
+                          .map(s => s.trim())
+                          .filter(Boolean)
+                          .join(" ") || "(Unnamed)";
+                        const firstWeek = emp.firstWeekEnd
+                          ? new Date(emp.firstWeekEnd).toLocaleDateString()
+                          : "—";
+                        const lastWeek = emp.lastWeekEnd
+                          ? new Date(emp.lastWeekEnd).toLocaleDateString()
+                          : "—";
+                        const hasDetails = !!emp.employeeId;
+                        const detailHref = hasDetails
+                          ? `/projects/${project.id}/payroll/${encodeURIComponent(
+                              emp.employeeId as string,
+                            )}`
+                          : undefined;
+                        return (
+                          <tr key={`${emp.employeeId ?? "emp"}-${idx}`}>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                              }}
+                            >
+                              {hasDetails ? (
+                                <a
+                                  href={detailHref}
+                                  style={{ color: "#2563eb", textDecoration: "none" }}
+                                >
+                                  {name}
+                                </a>
+                              ) : (
+                                name
+                              )}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                                color: "#4b5563",
+                              }}
+                            >
+                              {emp.classCode || "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                                color: "#4b5563",
+                              }}
+                            >
+                              {emp.ssnLast4 ? `***-**-${emp.ssnLast4}` : "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                                textAlign: "right",
+                              }}
+                            >
+                              {emp.totalHours.toFixed(2)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                              }}
+                            >
+                              {firstWeek}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                              }}
+                            >
+                              {lastWeek}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+
+            </>
+          )}
+
+          {/* Invoices */}
+          <div
+            style={{
+              marginTop: 16,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+            }}
+          >
+            <div
+              style={{
+                padding: "6px 10px",
+                borderBottom: "1px solid #e5e7eb",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <span>Invoices</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setInvoiceMessage(null);
+                  setProjectInvoices(null);
+                  setActiveInvoice(null);
+                }}
+                disabled={projectInvoicesLoading}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  border: "1px solid #d1d5db",
+                  background: "#ffffff",
+                  cursor: projectInvoicesLoading ? "default" : "pointer",
+                  fontSize: 12,
+                }}
+              >
+                {projectInvoicesLoading ? "Refreshing…" : "Refresh"}
+              </button>
+            </div>
+
+            <div style={{ padding: 10, fontSize: 12 }}>
+              {invoiceMessage && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    fontSize: 12,
+                    color: invoiceMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
+                  }}
+                >
+                  {invoiceMessage}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!project) return;
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) {
+                      setInvoiceMessage("Missing access token.");
+                      return;
+                    }
+
+                    setInvoiceMessage(null);
+                    setActiveInvoiceLoading(true);
+                    setActiveInvoiceError(null);
+
+                    try {
+                      const res = await fetch(`${API_BASE}/projects/${project.id}/invoices/draft`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({}),
+                      });
+
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        throw new Error(`Failed to open draft invoice (${res.status}) ${text}`);
+                      }
+
+                      const json: any = await res.json();
+
+                      if (!invoiceFullscreen) {
+                        // Open invoice in a new tab for full-screen editing.
+                        window.open(
+                          `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${json.id}`,
+                          "_blank",
+                          "noopener,noreferrer",
+                        );
+                        setInvoiceMessage("Opened draft invoice in a new tab.");
+                        setActiveInvoice(null);
+                        return;
+                      }
+
+                      setActiveInvoice(json);
+                      setProjectInvoices(null);
+                    } catch (err: any) {
+                      setActiveInvoiceError(err?.message ?? "Failed to open draft invoice.");
+                    } finally {
+                      setActiveInvoiceLoading(false);
+                    }
+                  }}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 4,
+                    border: "1px solid #0f172a",
+                    backgroundColor: "#0f172a",
+                    color: "#f9fafb",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  Open living invoice (draft)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!project) return;
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) {
+                      setInvoiceMessage("Missing access token.");
+                      return;
+                    }
+
+                    const ok = window.confirm(
+                      "Create a new draft invoice?\n\nThis will create a separate draft even if another draft exists.",
+                    );
+                    if (!ok) return;
+
+                    setInvoiceMessage(null);
+                    setActiveInvoiceLoading(true);
+                    setActiveInvoiceError(null);
+
+                    try {
+                      const res = await fetch(`${API_BASE}/projects/${project.id}/invoices/draft`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ forceNew: true }),
+                      });
+
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        throw new Error(`Failed to create draft invoice (${res.status}) ${text}`);
+                      }
+
+                      const json: any = await res.json();
+
+                      if (!invoiceFullscreen) {
+                        window.open(
+                          `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${json.id}`,
+                          "_blank",
+                          "noopener,noreferrer",
+                        );
+                        setInvoiceMessage("Opened new draft invoice in a new tab.");
+                        setActiveInvoice(null);
+                        setProjectInvoices(null);
+                        return;
+                      }
+
+                      setActiveInvoice(json);
+                      setProjectInvoices(null);
+                      setInvoiceMessage("New draft invoice created.");
+                    } catch (err: any) {
+                      setActiveInvoiceError(err?.message ?? "Failed to create draft invoice.");
+                    } finally {
+                      setActiveInvoiceLoading(false);
+                    }
+                  }}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 4,
+                    border: "1px solid #2563eb",
+                    backgroundColor: "#eff6ff",
+                    color: "#1d4ed8",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  New invoice
+                </button>
+
+                {activeInvoiceLoading && (
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>Loading invoice…</span>
+                )}
+                {activeInvoiceError && (
+                  <span style={{ fontSize: 12, color: "#b91c1c" }}>{activeInvoiceError}</span>
+                )}
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                {projectInvoicesLoading && (
+                  <div style={{ color: "#6b7280" }}>Loading invoices…</div>
+                )}
+                {projectInvoicesError && !projectInvoicesLoading && (
+                  <div style={{ color: "#b91c1c" }}>{projectInvoicesError}</div>
+                )}
+
+                {!projectInvoicesLoading &&
+                  !projectInvoicesError &&
+                  projectInvoices &&
+                  projectInvoices.length === 0 && (
+                    <div style={{ color: "#6b7280" }}>No invoices yet.</div>
                   )}
 
-                  {payrollError && !payrollLoading && (
-                    <p style={{ fontSize: 12, color: "#b91c1c" }}>{payrollError}</p>
-                  )}
-
-                  {!payrollLoading && !payrollError && (!payrollEmployees || payrollEmployees.length === 0) && (
-                    <p style={{ fontSize: 12, color: "#6b7280" }}>
-                      No payroll records found yet for this project.
-                    </p>
-                  )}
-
-                  {!payrollLoading && !payrollError && payrollEmployees && payrollEmployees.length > 0 && (
-                    <div style={{ maxHeight: "60vh", overflow: "auto" }}>
+                {!projectInvoicesLoading &&
+                  !projectInvoicesError &&
+                  projectInvoices &&
+                  projectInvoices.length > 0 && (
+                    <div style={{ maxHeight: invoiceFullscreen ? "45vh" : 240, overflow: "auto" }}>
                       <table
                         style={{
                           width: "100%",
@@ -4577,105 +9096,1481 @@ export default function ProjectDetailPage({
                       >
                         <thead>
                           <tr style={{ backgroundColor: "#f9fafb" }}>
-                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Name</th>
-                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Role / Class</th>
-                            <th style={{ textAlign: "left", padding: "6px 8px" }}>SSN (last 4)</th>
-                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Total Hours</th>
-                            <th style={{ textAlign: "left", padding: "6px 8px" }}>First Week</th>
-                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Last Week</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Invoice</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Status</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Total</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Paid</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Balance</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Issued</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {payrollEmployees.map((emp, idx) => {
-                            const name = [emp.firstName ?? "", emp.lastName ?? ""]
-                              .map(s => s.trim())
-                              .filter(Boolean)
-                              .join(" ") || "(Unnamed)";
-                            const firstWeek = emp.firstWeekEnd
-                              ? new Date(emp.firstWeekEnd).toLocaleDateString()
-                              : "—";
-                            const lastWeek = emp.lastWeekEnd
-                              ? new Date(emp.lastWeekEnd).toLocaleDateString()
-                              : "—";
-                            const hasDetails = !!emp.employeeId;
-                            const detailHref = hasDetails
-                              ? `/projects/${project.id}/payroll/${encodeURIComponent(
-                                  emp.employeeId as string,
-                                )}`
-                              : undefined;
-                            return (
-                              <tr key={`${emp.employeeId ?? "emp"}-${idx}`}>
-                                <td
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderTop: "1px solid #e5e7eb",
-                                  }}
-                                >
-                                  {hasDetails ? (
-                                    <a
-                                      href={detailHref}
-                                      style={{ color: "#2563eb", textDecoration: "none" }}
-                                    >
-                                      {name}
-                                    </a>
-                                  ) : (
-                                    name
-                                  )}
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderTop: "1px solid #e5e7eb",
-                                    color: "#4b5563",
-                                  }}
-                                >
-                                  {emp.classCode || "—"}
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderTop: "1px solid #e5e7eb",
-                                    color: "#4b5563",
-                                  }}
-                                >
-                                  {emp.ssnLast4 ? `***-**-${emp.ssnLast4}` : "—"}
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderTop: "1px solid #e5e7eb",
-                                    textAlign: "right",
-                                  }}
-                                >
-                                  {emp.totalHours.toFixed(2)}
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderTop: "1px solid #e5e7eb",
-                                  }}
-                                >
-                                  {firstWeek}
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderTop: "1px solid #e5e7eb",
-                                  }}
-                                >
-                                  {lastWeek}
-                                </td>
-                              </tr>
-                            );
-                          })}
+                          {projectInvoices.map((inv: any) => (
+                            <tr
+                              key={inv.id}
+                              style={{ cursor: "pointer" }}
+                              onClick={async () => {
+                                const token = localStorage.getItem("accessToken");
+                                if (!token) {
+                                  setInvoiceMessage("Missing access token.");
+                                  return;
+                                }
+
+                                if (!invoiceFullscreen) {
+                                  window.open(
+                                    `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
+                                    "_blank",
+                                    "noopener,noreferrer",
+                                  );
+                                  setInvoiceMessage("Opened invoice in a new tab.");
+                                  return;
+                                }
+
+                                setInvoiceMessage(null);
+                                setActiveInvoiceLoading(true);
+                                setActiveInvoiceError(null);
+                                try {
+                                  const res = await fetch(
+                                    `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
+                                    { headers: { Authorization: `Bearer ${token}` } },
+                                  );
+                                  if (!res.ok) {
+                                    const text = await res.text().catch(() => "");
+                                    throw new Error(
+                                      `Failed to load invoice (${res.status}) ${text}`,
+                                    );
+                                  }
+                                  const json: any = await res.json();
+                                  setActiveInvoice(json);
+                                } catch (err: any) {
+                                  setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
+                                } finally {
+                                  setActiveInvoiceLoading(false);
+                                }
+                              }}
+                            >
+                              <td
+                                style={{
+                                  padding: "6px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  fontWeight: inv.status === "DRAFT" ? 600 : 400,
+                                }}
+                              >
+                                {inv.invoiceNo ?? "(draft)"}
+                              </td>
+                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                {inv.status}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "6px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  textAlign: "right",
+                                }}
+                              >
+                                {(inv.totalAmount ?? 0).toLocaleString(undefined, {
+                                  maximumFractionDigits: 2,
+                                })}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "6px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  textAlign: "right",
+                                }}
+                              >
+                                {(inv.paidAmount ?? 0).toLocaleString(undefined, {
+                                  maximumFractionDigits: 2,
+                                })}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "6px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  textAlign: "right",
+                                }}
+                              >
+                                {(inv.balanceDue ?? 0).toLocaleString(undefined, {
+                                  maximumFractionDigits: 2,
+                                })}
+                              </td>
+                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                {inv.issuedAt ? new Date(inv.issuedAt).toLocaleDateString() : "—"}
+                              </td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
                   )}
-                </div>
               </div>
-            </>
-          )}
+
+              {activeInvoice && (
+                <div
+                  data-print-scope="invoice"
+                  style={{
+                    marginTop: 12,
+                    borderTop: "1px solid #e5e7eb",
+                    paddingTop: 10,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <img
+                          src="/nexus-logo-mark.png"
+                          alt="Nexus"
+                          style={{ height: 24, width: "auto" }}
+                        />
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>
+                          {activeInvoice.invoiceNo ?? "Draft invoice"}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>
+                        Status: {activeInvoice.status}
+                        {activeInvoice.issuedAt
+                          ? ` · Issued ${new Date(activeInvoice.issuedAt).toLocaleDateString()}`
+                          : ""}
+                      </div>
+
+                      {invoiceFullscreen && (
+                        <div className="no-print" style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInvoicePrintLayout("KEEP");
+                              setInvoicePrintGroups("KEEP");
+                              setInvoicePrintDialogOpen(true);
+                            }}
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: 6,
+                              border: "1px solid #0f172a",
+                              background: "#0f172a",
+                              color: "#f9fafb",
+                              fontSize: 12,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Print / Save PDF
+                          </button>
+
+                          <div style={{ fontSize: 11, color: "#6b7280", alignSelf: "center" }}>
+                            Tip: choose “Save as PDF” in the print dialog.
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>Total</div>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>
+                        {(activeInvoice.totalAmount ?? 0).toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {invoicePrintDialogOpen && (
+                    <div
+                      className="no-print"
+                      style={{
+                        position: "fixed",
+                        inset: 0,
+                        zIndex: 80,
+                        background: "rgba(15,23,42,0.45)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        padding: 12,
+                      }}
+                      onClick={() => setInvoicePrintDialogOpen(false)}
+                    >
+                      <div
+                        style={{
+                          width: 560,
+                          maxWidth: "96vw",
+                          maxHeight: "90vh",
+                          overflow: "auto",
+                          background: "#ffffff",
+                          borderRadius: 10,
+                          border: "1px solid #e5e7eb",
+                          boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div
+                          style={{
+                            padding: "10px 12px",
+                            borderBottom: "1px solid #e5e7eb",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            background: "#f3f4f6",
+                          }}
+                        >
+                          <div>
+                            Print invoice
+                            <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>
+                              Configure layout for printing / PDF export.
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setInvoicePrintDialogOpen(false)}
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              cursor: "pointer",
+                              fontSize: 18,
+                              lineHeight: 1,
+                            }}
+                            aria-label="Close print dialog"
+                          >
+                            ×
+                          </button>
+                        </div>
+
+                        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+                          <div style={{ fontSize: 12, color: "#374151" }}>
+                            This will print the <strong>currently open invoice</strong>. For best results,
+                            use “Save as PDF” in your browser’s print dialog.
+                          </div>
+
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Layout</div>
+                            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                                <input
+                                  type="radio"
+                                  name="invoicePrintLayout"
+                                  value="KEEP"
+                                  checked={invoicePrintLayout === "KEEP"}
+                                  onChange={() => setInvoicePrintLayout("KEEP")}
+                                />
+                                Keep current
+                              </label>
+                              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                                <input
+                                  type="radio"
+                                  name="invoicePrintLayout"
+                                  value="GROUPED"
+                                  checked={invoicePrintLayout === "GROUPED"}
+                                  onChange={() => setInvoicePrintLayout("GROUPED")}
+                                />
+                                Grouped
+                              </label>
+                              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                                <input
+                                  type="radio"
+                                  name="invoicePrintLayout"
+                                  value="FLAT"
+                                  checked={invoicePrintLayout === "FLAT"}
+                                  onChange={() => setInvoicePrintLayout("FLAT")}
+                                />
+                                Flat list
+                              </label>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+                              Group expansion
+                            </div>
+                            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                                <input
+                                  type="radio"
+                                  name="invoicePrintGroups"
+                                  value="KEEP"
+                                  checked={invoicePrintGroups === "KEEP"}
+                                  onChange={() => setInvoicePrintGroups("KEEP")}
+                                />
+                                Keep current
+                              </label>
+                              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                                <input
+                                  type="radio"
+                                  name="invoicePrintGroups"
+                                  value="COLLAPSE_ALL"
+                                  checked={invoicePrintGroups === "COLLAPSE_ALL"}
+                                  onChange={() => setInvoicePrintGroups("COLLAPSE_ALL")}
+                                />
+                                Collapse all
+                              </label>
+                              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                                <input
+                                  type="radio"
+                                  name="invoicePrintGroups"
+                                  value="EXPAND_ALL"
+                                  checked={invoicePrintGroups === "EXPAND_ALL"}
+                                  onChange={() => setInvoicePrintGroups("EXPAND_ALL")}
+                                />
+                                Expand all
+                              </label>
+                            </div>
+                            <div style={{ marginTop: 6, fontSize: 11, color: "#6b7280" }}>
+                              Tip: choose “Keep current” to expand only some groups, then print.
+                            </div>
+                          </div>
+
+                          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                            <button
+                              type="button"
+                              onClick={() => setInvoicePrintDialogOpen(false)}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 8,
+                                border: "1px solid #d1d5db",
+                                background: "#ffffff",
+                                cursor: "pointer",
+                                fontSize: 12,
+                              }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              disabled={invoicePrintBusy}
+                              onClick={() => {
+                                if (!activeInvoice) return;
+
+                                setInvoicePrintBusy(true);
+                                try {
+                                  // Print a clean HTML document (PDF-friendly) based on the current screen layout.
+                                  printActiveInvoiceAsHtml({
+                                    layout: invoicePrintLayout,
+                                    groups: invoicePrintGroups,
+                                  });
+                                  setInvoicePrintDialogOpen(false);
+                                } finally {
+                                  window.setTimeout(() => setInvoicePrintBusy(false), 300);
+                                }
+                              }}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 8,
+                                border: "1px solid #0f172a",
+                                background: invoicePrintBusy ? "#e5e7eb" : "#0f172a",
+                                color: invoicePrintBusy ? "#4b5563" : "#f9fafb",
+                                cursor: invoicePrintBusy ? "default" : "pointer",
+                                fontSize: 12,
+                              }}
+                            >
+                              {invoicePrintBusy ? "Preparing…" : "Print / Save PDF"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Detailed invoice (PETL) */}
+                  <div style={{ marginTop: 12 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 12,
+                        marginBottom: 6,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600 }}>Estimate line items (PETL)</div>
+                      <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                        <input
+                          type="checkbox"
+                          checked={invoiceGroupEnabled}
+                          onChange={(e) => setInvoiceGroupEnabledPersisted(e.target.checked)}
+                        />
+                        Group
+                      </label>
+                    </div>
+
+                    {activeInvoicePetlLines.length === 0 ? (
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>
+                        No PETL-derived invoice detail lines yet. (If you just enabled this feature,
+                        run database migrations and restart the API.)
+                      </div>
+                    ) : (
+                      <div
+                        className="print-expand-scroll"
+                        style={{
+                          maxHeight: invoiceFullscreen ? "60vh" : 360,
+                          overflow: "auto",
+                          border: "1px solid #e5e7eb",
+                          borderRadius: 8,
+                        }}
+                      >
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ backgroundColor: "#f9fafb" }}>
+                              <th style={{ textAlign: "left", padding: "6px 8px" }}>Estimate Line Item</th>
+                              {!invoiceGroupEnabled && (
+                                <>
+                                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Room</th>
+                                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Unit</th>
+                                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Building</th>
+                                </>
+                              )}
+                              <th style={{ textAlign: "right", padding: "6px 8px", width: 70 }}>%</th>
+                              <th style={{ textAlign: "right", padding: "6px 8px", width: 90 }}>Earned</th>
+                              <th style={{ textAlign: "right", padding: "6px 8px", width: 110 }}>Prev billed</th>
+                              <th style={{ textAlign: "right", padding: "6px 8px", width: 110 }}>This (Δ)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {invoiceGroupEnabled ? (
+                              invoicePetlGrouped.flatMap((g: any, groupIndex: number) => {
+                                const out: any[] = [];
+
+                                // Defensive: never allow empty/undefined group keys, since React keys
+                                // must be unique and stable.
+                                const rawGroupKey = String(g.groupKey ?? g.groupLabel ?? "").trim();
+                                const groupKey = rawGroupKey || `__group_${groupIndex}`;
+                                const groupLabel =
+                                  String(g.groupLabel ?? rawGroupKey).trim() || rawGroupKey || "(Unlabeled)";
+
+                                const groupOpen = invoiceGroupOpenBuildings.has(groupKey);
+
+                                out.push(
+                                  <tr
+                                    key={`g-${groupKey}`}
+                                    style={{ background: "#eef2ff", cursor: "pointer" }}
+                                    onClick={() => toggleInvoiceBuildingOpen(groupKey)}
+                                  >
+                                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontWeight: 700 }}>
+                                      {groupOpen ? "▾ " : "▸ "}
+                                      {groupLabel}
+                                    </td>
+                                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#4b5563" }}>—</td>
+                                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#4b5563" }}>—</td>
+                                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#4b5563" }}>—</td>
+                                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", fontWeight: 700 }}>
+                                      {formatMoney(g.subtotal)}
+                                    </td>
+                                  </tr>,
+                                );
+
+                                if (!groupOpen) return out;
+
+                                const lines = Array.isArray(g.lines) ? g.lines : [];
+                                for (const li of lines) {
+                                  const isCredit = String(li.kind) === "ACV_HOLDBACK_CREDIT";
+                                  const cat = String(li.categoryCodeSnapshot ?? "").trim();
+                                  const sel = String(li.selectionCodeSnapshot ?? "").trim();
+                                  const task = String(li.descriptionSnapshot ?? "").trim();
+                                  const lineNo = li.lineNoSnapshot != null ? String(li.lineNoSnapshot) : "";
+
+                                  const label = isCredit
+                                    ? "↳ ACV holdback (80%)"
+                                    : `${lineNo}${cat || sel ? ` · ${cat}${sel ? `/${sel}` : ""}` : ""}${task ? ` · ${task}` : ""}`;
+
+                                  const effectiveTag = getInvoicePetlEffectiveTag(li);
+                                  const tagLabel = formatBillingTag(effectiveTag);
+                                  const canEditTag = !isCredit && !li?.parentLineId;
+                                  const isEditingTag = canEditTag && invoicePetlTagEditingLineId === li.id;
+
+                                  out.push(
+                                    <tr key={li.id ?? `${groupKey}-${li.sowItemId}-${li.kind}-${label}`}>
+                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                        <div
+                                          style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "space-between",
+                                            gap: 10,
+                                          }}
+                                        >
+                                          <span
+                                            style={{
+                                              paddingLeft: isCredit ? 44 : 36,
+                                              color: isCredit ? "#b91c1c" : "#111827",
+                                              whiteSpace: "nowrap",
+                                              overflow: "hidden",
+                                              textOverflow: "ellipsis",
+                                            }}
+                                            title={label}
+                                          >
+                                            {label}
+                                          </span>
+
+                                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                            {tagLabel && !isEditingTag && (
+                                              <span
+                                                style={{
+                                                  fontSize: 10,
+                                                  fontWeight: 700,
+                                                  padding: "2px 8px",
+                                                  borderRadius: 999,
+                                                  border: "1px solid #d1d5db",
+                                                  background: "#ffffff",
+                                                  color: "#374151",
+                                                  whiteSpace: "nowrap",
+                                                }}
+                                              >
+                                                {tagLabel}
+                                              </span>
+                                            )}
+
+                                            {canEditTag && !isEditingTag && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setInvoicePetlTagEditingLineId(String(li.id));
+                                                  setInvoicePetlTagDraft(String(li?.billingTag ?? "NONE") || "NONE");
+                                                }}
+                                                style={{
+                                                  border: "1px solid #d1d5db",
+                                                  background: "#ffffff",
+                                                  cursor: "pointer",
+                                                  padding: "2px 8px",
+                                                  borderRadius: 999,
+                                                  fontSize: 11,
+                                                  whiteSpace: "nowrap",
+                                                }}
+                                              >
+                                                Edit
+                                              </button>
+                                            )}
+
+                                            {isEditingTag && (
+                                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                                <select
+                                                  value={invoicePetlTagDraft}
+                                                  onChange={(e) => setInvoicePetlTagDraft(e.target.value)}
+                                                  style={{
+                                                    padding: "2px 6px",
+                                                    borderRadius: 6,
+                                                    border: "1px solid #d1d5db",
+                                                    fontSize: 11,
+                                                  }}
+                                                >
+                                                  <option value="NONE">—</option>
+                                                  <option value="PETL_LINE_ITEM">PETL Line Item</option>
+                                                  <option value="CHANGE_ORDER">Change Order</option>
+                                                  <option value="SUPPLEMENT">Supplement</option>
+                                                  <option value="WARRANTY">Warranty</option>
+                                                </select>
+                                                <button
+                                                  type="button"
+                                                  disabled={invoicePetlTagSaving}
+                                                  onClick={async () => {
+                                                    if (!project || !activeInvoice?.id || !li?.id) return;
+                                                    const token = localStorage.getItem("accessToken");
+                                                    if (!token) {
+                                                      setInvoiceMessage("Missing access token.");
+                                                      return;
+                                                    }
+                                                    setInvoicePetlTagSaving(true);
+                                                    setInvoiceMessage(null);
+                                                    try {
+                                                      const res = await fetch(
+                                                        `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/petl-lines/${li.id}`,
+                                                        {
+                                                          method: "PATCH",
+                                                          headers: {
+                                                            "Content-Type": "application/json",
+                                                            Authorization: `Bearer ${token}`,
+                                                          },
+                                                          body: JSON.stringify({ billingTag: invoicePetlTagDraft }),
+                                                        },
+                                                      );
+                                                      if (!res.ok) {
+                                                        const text = await res.text().catch(() => "");
+                                                        setInvoiceMessage(`Update failed (${res.status}) ${text}`);
+                                                        return;
+                                                      }
+                                                      const updated = await res.json().catch(() => null);
+                                                      setActiveInvoice((prev: any) => {
+                                                        if (!prev) return prev;
+                                                        const lines = Array.isArray(prev.petlLines) ? prev.petlLines : [];
+                                                        return {
+                                                          ...prev,
+                                                          petlLines: lines.map((x: any) =>
+                                                            x?.id === updated?.id ? { ...x, ...updated } : x,
+                                                          ),
+                                                        };
+                                                      });
+                                                      setInvoicePetlTagEditingLineId(null);
+                                                    } catch (err: any) {
+                                                      setInvoiceMessage(err?.message ?? "Update failed.");
+                                                    } finally {
+                                                      setInvoicePetlTagSaving(false);
+                                                    }
+                                                  }}
+                                                  style={{
+                                                    padding: "2px 8px",
+                                                    borderRadius: 6,
+                                                    border: "1px solid #0f172a",
+                                                    background: "#0f172a",
+                                                    color: "#f9fafb",
+                                                    fontSize: 11,
+                                                    cursor: invoicePetlTagSaving ? "default" : "pointer",
+                                                    whiteSpace: "nowrap",
+                                                  }}
+                                                >
+                                                  {invoicePetlTagSaving ? "Saving…" : "Save"}
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  disabled={invoicePetlTagSaving}
+                                                  onClick={() => setInvoicePetlTagEditingLineId(null)}
+                                                  style={{
+                                                    padding: "2px 8px",
+                                                    borderRadius: 6,
+                                                    border: "1px solid #d1d5db",
+                                                    background: "#ffffff",
+                                                    fontSize: 11,
+                                                    cursor: invoicePetlTagSaving ? "default" : "pointer",
+                                                    whiteSpace: "nowrap",
+                                                  }}
+                                                >
+                                                  Cancel
+                                                </button>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#4b5563" }}>
+                                        {li.percentCompleteSnapshot != null ? `${Number(li.percentCompleteSnapshot).toFixed(0)}%` : "—"}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#4b5563" }}>
+                                        {formatMoney(li.earnedTotal)}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#4b5563" }}>
+                                        {formatMoney(li.prevBilledTotal)}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", fontWeight: 600 }}>
+                                        {formatMoney(li.thisInvTotal)}
+                                      </td>
+                                    </tr>,
+                                  );
+                                }
+
+                                return out;
+                              })
+                            ) : (
+                              [...activeInvoicePetlLines]
+                                .sort((a, b) => {
+                                  const pa = String(a?.projectTreePathSnapshot ?? "");
+                                  const pb = String(b?.projectTreePathSnapshot ?? "");
+                                  if (pa !== pb) return pa.localeCompare(pb);
+                                  const la = Number(a?.lineNoSnapshot ?? 0);
+                                  const lb = Number(b?.lineNoSnapshot ?? 0);
+                                  if (la !== lb) return la - lb;
+                                  const ka = String(a?.kind ?? "");
+                                  const kb = String(b?.kind ?? "");
+                                  return ka.localeCompare(kb);
+                                })
+                                .map((li: any) => {
+                                  const isCredit = String(li.kind) === "ACV_HOLDBACK_CREDIT";
+                                  const cat = String(li.categoryCodeSnapshot ?? "").trim();
+                                  const sel = String(li.selectionCodeSnapshot ?? "").trim();
+                                  const task = String(li.descriptionSnapshot ?? "").trim();
+                                  const lineNo = li.lineNoSnapshot != null ? String(li.lineNoSnapshot) : "";
+
+                                  const label = isCredit
+                                    ? "↳ ACV holdback (80%)"
+                                    : `${lineNo}${cat || sel ? ` · ${cat}${sel ? `/${sel}` : ""}` : ""}${task ? ` · ${task}` : ""}`;
+
+                                  const effectiveTag = getInvoicePetlEffectiveTag(li);
+                                  const tagLabel = formatBillingTag(effectiveTag);
+                                  const canEditTag = !isCredit && !li?.parentLineId;
+                                  const isEditingTag = canEditTag && invoicePetlTagEditingLineId === li.id;
+
+                                  return (
+                                    <tr key={li.id ?? `${li.sowItemId}-${li.kind}-${label}`}>
+                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                                          <span
+                                            style={{
+                                              paddingLeft: isCredit ? 18 : 0,
+                                              color: isCredit ? "#b91c1c" : "#111827",
+                                              whiteSpace: "nowrap",
+                                              overflow: "hidden",
+                                              textOverflow: "ellipsis",
+                                            }}
+                                            title={label}
+                                          >
+                                            {label}
+                                          </span>
+
+                                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                            {tagLabel && !isEditingTag && (
+                                              <span
+                                                style={{
+                                                  fontSize: 10,
+                                                  fontWeight: 700,
+                                                  padding: "2px 8px",
+                                                  borderRadius: 999,
+                                                  border: "1px solid #d1d5db",
+                                                  background: "#ffffff",
+                                                  color: "#374151",
+                                                  whiteSpace: "nowrap",
+                                                }}
+                                              >
+                                                {tagLabel}
+                                              </span>
+                                            )}
+
+                                            {canEditTag && !isEditingTag && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setInvoicePetlTagEditingLineId(String(li.id));
+                                                  setInvoicePetlTagDraft(String(li?.billingTag ?? "NONE") || "NONE");
+                                                }}
+                                                style={{
+                                                  border: "1px solid #d1d5db",
+                                                  background: "#ffffff",
+                                                  cursor: "pointer",
+                                                  padding: "2px 8px",
+                                                  borderRadius: 999,
+                                                  fontSize: 11,
+                                                  whiteSpace: "nowrap",
+                                                }}
+                                              >
+                                                Edit
+                                              </button>
+                                            )}
+
+                                            {isEditingTag && (
+                                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                                <select
+                                                  value={invoicePetlTagDraft}
+                                                  onChange={(e) => setInvoicePetlTagDraft(e.target.value)}
+                                                  style={{
+                                                    padding: "2px 6px",
+                                                    borderRadius: 6,
+                                                    border: "1px solid #d1d5db",
+                                                    fontSize: 11,
+                                                  }}
+                                                >
+                                                  <option value="NONE">—</option>
+                                                  <option value="PETL_LINE_ITEM">PETL Line Item</option>
+                                                  <option value="CHANGE_ORDER">Change Order</option>
+                                                  <option value="SUPPLEMENT">Supplement</option>
+                                                  <option value="WARRANTY">Warranty</option>
+                                                </select>
+                                                <button
+                                                  type="button"
+                                                  disabled={invoicePetlTagSaving}
+                                                  onClick={async () => {
+                                                    if (!project || !activeInvoice?.id || !li?.id) return;
+                                                    const token = localStorage.getItem("accessToken");
+                                                    if (!token) {
+                                                      setInvoiceMessage("Missing access token.");
+                                                      return;
+                                                    }
+                                                    setInvoicePetlTagSaving(true);
+                                                    setInvoiceMessage(null);
+                                                    try {
+                                                      const res = await fetch(
+                                                        `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/petl-lines/${li.id}`,
+                                                        {
+                                                          method: "PATCH",
+                                                          headers: {
+                                                            "Content-Type": "application/json",
+                                                            Authorization: `Bearer ${token}`,
+                                                          },
+                                                          body: JSON.stringify({ billingTag: invoicePetlTagDraft }),
+                                                        },
+                                                      );
+                                                      if (!res.ok) {
+                                                        const text = await res.text().catch(() => "");
+                                                        setInvoiceMessage(`Update failed (${res.status}) ${text}`);
+                                                        return;
+                                                      }
+                                                      const updated = await res.json().catch(() => null);
+                                                      setActiveInvoice((prev: any) => {
+                                                        if (!prev) return prev;
+                                                        const lines = Array.isArray(prev.petlLines) ? prev.petlLines : [];
+                                                        return {
+                                                          ...prev,
+                                                          petlLines: lines.map((x: any) =>
+                                                            x?.id === updated?.id ? { ...x, ...updated } : x,
+                                                          ),
+                                                        };
+                                                      });
+                                                      setInvoicePetlTagEditingLineId(null);
+                                                    } catch (err: any) {
+                                                      setInvoiceMessage(err?.message ?? "Update failed.");
+                                                    } finally {
+                                                      setInvoicePetlTagSaving(false);
+                                                    }
+                                                  }}
+                                                  style={{
+                                                    padding: "2px 8px",
+                                                    borderRadius: 6,
+                                                    border: "1px solid #0f172a",
+                                                    background: "#0f172a",
+                                                    color: "#f9fafb",
+                                                    fontSize: 11,
+                                                    cursor: invoicePetlTagSaving ? "default" : "pointer",
+                                                    whiteSpace: "nowrap",
+                                                  }}
+                                                >
+                                                  {invoicePetlTagSaving ? "Saving…" : "Save"}
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  disabled={invoicePetlTagSaving}
+                                                  onClick={() => setInvoicePetlTagEditingLineId(null)}
+                                                  style={{
+                                                    padding: "2px 8px",
+                                                    borderRadius: 6,
+                                                    border: "1px solid #d1d5db",
+                                                    background: "#ffffff",
+                                                    fontSize: 11,
+                                                    cursor: invoicePetlTagSaving ? "default" : "pointer",
+                                                    whiteSpace: "nowrap",
+                                                  }}
+                                                >
+                                                  Cancel
+                                                </button>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                        {li.projectParticleLabelSnapshot ?? ""}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
+                                        {li.projectUnitLabelSnapshot ?? ""}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
+                                        {li.projectBuildingLabelSnapshot ?? ""}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#4b5563" }}>
+                                        {li.percentCompleteSnapshot != null ? `${Number(li.percentCompleteSnapshot).toFixed(0)}%` : "—"}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#4b5563" }}>
+                                        {formatMoney(li.earnedTotal)}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#4b5563" }}>
+                                        {formatMoney(li.prevBilledTotal)}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", fontWeight: 600 }}>
+                                        {formatMoney(li.thisInvTotal)}
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                            )}
+                          </tbody>
+                          <tfoot>
+                            <tr style={{ backgroundColor: "#f9fafb" }}>
+                              <td
+                                colSpan={invoiceGroupEnabled ? 4 : 7}
+                                style={{
+                                  padding: "6px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  textAlign: "right",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                Total PETL (Δ)
+                              </td>
+                              <td
+                                style={{
+                                  padding: "6px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  textAlign: "right",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {formatMoney(
+                                  activeInvoicePetlLines.reduce(
+                                    (sum, x) => sum + (Number(x?.thisInvTotal ?? 0) || 0),
+                                    0,
+                                  ),
+                                )}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Draft: line item CRUD + issue */}
+                  {activeInvoice.status === "DRAFT" && (
+                    <div style={{ marginTop: 10 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: 8,
+                          marginBottom: 6,
+                        }}
+                      >
+                        <div style={{ fontWeight: 600 }}>Line items</div>
+                        <button
+                          type="button"
+                          onClick={() => setInvoiceCostBookPickerOpen(true)}
+                          style={{
+                            padding: "3px 10px",
+                            borderRadius: 999,
+                            border: "1px solid #2563eb",
+                            backgroundColor: "#eff6ff",
+                            color: "#1d4ed8",
+                            fontSize: 11,
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          Add from Cost Book
+                        </button>
+                      </div>
+
+                      <div style={{ maxHeight: invoiceFullscreen ? "45vh" : 240, overflow: "auto" }}>
+                        <table
+                          style={{
+                            width: "100%",
+                            borderCollapse: "collapse",
+                            fontSize: 12,
+                          }}
+                        >
+                          <thead>
+                            <tr style={{ backgroundColor: "#f9fafb" }}>
+                              <th style={{ textAlign: "left", padding: "6px 8px" }}>Description</th>
+                              <th style={{ textAlign: "right", padding: "6px 8px" }}>Qty</th>
+                              <th style={{ textAlign: "right", padding: "6px 8px" }}>Unit $</th>
+                              <th style={{ textAlign: "right", padding: "6px 8px" }}>Amount</th>
+                              <th style={{ textAlign: "right", padding: "6px 8px" }}>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {activeInvoiceLineItemGroups.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={5}
+                                  style={{
+                                    padding: "8px 10px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    color: "#6b7280",
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  No invoice lines yet.
+                                </td>
+                              </tr>
+                            ) : (
+                              activeInvoiceLineItemGroups.flatMap((group) => {
+                                const rows: React.ReactNode[] = [];
+
+                                rows.push(
+                                  <tr key={`group-${group.kind}`} style={{ background: "#f3f4f6" }}>
+                                    <td
+                                      colSpan={5}
+                                      style={{
+                                        padding: "6px 8px",
+                                        borderTop: "1px solid #e5e7eb",
+                                        fontWeight: 700,
+                                        color: "#111827",
+                                      }}
+                                    >
+                                      {group.label} · {formatMoney(group.subtotal)}
+                                    </td>
+                                  </tr>,
+                                );
+
+                                for (const li of group.items) {
+                                  rows.push(
+                                    <tr key={li.id}>
+                                      <td
+                                        style={{
+                                          padding: "6px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                        }}
+                                      >
+                                        {li.description}
+                                      </td>
+                                      <td
+                                        style={{
+                                          padding: "6px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                          textAlign: "right",
+                                          color: "#4b5563",
+                                        }}
+                                      >
+                                        {li.qty ?? "—"}
+                                      </td>
+                                      <td
+                                        style={{
+                                          padding: "6px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                          textAlign: "right",
+                                          color: "#4b5563",
+                                        }}
+                                      >
+                                        {li.unitPrice ?? "—"}
+                                      </td>
+                                      <td
+                                        style={{
+                                          padding: "6px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                          textAlign: "right",
+                                        }}
+                                      >
+                                        {(li.amount ?? 0).toLocaleString(undefined, {
+                                          maximumFractionDigits: 2,
+                                        })}
+                                      </td>
+                                      <td
+                                        style={{
+                                          padding: "6px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                          textAlign: "right",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                      >
+                                        <button
+                                          type="button"
+                                          onClick={async () => {
+                                            if (!project) return;
+                                            const token = localStorage.getItem("accessToken");
+                                            if (!token) {
+                                              setInvoiceMessage("Missing access token.");
+                                              return;
+                                            }
+
+                                            const nextDesc =
+                                              prompt("Description", String(li.description ?? "")) ??
+                                              String(li.description ?? "");
+
+                                            const nextAmountStr =
+                                              prompt("Amount", String(li.amount ?? "")) ??
+                                              String(li.amount ?? "");
+                                            const nextAmount = Number(nextAmountStr);
+                                            if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+                                              setInvoiceMessage("Amount must be a positive number.");
+                                              return;
+                                            }
+
+                                            const nextKindRaw =
+                                              prompt(
+                                                "Kind (MANUAL, BILLABLE_HOURS, EQUIPMENT_RENTAL, COST_BOOK, OTHER)",
+                                                String(li.kind ?? "MANUAL"),
+                                              ) ?? String(li.kind ?? "MANUAL");
+                                            const nextKind = nextKindRaw.trim().toUpperCase();
+                                            const allowedKinds = new Set([
+                                              "MANUAL",
+                                              "BILLABLE_HOURS",
+                                              "EQUIPMENT_RENTAL",
+                                              "COST_BOOK",
+                                              "OTHER",
+                                            ]);
+                                            if (!allowedKinds.has(nextKind)) {
+                                              setInvoiceMessage("Invalid kind.");
+                                              return;
+                                            }
+
+                                            const nextTagRaw =
+                                              prompt(
+                                                "Billing tag (NONE, PETL_LINE_ITEM, CHANGE_ORDER, SUPPLEMENT, WARRANTY)",
+                                                String(li.billingTag ?? "NONE"),
+                                              ) ?? String(li.billingTag ?? "NONE");
+                                            const nextTag = nextTagRaw.trim().toUpperCase();
+                                            const allowedTags = new Set([
+                                              "NONE",
+                                              "PETL_LINE_ITEM",
+                                              "CHANGE_ORDER",
+                                              "SUPPLEMENT",
+                                              "WARRANTY",
+                                            ]);
+                                            if (!allowedTags.has(nextTag)) {
+                                              setInvoiceMessage("Invalid billing tag.");
+                                              return;
+                                            }
+
+                                            try {
+                                              const res = await fetch(
+                                                `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines/${li.id}`,
+                                                {
+                                                  method: "PATCH",
+                                                  headers: {
+                                                    "Content-Type": "application/json",
+                                                    Authorization: `Bearer ${token}`,
+                                                  },
+                                                  body: JSON.stringify({
+                                                    description: nextDesc,
+                                                    amount: nextAmount,
+                                                    kind: nextKind,
+                                                    billingTag: nextTag,
+                                                  }),
+                                                },
+                                              );
+                                              if (!res.ok) {
+                                                const text = await res.text().catch(() => "");
+                                                setInvoiceMessage(
+                                                  `Edit failed (${res.status}) ${text}`,
+                                                );
+                                                return;
+                                              }
+                                              const json: any = await res.json();
+                                              setActiveInvoice(json);
+                                              setProjectInvoices(null);
+                                            } catch (err: any) {
+                                              setInvoiceMessage(err?.message ?? "Edit failed.");
+                                            }
+                                          }}
+                                          style={{
+                                            padding: "2px 6px",
+                                            borderRadius: 4,
+                                            border: "1px solid #d1d5db",
+                                            background: "#ffffff",
+                                            fontSize: 11,
+                                            cursor: "pointer",
+                                            marginRight: 6,
+                                          }}
+                                        >
+                                          Edit
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={async () => {
+                                            if (!project) return;
+                                            const token = localStorage.getItem("accessToken");
+                                            if (!token) {
+                                              setInvoiceMessage("Missing access token.");
+                                              return;
+                                            }
+                                            if (!confirm("Delete this line item?") ) return;
+
+                                            try {
+                                              const res = await fetch(
+                                                `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines/${li.id}`,
+                                                {
+                                                  method: "DELETE",
+                                                  headers: { Authorization: `Bearer ${token}` },
+                                                },
+                                              );
+                                              if (!res.ok) {
+                                                const text = await res.text().catch(() => "");
+                                                setInvoiceMessage(
+                                                  `Delete failed (${res.status}) ${text}`,
+                                                );
+                                                return;
+                                              }
+                                              const json: any = await res.json();
+                                              setActiveInvoice(json);
+                                              setProjectInvoices(null);
+                                            } catch (err: any) {
+                                              setInvoiceMessage(err?.message ?? "Delete failed.");
+                                            }
+                                          }}
+                                          style={{
+                                            padding: "2px 6px",
+                                            borderRadius: 4,
+                                            border: "1px solid #b91c1c",
+                                            background: "#fee2e2",
+                                            color: "#991b1b",
+                                            fontSize: 11,
+                                            cursor: "pointer",
+                                          }}
+                                        >
+                                          Delete
+                                        </button>
+                                      </td>
+                                    </tr>,
+                                  );
+                                }
+
+                                return rows;
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <select
+                          value={newInvoiceLineKind}
+                          onChange={e => setNewInvoiceLineKind(e.target.value)}
+                          style={{
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                            minWidth: 160,
+                          }}
+                        >
+                          <option value="MANUAL">Manual</option>
+                          <option value="BILLABLE_HOURS">Billable hours</option>
+                          <option value="EQUIPMENT_RENTAL">Equipment rental</option>
+                          <option value="OTHER">Other</option>
+                        </select>
+
+                        <select
+                          value={newInvoiceLineBillingTag}
+                          onChange={e => setNewInvoiceLineBillingTag(e.target.value)}
+                          style={{
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                            minWidth: 160,
+                          }}
+                        >
+                          <option value="NONE">(no tag)</option>
+                          <option value="PETL_LINE_ITEM">PETL Line Item</option>
+                          <option value="CHANGE_ORDER">Change Order</option>
+                          <option value="SUPPLEMENT">Supplement</option>
+                          <option value="WARRANTY">Warranty</option>
+                        </select>
+                        <input
+                          placeholder="Description"
+                          value={newInvoiceLineDesc}
+                          onChange={e => setNewInvoiceLineDesc(e.target.value)}
+                          style={{
+                            flex: "1 1 260px",
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                          }}
+                        />
+                        <input
+                          placeholder="Qty"
+                          value={newInvoiceLineQty}
+                          onChange={e => setNewInvoiceLineQty(e.target.value)}
+                          style={{
+                            width: 80,
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                          }}
+                        />
+                        <input
+                          placeholder="Unit $"
+                          value={newInvoiceLineUnitPrice}
+                          onChange={e => setNewInvoiceLineUnitPrice(e.target.value)}
+                          style={{
+                            width: 100,
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                          }}
+                        />
+                        <input
+                          placeholder="Amount (optional)"
+                          value={newInvoiceLineAmount}
+                          onChange={e => setNewInvoiceLineAmount(e.target.value)}
+                          style={{
+                            width: 140,
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!project) return;
+                            const token = localStorage.getItem("accessToken");
+                            if (!token) {
+                              setInvoiceMessage("Missing access token.");
+                              return;
+                            }
+
+                            const desc = newInvoiceLineDesc.trim();
+                            if (!desc) {
+                              setInvoiceMessage("Line description is required.");
+                              return;
+                            }
+
+                            const qty = newInvoiceLineQty.trim() === "" ? undefined : Number(newInvoiceLineQty);
+                            const unitPrice =
+                              newInvoiceLineUnitPrice.trim() === "" ? undefined : Number(newInvoiceLineUnitPrice);
+                            const amount =
+                              newInvoiceLineAmount.trim() === "" ? undefined : Number(newInvoiceLineAmount);
+
+                            if (
+                              (qty !== undefined && !Number.isFinite(qty)) ||
+                              (unitPrice !== undefined && !Number.isFinite(unitPrice)) ||
+                              (amount !== undefined && !Number.isFinite(amount))
+                            ) {
+                              setInvoiceMessage("Qty / Unit / Amount must be valid numbers.");
+                              return;
+                            }
+
+                            try {
+                              const res = await fetch(
+                                `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines`,
+                                {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                  body: JSON.stringify({
+                                    kind: newInvoiceLineKind,
+                                    billingTag: newInvoiceLineBillingTag,
+                                    description: desc,
+                                    qty,
+                                    unitPrice,
+                                    amount,
+                                  }),
+                                },
+                              );
+                              if (!res.ok) {
+                                const text = await res.text().catch(() => "");
+                                setInvoiceMessage(
+                                  `Add line failed (${res.status}) ${text}`,
+                                );
+                                return;
+                              }
+                              const json: any = await res.json();
+                              setActiveInvoice(json);
+                              setProjectInvoices(null);
+                              setNewInvoiceLineDesc("");
+                              setNewInvoiceLineQty("");
+                              setNewInvoiceLineUnitPrice("");
+                              setNewInvoiceLineAmount("");
+                              setInvoiceMessage("Line added.");
+                            } catch (err: any) {
+                              setInvoiceMessage(err?.message ?? "Add line failed.");
+                            }
+                          }}
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: 4,
+                            border: "1px solid #0f172a",
+                            background: "#0f172a",
+                            color: "#f9fafb",
+                            fontSize: 12,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Add line
+                        </button>
+                      </div>
+
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 6 }}>Issue invoice</div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <input
+                            placeholder="Bill to name"
+                            value={issueBillToName}
+                            onChange={e => setIssueBillToName(e.target.value)}
+                            style={{
+                              flex: "1 1 180px",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                          <input
+                            placeholder="Bill to email"
+                            value={issueBillToEmail}
+                            onChange={e => setIssueBillToEmail(e.target.value)}
+                            style={{
+                              flex: "1 1 220px",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                          <input
+                            placeholder="Memo"
+                            value={issueMemo}
+                            onChange={e => setIssueMemo(e.target.value)}
+                            style={{
+                              flex: "1 1 260px",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                          <input
+                            type="date"
+                            value={issueDueAt}
+                            onChange={e => setIssueDueAt(e.target.value)}
+                            style={{
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!project) return;
+                              const token = localStorage.getItem("accessToken");
+                              if (!token) {
+                                setInvoiceMessage("Missing access token.");
+                                return;
+                              }
+                              setInvoiceMessage(null);
+                              try {
+                                const res = await fetch(
+                                  `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/issue`,
+                                  {
+                                    method: "POST",
+                                    headers: {
+                                      "Content-Type": "application/json",
+                                      Authorization: `Bearer ${token}`,
+                                    },
+                                    body: JSON.stringify({
+                                      billToName: issueBillToName.trim() || undefined,
+                                      billToEmail: issueBillToEmail.trim() || undefined,
+                                      memo: issueMemo.trim() || undefined,
+                                      dueAt: issueDueAt || undefined,
+                                    }),
+                                  },
+                                );
+                                if (!res.ok) {
+                                  const text = await res.text().catch(() => "");
+                                  setInvoiceMessage(
+                                    `Issue failed (${res.status}) ${text}`,
+                                  );
+                                  return;
+                                }
+                                const json: any = await res.json();
+                                setActiveInvoice(json);
+                                setProjectInvoices(null);
+                                setFinancialSummary(null);
+                                setInvoiceMessage("Invoice issued and locked.");
+                              } catch (err: any) {
+                                setInvoiceMessage(err?.message ?? "Issue failed.");
+                              }
+                            }}
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: 4,
+                              border: "1px solid #16a34a",
+                              background: "#dcfce7",
+                              color: "#166534",
+                              fontSize: 12,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Issue &amp; lock
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Issued: payments shown above Payroll & Workforce */}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
       {/* IMPORT STRUCTURE tab content */}
@@ -6566,97 +12461,284 @@ export default function ProjectDetailPage({
       {/* PETL tab content */}
       {activeTab === "PETL" && (
         <div>
-          {/* PETL diagnostics */}
-          <div
-            style={{
-              marginBottom: 12,
-              padding: 10,
-              borderRadius: 8,
-              border: `1px solid ${petlLoadError ? "#b91c1c" : "#e5e7eb"}`,
-              background: petlLoadError ? "#fef2f2" : "#f8fafc",
-              fontSize: 12,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontWeight: 600 }}>
-                PETL Diagnostics{petlLoadError ? " (error)" : ""}
-              </div>
-              <button
-                type="button"
-                onClick={() => setPetlShowDiagnostics((s) => !s)}
+          {!petlTabMounted && (
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#ffffff",
+                fontSize: 12,
+                color: "#6b7280",
+              }}
+            >
+              Opening PETL…
+            </div>
+          )}
+
+          {petlTabMounted && (
+            <>
+              {/* Pending approvals (PM/owner/admin) */}
+          {isPmOrAbove && (
+            <div
+              style={{
+                marginBottom: 12,
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#ffffff",
+              }}
+            >
+              <div
                 style={{
-                  padding: "4px 8px",
-                  borderRadius: 6,
-                  border: "1px solid #d1d5db",
-                  background: "#ffffff",
-                  cursor: "pointer",
-                  fontSize: 12,
+                  padding: "6px 10px",
+                  borderBottom: "1px solid #e5e7eb",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: "#f3f4f6",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
                 }}
               >
-                {petlShowDiagnostics ? "Hide" : "Show"}
-              </button>
-            </div>
-
-            {(petlShowDiagnostics || petlLoadError) ? (
-              <>
-                <div style={{ marginTop: 6, fontSize: 11, color: "#4b5563" }}>
-                  <div>
-                    <strong>API_BASE</strong>: {API_BASE}
-                  </div>
-                  <div>
-                    <strong>Project</strong>: {id}
-                  </div>
-                  <div>
-                    <strong>Local</strong>: petlItems={petlItems.length}, recon={petlReconciliationEntries.length}
-                  </div>
-                </div>
-
-                {petlLoadError && (
-                  <pre
-                    style={{
-                      marginTop: 8,
-                      marginBottom: 0,
-                      whiteSpace: "pre-wrap",
-                      color: "#b91c1c",
-                      fontSize: 11,
-                    }}
-                  >
-                    {petlLoadError}
-                  </pre>
-                )}
-
-                {petlShowDiagnostics && petlLastLoadDebug && (
-                  <pre
-                    style={{
-                      marginTop: 8,
-                      marginBottom: 0,
-                      padding: 8,
-                      borderRadius: 6,
-                      background: "#ffffff",
-                      border: "1px solid #e5e7eb",
-                      whiteSpace: "pre-wrap",
-                      fontSize: 11,
-                      maxHeight: 260,
-                      overflow: "auto",
-                    }}
-                  >
-                    {JSON.stringify(petlLastLoadDebug, null, 2)}
-                  </pre>
-                )}
-              </>
-            ) : (
-              <div style={{ marginTop: 6, fontSize: 11, color: "#6b7280" }}>
-                Hidden (click Show)
+                <span>Pending PETL % approvals</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    petlTransitionOverlayLabelRef.current = "Refreshing approvals…";
+                    busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+                    startPetlTransition(() => setPendingPetlReloadTick(t => t + 1));
+                  }}
+                  disabled={pendingPetlLoading}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    cursor: pendingPetlLoading ? "default" : "pointer",
+                    fontSize: 12,
+                    color: "#111827",
+                  }}
+                >
+                  {pendingPetlLoading ? "Refreshing…" : "Refresh"}
+                </button>
               </div>
-            )}
-          </div>
+
+              <div style={{ padding: 10, fontSize: 12 }}>
+                {pendingPetlMessage && (
+                  <div style={{ marginBottom: 6, color: "#4b5563" }}>{pendingPetlMessage}</div>
+                )}
+
+                {pendingPetlLoading && (
+                  <div style={{ color: "#6b7280" }}>Loading pending approvals…</div>
+                )}
+
+                {pendingPetlError && !pendingPetlLoading && (
+                  <div style={{ color: "#b91c1c" }}>{pendingPetlError}</div>
+                )}
+
+                {!pendingPetlLoading &&
+                  !pendingPetlError &&
+                  pendingPetlSessions &&
+                  pendingPetlSessions.length === 0 && (
+                    <div style={{ color: "#6b7280" }}>No pending percent updates.</div>
+                  )}
+
+                {!pendingPetlLoading &&
+                  !pendingPetlError &&
+                  pendingPetlSessions &&
+                  pendingPetlSessions.length > 0 && (
+                    <div style={{ maxHeight: 220, overflow: "auto" }}>
+                      <table
+                        style={{
+                          width: "100%",
+                          borderCollapse: "collapse",
+                          fontSize: 12,
+                        }}
+                      >
+                        <thead>
+                          <tr style={{ backgroundColor: "#f9fafb" }}>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Created</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>By</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Updates</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Preview</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pendingPetlSessions.map((s: any) => {
+                            const created = s.createdAt ? new Date(s.createdAt).toLocaleString() : "—";
+                            const createdBy = s.createdBy?.email ?? "(unknown)";
+                            const updates = Array.isArray(s.updates) ? s.updates : [];
+                            const preview = updates
+                              .slice(0, 3)
+                              .map((u: any) => `${u.oldPercent ?? 0}→${u.newPercent ?? 0}`)
+                              .join(", ");
+
+                            return (
+                              <tr key={s.id}>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {created}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                  {createdBy}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    textAlign: "right",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {updates.length}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    color: "#4b5563",
+                                    fontSize: 11,
+                                  }}
+                                >
+                                  {preview}
+                                  {updates.length > 3 ? " …" : ""}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    textAlign: "right",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) {
+                                        setPendingPetlMessage("Missing access token.");
+                                        return;
+                                      }
+                                      setPendingPetlMessage(null);
+
+                                      await busyOverlay.run("Approving…", async () => {
+                                        try {
+                                          const res = await fetch(
+                                            `${API_BASE}/projects/${id}/petl/percent-updates/${s.id}/approve`,
+                                            {
+                                              method: "POST",
+                                              headers: {
+                                                "Content-Type": "application/json",
+                                                Authorization: `Bearer ${token}`,
+                                              },
+                                              body: JSON.stringify({ reviewNote: null }),
+                                            },
+                                          );
+                                          if (!res.ok) {
+                                            const text = await res.text().catch(() => "");
+                                            setPendingPetlMessage(
+                                              `Approve failed (${res.status}) ${text}`,
+                                            );
+                                            return;
+                                          }
+                                          setPendingPetlMessage("Approved.");
+                                          setPendingPetlReloadTick(t => t + 1);
+                                          setPetlReloadTick(t => t + 1);
+                                        } catch (err: any) {
+                                          setPendingPetlMessage(err?.message ?? "Approve failed.");
+                                        }
+                                      });
+                                    }}
+                                    style={{
+                                      padding: "2px 6px",
+                                      borderRadius: 4,
+                                      border: "1px solid #16a34a",
+                                      backgroundColor: "#dcfce7",
+                                      color: "#166534",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                      marginRight: 6,
+                                    }}
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) {
+                                        setPendingPetlMessage("Missing access token.");
+                                        return;
+                                      }
+                                      setPendingPetlMessage(null);
+
+                                      await busyOverlay.run("Rejecting…", async () => {
+                                        try {
+                                          const res = await fetch(
+                                            `${API_BASE}/projects/${id}/petl/percent-updates/${s.id}/reject`,
+                                            {
+                                              method: "POST",
+                                              headers: {
+                                                "Content-Type": "application/json",
+                                                Authorization: `Bearer ${token}`,
+                                              },
+                                              body: JSON.stringify({ reviewNote: null }),
+                                            },
+                                          );
+                                          if (!res.ok) {
+                                            const text = await res.text().catch(() => "");
+                                            setPendingPetlMessage(
+                                              `Reject failed (${res.status}) ${text}`,
+                                            );
+                                            return;
+                                          }
+                                          setPendingPetlMessage("Rejected.");
+                                          setPendingPetlReloadTick(t => t + 1);
+                                        } catch (err: any) {
+                                          setPendingPetlMessage(err?.message ?? "Reject failed.");
+                                        }
+                                      });
+                                    }}
+                                    style={{
+                                      padding: "2px 6px",
+                                      borderRadius: 4,
+                                      border: "1px solid #b91c1c",
+                                      backgroundColor: "#fee2e2",
+                                      color: "#991b1b",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Reject
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+              </div>
+            </div>
+          )}
 
           {/* Project hierarchy: Job (property) → Buildings / Structures → Units → Rooms */}
           {hierarchy && (
             <div style={{ marginBottom: 12 }}>
               <button
                 type="button"
-                onClick={() => setStructureOpen(o => !o)}
+                onClick={() => {
+                  petlTransitionOverlayLabelRef.current = "Updating layout view…";
+                  busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+                  startPetlTransition(() => setStructureOpen(o => !o));
+                }}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -6909,6 +12991,14 @@ export default function ProjectDetailPage({
                 return;
               }
 
+              // Pending approvals currently track percent changes only.
+              // Avoid letting non-PMs toggle ACV-only so we don't create a pending session
+              // that cannot accurately represent the requested change.
+              if (isAcv && !isPmOrAbove) {
+                setBulkMessage("ACV only can only be applied by a PM/Owner/Admin.");
+                return;
+              }
+
               let pct = 0;
               if (!isAcv) {
                 pct = Number(raw);
@@ -6961,6 +13051,14 @@ export default function ProjectDetailPage({
                   setBulkMessage(
                     `Bulk update failed (${res.status}). ${json ? JSON.stringify(json) : ""}`,
                   );
+                  return;
+                }
+
+                if (json?.status === "pending") {
+                  setBulkMessage(
+                    `Submitted ${json?.pendingCount ?? 0} change(s) for approval (session ${json?.sessionId ?? "—"}).`,
+                  );
+                  setPendingPetlReloadTick(t => t + 1);
                   return;
                 }
 
@@ -7404,8 +13502,554 @@ export default function ProjectDetailPage({
         </div>
       )}
 
-      {/* Room / zone summary, similar to old NCC "Sub Projects (Rooms)" block */}
-      {petlDisplayMode === "PROJECT_GROUPING" && !groupLoading && groups.length > 0 && (
+      {/* Project grouping: Units → Rooms (expandable) */}
+      {petlDisplayMode === "PROJECT_GROUPING" && !groupLoading && unitGroups.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Units</h2>
+          <div
+            style={{
+              borderRadius: 8,
+              backgroundColor: "#ffffff",
+              border: "1px solid #e5e7eb",
+            }}
+          >
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ backgroundColor: "#f9fafb" }}>
+                  <th style={{ textAlign: "left", padding: "8px 12px" }}>Unit / Room</th>
+                  <th style={{ textAlign: "right", padding: "8px 12px" }}>Tasks</th>
+                  <th style={{ textAlign: "right", padding: "8px 12px" }}>Total</th>
+                  <th style={{ textAlign: "right", padding: "8px 12px" }}>Completed</th>
+                  <th style={{ textAlign: "right", padding: "8px 12px" }}>% Complete</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unitGroups
+                  .map((u) => {
+                    const rooms =
+                      roomParticleIdFilters.length > 0
+                        ? (u.rooms ?? []).filter(
+                            (r) => r.particleId && roomParticleIdFilterSet.has(r.particleId),
+                          )
+                        : (u.rooms ?? []);
+
+                    if (rooms.length === 0) return null;
+
+                    const tasks = rooms.reduce((sum, r) => sum + (r.itemsCount ?? 0), 0);
+                    const total = rooms.reduce((sum, r) => sum + (r.totalAmount ?? 0), 0);
+                    const completed = rooms.reduce((sum, r) => sum + (r.completedAmount ?? 0), 0);
+                    const pct = total > 0 ? (completed / total) * 100 : 0;
+
+                    const unitKey = u.unitId ?? "__no_unit__";
+                    const isUnitExpanded = expandedUnits.has(unitKey);
+
+                    return (
+                      <Fragment key={unitKey}>
+                        <tr>
+                          <td
+                            style={{
+                              padding: "6px 12px",
+                              borderTop: "1px solid #e5e7eb",
+                              cursor: "pointer",
+                              fontWeight: 600,
+                            }}
+                            onClick={() => toggleUnitExpanded(u.unitId)}
+                          >
+                            {isUnitExpanded ? "▾ " : "▸ "}
+                            {u.unitLabel || "(No unit)"}
+                            <span style={{ marginLeft: 8, fontWeight: 400, color: "#6b7280" }}>
+                              ({rooms.length} room{rooms.length === 1 ? "" : "s"})
+                            </span>
+                          </td>
+                          <td
+                            style={{
+                              padding: "6px 12px",
+                              borderTop: "1px solid #e5e7eb",
+                              textAlign: "right",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {tasks}
+                          </td>
+                          <td
+                            style={{
+                              padding: "6px 12px",
+                              borderTop: "1px solid #e5e7eb",
+                              textAlign: "right",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {total.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </td>
+                          <td
+                            style={{
+                              padding: "6px 12px",
+                              borderTop: "1px solid #e5e7eb",
+                              textAlign: "right",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {completed.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </td>
+                          <td
+                            style={{
+                              padding: "6px 12px",
+                              borderTop: "1px solid #e5e7eb",
+                              textAlign: "right",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {pct.toFixed(2)}%
+                          </td>
+                        </tr>
+
+                        {isUnitExpanded &&
+                          rooms.map((g) => {
+                            const itemsForRoom = filteredItemsForRoom(g.particleId);
+                            const isExpanded = g.particleId ? expandedRooms.has(g.particleId) : false;
+
+                            return (
+                              <Fragment key={g.particleId ?? String(g.id)}>
+                                <tr>
+                                  <td
+                                    style={{
+                                      padding: "6px 12px",
+                                      paddingLeft: 28,
+                                      borderTop: "1px solid #e5e7eb",
+                                      cursor: g.particleId ? "pointer" : "default",
+                                      color: g.particleId ? "#2563eb" : "inherit",
+                                      textDecoration:
+                                        g.particleId && isExpanded ? "underline" : "none",
+                                    }}
+                                    onClick={() => {
+                                      if (!g.particleId) return;
+                                      toggleRoomExpanded(g.particleId);
+                                    }}
+                                  >
+                                    {isExpanded ? "▾ " : "▸ "}
+                                    {g.roomName}
+                                    {g.particleId && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            void openRoomComponentsPanel(g.particleId, g.roomName);
+                                          }}
+                                          style={{
+                                            marginLeft: 8,
+                                            padding: "2px 6px",
+                                            borderRadius: 999,
+                                            border: "1px solid #0f172a",
+                                            background: "#ffffff",
+                                            fontSize: 11,
+                                            cursor: "pointer",
+                                          }}
+                                        >
+                                          Components
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+
+                                            const breadcrumb =
+                                              (g.particleId &&
+                                                roomBreadcrumbByParticleId.get(g.particleId)) ||
+                                              g.roomName;
+
+                                            setPudlContext({
+                                              open: true,
+                                              buildingId: null,
+                                              unitId: u.unitId ?? null,
+                                              roomParticleId: g.particleId,
+                                              sowItemId: null,
+                                              breadcrumb,
+                                            });
+
+                                            setNewDailyLog((prev) => ({
+                                              ...prev,
+                                              roomParticleId: g.particleId,
+                                            }));
+
+                                            setTab("DAILY_LOGS");
+                                          }}
+                                          style={{
+                                            marginLeft: 6,
+                                            padding: "2px 6px",
+                                            borderRadius: 999,
+                                            border: "1px solid #2563eb",
+                                            background: "#eff6ff",
+                                            fontSize: 11,
+                                            cursor: "pointer",
+                                            color: "#1d4ed8",
+                                          }}
+                                        >
+                                          PUDL
+                                        </button>
+                                      </>
+                                    )}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "6px 12px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      textAlign: "right",
+                                    }}
+                                  >
+                                    {g.itemsCount}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "6px 12px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      textAlign: "right",
+                                    }}
+                                  >
+                                    {g.totalAmount.toLocaleString(undefined, {
+                                      maximumFractionDigits: 2,
+                                    })}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "6px 12px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      textAlign: "right",
+                                    }}
+                                  >
+                                    {g.completedAmount.toLocaleString(undefined, {
+                                      maximumFractionDigits: 2,
+                                    })}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "6px 12px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      textAlign: "right",
+                                    }}
+                                  >
+                                    {g.percentComplete.toFixed(2)}%
+                                  </td>
+                                </tr>
+
+                                {g.particleId && isExpanded && itemsForRoom.length > 0 && (
+                                  <tr>
+                                    <td
+                                      colSpan={5}
+                                      style={{
+                                        padding: "0 12px 8px 12px",
+                                        borderTop: "1px solid #e5e7eb",
+                                        background: "#ffffff",
+                                      }}
+                                    >
+                                      <table
+                                        style={{
+                                          width: "100%",
+                                          borderCollapse: "collapse",
+                                          marginTop: 6,
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        <thead>
+                                          <tr style={{ backgroundColor: "#f8fafc" }}>
+                                            <th style={{ textAlign: "left", padding: "4px 8px" }}>Line</th>
+                                            <th style={{ textAlign: "left", padding: "4px 8px" }}>Task</th>
+                                            <th style={{ textAlign: "right", padding: "4px 8px" }}>Qty</th>
+                                            <th style={{ textAlign: "right", padding: "4px 8px" }}>Unit</th>
+                                            <th style={{ textAlign: "right", padding: "4px 8px" }}>Total</th>
+                                            <th style={{ textAlign: "right", padding: "4px 8px" }}>RCV</th>
+                                            <th style={{ textAlign: "right", padding: "4px 8px" }}>%</th>
+                                            <th style={{ textAlign: "left", padding: "4px 8px" }}>Cat</th>
+                                            <th style={{ textAlign: "left", padding: "4px 8px" }}>Sel</th>
+                                            <th style={{ textAlign: "left", padding: "4px 8px" }}>PUDL</th>
+                                            <th style={{ textAlign: "left", padding: "4px 8px" }}>Recon</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {itemsForRoom
+                                            .filter((it: PetlItem) => matchesFilters(it))
+                                            .map((item: PetlItem) => {
+                                              const flagged = isPetlReconFlagged(item.id);
+                                              const hasRecon = hasReconciliationActivity(item.id);
+                                              const bg = flagged
+                                                ? "#fef3c7"
+                                                : hasRecon
+                                                  ? "#e0f2fe"
+                                                  : "transparent";
+
+                                              return (
+                                                <tr key={item.id} style={{ backgroundColor: bg }}>
+                                                  <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                                    {item.lineNo}
+                                                  </td>
+                                                  <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                                    {item.description}
+                                                  </td>
+                                                  <td
+                                                    style={{
+                                                      padding: "3px 8px",
+                                                      borderTop: "1px solid #e5e7eb",
+                                                      textAlign: "right",
+                                                    }}
+                                                  >
+                                                    {item.qty ?? ""}
+                                                  </td>
+                                                  <td
+                                                    style={{
+                                                      padding: "3px 8px",
+                                                      borderTop: "1px solid #e5e7eb",
+                                                      textAlign: "right",
+                                                    }}
+                                                  >
+                                                    {item.unit ?? ""}
+                                                  </td>
+                                                  <td
+                                                    style={{
+                                                      padding: "3px 8px",
+                                                      borderTop: "1px solid #e5e7eb",
+                                                      textAlign: "right",
+                                                    }}
+                                                  >
+                                                    {(item.itemAmount ?? 0).toLocaleString(undefined, {
+                                                      maximumFractionDigits: 2,
+                                                    })}
+                                                  </td>
+                                                  <td
+                                                    style={{
+                                                      padding: "3px 8px",
+                                                      borderTop: "1px solid #e5e7eb",
+                                                      textAlign: "right",
+                                                    }}
+                                                  >
+                                                    {(item.rcvAmount ?? 0).toLocaleString(undefined, {
+                                                      maximumFractionDigits: 2,
+                                                    })}
+                                                  </td>
+                                                  <td
+                                                    style={{
+                                                      padding: "3px 8px",
+                                                      borderTop: "1px solid #e5e7eb",
+                                                      textAlign: "right",
+                                                    }}
+                                                  >
+                                                    <select
+                                                      value={item.isAcvOnly ? "ACV" : String(item.percentComplete)}
+                                                      onChange={async (e) => {
+                                                        const value = e.target.value;
+                                                        const isAcv = value === "ACV";
+                                                        const percent = isAcv ? 0 : Number(value);
+                                                        if (
+                                                          !isAcv &&
+                                                          (Number.isNaN(percent) || percent < 0 || percent > 100)
+                                                        ) {
+                                                          return;
+                                                        }
+
+                                                        const token = localStorage.getItem("accessToken");
+                                                        if (!token) {
+                                                          alert("Missing access token; please log in again.");
+                                                          return;
+                                                        }
+
+                                                        try {
+                                                          setPetlItems((prev) =>
+                                                            prev.map((it) =>
+                                                              it.id === item.id
+                                                                ? {
+                                                                    ...it,
+                                                                    percentComplete: percent,
+                                                                    isAcvOnly: isAcv,
+                                                                  }
+                                                                : it,
+                                                            ),
+                                                          );
+
+                                                          const res = await fetch(
+                                                            `${API_BASE}/projects/${id}/petl/${item.id}/percent`,
+                                                            {
+                                                              method: "POST",
+                                                              headers: {
+                                                                "Content-Type": "application/json",
+                                                                Authorization: `Bearer ${token}`,
+                                                              },
+                                                              body: JSON.stringify({
+                                                                newPercent: percent,
+                                                                acvOnly: isAcv,
+                                                              }),
+                                                            },
+                                                          );
+                                                          if (!res.ok) {
+                                                            console.error("Per-line update failed", res.status);
+                                                          }
+
+                                                          try {
+                                                            setGroupLoading(true);
+                                                            const groupsRes = await fetch(
+                                                              `${API_BASE}/projects/${id}/petl-groups`,
+                                                              {
+                                                                headers: {
+                                                                  Authorization: `Bearer ${token}`,
+                                                                },
+                                                              },
+                                                            );
+                                                            if (groupsRes.ok) {
+                                                              const json: any = await groupsRes.json();
+                                                              setGroups(Array.isArray(json.groups) ? json.groups : []);
+                                                              setUnitGroups(
+                                                                Array.isArray(json.unitGroups) ? json.unitGroups : [],
+                                                              );
+                                                            }
+                                                          } catch {
+                                                            // non-fatal
+                                                          } finally {
+                                                            setGroupLoading(false);
+                                                          }
+                                                        } catch (err) {
+                                                          console.error(err);
+                                                        }
+                                                      }}
+                                                      style={{
+                                                        width: 70,
+                                                        padding: "2px 4px",
+                                                        borderRadius: 4,
+                                                        border: "1px solid #d1d5db",
+                                                        fontSize: 11,
+                                                      }}
+                                                    >
+                                                      <option value="0">0%</option>
+                                                      <option value="10">10%</option>
+                                                      <option value="20">20%</option>
+                                                      <option value="30">30%</option>
+                                                      <option value="40">40%</option>
+                                                      <option value="50">50%</option>
+                                                      <option value="60">60%</option>
+                                                      <option value="70">70%</option>
+                                                      <option value="80">80%</option>
+                                                      <option value="90">90%</option>
+                                                      <option value="100">100%</option>
+                                                      <option value="ACV">ACV only</option>
+                                                    </select>
+                                                  </td>
+                                                  <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                                    {item.categoryCode ?? ""}
+                                                  </td>
+                                                  <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                                    {item.selectionCode ?? ""}
+                                                  </td>
+                                                  <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                                    <button
+                                                      type="button"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        const sowLabel = item.description || `Line ${item.lineNo}`;
+                                                        const parts: string[] = [];
+                                                        parts.push(g.roomName);
+                                                        parts.push(`SOW: ${sowLabel}`);
+                                                        const breadcrumb = parts.filter(Boolean).join(" · ");
+
+                                                        setPudlContext({
+                                                          open: true,
+                                                          buildingId: null,
+                                                          unitId: u.unitId ?? null,
+                                                          roomParticleId: g.particleId ?? null,
+                                                          sowItemId: item.id,
+                                                          breadcrumb,
+                                                        });
+
+                                                        setNewDailyLog((prev) => ({
+                                                          ...prev,
+                                                          roomParticleId: g.particleId ?? prev.roomParticleId,
+                                                          sowItemId: item.id,
+                                                        }));
+
+                                                        setTab("DAILY_LOGS");
+                                                      }}
+                                                      style={{
+                                                        padding: "2px 6px",
+                                                        borderRadius: 999,
+                                                        border: "1px solid #2563eb",
+                                                        background: "#eff6ff",
+                                                        fontSize: 11,
+                                                        cursor: "pointer",
+                                                        color: "#1d4ed8",
+                                                      }}
+                                                    >
+                                                      PUDL
+                                                    </button>
+                                                  </td>
+                                                  <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          const flagged2 = isPetlReconFlagged(item.id);
+                                                          petlTransitionOverlayLabelRef.current = flagged2
+                                                            ? "Removing flag…"
+                                                            : "Flagging for review…";
+                                                          busyOverlay.setMessage(
+                                                            petlTransitionOverlayLabelRef.current,
+                                                          );
+                                                          startPetlTransition(() => togglePetlReconFlag(item.id));
+                                                        }}
+                                                        style={{
+                                                          padding: "2px 6px",
+                                                          borderRadius: 999,
+                                                          border: flagged
+                                                            ? "1px solid #b45309"
+                                                            : "1px solid #d1d5db",
+                                                          background: flagged ? "#fffbeb" : "#ffffff",
+                                                          fontSize: 11,
+                                                          cursor: "pointer",
+                                                          color: flagged ? "#92400e" : "#374151",
+                                                        }}
+                                                      >
+                                                        {flagged ? "Needs review" : "Flag"}
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          void openPetlReconciliation(item.id);
+                                                        }}
+                                                        style={{
+                                                          padding: "2px 6px",
+                                                          borderRadius: 999,
+                                                          border: hasRecon
+                                                            ? "1px solid #0284c7"
+                                                            : "1px solid #d1d5db",
+                                                          background: hasRecon ? "#e0f2fe" : "#ffffff",
+                                                          fontSize: 11,
+                                                          cursor: "pointer",
+                                                          color: hasRecon ? "#075985" : "#374151",
+                                                        }}
+                                                      >
+                                                        Recon
+                                                      </button>
+                                                    </div>
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })}
+                                        </tbody>
+                                      </table>
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
+                            );
+                          })}
+                      </Fragment>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Fallback: room-only grouping (older API) */}
+      {petlDisplayMode === "PROJECT_GROUPING" && !groupLoading && unitGroups.length === 0 && groups.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Rooms / Zones</h2>
           <div
@@ -7432,7 +14076,7 @@ export default function ProjectDetailPage({
                 ).map((g) => {
                   const itemsForRoom = filteredItemsForRoom(g.particleId);
                   const isExpanded = g.particleId ? expandedRooms.has(g.particleId) : false;
- 
+
                   return (
                     <Fragment key={g.particleId ?? String(g.id)}>
                       <tr>
@@ -7452,452 +14096,88 @@ export default function ProjectDetailPage({
                         >
                           {isExpanded ? "▾ " : "▸ "}
                           {g.roomName}
-                          {g.particleId && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  void openRoomComponentsPanel(g.particleId, g.roomName);
-                                }}
-                                style={{
-                                  marginLeft: 8,
-                                  padding: "2px 6px",
-                                  borderRadius: 999,
-                                  border: "1px solid #0f172a",
-                                  background: "#ffffff",
-                                  fontSize: 11,
-                                  cursor: "pointer",
-                                }}
-                              >
-                                Components
-                              </button>
-                              <button
-                                type="button"
-                                onClick={e => {
-                                  e.stopPropagation();
-
-                                  const breadcrumb =
-                                    (g.particleId && roomBreadcrumbByParticleId.get(g.particleId)) ||
-                                    g.roomName;
-
-                                  setPudlContext({
-                                    open: true,
-                                    buildingId: null,
-                                    unitId: null,
-                                    roomParticleId: g.particleId,
-                                    sowItemId: null,
-                                    breadcrumb,
-                                  });
-
-                                  setNewDailyLog(prev => ({
-                                    ...prev,
-                                    roomParticleId: g.particleId,
-                                  }));
-
-                                  setActiveTab("DAILY_LOGS");
-                                }}
-                                style={{
-                                  marginLeft: 6,
-                                  padding: "2px 6px",
-                                  borderRadius: 999,
-                                  border: "1px solid #2563eb",
-                                  background: "#eff6ff",
-                                  fontSize: 11,
-                                  cursor: "pointer",
-                                  color: "#1d4ed8",
-                                }}
-                              >
-                                PUDL
-                              </button>
-                            </>
-                          )}
                         </td>
-                        <td
-                          style={{
-                            padding: "6px 12px",
-                            borderTop: "1px solid #e5e7eb",
-                            textAlign: "right",
-                          }}
-                        >
+                        <td style={{ padding: "6px 12px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
                           {g.itemsCount}
                         </td>
-                        <td
-                          style={{
-                            padding: "6px 12px",
-                            borderTop: "1px solid #e5e7eb",
-                            textAlign: "right",
-                          }}
-                        >
-                          {g.totalAmount.toLocaleString(undefined, {
-                            maximumFractionDigits: 2,
-                          })}
+                        <td style={{ padding: "6px 12px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                          {g.totalAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </td>
-                        <td
-                          style={{
-                            padding: "6px 12px",
-                            borderTop: "1px solid #e5e7eb",
-                            textAlign: "right",
-                          }}
-                        >
-                          {g.completedAmount.toLocaleString(undefined, {
-                            maximumFractionDigits: 2,
-                          })}
+                        <td style={{ padding: "6px 12px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                          {g.completedAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </td>
-                        <td
-                          style={{
-                            padding: "6px 12px",
-                            borderTop: "1px solid #e5e7eb",
-                            textAlign: "right",
-                          }}
-                        >
+                        <td style={{ padding: "6px 12px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
                           {g.percentComplete.toFixed(2)}%
                         </td>
                       </tr>
 
-                      {isExpanded && itemsForRoom.length > 0 && (
-                        <tr key={`items-${g.particleId ?? String(g.id)}`}>
+                      {g.particleId && isExpanded && itemsForRoom.length > 0 && (
+                        <tr>
                           <td
                             colSpan={5}
                             style={{
-                              padding: 0,
-                              borderTop: "none",
-                              backgroundColor: "#f9fafb",
+                              padding: "0 12px 8px 12px",
+                              borderTop: "1px solid #e5e7eb",
+                              background: "#ffffff",
                             }}
                           >
-                            <div style={{ maxHeight: 260, overflow: "auto" }}>
-                              <table
-                                style={{
-                                  width: "100%",
-                                  borderCollapse: "collapse",
-                                  fontSize: 12,
-                                }}
-                              >
-                                <thead>
-                                  <tr style={{ backgroundColor: "#e5e7eb" }}>
-                                    <th style={{ textAlign: "left", padding: "4px 8px" }}>
-                                      Line
-                                    </th>
-                                    <th style={{ textAlign: "left", padding: "4px 8px" }}>
-                                      Task
-                                    </th>
-                                    <th style={{ textAlign: "right", padding: "4px 8px" }}>
-                                      Qty
-                                    </th>
-                                    <th style={{ textAlign: "right", padding: "4px 8px" }}>
-                                      Total
-                                    </th>
-                                    <th style={{ textAlign: "right", padding: "4px 8px" }}>
-                                      %
-                                    </th>
-                                    <th style={{ textAlign: "left", padding: "4px 8px" }}>
-                                      Cat
-                                    </th>
-                                    <th style={{ textAlign: "left", padding: "4px 8px" }}>
-                                      Sel
-                                    </th>
-                                    <th style={{ textAlign: "left", padding: "4px 8px" }}>
-                                      PUDL
-                                    </th>
-                                    <th style={{ textAlign: "left", padding: "4px 8px" }}>
-                                      Recon
-                                    </th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {itemsForRoom.map(item => {
-                                      const flagged = isPetlReconFlagged(item.id);
-                                      const hasRecon = hasReconciliationActivity(item.id);
-                                      const bg = flagged
-                                        ? "#fef3c7"
-                                        : hasRecon
-                                          ? "#e0f2fe"
-                                          : "transparent";
-                                      return (
-                                    <tr
-                                      key={item.id}
-                                      style={{ backgroundColor: bg }}
-                                    >
-                                      <td
-                                        style={{
-                                          padding: "3px 8px",
-                                          borderTop: "1px solid #e5e7eb",
-                                        }}
-                                      >
+                            <table
+                              style={{
+                                width: "100%",
+                                borderCollapse: "collapse",
+                                marginTop: 6,
+                                fontSize: 11,
+                              }}
+                            >
+                              <thead>
+                                <tr style={{ backgroundColor: "#f8fafc" }}>
+                                  <th style={{ textAlign: "left", padding: "4px 8px" }}>Line</th>
+                                  <th style={{ textAlign: "left", padding: "4px 8px" }}>Task</th>
+                                  <th style={{ textAlign: "right", padding: "4px 8px" }}>Qty</th>
+                                  <th style={{ textAlign: "right", padding: "4px 8px" }}>Unit</th>
+                                  <th style={{ textAlign: "right", padding: "4px 8px" }}>Total</th>
+                                  <th style={{ textAlign: "right", padding: "4px 8px" }}>RCV</th>
+                                  <th style={{ textAlign: "right", padding: "4px 8px" }}>%</th>
+                                  <th style={{ textAlign: "left", padding: "4px 8px" }}>Cat</th>
+                                  <th style={{ textAlign: "left", padding: "4px 8px" }}>Sel</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {itemsForRoom
+                                  .filter((it: PetlItem) => matchesFilters(it))
+                                  .map((item: PetlItem) => (
+                                    <tr key={item.id}>
+                                      <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
                                         {item.lineNo}
                                       </td>
-                                      <td
-                                        style={{
-                                          padding: "3px 8px",
-                                          borderTop: "1px solid #e5e7eb",
-                                        }}
-                                      >
+                                      <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
                                         {item.description}
                                       </td>
-                                      <td
-                                        style={{
-                                          padding: "3px 8px",
-                                          borderTop: "1px solid #e5e7eb",
-                                          textAlign: "right",
-                                        }}
-                                      >
+                                      <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
                                         {item.qty ?? ""}
                                       </td>
-                                      <td
-                                        style={{
-                                          padding: "3px 8px",
-                                          borderTop: "1px solid #e5e7eb",
-                                          textAlign: "right",
-                                        }}
-                                      >
-                                        {item.itemAmount != null
-                                          ? item.itemAmount.toLocaleString(
-                                              undefined,
-                                              { maximumFractionDigits: 2 },
-                                            )
-                                          : ""}
+                                      <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                        {item.unit ?? ""}
                                       </td>
-                                      <td
-                                        style={{
-                                          padding: "3px 8px",
-                                          borderTop: "1px solid #e5e7eb",
-                                          textAlign: "right",
-                                        }}
-                                      >
-                                        <select
-                                          value={item.isAcvOnly ? "ACV" : String(item.percentComplete)}
-                                          onChange={async (e) => {
-                                            const value = e.target.value;
-                                            const isAcv = value === "ACV";
-                                            const percent = isAcv ? 0 : Number(value);
-                                            if (
-                                              !isAcv &&
-                                              (Number.isNaN(percent) || percent < 0 || percent > 100)
-                                            ) {
-                                              return;
-                                            }
-
-                                            const token = localStorage.getItem("accessToken");
-                                            if (!token) {
-                                              alert("Missing access token; please log in again.");
-                                              return;
-                                            }
-
-                                            try {
-                                              setPetlItems(prev =>
-                                                prev.map(it =>
-                                                  it.id === item.id
-                                                    ? {
-                                                        ...it,
-                                                        percentComplete: percent,
-                                                        isAcvOnly: isAcv,
-                                                      }
-                                                    : it,
-                                                ),
-                                              );
-
-                                              const res = await fetch(
-                                                `${API_BASE}/projects/${id}/petl/${item.id}/percent`,
-                                                {
-                                                  method: "POST",
-                                                  headers: {
-                                                    "Content-Type":
-                                                      "application/json",
-                                                    Authorization: `Bearer ${token}`,
-                                                  },
-                                                  body: JSON.stringify({
-                                                    newPercent: percent,
-                                                    acvOnly: isAcv,
-                                                  }),
-                                                },
-                                              );
-                                              if (!res.ok) {
-                                                console.error(
-                                                  "Per-line update failed",
-                                                  res.status,
-                                                );
-                                              }
-
-                                              // After a single-line edit, refresh PETL and room groups from
-                                              // the server so the Rooms/Zones summary and selection
-                                              // percentages stay in sync with persisted values.
-                                              try {
-                                                const petlRes = await fetch(
-                                                  `${API_BASE}/projects/${id}/petl`,
-                                                  {
-                                                    headers: { Authorization: `Bearer ${token}` },
-                                                  },
-                                                );
-                                                if (petlRes.ok) {
-                                                  const petl: any = await petlRes.json();
-                                                  const items: PetlItem[] = Array.isArray(petl.items)
-                                                    ? petl.items
-                                                    : [];
-                                                  setPetlItems(items);
-                                                }
-                                              } catch {
-                                                // non-fatal
-                                              }
-
-                                              try {
-                                                setGroupLoading(true);
-                                                const groupsRes = await fetch(
-                                                  `${API_BASE}/projects/${id}/petl-groups`,
-                                                  {
-                                                    headers: { Authorization: `Bearer ${token}` },
-                                                  },
-                                                );
-                                                if (groupsRes.ok) {
-                                                  const json: any = await groupsRes.json();
-                                                  setGroups(Array.isArray(json.groups) ? json.groups : []);
-                                                }
-                                              } catch {
-                                                // non-fatal
-                                              } finally {
-                                                setGroupLoading(false);
-                                              }
-                                            } catch (err) {
-                                              console.error(err);
-                                            }
-                                          }}
-                                          style={{
-                                            width: 70,
-                                            padding: "2px 4px",
-                                            borderRadius: 4,
-                                            border: "1px solid #d1d5db",
-                                            fontSize: 11,
-                                          }}
-                                        >
-                                          <option value="0">0%</option>
-                                          <option value="10">10%</option>
-                                          <option value="20">20%</option>
-                                          <option value="30">30%</option>
-                                          <option value="40">40%</option>
-                                          <option value="50">50%</option>
-                                          <option value="60">60%</option>
-                                          <option value="70">70%</option>
-                                          <option value="80">80%</option>
-                                          <option value="90">90%</option>
-                                          <option value="100">100%</option>
-                                          <option value="ACV">ACV only</option>
-                                        </select>
+                                      <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                        {(item.itemAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                                       </td>
-                                      <td
-                                        style={{
-                                          padding: "3px 8px",
-                                          borderTop: "1px solid #e5e7eb",
-                                        }}
-                                      >
+                                      <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                        {(item.rcvAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                      </td>
+                                      <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                        {item.percentComplete}
+                                      </td>
+                                      <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
                                         {item.categoryCode ?? ""}
                                       </td>
-                                      <td
-                                        style={{
-                                          padding: "3px 8px",
-                                          borderTop: "1px solid #e5e7eb",
-                                        }}
-                                      >
+                                      <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
                                         {item.selectionCode ?? ""}
                                       </td>
-                                      <td
-                                        style={{
-                                          padding: "3px 8px",
-                                          borderTop: "1px solid #e5e7eb",
-                                        }}
-                                      >
-                                        <button
-                                          type="button"
-                                          onClick={e => {
-                                            e.stopPropagation();
-                                            // Build a PUDL scoped to this SOW line + room
-                                            const sowLabel = item.description || `Line ${item.lineNo}`;
-                                            const parts: string[] = [];
-                                            parts.push(g.roomName);
-                                            parts.push(`SOW: ${sowLabel}`);
-                                            const breadcrumb = parts.filter(Boolean).join(" · ");
-
-                                            setPudlContext({
-                                              open: true,
-                                              buildingId: null,
-                                              unitId: null,
-                                              roomParticleId: g.particleId ?? null,
-                                              sowItemId: item.id,
-                                              breadcrumb,
-                                            });
-
-                                            setNewDailyLog(prev => ({
-                                              ...prev,
-                                              roomParticleId: g.particleId ?? prev.roomParticleId,
-                                              sowItemId: item.id,
-                                            }));
-
-                                            setActiveTab("DAILY_LOGS");
-                                          }}
-                                          style={{
-                                            padding: "2px 6px",
-                                            borderRadius: 999,
-                                            border: "1px solid #2563eb",
-                                            background: "#eff6ff",
-                                            fontSize: 11,
-                                            cursor: "pointer",
-                                            color: "#1d4ed8",
-                                          }}
-                                        >
-                                          PUDL
-                                        </button>
-                                      </td>
-                                      <td
-                                        style={{
-                                          padding: "3px 8px",
-                                          borderTop: "1px solid #e5e7eb",
-                                        }}
-                                      >
-                                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                                          <button
-                                            type="button"
-                                            onClick={e => {
-                                              e.stopPropagation();
-                                              togglePetlReconFlag(item.id);
-                                            }}
-                                            style={{
-                                              padding: "2px 6px",
-                                              borderRadius: 999,
-                                              border: flagged
-                                                ? "1px solid #b45309"
-                                                : "1px solid #d1d5db",
-                                              background: flagged ? "#fffbeb" : "#ffffff",
-                                              fontSize: 11,
-                                              cursor: "pointer",
-                                              color: flagged ? "#92400e" : "#374151",
-                                            }}
-                                          >
-                                            {flagged ? "Needs review" : "Flag"}
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={e => {
-                                              e.stopPropagation();
-                                              openPetlReconciliation(item.id);
-                                            }}
-                                            style={{
-                                              padding: "2px 6px",
-                                              borderRadius: 999,
-                                              border: "1px solid #2563eb",
-                                              background: "#eff6ff",
-                                              fontSize: 11,
-                                              cursor: "pointer",
-                                              color: "#1d4ed8",
-                                            }}
-                                          >
-                                            Reconcile
-                                          </button>
-                                        </div>
-                                      </td>
                                     </tr>
-                                      );
-                                    })}
-                                </tbody>
-                              </table>
-                            </div>
+                                  ))}
+                              </tbody>
+                            </table>
                           </td>
                         </tr>
                       )}
@@ -7909,6 +14189,8 @@ export default function ProjectDetailPage({
           </div>
         </div>
       )}
+
+      {petlLineSequenceTable}
 
       {/* Room components side drawer */}
       {roomComponentsPanel.open ? (
@@ -8204,6 +14486,30 @@ export default function ProjectDetailPage({
                   </div>
 
                   <div>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Tag</div>
+                    <select
+                      value={reconEntryTag}
+                      onChange={e => setReconEntryTag(e.target.value as ReconEntryTag)}
+                      style={{
+                        padding: "6px 8px",
+                        borderRadius: 8,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                        width: "100%",
+                      }}
+                    >
+                      <option value="">—</option>
+                      <option value="SUPPLEMENT">Supplement</option>
+                      <option value="CHANGE_ORDER">Change order</option>
+                      <option value="OTHER">Other</option>
+                      <option value="WARRANTY">Warranty</option>
+                    </select>
+                    <div style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
+                      Applied to new entries created below (you can edit tags later).
+                    </div>
+                  </div>
+
+                  <div>
                     <div style={{ fontWeight: 600, marginBottom: 6 }}>Create credit</div>
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
                       {(
@@ -8286,8 +14592,9 @@ export default function ProjectDetailPage({
                       <button
                         type="button"
                         onClick={() => {
-                          setCostBookModalOpen(true);
-                          void runCostBookSearch("auto");
+                          petlTransitionOverlayLabelRef.current = "Opening cost book…";
+                          busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+                          startPetlTransition(() => setCostBookModalOpen(true));
                         }}
                         style={{
                           padding: "6px 10px",
@@ -8305,405 +14612,57 @@ export default function ProjectDetailPage({
                         Pre-filtered to current CAT; current CAT/SEL line is highlighted.
                       </div>
                     </div>
-
                     {costBookModalOpen && (
-                      <div
-                        style={{
-                          position: "fixed",
-                          inset: 0,
-                          zIndex: 60,
-                          background: "rgba(15,23,42,0.45)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          padding: 16,
+                      <CostBookPickerModal
+                        title="Cost Book"
+                        subtitle={(() => {
+                          const cat = String(petlReconPanel.data?.sowItem?.categoryCode ?? "").trim();
+                          const sel = String(petlReconPanel.data?.sowItem?.selectionCode ?? "").trim();
+                          const desc = String(petlReconPanel.data?.sowItem?.description ?? "").trim();
+                          const head = cat || sel ? `Baseline: ${cat}${sel ? `/${sel}` : ""}` : "Baseline";
+                          return desc ? `${head} — ${desc}` : head;
+                        })()}
+                        initialCats={(() => {
+                          const cat = String(petlReconPanel.data?.sowItem?.categoryCode ?? "").trim();
+                          return cat ? [cat] : [];
+                        })()}
+                        defaultQty={(() => {
+                          const q = petlReconPanel.data?.rcvBreakdown?.qty;
+                          return typeof q === "number" && Number.isFinite(q) && q > 0 ? q : 1;
+                        })()}
+                        confirmLabel={petlCostBookPickerBusy ? "Adding…" : "Add selected"}
+                        confirmDisabled={petlCostBookPickerBusy}
+                        onConfirm={async (selection) => {
+                          if (petlCostBookPickerBusy) return;
+                          if (selection.length === 0) {
+                            alert("Select a cost book line item first.");
+                            return;
+                          }
+                          if (selection.length > 1) {
+                            alert("For PETL reconciliation, please select exactly one line item.");
+                            return;
+                          }
+
+                          const first = selection[0];
+                          setPetlCostBookPickerBusy(true);
+                          try {
+                            const ok = await submitAddFromCostBook(first.item.id, first.qty);
+                            if (ok) {
+                              petlTransitionOverlayLabelRef.current = "Closing cost book…";
+                              busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+                              startPetlTransition(() => setCostBookModalOpen(false));
+                            }
+                          } finally {
+                            setPetlCostBookPickerBusy(false);
+                          }
                         }}
-                        onClick={() => setCostBookModalOpen(false)}
-                      >
-                        <div
-                          style={{
-                            width: "min(1300px, 98vw)",
-                            height: "92vh",
-                            maxHeight: "92vh",
-                            overflow: "hidden",
-                            background: "#ffffff",
-                            borderRadius: 12,
-                            border: "1px solid #e5e7eb",
-                            boxShadow: "0 12px 32px rgba(15,23,42,0.25)",
-                            display: "flex",
-                            flexDirection: "column",
-                          }}
-                          onClick={e => e.stopPropagation()}
-                        >
-                          <div
-                            style={{
-                              padding: "10px 12px",
-                              borderBottom: "1px solid #e5e7eb",
-                              background: "#f3f4f6",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              gap: 12,
-                            }}
-                          >
-                            <div>
-                              <div style={{ fontSize: 14, fontWeight: 700 }}>Cost Book</div>
-                              <div style={{ fontSize: 11, color: "#6b7280" }}>
-                                Select a replacement line item for this reconciliation.
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setCostBookModalOpen(false)}
-                              style={{
-                                border: "none",
-                                background: "transparent",
-                                cursor: "pointer",
-                                fontSize: 18,
-                                lineHeight: 1,
-                              }}
-                              aria-label="Close cost book modal"
-                            >
-                              ×
-                            </button>
-                          </div>
-
-                          <div
-                            style={{
-                              padding: 12,
-                              overflow: "hidden",
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: 12,
-                              flex: 1,
-                            }}
-                          >
-                            <div
-                              style={{
-                                border: "1px solid #e5e7eb",
-                                borderRadius: 10,
-                                padding: 10,
-                                background: "#f9fafb",
-                                marginBottom: 12,
-                              }}
-                            >
-                              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
-                                Current line (baseline)
-                              </div>
-                              <div
-                                style={{
-                                  display: "grid",
-                                  gridTemplateColumns: "90px 1fr 90px 1fr",
-                                  gap: 8,
-                                  fontSize: 12,
-                                }}
-                              >
-                                <div style={{ color: "#6b7280" }}>CAT</div>
-                                <div style={{ fontWeight: 600 }}>
-                                  {petlReconPanel.data?.sowItem?.categoryCode ?? ""}
-                                </div>
-                                <div style={{ color: "#6b7280" }}>SEL</div>
-                                <div style={{ fontWeight: 600 }}>
-                                  {petlReconPanel.data?.sowItem?.selectionCode ?? ""}
-                                </div>
-                                <div style={{ color: "#6b7280" }}>Description</div>
-                                <div style={{ gridColumn: "span 3", fontWeight: 600 }}>
-                                  {petlReconPanel.data?.sowItem?.description ?? ""}
-                                </div>
-                                <div style={{ color: "#6b7280" }}>Qty</div>
-                                <div style={{ fontWeight: 600 }}>
-                                  {petlReconPanel.data?.rcvBreakdown?.qty ?? ""}
-                                </div>
-                                <div style={{ color: "#6b7280" }}>Unit Cost</div>
-                                <div style={{ fontWeight: 600 }}>
-                                  {petlReconPanel.data?.rcvBreakdown?.unitCost ?? ""}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "200px 200px 1fr 110px 110px",
-                                gap: 8,
-                                alignItems: "end",
-                                marginBottom: 10,
-                              }}
-                            >
-                              <div>
-                                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
-                                  CAT
-                                </div>
-                                <input
-                                  value={costBookCatFilter}
-                                  onChange={e => setCostBookCatFilter(e.target.value)}
-                                  placeholder="(any)"
-                                  list="costbook-cat-options"
-                                  style={{
-                                    width: "100%",
-                                    padding: "6px 8px",
-                                    borderRadius: 8,
-                                    border: "1px solid #d1d5db",
-                                    fontSize: 12,
-                                  }}
-                                />
-                              </div>
-                              <div>
-                                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
-                                  SEL
-                                </div>
-                                <input
-                                  value={costBookSelFilter}
-                                  onChange={e => setCostBookSelFilter(e.target.value)}
-                                  placeholder="(any)"
-                                  list="costbook-sel-options"
-                                  style={{
-                                    width: "100%",
-                                    padding: "6px 8px",
-                                    borderRadius: 8,
-                                    border: "1px solid #d1d5db",
-                                    fontSize: 12,
-                                  }}
-                                />
-                              </div>
-                              <div>
-                                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
-                                  Description
-                                </div>
-                                <input
-                                  value={costBookQuery}
-                                  onChange={e => setCostBookQuery(e.target.value)}
-                                  placeholder="Search description"
-                                  list="costbook-desc-options"
-                                  style={{
-                                    width: "100%",
-                                    padding: "6px 8px",
-                                    borderRadius: 8,
-                                    border: "1px solid #d1d5db",
-                                    fontSize: 12,
-                                  }}
-                                />
-                              </div>
-                              <div>
-                                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
-                                  Qty
-                                </div>
-                                <input
-                                  value={costBookQty}
-                                  onChange={e => setCostBookQty(e.target.value)}
-                                  style={{
-                                    width: "100%",
-                                    padding: "6px 8px",
-                                    borderRadius: 8,
-                                    border: "1px solid #d1d5db",
-                                    fontSize: 12,
-                                  }}
-                                />
-                              </div>
-                              <div style={{ display: "flex", gap: 8 }}>
-                                <button
-                                  type="button"
-                                  onClick={() => void runCostBookSearch("user")}
-                                  disabled={costBookSearching}
-                                  style={{
-                                    flex: 1,
-                                    padding: "6px 10px",
-                                    borderRadius: 8,
-                                    border: "1px solid #d1d5db",
-                                    background: "#ffffff",
-                                    cursor: costBookSearching ? "default" : "pointer",
-                                    fontSize: 12,
-                                    opacity: costBookSearching ? 0.7 : 1,
-                                  }}
-                                >
-                                  {costBookSearching ? "Searching..." : "Search"}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const baselineCat = (petlReconPanel.data?.sowItem?.categoryCode ?? "").trim();
-                                    setCostBookCatFilter(baselineCat);
-                                    setCostBookSelFilter("");
-                                    setCostBookQuery("");
-                                    void runCostBookSearch("auto");
-                                  }}
-                                  style={{
-                                    padding: "6px 10px",
-                                    borderRadius: 8,
-                                    border: "1px solid #d1d5db",
-                                    background: "#ffffff",
-                                    cursor: "pointer",
-                                    fontSize: 12,
-                                  }}
-                                >
-                                  Reset
-                                </button>
-                              </div>
-                            </div>
-
-                            <datalist id="costbook-cat-options">
-                              {Array.from(
-                                new Set(
-                                  [
-                                    petlReconPanel.data?.sowItem?.categoryCode,
-                                    ...costBookResults.map((r: any) => r?.cat),
-                                  ]
-                                    .map(v => String(v ?? "").trim())
-                                    .filter(Boolean)
-                                )
-                              )
-                                .sort()
-                                .slice(0, 250)
-                                .map(v => (
-                                  <option key={v} value={v} />
-                                ))}
-                            </datalist>
-                            <datalist id="costbook-sel-options">
-                              {Array.from(
-                                new Set(
-                                  [
-                                    petlReconPanel.data?.sowItem?.selectionCode,
-                                    ...costBookResults.map((r: any) => r?.sel),
-                                  ]
-                                    .map(v => String(v ?? "").trim())
-                                    .filter(Boolean)
-                                )
-                              )
-                                .sort()
-                                .slice(0, 250)
-                                .map(v => (
-                                  <option key={v} value={v} />
-                                ))}
-                            </datalist>
-                            <datalist id="costbook-desc-options">
-                              {Array.from(
-                                new Set(
-                                  [
-                                    petlReconPanel.data?.sowItem?.description,
-                                    ...costBookResults.map((r: any) => r?.description),
-                                  ]
-                                    .map(v => String(v ?? "").trim())
-                                    .filter(Boolean)
-                                )
-                              )
-                                .slice(0, 50)
-                                .map(v => (
-                                  <option key={v} value={v} />
-                                ))}
-                            </datalist>
-
-                            {costBookSearchError && (
-                              <div style={{ marginBottom: 10, color: "#b91c1c", fontSize: 12 }}>
-                                {costBookSearchError}
-                              </div>
-                            )}
-
-                            {!costBookSearching && costBookResults.length === 0 && !costBookSearchError && (
-                              <div style={{ marginBottom: 10, color: "#6b7280", fontSize: 12 }}>
-                                No results yet — click Search.
-                              </div>
-                            )}
-
-                            <div
-                              style={{
-                                border: "1px solid #e5e7eb",
-                                borderRadius: 10,
-                                overflow: "auto",
-                                flex: 1,
-                                minHeight: 420,
-
-                                // Add a right-side buffer so the scrollbar doesn't cover
-                                // the last column controls (macOS overlay scrollbars).
-                                paddingRight: 18,
-                                paddingBottom: 6,
-                              }}
-                            >
-                              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                                <thead>
-                                  <tr style={{ background: "#f9fafb" }}>
-                                    <th style={{ textAlign: "left", padding: "8px 10px" }}>Cat</th>
-                                    <th style={{ textAlign: "left", padding: "8px 10px" }}>Sel</th>
-                                    <th style={{ textAlign: "left", padding: "8px 10px" }}>Description</th>
-                                    <th style={{ textAlign: "right", padding: "8px 10px" }}>Unit</th>
-                                    <th style={{ textAlign: "right", padding: "8px 10px" }}>Unit Price</th>
-                                    <th style={{ textAlign: "right", padding: "8px 10px" }}>Line Total</th>
-                                    <th style={{ textAlign: "right", padding: "8px 10px" }} />
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {costBookResults.map((r: any) => {
-                                    const baselineCat = normalizeCatCode(
-                                      petlReconPanel.data?.sowItem?.categoryCode ?? "",
-                                    )
-                                      .trim()
-                                      .toUpperCase();
-                                    const baselineSel = normalizeSelCode(
-                                      petlReconPanel.data?.sowItem?.selectionCode ?? "",
-                                    )
-                                      .trim()
-                                      .toUpperCase();
-                                    const cat = normalizeCatCode(r?.cat ?? "").trim().toUpperCase();
-                                    const sel = normalizeSelCode(r?.sel ?? "").trim().toUpperCase();
-                                    const isMatch = baselineCat && baselineSel && cat === baselineCat && sel === baselineSel;
-
-                                    const qty = Number(costBookQty);
-                                    const unitPrice = Number(r?.unitPrice ?? 0);
-                                    const lineTotal = !Number.isNaN(qty) ? qty * unitPrice : 0;
-
-                                    return (
-                                      <tr
-                                        key={r.id}
-                                        id={`costbook-row-${r.id}`}
-                                        style={{
-                                          background: isMatch ? "#dcfce7" : "transparent",
-                                        }}
-                                      >
-                                        <td style={{ padding: "8px 10px", borderTop: "1px solid #e5e7eb" }}>
-                                          {r.cat ?? ""}
-                                        </td>
-                                        <td style={{ padding: "8px 10px", borderTop: "1px solid #e5e7eb" }}>
-                                          {r.sel ?? ""}
-                                        </td>
-                                        <td style={{ padding: "8px 10px", borderTop: "1px solid #e5e7eb" }}>
-                                          {r.description ?? ""}
-                                        </td>
-                                        <td style={{ padding: "8px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
-                                          {r.unit ?? ""}
-                                        </td>
-                                        <td style={{ padding: "8px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
-                                          {(r.unitPrice ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                                        </td>
-                                        <td style={{ padding: "8px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
-                                          {lineTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                                        </td>
-                                        <td style={{ padding: "8px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              void submitAddFromCostBook(r.id);
-                                            }}
-                                            style={{
-                                              padding: "6px 10px",
-                                              borderRadius: 8,
-                                              border: "1px solid #2563eb",
-                                              background: "#eff6ff",
-                                              cursor: "pointer",
-                                              fontSize: 12,
-                                              color: "#1d4ed8",
-                                            }}
-                                          >
-                                            Select
-                                          </button>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                        onClose={() => {
+                          if (petlCostBookPickerBusy) return;
+                          petlTransitionOverlayLabelRef.current = "Closing cost book…";
+                          busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+                          startPetlTransition(() => setCostBookModalOpen(false));
+                        }}
+                      />
                     )}
                   </div>
 
@@ -8722,76 +14681,166 @@ export default function ProjectDetailPage({
                         <table style={{ width: "100%", borderCollapse: "collapse" }}>
                           <thead>
                             <tr style={{ background: "#f9fafb" }}>
+                              <th style={{ textAlign: "left", padding: "6px 8px", width: 70 }}>Line</th>
                               <th style={{ textAlign: "left", padding: "6px 8px" }}>Kind</th>
+                              <th style={{ textAlign: "left", padding: "6px 8px" }}>Tag</th>
                               <th style={{ textAlign: "right", padding: "6px 8px" }}>RCV</th>
                               <th style={{ textAlign: "right", padding: "6px 8px" }}>%</th>
                               <th style={{ textAlign: "left", padding: "6px 8px" }}>Note</th>
+                              <th style={{ textAlign: "right", padding: "6px 8px" }}>Edit</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {(petlReconPanel.data.reconciliationCase?.entries || []).map((e: any) => {
-                              const pct = e.isPercentCompleteLocked ? 0 : (e.percentComplete ?? 0);
-                              return (
-                                <tr key={e.id}>
-                                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                    {e.kind}
-                                  </td>
-                                  <td
-                                    style={{
-                                      padding: "6px 8px",
-                                      borderTop: "1px solid #e5e7eb",
-                                      textAlign: "right",
-                                    }}
-                                  >
-                                    {(e.rcvAmount ?? 0).toLocaleString(undefined, {
-                                      maximumFractionDigits: 2,
-                                    })}
-                                  </td>
-                                  <td
-                                    style={{
-                                      padding: "6px 8px",
-                                      borderTop: "1px solid #e5e7eb",
-                                      textAlign: "right",
-                                    }}
-                                  >
-                                    {e.isPercentCompleteLocked ? (
-                                      "—"
-                                    ) : (
-                                      <select
-                                        value={String(pct)}
-                                        onChange={(ev) => {
-                                          const next = Number(ev.target.value);
-                                          if (Number.isNaN(next)) return;
-                                          void submitReconEntryPercent(e.id, next);
-                                        }}
+                            {(() => {
+                              const entries = (petlReconPanel.data.reconciliationCase?.entries || []) as any[];
+                              const baseLineNoRaw = petlReconPanel.data?.sowItem?.lineNo;
+                              const baseLineNo =
+                                typeof baseLineNoRaw === "number" && Number.isFinite(baseLineNoRaw)
+                                  ? baseLineNoRaw
+                                  : null;
+
+                              // Only number “real” financial entries; note-only entries don’t shift the decimal.
+                              const numbered = entries.filter((x) => String(x.kind) !== "NOTE_ONLY");
+                              const seqById = new Map<string, number>();
+                              numbered.forEach((x, idx) => {
+                                if (x?.id) seqById.set(String(x.id), idx + 1);
+                              });
+
+                              return entries.map((e: any) => {
+                                const pct = e.isPercentCompleteLocked ? 0 : (e.percentComplete ?? 0);
+                                const seq = seqById.get(String(e.id));
+                                const lineLabel =
+                                  baseLineNo != null && seq != null ? `${baseLineNo}.${seq}` : "—";
+
+                                const tagRaw = String(e?.tag ?? "").trim();
+                                const tagLabel =
+                                  tagRaw === "SUPPLEMENT"
+                                    ? "Supplement"
+                                    : tagRaw === "CHANGE_ORDER"
+                                      ? "Change order"
+                                      : tagRaw === "OTHER"
+                                        ? "Other"
+                                        : tagRaw === "WARRANTY"
+                                          ? "Warranty"
+                                          : "";
+
+                                return (
+                                  <tr key={e.id}>
+                                    <td
+                                      style={{
+                                        padding: "6px 8px",
+                                        borderTop: "1px solid #e5e7eb",
+                                        fontFamily:
+                                          "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+                                        color: "#4b5563",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      {lineLabel}
+                                    </td>
+                                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                      {e.kind}
+                                    </td>
+                                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                      {tagLabel ? (
+                                        <span
+                                          style={{
+                                            display: "inline-flex",
+                                            padding: "2px 8px",
+                                            borderRadius: 999,
+                                            border: "1px solid #d1d5db",
+                                            background: "#ffffff",
+                                            fontSize: 11,
+                                            color: "#374151",
+                                            whiteSpace: "nowrap",
+                                          }}
+                                        >
+                                          {tagLabel}
+                                        </span>
+                                      ) : (
+                                        <span style={{ color: "#9ca3af" }}>—</span>
+                                      )}
+                                    </td>
+                                    <td
+                                      style={{
+                                        padding: "6px 8px",
+                                        borderTop: "1px solid #e5e7eb",
+                                        textAlign: "right",
+                                      }}
+                                    >
+                                      {(e.rcvAmount ?? 0).toLocaleString(undefined, {
+                                        maximumFractionDigits: 2,
+                                      })}
+                                    </td>
+                                    <td
+                                      style={{
+                                        padding: "6px 8px",
+                                        borderTop: "1px solid #e5e7eb",
+                                        textAlign: "right",
+                                      }}
+                                    >
+                                      {e.isPercentCompleteLocked ? (
+                                        "—"
+                                      ) : (
+                                        <select
+                                          value={String(pct)}
+                                          onChange={(ev) => {
+                                            const next = Number(ev.target.value);
+                                            if (Number.isNaN(next)) return;
+                                            void submitReconEntryPercent(e.id, next);
+                                          }}
+                                          style={{
+                                            width: 70,
+                                            padding: "2px 4px",
+                                            borderRadius: 6,
+                                            border: "1px solid #d1d5db",
+                                            fontSize: 11,
+                                          }}
+                                        >
+                                          <option value="0">0%</option>
+                                          <option value="10">10%</option>
+                                          <option value="20">20%</option>
+                                          <option value="30">30%</option>
+                                          <option value="40">40%</option>
+                                          <option value="50">50%</option>
+                                          <option value="60">60%</option>
+                                          <option value="70">70%</option>
+                                          <option value="80">80%</option>
+                                          <option value="90">90%</option>
+                                          <option value="100">100%</option>
+                                        </select>
+                                      )}
+                                    </td>
+                                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                      {e.note ?? ""}
+                                    </td>
+                                    <td
+                                      style={{
+                                        padding: "6px 8px",
+                                        borderTop: "1px solid #e5e7eb",
+                                        textAlign: "right",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => openReconEntryEdit(e)}
                                         style={{
-                                          width: 70,
-                                          padding: "2px 4px",
+                                          padding: "4px 8px",
                                           borderRadius: 6,
                                           border: "1px solid #d1d5db",
-                                          fontSize: 11,
+                                          background: "#ffffff",
+                                          cursor: "pointer",
+                                          fontSize: 12,
                                         }}
                                       >
-                                        <option value="0">0%</option>
-                                        <option value="10">10%</option>
-                                        <option value="20">20%</option>
-                                        <option value="30">30%</option>
-                                        <option value="40">40%</option>
-                                        <option value="50">50%</option>
-                                        <option value="60">60%</option>
-                                        <option value="70">70%</option>
-                                        <option value="80">80%</option>
-                                        <option value="90">90%</option>
-                                        <option value="100">100%</option>
-                                      </select>
-                                    )}
-                                  </td>
-                                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                    {e.note ?? ""}
-                                  </td>
-                                </tr>
-                              );
-                            })}
+                                        Edit
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              });
+                            })()}
                           </tbody>
                         </table>
                       </div>
@@ -8804,294 +14853,461 @@ export default function ProjectDetailPage({
         </div>
       ) : null}
 
-      {petlLoading && (
-        <p style={{ fontSize: 13, color: "#6b7280" }}>Loading PETL items…</p>
-      )}
-
-      {(petlDisplayMode === "LINE_SEQUENCE" || petlDisplayMode === "RECONCILIATION_ONLY") &&
-        !petlLoading &&
-        petlItems.length > 0 && (
-          <div style={{ marginTop: 16 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
-              {petlDisplayMode === "RECONCILIATION_ONLY"
-                ? "Estimate items (Reconciliation activity only)"
-                : "Estimate items"}
-            </h2>
+      {reconEntryEdit && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 70,
+            background: "rgba(15,23,42,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 12,
+          }}
+          onClick={closeReconEntryEdit}
+        >
           <div
             style={{
-              height: "calc(100vh - 320px)",
+              width: 640,
+              maxWidth: "96vw",
+              maxHeight: "90vh",
               overflow: "auto",
-              borderRadius: 8,
+              background: "#ffffff",
+              borderRadius: 10,
               border: "1px solid #e5e7eb",
-              backgroundColor: "#ffffff",
+              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
             }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <table
-              id="petl-items-table"
+            <div
               style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: 12,
+                padding: "10px 12px",
+                borderBottom: "1px solid #e5e7eb",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
               }}
             >
-              <thead>
-                <tr style={{ backgroundColor: "#f9fafb" }}>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Line</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Room</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Task</th>
-                  <th style={{ textAlign: "right", padding: "6px 8px" }}>Qty</th>
-                  <th style={{ textAlign: "right", padding: "6px 8px" }}>Unit</th>
-                  <th style={{ textAlign: "right", padding: "6px 8px" }}>Total</th>
-                  <th style={{ textAlign: "right", padding: "6px 8px" }}>RCV</th>
-                  <th style={{ textAlign: "right", padding: "6px 8px" }}>%</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Cat</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Sel</th>
-                  <th style={{ textAlign: "left", padding: "6px 8px" }}>Recon</th>
-                </tr>
-              </thead>
-              <tbody>
-                {petlItems
-                  .filter((it) => {
-                    if (!matchesFilters(it)) return false;
-                    if (petlDisplayMode === "RECONCILIATION_ONLY") {
-                      return hasReconciliationActivity(it.id);
-                    }
-                    return true;
-                  })
-                  .slice()
-                  .sort((a, b) => a.lineNo - b.lineNo)
-                  .map(item => {
-                    const flagged = isPetlReconFlagged(item.id);
-                    const hasRecon = hasReconciliationActivity(item.id);
-                    const bg = flagged
-                      ? "#fef3c7"
-                      : hasRecon
-                        ? "#e0f2fe"
-                        : "transparent";
-                    return (
-                  <tr
-                    key={item.id}
-                    style={{ backgroundColor: bg }}
-                  >
-                    <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
-                      {item.lineNo}
-                    </td>
-                    <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
-                      {item.projectParticle?.fullLabel ?? item.projectParticle?.name ?? ""}
-                    </td>
-                    <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
-                      {item.description}
-                    </td>
-                    <td
-                      style={{
-                        padding: "4px 8px",
-                        borderTop: "1px solid #e5e7eb",
-                        textAlign: "right",
-                      }}
-                    >
-                      {item.qty ?? ""}
-                    </td>
-                    <td
-                      style={{
-                        padding: "4px 8px",
-                        borderTop: "1px solid #e5e7eb",
-                        textAlign: "right",
-                      }}
-                    >
-                      {item.unit ?? ""}
-                    </td>
-                    <td
-                      style={{
-                        padding: "4px 8px",
-                        borderTop: "1px solid #e5e7eb",
-                        textAlign: "right",
-                      }}
-                    >
-                      {item.itemAmount != null
-                        ? item.itemAmount.toLocaleString(undefined, {
-                            maximumFractionDigits: 2,
-                          })
-                        : ""}
-                    </td>
-                    <td
-                      style={{
-                        padding: "4px 8px",
-                        borderTop: "1px solid #e5e7eb",
-                        textAlign: "right",
-                      }}
-                    >
-                      {item.rcvAmount != null
-                        ? item.rcvAmount.toLocaleString(undefined, {
-                            maximumFractionDigits: 2,
-                          })
-                        : ""}
-                    </td>
-                    <td
-                      style={{
-                        padding: "4px 8px",
-                        borderTop: "1px solid #e5e7eb",
-                        textAlign: "right",
-                      }}
-                    >
-                      <select
-                        value={item.isAcvOnly ? "ACV" : String(item.percentComplete)}
-                        onChange={async (e) => {
-                          const value = e.target.value;
-                          const isAcv = value === "ACV";
-                          const percent = isAcv ? 0 : Number(value);
-                          if (!isAcv && (Number.isNaN(percent) || percent < 0 || percent > 100)) {
-                            return;
-                          }
+              <div>
+                Edit reconciliation entry
+                <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>
+                  {reconEntryEdit.entry?.kind ?? ""}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeReconEntryEdit}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: 18,
+                  lineHeight: 1,
+                }}
+                aria-label="Close reconciliation entry editor"
+              >
+                ×
+              </button>
+            </div>
 
-                          const token = localStorage.getItem("accessToken");
-                          if (!token) {
-                            alert("Missing access token; please log in again.");
-                            return;
-                          }
-
-                          try {
-                            setPetlItems(prev =>
-                              prev.map(it =>
-                                it.id === item.id
-                                  ? {
-                                      ...it,
-                                      percentComplete: percent,
-                                      isAcvOnly: isAcv,
-                                    }
-                                  : it,
-                              ),
-                            );
-
-                            const res = await fetch(
-                              `${API_BASE}/projects/${id}/petl/${item.id}/percent`,
-                              {
-                                method: "POST",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                  Authorization: `Bearer ${token}`,
-                                },
-                                body: JSON.stringify({
-                                  newPercent: percent,
-                                  acvOnly: isAcv,
-                                }),
-                              },
-                            );
-                            if (!res.ok) {
-                              console.error("Per-line update failed", res.status);
-                            }
-
-                            // After a single-line edit in the flat PETL table,
-                            // also refresh the server-backed PETL + groups so the
-                            // Rooms/Zones summary reflects the current values.
-                            try {
-                              const petlRes = await fetch(
-                                `${API_BASE}/projects/${id}/petl`,
-                                {
-                                  headers: { Authorization: `Bearer ${token}` },
-                                },
-                              );
-                              if (petlRes.ok) {
-                                const petl: any = await petlRes.json();
-                                const items: PetlItem[] = Array.isArray(petl.items)
-                                  ? petl.items
-                                  : [];
-                                setPetlItems(items);
-                              }
-                            } catch {
-                              // non-fatal
-                            }
-
-                            try {
-                              setGroupLoading(true);
-                              const groupsRes = await fetch(
-                                `${API_BASE}/projects/${id}/petl-groups`,
-                                {
-                                  headers: { Authorization: `Bearer ${token}` },
-                                },
-                              );
-                              if (groupsRes.ok) {
-                                const json: any = await groupsRes.json();
-                                setGroups(Array.isArray(json.groups) ? json.groups : []);
-                              }
-                            } catch {
-                              // non-fatal
-                            } finally {
-                              setGroupLoading(false);
-                            }
-                          } catch (err) {
-                            console.error(err);
-                          }
-                        }}
-                        style={{
-                          width: 80,
-                          padding: "2px 4px",
-                          borderRadius: 4,
-                          border: "1px solid #d1d5db",
-                          fontSize: 11,
-                        }}
-                      >
-                        <option value="0">0%</option>
-                        <option value="10">10%</option>
-                        <option value="20">20%</option>
-                        <option value="30">30%</option>
-                        <option value="40">40%</option>
-                        <option value="50">50%</option>
-                        <option value="60">60%</option>
-                        <option value="70">70%</option>
-                        <option value="80">80%</option>
-                        <option value="90">90%</option>
-                        <option value="100">100%</option>
-                        <option value="ACV">ACV only</option>
-                      </select>
-                    </td>
-                    <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
-                      {item.categoryCode ?? ""}
-                    </td>
-                    <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
-                      {item.selectionCode ?? ""}
-                    </td>
-                    <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }}>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <button
-                          type="button"
-                          onClick={() => togglePetlReconFlag(item.id)}
-                          style={{
-                            padding: "2px 6px",
-                            borderRadius: 999,
-                            border: flagged ? "1px solid #b45309" : "1px solid #d1d5db",
-                            background: flagged ? "#fffbeb" : "#ffffff",
-                            fontSize: 11,
-                            cursor: "pointer",
-                            color: flagged ? "#92400e" : "#374151",
-                          }}
-                        >
-                          {flagged ? "Needs review" : "Flag"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openPetlReconciliation(item.id)}
-                          style={{
-                            padding: "2px 6px",
-                            borderRadius: 999,
-                            border: "1px solid #2563eb",
-                            background: "#eff6ff",
-                            fontSize: 11,
-                            cursor: "pointer",
-                            color: "#1d4ed8",
-                          }}
-                        >
-                          Reconcile
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+            <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Tag</div>
+                <select
+                  value={reconEntryEdit.draft.tag}
+                  onChange={(e) => {
+                    const v = e.target.value as ReconEntryTag;
+                    setReconEntryEdit((prev) =>
+                      prev ? { ...prev, draft: { ...prev.draft, tag: v } } : prev,
                     );
-                  })}
-              </tbody>
-            </table>
+                  }}
+                  style={{
+                    padding: "6px 8px",
+                    borderRadius: 8,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                    width: "100%",
+                  }}
+                >
+                  <option value="">—</option>
+                  <option value="SUPPLEMENT">Supplement</option>
+                  <option value="CHANGE_ORDER">Change order</option>
+                  <option value="OTHER">Other</option>
+                  <option value="WARRANTY">Warranty</option>
+                </select>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>RCV</div>
+                <input
+                  value={reconEntryEdit.draft.rcvAmount}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setReconEntryEdit((prev) =>
+                      prev ? { ...prev, draft: { ...prev.draft, rcvAmount: v } } : prev,
+                    );
+                  }}
+                  placeholder="(blank for note-only)"
+                  style={{
+                    padding: "6px 8px",
+                    borderRadius: 8,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                    width: "100%",
+                  }}
+                />
+                <div style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
+                  For CREDIT entries, we’ll keep this negative; for ADD entries, we’ll keep it positive.
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Description</div>
+                <input
+                  value={reconEntryEdit.draft.description}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setReconEntryEdit((prev) =>
+                      prev ? { ...prev, draft: { ...prev.draft, description: v } } : prev,
+                    );
+                  }}
+                  style={{
+                    padding: "6px 8px",
+                    borderRadius: 8,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                    width: "100%",
+                  }}
+                />
+              </div>
+
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Note</div>
+                <textarea
+                  value={reconEntryEdit.draft.note}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setReconEntryEdit((prev) =>
+                      prev ? { ...prev, draft: { ...prev.draft, note: v } } : prev,
+                    );
+                  }}
+                  style={{
+                    width: "100%",
+                    minHeight: 90,
+                    padding: 8,
+                    border: "1px solid #d1d5db",
+                    borderRadius: 8,
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+
+              {reconEntryEdit.error && (
+                <div style={{ fontSize: 12, color: "#b91c1c" }}>{reconEntryEdit.error}</div>
+              )}
+
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={closeReconEntryEdit}
+                  disabled={reconEntryEdit.saving}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    cursor: reconEntryEdit.saving ? "default" : "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveReconEntryEdit}
+                  disabled={reconEntryEdit.saving}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    border: "1px solid #0f172a",
+                    background: reconEntryEdit.saving ? "#e5e7eb" : "#0f172a",
+                    color: reconEntryEdit.saving ? "#4b5563" : "#f9fafb",
+                    cursor: reconEntryEdit.saving ? "default" : "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  {reconEntryEdit.saving ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
+
+            </>
+          )}
+
+        </div>
+      )}
+
+      {/* PETL Diagnostics modal (opened from Edit Project) */}
+      {petlDiagnosticsModalOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 60,
+            background: "rgba(15,23,42,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 12,
+          }}
+          onClick={() => setPetlDiagnosticsModalOpen(false)}
+        >
+          <div
+            style={{
+              width: 720,
+              maxWidth: "95vw",
+              maxHeight: "90vh",
+              overflow: "auto",
+              background: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: "10px 12px",
+                borderBottom: "1px solid #e5e7eb",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
+              }}
+            >
+              <span>PETL Diagnostics{petlLoadError ? " (error)" : ""}</span>
+              <button
+                type="button"
+                onClick={() => setPetlDiagnosticsModalOpen(false)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: 18,
+                  lineHeight: 1,
+                }}
+                aria-label="Close PETL diagnostics"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ padding: 12 }}>
+              <div
+                style={{
+                  padding: 10,
+                  borderRadius: 8,
+                  border: `1px solid ${petlLoadError ? "#b91c1c" : "#e5e7eb"}`,
+                  background: petlLoadError ? "#fef2f2" : "#f8fafc",
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ fontWeight: 600 }}>
+                    PETL Diagnostics{petlLoadError ? " (error)" : ""}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPetlShowDiagnostics((s) => !s)}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #d1d5db",
+                      background: "#ffffff",
+                      cursor: "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    {petlShowDiagnostics ? "Hide" : "Show"}
+                  </button>
+                </div>
+
+                {(petlShowDiagnostics || petlLoadError) ? (
+                  <>
+                    <div style={{ marginTop: 6, fontSize: 11, color: "#4b5563" }}>
+                      <div>
+                        <strong>API_BASE</strong>: {API_BASE}
+                      </div>
+                      <div>
+                        <strong>Project</strong>: {id}
+                      </div>
+                      <div>
+                        <strong>Local</strong>: petlItems={petlItems.length}, recon={petlReconciliationEntries.length}
+                      </div>
+                    </div>
+
+                    {petlLoadError && (
+                      <pre
+                        style={{
+                          marginTop: 8,
+                          marginBottom: 0,
+                          whiteSpace: "pre-wrap",
+                          color: "#b91c1c",
+                          fontSize: 11,
+                        }}
+                      >
+                        {petlLoadError}
+                      </pre>
+                    )}
+
+                    {petlShowDiagnostics && petlLastLoadDebug && (
+                      <pre
+                        style={{
+                          marginTop: 8,
+                          marginBottom: 0,
+                          padding: 8,
+                          borderRadius: 6,
+                          background: "#ffffff",
+                          border: "1px solid #e5e7eb",
+                          whiteSpace: "pre-wrap",
+                          fontSize: 11,
+                          maxHeight: 380,
+                          overflow: "auto",
+                        }}
+                      >
+                        {JSON.stringify(petlLastLoadDebug, null, 2)}
+                      </pre>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ marginTop: 6, fontSize: 11, color: "#6b7280" }}>
+                    Hidden (click Show)
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin PETL Tools modal (opened from Edit Project) */}
+      {adminPetlToolsModalOpen && isAdminOrAbove && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 60,
+            background: "rgba(15,23,42,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 12,
+          }}
+          onClick={() => setAdminPetlToolsModalOpen(false)}
+        >
+          <div
+            style={{
+              width: 720,
+              maxWidth: "95vw",
+              maxHeight: "90vh",
+              overflow: "auto",
+              background: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: "10px 12px",
+                borderBottom: "1px solid #e5e7eb",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
+              }}
+            >
+              <span>Admin PETL Tools</span>
+              <button
+                type="button"
+                onClick={() => setAdminPetlToolsModalOpen(false)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: 18,
+                  lineHeight: 1,
+                }}
+                aria-label="Close Admin PETL tools"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ padding: 12 }}>
+              <div
+                style={{
+                  borderRadius: 8,
+                  border: "1px solid #fecaca",
+                  background: "#fff1f2",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "6px 10px",
+                    borderBottom: "1px solid #fecaca",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    background: "#ffe4e6",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <span>Admin PETL tools</span>
+                  <button
+                    type="button"
+                    disabled={petlDeleteBusy}
+                    onClick={deletePetlAndComponents}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #b91c1c",
+                      background: petlDeleteBusy ? "#e5e7eb" : "#b91c1c",
+                      cursor: petlDeleteBusy ? "default" : "pointer",
+                      fontSize: 12,
+                      color: petlDeleteBusy ? "#4b5563" : "#ffffff",
+                    }}
+                  >
+                    {petlDeleteBusy ? "Working…" : "Delete PETL + Components"}
+                  </button>
+                </div>
+                <div style={{ padding: 10, fontSize: 12, color: "#7f1d1d" }}>
+                  <div style={{ marginBottom: 6 }}>
+                    Use this to wipe imported estimate data so you can re-import. This is destructive and
+                    cannot be undone.
+                  </div>
+                  {petlDeleteMessage && (
+                    <div style={{ color: petlDeleteMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#7f1d1d" }}>
+                      {petlDeleteMessage}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

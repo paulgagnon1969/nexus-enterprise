@@ -302,7 +302,7 @@ export class DailyLogService {
     actor: AuthenticatedUser,
     dto: CreateDailyLogDto
   ) {
-    const project = await this.assertProjectAccess(projectId, companyId, actor, Role.ADMIN);
+    const project = await this.assertProjectAccess(projectId, companyId, actor, null);
 
     const tagsJson = dto.tags && dto.tags.length ? JSON.stringify(dto.tags) : null;
     const notifyUserIdsJson =

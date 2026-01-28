@@ -28,6 +28,7 @@ import { ProjectGroupModule } from "./modules/project-group/project-group.module
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { MessagingModule } from "./modules/messaging/messaging.module";
 import { SystemDocsModule } from "./modules/system-docs/system-docs.module";
+import { DocumentsModule } from "./modules/documents/documents.module";
 import { TimecardModule } from "./modules/timecard/timecard.module";
 import { NttModule } from "./modules/ntt/ntt.module";
 import { UploadsModule } from "./modules/uploads/uploads.module";
@@ -67,6 +68,7 @@ import { UploadsModule } from "./modules/uploads/uploads.module";
     NotificationsModule,
     MessagingModule,
     SystemDocsModule,
+    DocumentsModule,
     TimecardModule,
     NttModule,
     UploadsModule,

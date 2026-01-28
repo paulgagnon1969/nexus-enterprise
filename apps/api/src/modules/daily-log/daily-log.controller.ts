@@ -16,7 +16,7 @@ export class DailyLogController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Roles(Role.OWNER, Role.ADMIN)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
   @Post()
   create(
     @Req() req: any,
