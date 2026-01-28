@@ -222,7 +222,10 @@ interface Project {
 
 interface PetlItem {
   id: string;
+  /// Internal PETL line ordering (sequential)
   lineNo: number;
+  /// Original line number from the source estimate export (e.g. Xactimate "#")
+  sourceLineNo?: number | null;
   description: string | null;
   qty: number | null;
   unit: string | null;
@@ -792,6 +795,13 @@ export default function ProjectDetailPage({
   const [financialLoading, setFinancialLoading] = useState(false);
   const [financialError, setFinancialError] = useState<string | null>(null);
 
+  // PETL archives (Admin/Owner)
+  const [petlArchives, setPetlArchives] = useState<any[] | null>(null);
+  const [petlArchivesLoading, setPetlArchivesLoading] = useState(false);
+  const [petlArchivesError, setPetlArchivesError] = useState<string | null>(null);
+  const [petlArchivesMessage, setPetlArchivesMessage] = useState<string | null>(null);
+  const [petlArchivesCollapsed, setPetlArchivesCollapsed] = useState(true);
+
   // Bills (expenses)
   const [projectBills, setProjectBills] = useState<any[] | null>(null);
   const [projectBillsLoading, setProjectBillsLoading] = useState(false);
@@ -1178,6 +1188,115 @@ export default function ProjectDetailPage({
       setPaymentsMessage(`Exported ${rows.length} row(s).`);
     } catch (err: any) {
       setPaymentsMessage(err?.message ?? "Payments export failed.");
+    }
+  };
+
+  const refreshPetlArchives = () => {
+    setPetlArchivesMessage(null);
+    setPetlArchives(null);
+  };
+
+  const createPetlArchive = async () => {
+    if (!project) return;
+
+    setPetlArchivesMessage(null);
+
+    if (!isAdminOrAbove) {
+      setPetlArchivesMessage("Only Admin+ can create PETL archives.");
+      return;
+    }
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setPetlArchivesMessage("Missing access token.");
+      return;
+    }
+
+    const label = window.prompt("Archive label (optional)", "") ?? "";
+    const note = window.prompt("Archive note (optional)", "") ?? "";
+
+    try {
+      await busyOverlay.run("Creating PETL archive…", async () => {
+        const res = await fetch(`${API_BASE}/projects/${project.id}/petl-archives`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            label: label.trim() || undefined,
+            note: note.trim() || undefined,
+          }),
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Create failed (${res.status}) ${text}`);
+        }
+
+        setPetlArchivesMessage("Archive created.");
+        setPetlArchives(null);
+      });
+    } catch (err: any) {
+      setPetlArchivesMessage(err?.message ?? "Failed to create archive.");
+    }
+  };
+
+  const restorePetlArchive = async (archive: any) => {
+    if (!project) return;
+
+    setPetlArchivesMessage(null);
+
+    if (!isAdminOrAbove) {
+      setPetlArchivesMessage("Only Admin+ can restore PETL archives.");
+      return;
+    }
+
+    const ok = window.confirm(
+      "Restore this PETL archive into the SAME project?\n\nThis will create a NEW estimate version and replace the PETL baseline used for Financial/PETL views.",
+    );
+    if (!ok) return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setPetlArchivesMessage("Missing access token.");
+      return;
+    }
+
+    try {
+      await busyOverlay.run("Restoring PETL archive…", async () => {
+        const res = await fetch(
+          `${API_BASE}/projects/${project.id}/petl-archives/${archive.id}/restore`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Restore failed (${res.status}) ${text}`);
+        }
+
+        const json: any = await res.json().catch(() => ({}));
+        const restoredId = json.restoredEstimateVersionId ?? null;
+
+        setPetlArchivesMessage(
+          restoredId ? `Restored (new estimate version: ${restoredId}).` : "Restored.",
+        );
+
+        // Force reload of derived financial/PETL views.
+        setFinancialSummary(null);
+        setSelectionSummary(null);
+        setPetlReloadTick((t) => t + 1);
+
+        // Refresh archive list
+        setPetlArchives(null);
+      });
+    } catch (err: any) {
+      setPetlArchivesMessage(err?.message ?? "Restore failed.");
     }
   };
 
@@ -1623,7 +1742,8 @@ ${htmlBody}
               const cat = String(li?.categoryCodeSnapshot ?? "").trim();
               const sel = String(li?.selectionCodeSnapshot ?? "").trim();
               const task = String(li?.descriptionSnapshot ?? "").trim();
-              const lineNo = li?.lineNoSnapshot != null ? String(li.lineNoSnapshot) : "";
+              const lineNoValue = li?.sourceLineNoSnapshot ?? li?.lineNoSnapshot;
+              const lineNo = lineNoValue != null ? String(lineNoValue) : "";
 
               const baseLabel = isCredit
                 ? "ACV holdback (80%)"
@@ -1691,7 +1811,8 @@ ${htmlBody}
           const cat = String(li?.categoryCodeSnapshot ?? "").trim();
           const sel = String(li?.selectionCodeSnapshot ?? "").trim();
           const task = String(li?.descriptionSnapshot ?? "").trim();
-          const lineNo = li?.lineNoSnapshot != null ? String(li.lineNoSnapshot) : "";
+          const lineNoValue = li?.sourceLineNoSnapshot ?? li?.lineNoSnapshot;
+          const lineNo = lineNoValue != null ? String(lineNoValue) : "";
 
           const baseLabel = isCredit
             ? "ACV holdback (80%)"
@@ -2137,8 +2258,11 @@ ${htmlBody}
       return;
     }
 
+    const displayLineNo =
+      item.sourceLineNo && item.sourceLineNo > 0 ? item.sourceLineNo : item.lineNo;
+
     const ok = window.confirm(
-      `Delete PETL line #${item.lineNo}?\n\nThis will permanently remove the line item and associated reconciliation/edit history for this line.`,
+      `Delete PETL line #${displayLineNo}?\n\nThis will permanently remove the line item and associated reconciliation/edit history for this line.`,
     );
     if (!ok) return;
 
@@ -2151,7 +2275,7 @@ ${htmlBody}
     try {
       setPetlDeleteBusy(true);
 
-      await busyOverlay.run(`Deleting line #${item.lineNo}…`, async () => {
+      await busyOverlay.run(`Deleting line #${displayLineNo}…`, async () => {
         const res = await fetch(`${API_BASE}/projects/${id}/petl/${item.id}`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
@@ -2183,7 +2307,7 @@ ${htmlBody}
         // Refresh PETL + groups + summary from server.
         setPetlReloadTick(t => t + 1);
 
-        setPetlDeleteMessage(`Deleted line #${item.lineNo}.`);
+        setPetlDeleteMessage(`Deleted line #${displayLineNo}.`);
       });
     } catch (err: any) {
       setPetlDeleteMessage(err?.message ?? "Delete failed.");
@@ -3726,6 +3850,42 @@ ${htmlBody}
     };
   }, [activeTab, project, financialSummary]);
 
+  // Lazy-load PETL archives when Financial tab is opened (Admin/Owner)
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token || !project) return;
+    if (activeTab !== "FINANCIAL") return;
+    if (petlArchivesCollapsed) return;
+    if (!isAdminOrAbove) return;
+    if (petlArchives) return;
+
+    let cancelled = false;
+
+    setPetlArchivesLoading(true);
+    setPetlArchivesError(null);
+
+    fetch(`${API_BASE}/projects/${project.id}/petl-archives`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((json: any) => {
+        if (cancelled) return;
+        setPetlArchives(Array.isArray(json) ? json : []);
+      })
+      .catch((err: any) => {
+        if (cancelled) return;
+        setPetlArchivesError(err?.message ?? "Failed to load PETL archives.");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setPetlArchivesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, project, petlArchives, petlArchivesCollapsed, isAdminOrAbove]);
+
   // Lazy-load bills list when Financial tab is opened
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
@@ -4282,6 +4442,9 @@ ${htmlBody}
                     ? "#e0f2fe"
                     : "transparent";
 
+                const displayLineNo =
+                  item.sourceLineNo && item.sourceLineNo > 0 ? item.sourceLineNo : item.lineNo;
+
                 const out: any[] = [];
 
                 out.push(
@@ -4323,7 +4486,7 @@ ${htmlBody}
                         ) : (
                           <span style={{ width: 14 }} />
                         )}
-                        <span>{item.lineNo}</span>
+                        <span>{displayLineNo}</span>
                       </div>
                     </td>
                     <td
@@ -4427,7 +4590,7 @@ ${htmlBody}
                             return;
                           }
 
-                          await busyOverlay.run(`Updating line #${item.lineNo}…`, async () => {
+                          await busyOverlay.run(`Updating line #${displayLineNo}…`, async () => {
                             try {
                               setPetlItems((prev) =>
                                 prev.map((it) =>
@@ -4620,7 +4783,7 @@ ${htmlBody}
                     const seq = reconSeqById.get(entryId);
                     if (!seq) continue;
 
-                    const lineLabel = `${item.lineNo}.${seq}`;
+                    const lineLabel = `${displayLineNo}.${seq}`;
                     const kind = String(e?.kind ?? "").trim();
                     const desc = String(e?.description ?? "").trim();
                     const note = String(e?.note ?? "").trim();
@@ -7897,6 +8060,193 @@ ${htmlBody}
             </>
           )}
 
+          {isAdminOrAbove && (
+            <div
+              style={{
+                marginTop: 16,
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#ffffff",
+              }}
+            >
+              <div
+                style={{
+                  padding: "6px 10px",
+                  borderBottom: petlArchivesCollapsed ? "none" : "1px solid #e5e7eb",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: "#f3f4f6",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setPetlArchivesCollapsed((v) => !v)}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    padding: 0,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "#111827",
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: 8,
+                    textAlign: "left",
+                  }}
+                >
+                  <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                    {petlArchivesCollapsed ? "▸" : "▾"}
+                  </span>
+                  <span>PETL Archives</span>
+                  {Array.isArray(petlArchives) && (
+                    <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
+                      · {petlArchives.length}
+                    </span>
+                  )}
+                </button>
+
+                {!petlArchivesCollapsed && (
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <button
+                      type="button"
+                      onClick={refreshPetlArchives}
+                      disabled={petlArchivesLoading}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #d1d5db",
+                        background: "#ffffff",
+                        cursor: petlArchivesLoading ? "default" : "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      {petlArchivesLoading ? "Refreshing…" : "Refresh"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={createPetlArchive}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #0f172a",
+                        background: "#0f172a",
+                        color: "#f9fafb",
+                        cursor: "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      + Create archive
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {!petlArchivesCollapsed && (
+                <div style={{ padding: 10, fontSize: 12 }}>
+                  {petlArchivesMessage && (
+                    <div
+                      style={{
+                        marginBottom: 8,
+                        fontSize: 12,
+                        color: petlArchivesMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
+                      }}
+                    >
+                      {petlArchivesMessage}
+                    </div>
+                  )}
+
+                  {petlArchivesLoading && (
+                    <div style={{ color: "#6b7280" }}>Loading PETL archives…</div>
+                  )}
+                  {petlArchivesError && !petlArchivesLoading && (
+                    <div style={{ color: "#b91c1c" }}>{petlArchivesError}</div>
+                  )}
+
+                  {!petlArchivesLoading && !petlArchivesError && Array.isArray(petlArchives) && petlArchives.length === 0 && (
+                    <div style={{ color: "#6b7280" }}>No PETL archives yet.</div>
+                  )}
+
+                  {!petlArchivesLoading && !petlArchivesError && Array.isArray(petlArchives) && petlArchives.length > 0 && (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>
+                            <th style={{ padding: "6px 8px" }}>Created</th>
+                            <th style={{ padding: "6px 8px" }}>Label</th>
+                            <th style={{ padding: "6px 8px" }}>Source</th>
+                            <th style={{ padding: "6px 8px" }}>File</th>
+                            <th style={{ padding: "6px 8px" }}>Restored</th>
+                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {petlArchives.map((a: any) => {
+                            const createdAt = a?.createdAt ? new Date(a.createdAt).toLocaleString() : "—";
+                            const label = String(a?.label ?? "").trim() || "—";
+                            const note = String(a?.note ?? "").trim() || "";
+                            const sourceSeq = a?.sourceEstimateVersion?.sequenceNo;
+                            const sourceLabel =
+                              typeof sourceSeq === "number" ? `v${sourceSeq}` : (a?.sourceEstimateVersion?.id ?? "—");
+                            const fileName = a?.projectFile?.fileName ?? "—";
+                            const restoredAt = a?.restoredAt ? new Date(a.restoredAt).toLocaleString() : "—";
+
+                            return (
+                              <tr key={String(a?.id ?? Math.random())}>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", whiteSpace: "nowrap" }}>
+                                  {createdAt}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                  <div style={{ fontWeight: 600 }}>{label}</div>
+                                  {note ? (
+                                    <div style={{ fontSize: 11, color: "#6b7280" }}>{note}</div>
+                                  ) : null}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
+                                  {sourceLabel}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
+                                  {fileName}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
+                                  {restoredAt}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => restorePetlArchive(a)}
+                                    style={{
+                                      padding: "2px 6px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      background: "#ffffff",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Restore
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {!petlArchivesLoading && !petlArchivesError && !Array.isArray(petlArchives) && (
+                    <div style={{ color: "#6b7280" }}>Open this section to load archives.</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Bills (Expenses) */}
           <div
             style={{
@@ -9562,7 +9912,8 @@ ${htmlBody}
                                   const cat = String(li.categoryCodeSnapshot ?? "").trim();
                                   const sel = String(li.selectionCodeSnapshot ?? "").trim();
                                   const task = String(li.descriptionSnapshot ?? "").trim();
-                                  const lineNo = li.lineNoSnapshot != null ? String(li.lineNoSnapshot) : "";
+                                  const lineNoValue = li.sourceLineNoSnapshot ?? li.lineNoSnapshot;
+                                  const lineNo = lineNoValue != null ? String(lineNoValue) : "";
 
                                   const label = isCredit
                                     ? "↳ ACV holdback (80%)"
@@ -13777,10 +14128,13 @@ ${htmlBody}
                                                   ? "#e0f2fe"
                                                   : "transparent";
 
+                                              const displayLineNo =
+                                                item.sourceLineNo && item.sourceLineNo > 0 ? item.sourceLineNo : item.lineNo;
+
                                               return (
                                                 <tr key={item.id} style={{ backgroundColor: bg }}>
                                                   <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                                    {item.lineNo}
+                                                    {displayLineNo}
                                                   </td>
                                                   <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
                                                     {item.description}
@@ -13941,7 +14295,7 @@ ${htmlBody}
                                                       type="button"
                                                       onClick={(e) => {
                                                         e.stopPropagation();
-                                                        const sowLabel = item.description || `Line ${item.lineNo}`;
+                                                        const sowLabel = item.description || `Line ${displayLineNo}`;
                                                         const parts: string[] = [];
                                                         parts.push(g.roomName);
                                                         parts.push(`SOW: ${sowLabel}`);
@@ -14148,7 +14502,7 @@ ${htmlBody}
                                   .map((item: PetlItem) => (
                                     <tr key={item.id}>
                                       <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                        {item.lineNo}
+                                        {item.sourceLineNo && item.sourceLineNo > 0 ? item.sourceLineNo : item.lineNo}
                                       </td>
                                       <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
                                         {item.description}

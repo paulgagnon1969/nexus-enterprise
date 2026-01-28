@@ -33,10 +33,12 @@ import {
   CreateProjectBillDto,
   UpdateProjectBillDto,
 } from "./dto/project-bill.dto";
+import { CreateProjectPetlArchiveDto } from "./dto/project-petl-archive.dto";
 import { ImportJobsService } from "../import-jobs/import-jobs.service";
 import { ImportJobType } from "@prisma/client";
 import { GcsService } from "../../infra/storage/gcs.service";
 import { TaxJurisdictionService } from "./tax-jurisdiction.service";
+import fs from "node:fs/promises";
 import {
   buildCertifiedPayrollRows,
   buildCertifiedPayrollCsv,
@@ -531,6 +533,122 @@ export class ProjectController {
       user.companyId,
       user
     );
+  }
+
+  // PETL Archives (Admin/Owner)
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Get(":id/petl-archives")
+  listPetlArchives(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.listPetlArchives(projectId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post(":id/petl-archives")
+  async createPetlArchive(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body() dto: CreateProjectPetlArchiveDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+
+    const bundle = await this.projects.buildPetlArchiveBundle(projectId, user);
+    const buffer = Buffer.from(JSON.stringify(bundle), "utf8");
+
+    const label = String(dto.label ?? "").trim();
+    const fileLabel = label || "petl-archive";
+
+    const dateTag = new Date().toISOString().replace(/[:.]/g, "-");
+    const fileName = `${fileLabel}-${dateTag}.json`;
+
+    const key = [
+      "petl-archives",
+      user.companyId,
+      projectId,
+      `${Date.now()}`,
+      Math.random().toString(36).slice(2),
+      fileName,
+    ].join("/");
+
+    let fileUri: string;
+    try {
+      fileUri = await this.gcs.uploadBuffer({
+        key,
+        buffer,
+        contentType: "application/json",
+      });
+    } catch (err: any) {
+      throw new BadRequestException(
+        `Failed to upload PETL archive bundle: ${err?.message ?? String(err)}`,
+      );
+    }
+
+    const projectFile = await this.projects.registerProjectFile({
+      projectId,
+      actor: user,
+      fileUri,
+      fileName,
+      mimeType: "application/json",
+      sizeBytes: buffer.length,
+      folderId: null,
+    });
+
+    const archive = await this.projects.createPetlArchiveRecord({
+      projectId,
+      actor: user,
+      projectFileId: projectFile.id,
+      sourceEstimateVersionId: bundle.sourceEstimateVersion.id,
+      label: label || null,
+      note: dto.note ?? null,
+    });
+
+    return archive;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post(":id/petl-archives/:archiveId/restore")
+  async restorePetlArchive(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("archiveId") archiveId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+
+    const archive = await this.projects.getPetlArchiveForProject(projectId, archiveId, user);
+
+    const fileUri = String(archive?.projectFile?.storageUrl ?? "");
+    if (!fileUri) {
+      throw new BadRequestException("Archive has no storageUrl");
+    }
+
+    const localPath = await this.gcs.downloadToTmp(fileUri);
+
+    let bundleText = "";
+    try {
+      bundleText = await fs.readFile(localPath, "utf8");
+    } finally {
+      await fs.unlink(localPath).catch(() => undefined);
+    }
+
+    let bundle: any;
+    try {
+      bundle = JSON.parse(bundleText);
+    } catch (err: any) {
+      throw new BadRequestException(
+        `Archive bundle JSON is invalid: ${err?.message ?? String(err)}`,
+      );
+    }
+
+    return this.projects.restorePetlArchiveFromBundle({
+      projectId,
+      actor: user,
+      archiveId,
+      bundle,
+    });
   }
 
   // Admin+ destructive action: delete a single PETL line item (and any related reconciliation/edit data).
