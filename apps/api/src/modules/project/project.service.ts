@@ -12,6 +12,7 @@ import {
   ProjectParticipantScope,
   ProjectVisibilityLevel,
   MessageThreadType,
+  PetlReconciliationCaseStatus,
   PetlReconciliationEntryKind,
   PetlReconciliationEntryTag,
   PetlPercentUpdateSessionStatus,
@@ -43,6 +44,125 @@ import {
 } from "./dto/project-bill.dto";
 import { importXactCsvForProject, importXactComponentsCsvForEstimate, allocateComponentsForEstimate } from "@repo/database";
 import { TaxJurisdictionService } from "./tax-jurisdiction.service";
+
+type PetlArchiveBundleV1 = {
+  schemaVersion: 1;
+  exportedAt: string;
+  companyId: string;
+  projectId: string;
+  sourceEstimateVersion: {
+    id: string;
+    sequenceNo: number;
+    sourceType: string;
+    fileName: string;
+    storedPath: string;
+    estimateKind: string;
+    defaultPayerType: string;
+    description: string | null;
+    status: string;
+    importedAt: string | null;
+    createdAt: string;
+  };
+  items: Array<{
+    lineNo: number;
+    projectParticleId: string;
+    logicalItem: {
+      signatureHash: string;
+      projectParticleId: string;
+    };
+    rawRow: {
+      lineNo: number;
+      groupCode: string | null;
+      groupDescription: string | null;
+      desc: string | null;
+      age: number | null;
+      condition: string | null;
+      qty: number | null;
+      itemAmount: number | null;
+      reportedCost: number | null;
+      unitCost: number | null;
+      unit: string | null;
+      coverage: string | null;
+      activity: string | null;
+      workersWage: number | null;
+      laborBurden: number | null;
+      laborOverhead: number | null;
+      material: number | null;
+      equipment: number | null;
+      marketConditions: number | null;
+      laborMinimum: number | null;
+      salesTax: number | null;
+      rcv: number | null;
+      life: number | null;
+      depreciationType: string | null;
+      depreciationAmount: number | null;
+      recoverable: boolean | null;
+      acv: number | null;
+      tax: number | null;
+      replaceFlag: boolean | null;
+      cat: string | null;
+      sel: string | null;
+      owner: string | null;
+      originalVendor: string | null;
+      sourceName: string | null;
+      sourceDate: string | null;
+      note1: string | null;
+      adjSource: string | null;
+      rawRowJson: any;
+    };
+    sowItem: {
+      description: string;
+      qty: number | null;
+      originalQty: number | null;
+      unit: string | null;
+      unitCost: number | null;
+      itemAmount: number | null;
+      rcvAmount: number | null;
+      acvAmount: number | null;
+      depreciationAmount: number | null;
+      salesTaxAmount: number | null;
+      categoryCode: string | null;
+      selectionCode: string | null;
+      activity: string | null;
+      materialAmount: number | null;
+      equipmentAmount: number | null;
+      payerType: string;
+      performed: boolean;
+      eligibleForAcvRefund: boolean;
+      acvRefundAmount: number | null;
+      percentComplete: number;
+      isAcvOnly: boolean;
+      qtyFlaggedIncorrect: boolean;
+      qtyFieldReported: number | null;
+      qtyFieldReportedByUserId: string | null;
+      qtyFieldReportedAt: string | null;
+      qtyFieldNotes: string | null;
+      qtyReviewStatus: string | null;
+    };
+  }>;
+  reconciliationEntries: Array<{
+    parentPetlLineNo: number | null;
+    projectParticleId: string;
+    kind: string;
+    tag: string | null;
+    description: string | null;
+    categoryCode: string | null;
+    selectionCode: string | null;
+    unit: string | null;
+    qty: number | null;
+    unitCost: number | null;
+    itemAmount: number | null;
+    salesTaxAmount: number | null;
+    opAmount: number | null;
+    rcvAmount: number | null;
+    rcvComponentsJson: any;
+    percentComplete: number;
+    isPercentCompleteLocked: boolean;
+    companyPriceListItemId: string | null;
+    sourceSnapshotJson: any;
+    note: string | null;
+  }>;
+};
 
 @Injectable()
 export class ProjectService {
@@ -1284,6 +1404,977 @@ export class ProjectService {
     if (!ok) {
       throw new ForbiddenException("Only Admin/Owner (or SUPER_ADMIN) can perform this action");
     }
+  }
+
+  private petlArchiveModelsAvailable() {
+    const p: any = this.prisma as any;
+    return typeof p?.projectPetlArchive?.findMany === "function";
+  }
+
+  private ensurePetlArchiveModelsAvailable() {
+    if (this.petlArchiveModelsAvailable()) return;
+
+    throw new BadRequestException(
+      "PETL archives are not initialized on this API instance. Run `npm -w packages/database run prisma:generate` and restart the API; if it still fails, run `npm -w packages/database run prisma:migrate`.",
+    );
+  }
+
+  private isPetlArchiveTableMissingError(err: any) {
+    return this.isMissingPrismaTableError(err, "ProjectPetlArchive");
+  }
+
+  private throwPetlArchiveTablesNotMigrated() {
+    throw new BadRequestException(
+      "Project PETL archive tables are not present in the database yet. Run `npm -w packages/database run prisma:migrate` (against your dev DATABASE_URL), then restart the API.",
+    );
+  }
+
+  async listPetlArchives(projectId: string, actor: AuthenticatedUser) {
+    this.assertAdminOrAbove(actor);
+    this.ensurePetlArchiveModelsAvailable();
+
+    try {
+      const project = await this.getProjectByIdForUser(projectId, actor);
+
+      return this.prisma.projectPetlArchive.findMany({
+        where: {
+          projectId: project.id,
+          companyId: project.companyId,
+        },
+        orderBy: [{ createdAt: "desc" }],
+        include: {
+          projectFile: true,
+          sourceEstimateVersion: {
+            select: {
+              id: true,
+              sequenceNo: true,
+              fileName: true,
+              sourceType: true,
+              importedAt: true,
+              createdAt: true,
+            },
+          },
+          restoredEstimateVersion: {
+            select: {
+              id: true,
+              sequenceNo: true,
+              fileName: true,
+              sourceType: true,
+              importedAt: true,
+              createdAt: true,
+            },
+          },
+          createdBy: {
+            select: {
+              id: true,
+              email: true,
+            },
+          },
+          restoredBy: {
+            select: {
+              id: true,
+              email: true,
+            },
+          },
+        },
+      });
+    } catch (err: any) {
+      if (this.isPetlArchiveTableMissingError(err)) {
+        this.throwPetlArchiveTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
+  async getPetlArchiveForProject(projectId: string, archiveId: string, actor: AuthenticatedUser) {
+    this.assertAdminOrAbove(actor);
+    this.ensurePetlArchiveModelsAvailable();
+
+    try {
+      const project = await this.getProjectByIdForUser(projectId, actor);
+
+      const archive = await this.prisma.projectPetlArchive.findFirst({
+        where: {
+          id: archiveId,
+          projectId: project.id,
+          companyId: project.companyId,
+        },
+        include: {
+          projectFile: true,
+          sourceEstimateVersion: {
+            select: {
+              id: true,
+              sequenceNo: true,
+              fileName: true,
+              sourceType: true,
+              defaultPayerType: true,
+              importedAt: true,
+              createdAt: true,
+            },
+          },
+          restoredEstimateVersion: {
+            select: {
+              id: true,
+              sequenceNo: true,
+              fileName: true,
+              sourceType: true,
+              importedAt: true,
+              createdAt: true,
+            },
+          },
+        },
+      });
+
+      if (!archive) {
+        throw new NotFoundException("PETL archive not found for this project");
+      }
+
+      return archive;
+    } catch (err: any) {
+      if (this.isPetlArchiveTableMissingError(err)) {
+        this.throwPetlArchiveTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
+  async buildPetlArchiveBundle(projectId: string, actor: AuthenticatedUser): Promise<PetlArchiveBundleV1> {
+    this.assertAdminOrAbove(actor);
+
+    // Validate project access
+    await this.getProjectByIdForUser(projectId, actor);
+
+    const latestVersion = await this.getLatestEstimateVersionForPetl(projectId);
+    if (!latestVersion) {
+      throw new BadRequestException("No estimate version found for this project");
+    }
+
+    const sowItems = await this.prisma.sowItem.findMany({
+      where: { estimateVersionId: latestVersion.id },
+      orderBy: { lineNo: "asc" },
+      select: {
+        id: true,
+        rawRowId: true,
+        logicalItemId: true,
+        projectParticleId: true,
+        lineNo: true,
+        description: true,
+        qty: true,
+        originalQty: true,
+        unit: true,
+        unitCost: true,
+        itemAmount: true,
+        rcvAmount: true,
+        acvAmount: true,
+        depreciationAmount: true,
+        salesTaxAmount: true,
+        categoryCode: true,
+        selectionCode: true,
+        activity: true,
+        materialAmount: true,
+        equipmentAmount: true,
+        payerType: true,
+        performed: true,
+        eligibleForAcvRefund: true,
+        acvRefundAmount: true,
+        percentComplete: true,
+        isAcvOnly: true,
+        qtyFlaggedIncorrect: true,
+        qtyFieldReported: true,
+        qtyFieldReportedByUserId: true,
+        qtyFieldReportedAt: true,
+        qtyFieldNotes: true,
+        qtyReviewStatus: true,
+      },
+    });
+
+    if (sowItems.length === 0) {
+      throw new BadRequestException("No PETL line items found for this project");
+    }
+
+    const logicalItemIds = Array.from(new Set(sowItems.map((s) => s.logicalItemId).filter(Boolean)));
+    const rawRowIds = Array.from(new Set(sowItems.map((s) => s.rawRowId).filter(Boolean)));
+
+    const [logicalItems, rawRows] = await Promise.all([
+      this.prisma.sowLogicalItem.findMany({
+        where: { id: { in: logicalItemIds } },
+        select: {
+          id: true,
+          projectParticleId: true,
+          signatureHash: true,
+        },
+      }),
+      this.prisma.rawXactRow.findMany({
+        where: { id: { in: rawRowIds } },
+        select: {
+          id: true,
+          lineNo: true,
+          groupCode: true,
+          groupDescription: true,
+          desc: true,
+          age: true,
+          condition: true,
+          qty: true,
+          itemAmount: true,
+          reportedCost: true,
+          unitCost: true,
+          unit: true,
+          coverage: true,
+          activity: true,
+          workersWage: true,
+          laborBurden: true,
+          laborOverhead: true,
+          material: true,
+          equipment: true,
+          marketConditions: true,
+          laborMinimum: true,
+          salesTax: true,
+          rcv: true,
+          life: true,
+          depreciationType: true,
+          depreciationAmount: true,
+          recoverable: true,
+          acv: true,
+          tax: true,
+          replaceFlag: true,
+          cat: true,
+          sel: true,
+          owner: true,
+          originalVendor: true,
+          sourceName: true,
+          sourceDate: true,
+          note1: true,
+          adjSource: true,
+          rawRowJson: true,
+        },
+      }),
+    ]);
+
+    const logicalById = new Map(logicalItems.map((l) => [l.id, l]));
+    const rawById = new Map(rawRows.map((r) => [r.id, r]));
+
+    const items = sowItems.map((s) => {
+      const logical = logicalById.get(s.logicalItemId);
+      const raw = rawById.get(s.rawRowId);
+      if (!logical) {
+        throw new BadRequestException(
+          `PETL archive build failed: missing SowLogicalItem ${s.logicalItemId} for line #${s.lineNo}`,
+        );
+      }
+      if (!raw) {
+        throw new BadRequestException(
+          `PETL archive build failed: missing RawXactRow ${s.rawRowId} for line #${s.lineNo}`,
+        );
+      }
+
+      return {
+        lineNo: s.lineNo,
+        projectParticleId: s.projectParticleId,
+        logicalItem: {
+          signatureHash: logical.signatureHash,
+          projectParticleId: logical.projectParticleId,
+        },
+        rawRow: {
+          lineNo: raw.lineNo,
+          groupCode: raw.groupCode ?? null,
+          groupDescription: raw.groupDescription ?? null,
+          desc: raw.desc ?? null,
+          age: raw.age ?? null,
+          condition: raw.condition ?? null,
+          qty: raw.qty ?? null,
+          itemAmount: raw.itemAmount ?? null,
+          reportedCost: raw.reportedCost ?? null,
+          unitCost: raw.unitCost ?? null,
+          unit: raw.unit ?? null,
+          coverage: raw.coverage ?? null,
+          activity: raw.activity ?? null,
+          workersWage: raw.workersWage ?? null,
+          laborBurden: raw.laborBurden ?? null,
+          laborOverhead: raw.laborOverhead ?? null,
+          material: raw.material ?? null,
+          equipment: raw.equipment ?? null,
+          marketConditions: raw.marketConditions ?? null,
+          laborMinimum: raw.laborMinimum ?? null,
+          salesTax: raw.salesTax ?? null,
+          rcv: raw.rcv ?? null,
+          life: raw.life ?? null,
+          depreciationType: raw.depreciationType ?? null,
+          depreciationAmount: raw.depreciationAmount ?? null,
+          recoverable: raw.recoverable ?? null,
+          acv: raw.acv ?? null,
+          tax: raw.tax ?? null,
+          replaceFlag: raw.replaceFlag ?? null,
+          cat: raw.cat ?? null,
+          sel: raw.sel ?? null,
+          owner: raw.owner ?? null,
+          originalVendor: raw.originalVendor ?? null,
+          sourceName: raw.sourceName ?? null,
+          sourceDate: raw.sourceDate ? raw.sourceDate.toISOString() : null,
+          note1: raw.note1 ?? null,
+          adjSource: raw.adjSource ?? null,
+          rawRowJson: raw.rawRowJson ?? null,
+        },
+        sowItem: {
+          description: s.description,
+          qty: s.qty ?? null,
+          originalQty: s.originalQty ?? null,
+          unit: s.unit ?? null,
+          unitCost: s.unitCost ?? null,
+          itemAmount: s.itemAmount ?? null,
+          rcvAmount: s.rcvAmount ?? null,
+          acvAmount: s.acvAmount ?? null,
+          depreciationAmount: s.depreciationAmount ?? null,
+          salesTaxAmount: s.salesTaxAmount ?? null,
+          categoryCode: s.categoryCode ?? null,
+          selectionCode: s.selectionCode ?? null,
+          activity: s.activity ?? null,
+          materialAmount: s.materialAmount ?? null,
+          equipmentAmount: s.equipmentAmount ?? null,
+          payerType: s.payerType,
+          performed: s.performed,
+          eligibleForAcvRefund: s.eligibleForAcvRefund,
+          acvRefundAmount: s.acvRefundAmount ?? null,
+          percentComplete: s.percentComplete ?? 0,
+          isAcvOnly: s.isAcvOnly,
+          qtyFlaggedIncorrect: s.qtyFlaggedIncorrect,
+          qtyFieldReported: s.qtyFieldReported ?? null,
+          qtyFieldReportedByUserId: s.qtyFieldReportedByUserId ?? null,
+          qtyFieldReportedAt: s.qtyFieldReportedAt ? s.qtyFieldReportedAt.toISOString() : null,
+          qtyFieldNotes: s.qtyFieldNotes ?? null,
+          qtyReviewStatus: s.qtyReviewStatus ?? null,
+        },
+      };
+    });
+
+    const sowLineNoById = new Map<string, number>();
+    for (const s of sowItems) {
+      sowLineNoById.set(s.id, s.lineNo);
+    }
+
+    let reconEntriesRaw: any[] = [];
+    try {
+      reconEntriesRaw = await this.prisma.petlReconciliationEntry.findMany({
+        where: {
+          projectId,
+          estimateVersionId: latestVersion.id,
+        },
+        orderBy: { createdAt: "asc" },
+        select: {
+          parentSowItemId: true,
+          projectParticleId: true,
+          kind: true,
+          tag: true,
+          description: true,
+          categoryCode: true,
+          selectionCode: true,
+          unit: true,
+          qty: true,
+          unitCost: true,
+          itemAmount: true,
+          salesTaxAmount: true,
+          opAmount: true,
+          rcvAmount: true,
+          rcvComponentsJson: true,
+          percentComplete: true,
+          isPercentCompleteLocked: true,
+          companyPriceListItemId: true,
+          sourceSnapshotJson: true,
+          note: true,
+        },
+      });
+    } catch (err: any) {
+      if (!this.isMissingPrismaTableError(err, "PetlReconciliationEntry")) {
+        throw err;
+      }
+      // If reconciliation tables don't exist in an environment, we still allow
+      // exporting the base PETL rows.
+      reconEntriesRaw = [];
+    }
+
+    const reconciliationEntries = reconEntriesRaw.map((e) => {
+      const parentPetlLineNo = e.parentSowItemId ? (sowLineNoById.get(e.parentSowItemId) ?? null) : null;
+      return {
+        parentPetlLineNo,
+        projectParticleId: e.projectParticleId,
+        kind: e.kind,
+        tag: e.tag ?? null,
+        description: e.description ?? null,
+        categoryCode: e.categoryCode ?? null,
+        selectionCode: e.selectionCode ?? null,
+        unit: e.unit ?? null,
+        qty: e.qty ?? null,
+        unitCost: e.unitCost ?? null,
+        itemAmount: e.itemAmount ?? null,
+        salesTaxAmount: e.salesTaxAmount ?? null,
+        opAmount: e.opAmount ?? null,
+        rcvAmount: e.rcvAmount ?? null,
+        rcvComponentsJson: e.rcvComponentsJson ?? null,
+        percentComplete: e.percentComplete ?? 0,
+        isPercentCompleteLocked: e.isPercentCompleteLocked ?? false,
+        companyPriceListItemId: e.companyPriceListItemId ?? null,
+        sourceSnapshotJson: e.sourceSnapshotJson ?? null,
+        note: e.note ?? null,
+      };
+    });
+
+    return {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      companyId: actor.companyId,
+      projectId,
+      sourceEstimateVersion: {
+        id: latestVersion.id,
+        sequenceNo: latestVersion.sequenceNo,
+        sourceType: latestVersion.sourceType,
+        fileName: latestVersion.fileName,
+        storedPath: latestVersion.storedPath,
+        estimateKind: latestVersion.estimateKind,
+        defaultPayerType: latestVersion.defaultPayerType,
+        description: latestVersion.description ?? null,
+        status: latestVersion.status,
+        importedAt: latestVersion.importedAt ? latestVersion.importedAt.toISOString() : null,
+        createdAt: latestVersion.createdAt.toISOString(),
+      },
+      items,
+      reconciliationEntries,
+    };
+  }
+
+  async createPetlArchiveRecord(args: {
+    projectId: string;
+    actor: AuthenticatedUser;
+    projectFileId: string;
+    sourceEstimateVersionId: string;
+    label?: string | null;
+    note?: string | null;
+  }) {
+    this.assertAdminOrAbove(args.actor);
+    this.ensurePetlArchiveModelsAvailable();
+
+    const project = await this.getProjectByIdForUser(args.projectId, args.actor);
+
+    // Ensure the file + estimate version belong to this project.
+    const [file, version] = await Promise.all([
+      this.prisma.projectFile.findFirst({
+        where: {
+          id: args.projectFileId,
+          projectId: project.id,
+          companyId: project.companyId,
+        },
+        select: { id: true, fileName: true },
+      }),
+      this.prisma.estimateVersion.findFirst({
+        where: {
+          id: args.sourceEstimateVersionId,
+          projectId: project.id,
+        },
+        select: { id: true, sequenceNo: true },
+      }),
+    ]);
+
+    if (!file) {
+      throw new BadRequestException("projectFileId does not exist for this project");
+    }
+    if (!version) {
+      throw new BadRequestException("sourceEstimateVersionId does not exist for this project");
+    }
+
+    try {
+      const created = await this.prisma.projectPetlArchive.create({
+        data: {
+          companyId: project.companyId,
+          projectId: project.id,
+          projectFileId: file.id,
+          sourceEstimateVersionId: version.id,
+          label: args.label ?? null,
+          note: args.note ?? null,
+          createdByUserId: args.actor.userId,
+        },
+        include: {
+          projectFile: true,
+          sourceEstimateVersion: {
+            select: {
+              id: true,
+              sequenceNo: true,
+              fileName: true,
+              sourceType: true,
+              importedAt: true,
+              createdAt: true,
+            },
+          },
+          restoredEstimateVersion: {
+            select: {
+              id: true,
+              sequenceNo: true,
+              fileName: true,
+              sourceType: true,
+              importedAt: true,
+              createdAt: true,
+            },
+          },
+          createdBy: { select: { id: true, email: true } },
+          restoredBy: { select: { id: true, email: true } },
+        },
+      });
+
+      await this.audit.log(args.actor, "PROJECT_PETL_ARCHIVE_CREATED", {
+        companyId: project.companyId,
+        projectId: project.id,
+        metadata: {
+          archiveId: created.id,
+          projectFileId: created.projectFileId,
+          sourceEstimateVersionId: created.sourceEstimateVersionId,
+          label: created.label,
+        },
+      });
+
+      return created;
+    } catch (err: any) {
+      if (this.isPetlArchiveTableMissingError(err)) {
+        this.throwPetlArchiveTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
+  async restorePetlArchiveFromBundle(args: {
+    projectId: string;
+    actor: AuthenticatedUser;
+    archiveId: string;
+    bundle: any;
+  }) {
+    this.assertAdminOrAbove(args.actor);
+    this.ensurePetlArchiveModelsAvailable();
+
+    const project = await this.getProjectByIdForUser(args.projectId, args.actor);
+
+    const archive = await this.getPetlArchiveForProject(args.projectId, args.archiveId, args.actor);
+
+    const bundle = args.bundle as Partial<PetlArchiveBundleV1>;
+
+    if (bundle.schemaVersion !== 1) {
+      throw new BadRequestException("Unsupported PETL archive schemaVersion");
+    }
+    if (bundle.projectId !== project.id) {
+      throw new BadRequestException("Archive bundle projectId does not match this project");
+    }
+    if (bundle.companyId !== project.companyId) {
+      throw new BadRequestException("Archive bundle companyId does not match this company");
+    }
+
+    const items = Array.isArray(bundle.items) ? bundle.items : [];
+    if (items.length === 0) {
+      throw new BadRequestException("Archive bundle has no PETL items");
+    }
+
+    const now = new Date();
+
+    let restoredEstimateVersionId: string | null = null;
+
+    try {
+      await this.prisma.$transaction(
+        async (tx) => {
+          const maxAgg = await tx.estimateVersion.aggregate({
+            where: { projectId: project.id },
+            _max: { sequenceNo: true },
+          });
+          const nextSequenceNo = (maxAgg._max.sequenceNo ?? 0) + 1;
+
+          const sourceMeta = bundle.sourceEstimateVersion;
+          const defaultPayerType = String(sourceMeta?.defaultPayerType ?? "").trim() || "Insurance";
+
+          const fileName = `PETL Archive Restore ${archive.id} (${now.toISOString().slice(0, 10)})`;
+
+          const newVersion = await tx.estimateVersion.create({
+            data: {
+              projectId: project.id,
+              sourceType: "petl_archive",
+              fileName,
+              storedPath: archive.projectFile?.storageUrl ?? "(archive)",
+              estimateKind: "petl_archive",
+              sequenceNo: nextSequenceNo,
+              defaultPayerType,
+              description: archive.label ?? null,
+              status: "completed",
+              importedByUserId: args.actor.userId,
+              importedAt: now,
+            },
+          });
+
+          restoredEstimateVersionId = newVersion.id;
+
+          const sow = await tx.sow.create({
+            data: {
+              projectId: project.id,
+              estimateVersionId: newVersion.id,
+              sourceType: "petl_archive",
+              totalAmount: null,
+            },
+            select: { id: true },
+          });
+
+          // 1) Raw rows (use PETL lineNo as RawXactRow.lineNo to keep deterministic mapping)
+          await tx.rawXactRow.createMany({
+            data: items.map((it) => {
+              const rr: any = it.rawRow ?? {};
+              const lineNo = Number(it.lineNo);
+              const baseRawRowJson =
+                rr.rawRowJson &&
+                typeof rr.rawRowJson === "object" &&
+                !Array.isArray(rr.rawRowJson)
+                  ? rr.rawRowJson
+                  : {};
+
+              const rawRowJson = {
+                ...baseRawRowJson,
+                petlArchive: {
+                  sourceRawLineNo: rr.lineNo ?? null,
+                  archivedAt: bundle.exportedAt ?? null,
+                },
+              };
+
+              return {
+                estimateVersionId: newVersion.id,
+                lineNo,
+                groupCode: rr.groupCode ?? null,
+                groupDescription: rr.groupDescription ?? null,
+                desc: rr.desc ?? null,
+                age: rr.age ?? null,
+                condition: rr.condition ?? null,
+                qty: rr.qty ?? null,
+                itemAmount: rr.itemAmount ?? null,
+                reportedCost: rr.reportedCost ?? null,
+                unitCost: rr.unitCost ?? null,
+                unit: rr.unit ?? null,
+                coverage: rr.coverage ?? null,
+                activity: rr.activity ?? null,
+                workersWage: rr.workersWage ?? null,
+                laborBurden: rr.laborBurden ?? null,
+                laborOverhead: rr.laborOverhead ?? null,
+                material: rr.material ?? null,
+                equipment: rr.equipment ?? null,
+                marketConditions: rr.marketConditions ?? null,
+                laborMinimum: rr.laborMinimum ?? null,
+                salesTax: rr.salesTax ?? null,
+                rcv: rr.rcv ?? null,
+                life: rr.life ?? null,
+                depreciationType: rr.depreciationType ?? null,
+                depreciationAmount: rr.depreciationAmount ?? null,
+                recoverable: rr.recoverable ?? null,
+                acv: rr.acv ?? null,
+                tax: rr.tax ?? null,
+                replaceFlag: rr.replaceFlag ?? null,
+                cat: rr.cat ?? null,
+                sel: rr.sel ?? null,
+                owner: rr.owner ?? null,
+                originalVendor: rr.originalVendor ?? null,
+                sourceName: rr.sourceName ?? null,
+                sourceDate: (() => {
+                  if (!rr.sourceDate) return null;
+                  const d = new Date(rr.sourceDate);
+                  return Number.isNaN(d.getTime()) ? null : d;
+                })(),
+                note1: rr.note1 ?? null,
+                adjSource: rr.adjSource ?? null,
+                rawRowJson,
+              };
+            }),
+          });
+
+          const rawRowsCreated = await tx.rawXactRow.findMany({
+            where: { estimateVersionId: newVersion.id },
+            select: { id: true, lineNo: true },
+          });
+          const rawRowIdByLineNo = new Map<number, string>();
+          for (const r of rawRowsCreated) {
+            rawRowIdByLineNo.set(r.lineNo, r.id);
+          }
+
+          // 2) Logical items (re-use if already present)
+          const wantedKeys = items.map((it) => {
+            const sig = String((it as any)?.logicalItem?.signatureHash ?? "");
+            const particleId = String((it as any)?.logicalItem?.projectParticleId ?? it.projectParticleId ?? "");
+            return { sig, particleId };
+          }).filter((k) => k.sig && k.particleId);
+
+          const particleIds = Array.from(new Set(wantedKeys.map((k) => k.particleId)));
+          const sigs = Array.from(new Set(wantedKeys.map((k) => k.sig)));
+
+          const existingLogical = await tx.sowLogicalItem.findMany({
+            where: {
+              projectId: project.id,
+              projectParticleId: { in: particleIds },
+              signatureHash: { in: sigs },
+            },
+            select: { id: true, projectParticleId: true, signatureHash: true },
+          });
+
+          const logicalIdByKey = new Map<string, string>();
+          for (const l of existingLogical) {
+            logicalIdByKey.set(`${l.projectParticleId}|${l.signatureHash}`, l.id);
+          }
+
+          const missingLogical = wantedKeys.filter(
+            (k) => !logicalIdByKey.has(`${k.particleId}|${k.sig}`),
+          );
+
+          if (missingLogical.length) {
+            await tx.sowLogicalItem.createMany({
+              data: missingLogical.map((k) => ({
+                projectId: project.id,
+                projectParticleId: k.particleId,
+                signatureHash: k.sig,
+              })),
+            });
+
+            const createdLogical = await tx.sowLogicalItem.findMany({
+              where: {
+                projectId: project.id,
+                projectParticleId: { in: missingLogical.map((k) => k.particleId) },
+                signatureHash: { in: missingLogical.map((k) => k.sig) },
+              },
+              select: { id: true, projectParticleId: true, signatureHash: true },
+            });
+
+            for (const l of createdLogical) {
+              logicalIdByKey.set(`${l.projectParticleId}|${l.signatureHash}`, l.id);
+            }
+          }
+
+          // 3) Sow items
+          await tx.sowItem.createMany({
+            data: items.map((it) => {
+              const lineNo = Number(it.lineNo);
+              const rawRowId = rawRowIdByLineNo.get(lineNo);
+              if (!rawRowId) {
+                throw new BadRequestException(
+                  `Restore failed: missing raw row for PETL line #${lineNo}`,
+                );
+              }
+
+              const li = (it as any).logicalItem ?? {};
+              const sig = String(li.signatureHash ?? "");
+              const particleId = String(li.projectParticleId ?? it.projectParticleId ?? "");
+              const logicalId = logicalIdByKey.get(`${particleId}|${sig}`);
+              if (!logicalId) {
+                throw new BadRequestException(
+                  `Restore failed: missing logical item for PETL line #${lineNo}`,
+                );
+              }
+
+              const si: any = it.sowItem ?? {};
+
+              return {
+                sowId: sow.id,
+                estimateVersionId: newVersion.id,
+                rawRowId,
+                logicalItemId: logicalId,
+                projectParticleId: String(it.projectParticleId),
+                lineNo,
+                description: String(si.description ?? "").trim() || "(missing description)",
+                qty: si.qty ?? null,
+                originalQty: si.originalQty ?? null,
+                unit: si.unit ?? null,
+                unitCost: si.unitCost ?? null,
+                itemAmount: si.itemAmount ?? null,
+                rcvAmount: si.rcvAmount ?? null,
+                acvAmount: si.acvAmount ?? null,
+                depreciationAmount: si.depreciationAmount ?? null,
+                salesTaxAmount: si.salesTaxAmount ?? null,
+                categoryCode: si.categoryCode ?? null,
+                selectionCode: si.selectionCode ?? null,
+                activity: si.activity ?? null,
+                materialAmount: si.materialAmount ?? null,
+                equipmentAmount: si.equipmentAmount ?? null,
+                payerType: String(si.payerType ?? "").trim() || defaultPayerType,
+                performed: si.performed ?? false,
+                eligibleForAcvRefund: si.eligibleForAcvRefund ?? false,
+                acvRefundAmount: si.acvRefundAmount ?? null,
+                percentComplete: si.percentComplete ?? 0,
+                isAcvOnly: si.isAcvOnly ?? false,
+                qtyFlaggedIncorrect: si.qtyFlaggedIncorrect ?? false,
+                qtyFieldReported: si.qtyFieldReported ?? null,
+                qtyFieldReportedByUserId: si.qtyFieldReportedByUserId ?? null,
+                qtyFieldReportedAt: (() => {
+                  if (!si.qtyFieldReportedAt) return null;
+                  const d = new Date(si.qtyFieldReportedAt);
+                  return Number.isNaN(d.getTime()) ? null : d;
+                })(),
+                qtyFieldNotes: si.qtyFieldNotes ?? null,
+                qtyReviewStatus: si.qtyReviewStatus ?? null,
+              };
+            }),
+          });
+
+          const sowItemsCreated = await tx.sowItem.findMany({
+            where: { estimateVersionId: newVersion.id },
+            select: {
+              id: true,
+              lineNo: true,
+              logicalItemId: true,
+              projectParticleId: true,
+            },
+          });
+
+          const sowItemByLineNo = new Map<number, { id: string; logicalItemId: string; projectParticleId: string }>();
+          for (const s of sowItemsCreated) {
+            sowItemByLineNo.set(s.lineNo, {
+              id: s.id,
+              logicalItemId: s.logicalItemId,
+              projectParticleId: s.projectParticleId,
+            });
+          }
+
+          // 4) Reconciliation cases + entries (optional)
+          const reconEntries = Array.isArray(bundle.reconciliationEntries)
+            ? bundle.reconciliationEntries
+            : [];
+
+          if (reconEntries.length > 0) {
+            const caseIdByLogicalItemId = new Map<string, string>();
+
+            for (const sowItem of sowItemsCreated) {
+              const logicalItemId = sowItem.logicalItemId;
+
+              const existing = await tx.petlReconciliationCase.findFirst({
+                where: {
+                  projectId: project.id,
+                  logicalItemId,
+                },
+                select: { id: true },
+              });
+
+              if (existing) {
+                const updated = await tx.petlReconciliationCase.update({
+                  where: { id: existing.id },
+                  data: {
+                    estimateVersionId: newVersion.id,
+                    sowItemId: sowItem.id,
+                    status: PetlReconciliationCaseStatus.OPEN,
+                  },
+                });
+                caseIdByLogicalItemId.set(logicalItemId, updated.id);
+              } else {
+                const created = await tx.petlReconciliationCase.create({
+                  data: {
+                    projectId: project.id,
+                    estimateVersionId: newVersion.id,
+                    sowItemId: sowItem.id,
+                    logicalItemId,
+                    status: PetlReconciliationCaseStatus.OPEN,
+                    createdByUserId: args.actor.userId,
+                  },
+                  select: { id: true },
+                });
+                caseIdByLogicalItemId.set(logicalItemId, created.id);
+              }
+            }
+
+            const reconCreateData: any[] = [];
+
+            for (const e of reconEntries) {
+              const parentLineNo = typeof e.parentPetlLineNo === "number" ? e.parentPetlLineNo : null;
+              if (parentLineNo == null) {
+                // Entries without a parent line are not currently supported.
+                continue;
+              }
+
+              const parent = sowItemByLineNo.get(parentLineNo);
+              if (!parent) {
+                throw new BadRequestException(
+                  `Restore failed: reconciliation entry references missing PETL line #${parentLineNo}`,
+                );
+              }
+
+              const caseId = caseIdByLogicalItemId.get(parent.logicalItemId);
+              if (!caseId) {
+                throw new BadRequestException(
+                  `Restore failed: missing reconciliation case for PETL line #${parentLineNo}`,
+                );
+              }
+
+              const kindRaw = String(e.kind ?? "").trim();
+              if (!(Object.values(PetlReconciliationEntryKind) as string[]).includes(kindRaw)) {
+                throw new BadRequestException(`Invalid reconciliation entry kind '${kindRaw}' in archive`);
+              }
+
+              const tagRaw = e.tag == null ? null : String(e.tag).trim();
+              if (tagRaw && !(Object.values(PetlReconciliationEntryTag) as string[]).includes(tagRaw)) {
+                throw new BadRequestException(`Invalid reconciliation entry tag '${tagRaw}' in archive`);
+              }
+
+              reconCreateData.push({
+                projectId: project.id,
+                estimateVersionId: newVersion.id,
+                caseId,
+                parentSowItemId: parent.id,
+                projectParticleId: String(e.projectParticleId ?? parent.projectParticleId),
+                kind: kindRaw,
+                tag: tagRaw,
+                description: e.description ?? null,
+                categoryCode: e.categoryCode ?? null,
+                selectionCode: e.selectionCode ?? null,
+                unit: e.unit ?? null,
+                qty: e.qty ?? null,
+                unitCost: e.unitCost ?? null,
+                itemAmount: e.itemAmount ?? null,
+                salesTaxAmount: e.salesTaxAmount ?? null,
+                opAmount: e.opAmount ?? null,
+                rcvAmount: e.rcvAmount ?? null,
+                rcvComponentsJson: e.rcvComponentsJson ?? null,
+                percentComplete: e.percentComplete ?? 0,
+                isPercentCompleteLocked: e.isPercentCompleteLocked ?? false,
+                companyPriceListItemId: e.companyPriceListItemId ?? null,
+                sourceSnapshotJson: e.sourceSnapshotJson ?? null,
+                note: e.note ?? null,
+                createdByUserId: args.actor.userId,
+              });
+            }
+
+            if (reconCreateData.length) {
+              await tx.petlReconciliationEntry.createMany({ data: reconCreateData });
+            }
+          }
+
+          await tx.projectPetlArchive.update({
+            where: { id: archive.id },
+            data: {
+              restoredEstimateVersionId: newVersion.id,
+              restoredByUserId: args.actor.userId,
+              restoredAt: now,
+            },
+          });
+        },
+        { timeout: 600_000, maxWait: 60_000 },
+      );
+    } catch (err: any) {
+      if (
+        this.isPetlArchiveTableMissingError(err) ||
+        this.isMissingPrismaTableError(err, "PetlReconciliationCase") ||
+        this.isMissingPrismaTableError(err, "PetlReconciliationEntry")
+      ) {
+        // Make missing migration errors actionable.
+        throw new BadRequestException(
+          "Required PETL archive/reconciliation tables are not present in the database yet. Run `npm -w packages/database run prisma:migrate` and restart the API.",
+        );
+      }
+      throw err;
+    }
+
+    await this.audit.log(args.actor, "PROJECT_PETL_ARCHIVE_RESTORED", {
+      companyId: project.companyId,
+      projectId: project.id,
+      metadata: {
+        archiveId: archive.id,
+        restoredEstimateVersionId,
+      },
+    });
+
+    return {
+      status: "restored",
+      archiveId: archive.id,
+      restoredEstimateVersionId,
+    };
   }
 
   async deletePetlLineItemForProject(
@@ -3545,6 +4636,16 @@ export class ProjectService {
       agg.completedAmount += room.completedAmount;
     }
 
+    const unitSortKey = (label: string) => {
+      const s = String(label ?? "");
+      const m = s.match(/^Unit\s+0*(\d+)\b/i);
+      if (m) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n)) return { kind: 0, n, s };
+      }
+      return { kind: 1, n: Number.POSITIVE_INFINITY, s: s.toLowerCase() };
+    };
+
     const unitGroups: UnitGroup[] = Array.from(byUnit.values())
       .map((u, idx) => {
         const total = u.totalAmount;
@@ -3564,7 +4665,13 @@ export class ProjectService {
           percentComplete: percent,
         };
       })
-      .sort((a, b) => a.unitLabel.localeCompare(b.unitLabel));
+      .sort((a, b) => {
+        const ka = unitSortKey(a.unitLabel);
+        const kb = unitSortKey(b.unitLabel);
+        if (ka.kind !== kb.kind) return ka.kind - kb.kind;
+        if (ka.n !== kb.n) return ka.n - kb.n;
+        return ka.s.localeCompare(kb.s);
+      });
 
     return { projectId, estimateVersionId: latestVersion.id, groups, unitGroups };
   }
@@ -6055,7 +7162,17 @@ export class ProjectService {
   }
 
   private formatUnitLabel(u: any) {
-    const label = String(u?.label ?? "").trim();
+    const rawLabel = String(u?.label ?? "").trim();
+
+    // Normalize Unit 1..9 => Unit 01..09 so lexical sorting is stable.
+    // Keep non-numeric labels (e.g. "Unit A") unchanged.
+    const label = rawLabel.replace(/^Unit\s+0*(\d+)\b/i, (_m: string, nRaw: string) => {
+      const n = Number(nRaw);
+      if (!Number.isFinite(n) || n <= 0) return rawLabel;
+      const padded = n < 10 ? `0${n}` : String(n);
+      return `Unit ${padded}`;
+    });
+
     const floor = typeof u?.floor === "number" ? ` (Floor ${u.floor})` : "";
     const out = `${label}${floor}`.trim();
     return out || null;
@@ -6088,6 +7205,7 @@ export class ProjectService {
         estimateVersionId: true,
         projectParticleId: true,
         lineNo: true,
+        sourceLineNo: true,
         description: true,
         unit: true,
         categoryCode: true,
@@ -6254,6 +7372,7 @@ export class ProjectService {
         projectBuildingLabelSnapshot: buildingLabel,
         projectTreePathSnapshot: treePath,
         lineNoSnapshot: s.lineNo,
+        sourceLineNoSnapshot: s.sourceLineNo ?? null,
         categoryCodeSnapshot: s.categoryCode ?? null,
         selectionCodeSnapshot: s.selectionCode ?? null,
         descriptionSnapshot: s.description,

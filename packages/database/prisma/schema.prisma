@@ -79,6 +79,7 @@ model Company {
   recipientGroups    MessageRecipientGroup[]
   projectFileFolders ProjectFileFolder[]
   projectFiles       ProjectFile[]
+  petlArchives       ProjectPetlArchive[]
   companyPriceLists  CompanyPriceList[]
   dailyTimecards     DailyTimecard[]
   timecardEditLogs   TimecardEditLog[]
@@ -229,11 +230,11 @@ model DocumentTemplate {
   updatedAt        DateTime             @updatedAt
   currentVersionId String?              @unique
 
-  company        Company                  @relation(fields: [companyId], references: [id])
-  currentVersion DocumentTemplateVersion? @relation("DocTemplateCurrentVersion", fields: [currentVersionId], references: [id])
+  company        Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  currentVersion DocumentTemplateVersion? @relation("DocTemplateCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
   versions       DocumentTemplateVersion[]
 
-  @@unique([companyId, code], name: "DocumentTemplate_company_code_key")
+  @@unique([companyId, code], map: "DocumentTemplate_company_code_key")
   @@index([companyId], map: "DocumentTemplate_company_idx")
   @@index([companyId, type], map: "DocumentTemplate_company_type_idx")
 }
@@ -249,10 +250,10 @@ model DocumentTemplateVersion {
   createdAt   DateTime @default(now())
   createdByUserId String?
 
-  template          DocumentTemplate  @relation(fields: [templateId], references: [id])
+  template          DocumentTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
   currentForTemplate DocumentTemplate? @relation("DocTemplateCurrentVersion")
 
-  @@unique([templateId, versionNo], name: "DocTemplateVersion_template_version_no")
+  @@unique([templateId, versionNo], map: "DocTemplateVersion_template_version_no")
   @@index([templateId], map: "DocTemplateVersion_template_idx")
 }
 
@@ -335,6 +336,10 @@ model User {
   petlReconciliationCasesCreated  PetlReconciliationCase[]  @relation("PetlReconCaseCreatedBy")
   petlReconciliationEntriesCreated PetlReconciliationEntry[] @relation("PetlReconEntryCreatedBy")
   petlReconciliationEventsCreated PetlReconciliationEvent[] @relation("PetlReconEventCreatedBy")
+
+  // PETL archives
+  petlArchivesCreated  ProjectPetlArchive[] @relation("PetlArchiveCreatedBy")
+  petlArchivesRestored ProjectPetlArchive[] @relation("PetlArchiveRestoredBy")
 
   // Pending PETL percent updates (field-proposed, PM-approved)
   petlPercentUpdateSessionsCreated  PetlPercentUpdateSession[] @relation("PetlPercentUpdateSessionCreatedBy")
@@ -867,6 +872,7 @@ model Project {
   petlReconciliationCases   PetlReconciliationCase[]
   petlReconciliationEntries PetlReconciliationEntry[]
   petlReconciliationEvents  PetlReconciliationEvent[]
+  petlArchives          ProjectPetlArchive[]
   company              Company                   @relation(fields: [companyId], references: [id])
   buildings            ProjectBuilding[]
   memberships          ProjectMembership[]
@@ -1018,8 +1024,40 @@ model ProjectFile {
   attachments MessageAttachment[]
   dailyLogAttachments DailyLogAttachment[]
   billAttachments ProjectBillAttachment[]
+  petlArchives ProjectPetlArchive[]
 
   @@index([companyId, projectId], map: "ProjectFile_company_project_idx")
+}
+
+model ProjectPetlArchive {
+  id                     String   @id @default(cuid())
+  companyId              String
+  projectId              String
+  projectFileId          String
+  sourceEstimateVersionId String
+
+  label String?
+  note  String?
+
+  restoredEstimateVersionId String?
+  restoredByUserId          String?
+  restoredAt                DateTime?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectFile ProjectFile @relation(fields: [projectFileId], references: [id], onDelete: Cascade)
+
+  sourceEstimateVersion EstimateVersion @relation("PetlArchiveSourceEstimateVersion", fields: [sourceEstimateVersionId], references: [id], onDelete: Restrict)
+  restoredEstimateVersion EstimateVersion? @relation("PetlArchiveRestoredEstimateVersion", fields: [restoredEstimateVersionId], references: [id], onDelete: SetNull)
+
+  createdBy  User? @relation("PetlArchiveCreatedBy", fields: [createdByUserId], references: [id])
+  restoredBy User? @relation("PetlArchiveRestoredBy", fields: [restoredByUserId], references: [id])
+
+  @@index([companyId, projectId, createdAt], map: "ProjectPetlArchive_company_project_created_idx")
+  @@index([projectId, createdAt], map: "ProjectPetlArchive_project_created_idx")
 }
 
 /// Global list of job / project statuses (e.g. Open, Closed, Warranty).
@@ -1315,7 +1353,10 @@ model ProjectInvoicePetlLine {
   projectTreePathSnapshot       String?
 
   // Display snapshots
+  /// Internal PETL line ordering (sequential, stable for sorting).
   lineNoSnapshot        Int
+  /// Original line number from the source estimate export (e.g. Xactimate "#").
+  sourceLineNoSnapshot  Int?
   categoryCodeSnapshot  String?
   selectionCodeSnapshot String?
   descriptionSnapshot   String
@@ -1486,7 +1527,7 @@ model ProjectBillAttachment {
   bill        ProjectBill  @relation(fields: [billId], references: [id], onDelete: Cascade)
   projectFile ProjectFile @relation(fields: [projectFileId], references: [id], onDelete: Cascade)
 
-  @@unique([billId, projectFileId], name: "ProjectBillAttachment_bill_file_key")
+  @@unique([billId, projectFileId], map: "ProjectBillAttachment_bill_file_key")
   @@index([billId], map: "ProjectBillAttachment_bill_idx")
   @@index([projectFileId], map: "ProjectBillAttachment_project_file_idx")
 }
@@ -1599,6 +1640,8 @@ model EstimateVersion {
   petlReconciliationCases   PetlReconciliationCase[]
   petlReconciliationEntries PetlReconciliationEntry[]
   petlReconciliationEvents  PetlReconciliationEvent[]
+  petlArchivesSource        ProjectPetlArchive[] @relation("PetlArchiveSourceEstimateVersion")
+  petlArchivesRestored      ProjectPetlArchive[] @relation("PetlArchiveRestoredEstimateVersion")
   petlPercentUpdateSessions PetlPercentUpdateSession[]
 
   @@index([projectId, sequenceNo], map: "EstimateVersion_project_sequence_idx")
@@ -1820,7 +1863,10 @@ model SowItem {
   rawRowId             String
   logicalItemId        String
   projectParticleId    String
+  /// Internal PETL line ordering (sequential, stable for sorting).
   lineNo               Int
+  /// Original line number from the source estimate export (e.g. Xactimate "#").
+  sourceLineNo         Int?
   description          String
 
   /// Quantities
