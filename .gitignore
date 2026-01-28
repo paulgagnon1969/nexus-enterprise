@@ -39,3 +39,14 @@ promotion/
 # Office/RTF exports
 *.rtf
 
+# Local uploads / artifacts (do not commit)
+/apps/api/uploads/
+/apps/mobile/
+/docs/data/NCC Mobile Dev/
+/docs/data/NEXUS - Application Architecuture and read.me docs/
+/docs/data/PWC Reconciliation data/Old Files/
+/docs/data/PWC Reconciliation data/*.csv
+/remoteLogId.
+/scripts/mport.js
+/{
+
