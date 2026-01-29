@@ -1,10 +1,11 @@
 import { Module } from "@nestjs/common";
-import { PrismaService } from "../../infra/prisma/prisma.service";
+import { PrismaModule } from "../../infra/prisma/prisma.module";
 import { XactScheduleService } from "./xact-schedule.service";
 import { XactScheduleController } from "./xact-schedule.controller";
 
 @Module({
-  providers: [PrismaService, XactScheduleService],
+  imports: [PrismaModule],
+  providers: [XactScheduleService],
   controllers: [XactScheduleController],
   exports: [XactScheduleService],
 })
