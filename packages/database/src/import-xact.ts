@@ -734,22 +734,95 @@ export async function importXactCsvForProject(options: {
       phases: {},
     };
 
-    const rawCsv = fs.readFileSync(csvPath, "utf8");
-    const parsedRecordsRaw: any[] = parse(rawCsv, {
-      columns: true,
-      skip_empty_lines: true,
+    // Strip BOM up-front so delimiter detection and header matching are stable.
+    const rawCsv = fs.readFileSync(csvPath, "utf8").replace(/^\uFEFF/, "");
+
+    // Xact exports are often TSV (tab) but saved with a .csv extension.
+    // Rather than guessing from counts (which can fail when header has few separators),
+    // try common delimiters and choose the one that produces a multi-column dataset.
+    const delimiterCandidates: string[] = ["\t", ",", ";", "|"];
+
+    const tryParse = (delimiter: string) => {
+      try {
+        const parsedRecordsRaw: any[] = parse(rawCsv, {
+          columns: true,
+          skip_empty_lines: true,
+          delimiter,
+          // Be tolerant of slightly malformed exports.
+          relax_column_count: true,
+          relax_quotes: true,
+        });
+
+        const parsedRecords: any[] = parsedRecordsRaw.map(sanitizeRecordHeaders);
+        const blankRecordCount = parsedRecords.reduce(
+          (n, r) => n + (isBlankCsvRecord(r) ? 1 : 0),
+          0,
+        );
+        const records: any[] = parsedRecords.filter((r) => !isBlankCsvRecord(r));
+        const first = records[0] ?? null;
+        const columnCount = first ? Object.keys(first).length : 0;
+
+        // Prefer parses that include expected columns.
+        const normKeys = first ? Object.keys(first).map(normalizeHeaderLookupKey) : [];
+        const hasGroupDesc = normKeys.some((k) => k.includes("group") && k.includes("desc"));
+        const hasDesc = normKeys.some((k) => k === "desc" || k.includes("description"));
+
+        return {
+          ok: true as const,
+          delimiter,
+          parsedRecordsCount: parsedRecords.length,
+          blankRecordCount,
+          records,
+          columnCount,
+          hasSignalColumns: hasGroupDesc || hasDesc,
+        };
+      } catch (err: any) {
+        return {
+          ok: false as const,
+          delimiter,
+          error: err?.message ?? String(err),
+        };
+      }
+    };
+
+    const attempts = delimiterCandidates.map(tryParse);
+
+    // Choose best: highest column count, then most records, then signal columns.
+    const successful = attempts.filter((a: any) => a.ok) as Array<
+      ReturnType<typeof tryParse> & { ok: true }
+    >;
+
+    successful.sort((a, b) => {
+      if (a.columnCount !== b.columnCount) return b.columnCount - a.columnCount;
+      if (a.records.length !== b.records.length) return b.records.length - a.records.length;
+      if (a.hasSignalColumns !== b.hasSignalColumns) return a.hasSignalColumns ? -1 : 1;
+      return 0;
     });
 
-    // Normalize headers so downstream field access is resilient to BOM/control chars
-    // (common in Excel exports) and minor whitespace differences.
-    const parsedRecords: any[] = parsedRecordsRaw.map(sanitizeRecordHeaders);
+    const best = successful[0] ?? null;
 
-    const blankRecordCount = parsedRecords.reduce(
-      (n, r) => n + (isBlankCsvRecord(r) ? 1 : 0),
-      0,
-    );
+    if (!best || best.records.length === 0 || best.columnCount <= 1) {
+      const diag = attempts.map((a: any) => {
+        if (!a.ok) return `${a.delimiter}: error=${a.error}`;
+        return `${a.delimiter}: cols=${a.columnCount} records=${a.records.length} blanks=${a.blankRecordCount}`;
+      });
+      throw new Error(
+        `XACT_RAW parse produced no usable records (check delimiter/format). Attempts: ${diag.join(" | ")}`,
+      );
+    }
 
-    const records: any[] = parsedRecords.filter((r) => !isBlankCsvRecord(r));
+    const delimiter = best.delimiter;
+    const records: any[] = best.records;
+    const blankRecordCount = best.blankRecordCount;
+
+    trace.csv = {
+      bytes: Buffer.byteLength(rawCsv, "utf8"),
+      delimiter,
+      parsedRecordsCount: best.parsedRecordsCount,
+      blankRecordCount,
+      recordCount: records.length,
+      columnCount: best.columnCount,
+    };
 
     // Build a per-file header lookup so we can read columns even if the exact
     // header label differs (e.g. "Group Desc" vs "Group Description").
@@ -781,12 +854,6 @@ export async function importXactCsvForProject(options: {
       return undefined;
     };
 
-    trace.csv = {
-      bytes: Buffer.byteLength(rawCsv, "utf8"),
-      rawRecordCount: parsedRecords.length,
-      blankRecordCount,
-      recordCount: records.length,
-    };
 
   // Bulk-insert raw rows to avoid thousands of individual INSERT statements
   // against a remote Cloud SQL database.
@@ -1361,8 +1428,10 @@ export async function importXactCsvForProject(options: {
       logicalItemId,
       projectParticleId,
       // PETL line numbers are managed internally and should be sequential.
-      // Keep the original Xactimate "#" value on the RawXactRow (rawRow.lineNo).
       lineNo: sowItemsData.length + 1,
+      // Persist the original Xactimate "#" column (from RawXactRow.lineNo) so the UI can display
+      // the same line item numbers users see in the source CSV.
+      sourceLineNo: raw.lineNo && raw.lineNo > 0 ? raw.lineNo : null,
       description: cleanText(getCol(record, "Desc", "Description", "Item Description")) || "",
       qty: toNumber(getCol(record, "Qty", "Quantity", "QTY")),
       unit: getCol(record, "Unit", "UOM", "U/M") || null,
