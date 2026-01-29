@@ -37,6 +37,39 @@ function cleanKeyText(value: string | null | undefined): string | null {
   return s || null;
 }
 
+function sanitizeHeaderKey(key: string): string {
+  // Remove BOM/control chars and normalize whitespace so header matching is robust.
+  return String(key ?? "")
+    .replace(/^\uFEFF/, "")
+    .replace(/[\u0000-\u001F]/g, "")
+    .trim();
+}
+
+function normalizeHeaderLookupKey(key: string): string {
+  // Normalize to a comparable key:
+  // - lowercase
+  // - collapse all non-alphanumerics (except '#') to spaces
+  // - collapse whitespace
+  return sanitizeHeaderKey(key)
+    .toLowerCase()
+    .replace(/[^a-z0-9#]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function sanitizeRecordHeaders(record: any): any {
+  if (!record || typeof record !== "object") return record;
+  const out: any = {};
+  for (const [k, v] of Object.entries(record)) {
+    const cleanKey = sanitizeHeaderKey(k);
+    // Prefer first occurrence if multiple headers normalize to the same label.
+    if (!(cleanKey in out)) {
+      out[cleanKey] = v;
+    }
+  }
+  return out;
+}
+
 function cleanNote(value: string | null | undefined, max = 5000): string | null {
   const t = cleanText(value);
   if (!t) return null;
@@ -109,20 +142,20 @@ function toDate(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function computeSignature(record: any): string {
+function computeSignature(record: any, get: (rec: any, ...aliases: string[]) => any): string {
   const fields = [
-    record["Group Description"] ?? "",
-    record["Desc"] ?? "",
-    record["Qty"] ?? "",
-    record["Item Amount"] ?? "",
-    record["Unit Cost"] ?? "",
-    record["Unit"] ?? "",
-    record["Activity"] ?? "",
-    record["Sales Tax"] ?? "",
-    record["RCV"] ?? "",
-    record["ACV"] ?? "",
-    record["Cat"] ?? "",
-    record["Sel"] ?? ""
+    get(record, "Group Description", "Group Desc", "Room", "Room Name") ?? "",
+    get(record, "Desc", "Description", "Item Description") ?? "",
+    get(record, "Qty", "Quantity", "QTY") ?? "",
+    get(record, "Item Amount", "ItemAmount", "Line Amount", "Amount") ?? "",
+    get(record, "Unit Cost", "UnitCost", "Unit Price", "UnitPrice") ?? "",
+    get(record, "Unit", "UOM", "U/M") ?? "",
+    get(record, "Activity") ?? "",
+    get(record, "Sales Tax", "SalesTax", "Tax") ?? "",
+    get(record, "RCV") ?? "",
+    get(record, "ACV") ?? "",
+    get(record, "Cat", "Category") ?? "",
+    get(record, "Sel", "Selection") ?? "",
   ];
   const base = fields.join("|");
   // Single SHA-256 hex digest is sufficient to identify a logical item.
@@ -702,10 +735,14 @@ export async function importXactCsvForProject(options: {
     };
 
     const rawCsv = fs.readFileSync(csvPath, "utf8");
-    const parsedRecords: any[] = parse(rawCsv, {
+    const parsedRecordsRaw: any[] = parse(rawCsv, {
       columns: true,
       skip_empty_lines: true,
     });
+
+    // Normalize headers so downstream field access is resilient to BOM/control chars
+    // (common in Excel exports) and minor whitespace differences.
+    const parsedRecords: any[] = parsedRecordsRaw.map(sanitizeRecordHeaders);
 
     const blankRecordCount = parsedRecords.reduce(
       (n, r) => n + (isBlankCsvRecord(r) ? 1 : 0),
@@ -713,6 +750,36 @@ export async function importXactCsvForProject(options: {
     );
 
     const records: any[] = parsedRecords.filter((r) => !isBlankCsvRecord(r));
+
+    // Build a per-file header lookup so we can read columns even if the exact
+    // header label differs (e.g. "Group Desc" vs "Group Description").
+    const headerKeys = Object.keys(records[0] ?? {});
+    const headerKeyByNorm = new Map<string, string>();
+    for (const k of headerKeys) {
+      const nk = normalizeHeaderLookupKey(k);
+      if (!headerKeyByNorm.has(nk)) headerKeyByNorm.set(nk, k);
+    }
+
+    const getCol = (rec: any, ...aliases: string[]) => {
+      for (const a of aliases) {
+        const key = headerKeyByNorm.get(normalizeHeaderLookupKey(a));
+        if (key && Object.prototype.hasOwnProperty.call(rec, key)) {
+          return (rec as any)[key];
+        }
+
+        // Fallback: direct access in case this record has different keys.
+        if (Object.prototype.hasOwnProperty.call(rec, a)) {
+          return (rec as any)[a];
+        }
+
+        // Fallback: case/whitespace-insensitive scan (rare).
+        const target = normalizeHeaderLookupKey(a);
+        for (const k of Object.keys(rec ?? {})) {
+          if (normalizeHeaderLookupKey(k) === target) return (rec as any)[k];
+        }
+      }
+      return undefined;
+    };
 
     trace.csv = {
       bytes: Buffer.byteLength(rawCsv, "utf8"),
@@ -735,26 +802,20 @@ export async function importXactCsvForProject(options: {
     // real-world variants due to BOM/control chars, hidden prefixes, or different
     // export templates.
     const keys = Object.keys(record ?? {});
-    const normalizeHeader = (k: string) =>
-      String(k ?? "")
-        .replace(/^\uFEFF/, "")
-        .replace(/[\u0000-\u001F]/g, "")
-        .trim()
-        .toLowerCase();
 
     const pickLineKey = () => {
       // Highest confidence: header is exactly "#" (after cleaning)
-      const exactHash = keys.find((k) => normalizeHeader(k) === "#");
+      const exactHash = keys.find((k) => normalizeHeaderLookupKey(k) === "#");
       if (exactHash) return exactHash;
 
       // Next: header contains a #
-      const containsHash = keys.find((k) => normalizeHeader(k).includes("#"));
+      const containsHash = keys.find((k) => normalizeHeaderLookupKey(k).includes("#"));
       if (containsHash) return containsHash;
 
       // Next: "line no" / "line number" variants
       const lineNoLike = keys.find((k) => {
-        const n = normalizeHeader(k);
-        return (n.includes("line") && n.includes("no")) || n.includes("linenumber");
+        const n = normalizeHeaderLookupKey(k);
+        return (n.includes("line") && n.includes("no")) || n.includes("line number") || n.includes("linenumber");
       });
       if (lineNoLike) return lineNoLike;
 
@@ -777,42 +838,42 @@ export async function importXactCsvForProject(options: {
 
       // Store the *grouping* code (see normalizeGroupCodeForGrouping). The full
       // raw Group Code is still preserved in rawRowJson.
-      groupCode: normalizeGroupCodeForGrouping(record["Group Code"]),
-      groupDescription: cleanKeyText(record["Group Description"]),
-      desc: cleanText(record["Desc"]),
-      age: toNumber(record["Age"]),
-      condition: cleanText(record["Condition"]),
-      qty: toNumber(record["Qty"]),
-      itemAmount: toNumber(record["Item Amount"]),
-      reportedCost: toNumber(record["Reported Cost"]),
-      unitCost: toNumber(record["Unit Cost"]),
-      unit: cleanText(record["Unit"]),
-      coverage: cleanText(record["Coverage"]),
-      activity: cleanText(record["Activity"]),
-      workersWage: toNumber(record["Worker's Wage"]),
-      laborBurden: toNumber(record["Labor burden"]),
-      laborOverhead: toNumber(record["Labor Overhead"]),
-      material: toNumber(record["Material"]),
-      equipment: toNumber(record["Equipment"]),
-      marketConditions: toNumber(record["Market Conditions"]),
-      laborMinimum: toNumber(record["Labor Minimum"]),
-      salesTax: toNumber(record["Sales Tax"]),
-      rcv: toNumber(record["RCV"]),
-      life: record["Life"] ? Number(record["Life"]) : null,
-      depreciationType: record["Depreciation Type"] || null,
-      depreciationAmount: toNumber(record["Depreciation Amount"]),
-      recoverable: toBooleanYesNo(record["Recoverable"]),
-      acv: toNumber(record["ACV"]),
-      tax: toNumber(record["Tax"]),
-      replaceFlag: toBooleanYesNo(record["Replace"]),
-      cat: cleanText(record["Cat"]),
-      sel: cleanText(record["Sel"]),
-      owner: cleanText(record["Owner"]),
-      originalVendor: cleanText(record["Original Vendor"]),
-      sourceName: cleanText(record["Source Name"]),
-      sourceDate: toDate(record["Date"]),
-      note1: cleanNote(record["Note 1"]),
-      adjSource: record["ADJ_SOURCE"] || null,
+      groupCode: normalizeGroupCodeForGrouping(getCol(record, "Group Code", "GroupCode", "Unit Code", "UnitCode")),
+      groupDescription: cleanKeyText(getCol(record, "Group Description", "Group Desc", "GroupDescription", "Room", "Room Name", "Room Description")),
+      desc: cleanText(getCol(record, "Desc", "Description", "Item Description")),
+      age: toNumber(getCol(record, "Age")),
+      condition: cleanText(getCol(record, "Condition")),
+      qty: toNumber(getCol(record, "Qty", "Quantity", "QTY")),
+      itemAmount: toNumber(getCol(record, "Item Amount", "ItemAmount", "Line Amount", "Amount")),
+      reportedCost: toNumber(getCol(record, "Reported Cost", "ReportedCost")),
+      unitCost: toNumber(getCol(record, "Unit Cost", "UnitCost", "Unit Price", "UnitPrice")),
+      unit: cleanText(getCol(record, "Unit", "UOM", "U/M")),
+      coverage: cleanText(getCol(record, "Coverage")),
+      activity: cleanText(getCol(record, "Activity")),
+      workersWage: toNumber(getCol(record, "Worker's Wage", "Workers Wage", "Worker Wage")),
+      laborBurden: toNumber(getCol(record, "Labor burden", "Labor Burden")),
+      laborOverhead: toNumber(getCol(record, "Labor Overhead")),
+      material: toNumber(getCol(record, "Material")),
+      equipment: toNumber(getCol(record, "Equipment")),
+      marketConditions: toNumber(getCol(record, "Market Conditions")),
+      laborMinimum: toNumber(getCol(record, "Labor Minimum")),
+      salesTax: toNumber(getCol(record, "Sales Tax", "SalesTax", "Tax")),
+      rcv: toNumber(getCol(record, "RCV")),
+      life: getCol(record, "Life") ? Number(getCol(record, "Life")) : null,
+      depreciationType: getCol(record, "Depreciation Type", "DepreciationType") || null,
+      depreciationAmount: toNumber(getCol(record, "Depreciation Amount", "Depreciation")),
+      recoverable: toBooleanYesNo(getCol(record, "Recoverable")),
+      acv: toNumber(getCol(record, "ACV")),
+      tax: toNumber(getCol(record, "Tax")),
+      replaceFlag: toBooleanYesNo(getCol(record, "Replace")),
+      cat: cleanText(getCol(record, "Cat", "Category")),
+      sel: cleanText(getCol(record, "Sel", "Selection")),
+      owner: cleanText(getCol(record, "Owner")),
+      originalVendor: cleanText(getCol(record, "Original Vendor", "OriginalVendor")),
+      sourceName: cleanText(getCol(record, "Source Name", "SourceName")),
+      sourceDate: toDate(getCol(record, "Date")),
+      note1: cleanNote(getCol(record, "Note 1", "Note1")),
+      adjSource: getCol(record, "ADJ_SOURCE") || null,
 
       rawRowJson: record as any,
 
@@ -884,12 +945,12 @@ export async function importXactCsvForProject(options: {
   const unitLabelByExternalCode = new Map<string, string>();
 
   for (const record of records) {
-    const groupDescription = cleanKeyText(record["Group Description"]);
+    const groupDescription = cleanKeyText(getCol(record, "Group Description", "Group Desc", "GroupDescription", "Room", "Room Name", "Room Description"));
     if (!groupDescription) continue;
 
     // Group Code is the authoritative *unit grouping* in Xact exports.
     // Group Description is the authoritative room / particle label.
-    const groupCode = normalizeGroupCodeForGrouping(record["Group Code"]);
+    const groupCode = normalizeGroupCodeForGrouping(getCol(record, "Group Code", "GroupCode", "Unit Code", "UnitCode"));
 
     const unitExternalCode = groupCode ?? "__no_group_code__";
     const unitLabel = parseUnitLabelFromGroupCode(groupCode) ?? (groupCode ?? "(No unit)");
@@ -1166,10 +1227,14 @@ export async function importXactCsvForProject(options: {
   const logicalKeyToData = new Map<string, { projectParticleId: string; signature: string }>();
 
   for (const record of records) {
-    const groupDescription = cleanKeyText(record["Group Description"]);
+    const groupDescription = cleanKeyText(
+      getCol(record, "Group Description", "Group Desc", "GroupDescription", "Room", "Room Name", "Room Description"),
+    );
     if (!groupDescription) continue;
 
-    const groupCode = cleanKeyText(record["Group Code"]);
+    const groupCode = normalizeGroupCodeForGrouping(
+      getCol(record, "Group Code", "GroupCode", "Unit Code", "UnitCode"),
+    );
 
     const unitExternalCode = groupCode ?? "__no_group_code__";
 
@@ -1177,7 +1242,7 @@ export async function importXactCsvForProject(options: {
     const projectParticleId = particleIdByKey.get(particleKey);
     if (!projectParticleId) continue;
 
-    const signature = computeSignature(record);
+    const signature = computeSignature(record, getCol);
     const logicalKey = `${projectParticleId}:${signature}`;
     if (!logicalKeyToData.has(logicalKey)) {
       logicalKeyToData.set(logicalKey, { projectParticleId, signature });
@@ -1251,13 +1316,14 @@ export async function importXactCsvForProject(options: {
       continue;
     }
 
-    const groupDescription = cleanKeyText(record["Group Description"]) || "";
+    const groupDescription =
+      cleanKeyText(getCol(record, "Group Description", "Group Desc", "GroupDescription", "Room", "Room Name", "Room Description")) || "";
     if (!groupDescription) {
       skippedNoGroupDescription += 1;
       continue;
     }
 
-    const groupCode = normalizeGroupCodeForGrouping(record["Group Code"]);
+    const groupCode = normalizeGroupCodeForGrouping(getCol(record, "Group Code", "GroupCode", "Unit Code", "UnitCode"));
 
     const unitExternalCode = groupCode ?? "__no_group_code__";
 
@@ -1271,7 +1337,7 @@ export async function importXactCsvForProject(options: {
       continue;
     }
 
-    const signature = computeSignature(record);
+    const signature = computeSignature(record, getCol);
     const logicalKey = `${projectParticleId}:${signature}`;
 
     let logicalItemId = logicalIdByKey.get(logicalKey);
@@ -1297,20 +1363,20 @@ export async function importXactCsvForProject(options: {
       // PETL line numbers are managed internally and should be sequential.
       // Keep the original Xactimate "#" value on the RawXactRow (rawRow.lineNo).
       lineNo: sowItemsData.length + 1,
-      description: cleanText(record["Desc"]) || "",
-      qty: toNumber(record["Qty"]),
-      unit: record["Unit"] || null,
-      unitCost: toNumber(record["Unit Cost"]),
-      itemAmount: toNumber(record["Item Amount"]),
-      rcvAmount: toNumber(record["RCV"]),
-      acvAmount: toNumber(record["ACV"]),
-      depreciationAmount: toNumber(record["Depreciation Amount"]),
-      salesTaxAmount: toNumber(record["Sales Tax"]),
-      categoryCode: record["Cat"] || null,
-      selectionCode: record["Sel"] || null,
-      activity: record["Activity"] || null,
-      materialAmount: toNumber(record["Material"]),
-      equipmentAmount: toNumber(record["Equipment"]),
+      description: cleanText(getCol(record, "Desc", "Description", "Item Description")) || "",
+      qty: toNumber(getCol(record, "Qty", "Quantity", "QTY")),
+      unit: getCol(record, "Unit", "UOM", "U/M") || null,
+      unitCost: toNumber(getCol(record, "Unit Cost", "UnitCost", "Unit Price", "UnitPrice")),
+      itemAmount: toNumber(getCol(record, "Item Amount", "ItemAmount", "Line Amount", "Amount")),
+      rcvAmount: toNumber(getCol(record, "RCV")),
+      acvAmount: toNumber(getCol(record, "ACV")),
+      depreciationAmount: toNumber(getCol(record, "Depreciation Amount", "Depreciation")),
+      salesTaxAmount: toNumber(getCol(record, "Sales Tax", "SalesTax", "Tax")),
+      categoryCode: getCol(record, "Cat", "Category") || null,
+      selectionCode: getCol(record, "Sel", "Selection") || null,
+      activity: getCol(record, "Activity") || null,
+      materialAmount: toNumber(getCol(record, "Material")),
+      equipmentAmount: toNumber(getCol(record, "Equipment")),
       payerType: estimateVersion.defaultPayerType,
       performed: false,
       eligibleForAcvRefund: false,

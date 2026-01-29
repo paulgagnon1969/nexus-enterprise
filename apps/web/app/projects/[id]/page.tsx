@@ -17,6 +17,7 @@ import {
   CostBookPickerModal,
   type CostBookSelection,
 } from "../../components/cost-book-picker-modal";
+import { AdminPetlTools } from "./admin-petl-tools";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -2245,16 +2246,12 @@ ${htmlBody}
     return globalOk || companyRoleOk;
   }, [actorCompanyRole, actorGlobalRole]);
 
-  const [petlDeleteBusy, setPetlDeleteBusy] = useState(false);
-  const [petlDeleteMessage, setPetlDeleteMessage] = useState<string | null>(null);
-
   const [petlDiagnosticsModalOpen, setPetlDiagnosticsModalOpen] = useState(false);
-  const [adminPetlToolsModalOpen, setAdminPetlToolsModalOpen] = useState(false);
 
   const deletePetlLineItem = async (item: PetlItem) => {
-    setPetlDeleteMessage(null);
+    // (kept in this file; this is invoked from the PETL UI itself)
     if (!isAdminOrAbove) {
-      setPetlDeleteMessage("Only Admin+ can delete PETL line items.");
+      alert("Only Admin+ can delete PETL line items.");
       return;
     }
 
@@ -2268,13 +2265,11 @@ ${htmlBody}
 
     const token = localStorage.getItem("accessToken");
     if (!token) {
-      setPetlDeleteMessage("Missing access token.");
+      alert("Missing access token.");
       return;
     }
 
     try {
-      setPetlDeleteBusy(true);
-
       await busyOverlay.run(`Deleting line #${displayLineNo}…`, async () => {
         const res = await fetch(`${API_BASE}/projects/${id}/petl/${item.id}`, {
           method: "DELETE",
@@ -2283,99 +2278,53 @@ ${htmlBody}
 
         if (!res.ok) {
           const text = await res.text().catch(() => "");
-          setPetlDeleteMessage(`Delete failed (${res.status}). ${text || ""}`.trim());
+          alert(`Delete failed (${res.status}). ${text || ""}`.trim());
           return;
         }
 
         // Update local UI immediately.
-        setPetlItems(prev => prev.filter(it => it.id !== item.id));
-        setPetlReconActivityIds(prev => {
+        setPetlItems((prev) => prev.filter((it) => it.id !== item.id));
+        setPetlReconActivityIds((prev) => {
           const next = new Set(prev);
           next.delete(item.id);
           return next;
         });
-        setPetlReconFlagIds(prev => {
+        setPetlReconFlagIds((prev) => {
           const next = new Set(prev);
           next.delete(item.id);
           return next;
         });
 
-        if (petlReconPanel.open && petlReconPanel.sowItemId === item.id) {
-          setPetlReconPanel(prev => ({ ...prev, open: false }));
-        }
+        setPetlReconPanel((prev) =>
+          prev.open && prev.sowItemId === item.id ? { ...prev, open: false } : prev,
+        );
 
         // Refresh PETL + groups + summary from server.
-        setPetlReloadTick(t => t + 1);
-
-        setPetlDeleteMessage(`Deleted line #${displayLineNo}.`);
+        setPetlReloadTick((t) => t + 1);
       });
     } catch (err: any) {
-      setPetlDeleteMessage(err?.message ?? "Delete failed.");
-    } finally {
-      setPetlDeleteBusy(false);
+      alert(err?.message ?? "Delete failed.");
     }
   };
 
-  const deletePetlAndComponents = async () => {
-    setPetlDeleteMessage(null);
-    if (!isAdminOrAbove) {
-      setPetlDeleteMessage("Only Admin+ can delete PETL/components.");
-      return;
-    }
+  const handlePetlWipeSuccess = useCallback(() => {
+    // Reset local PETL state immediately.
+    setPetlItems([]);
+    setPetlReconciliationEntries([]);
+    setPetlReconActivityIds(new Set());
+    setGroups([]);
+    setUnitGroups([]);
+    setSelectionSummary(null);
+    setPetlItemCount(0);
+    setPetlTotalAmount(0);
+    setComponentsCount(0);
+    setPetlReconFlagIds(new Set());
 
-    const ok = window.confirm(
-      "Delete PETL + Components for this project?\n\nThis wipes all imported estimate versions, PETL line items, components, and related reconciliation/edit data. This cannot be undone.",
-    );
-    if (!ok) return;
+    setPetlReconPanel((prev) => (prev.open ? { ...prev, open: false } : prev));
 
-    const token = localStorage.getItem("accessToken");
-    if (!token) {
-      setPetlDeleteMessage("Missing access token.");
-      return;
-    }
-
-    try {
-      setPetlDeleteBusy(true);
-
-      await busyOverlay.run("Deleting PETL + components…", async () => {
-        const res = await fetch(`${API_BASE}/projects/${id}/petl`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          setPetlDeleteMessage(`Delete failed (${res.status}). ${text || ""}`.trim());
-          return;
-        }
-
-        // Reset local PETL state immediately.
-        setPetlItems([]);
-        setPetlReconciliationEntries([]);
-        setPetlReconActivityIds(new Set());
-        setGroups([]);
-        setUnitGroups([]);
-        setSelectionSummary(null);
-        setPetlItemCount(0);
-        setPetlTotalAmount(0);
-        setComponentsCount(0);
-        setPetlReconFlagIds(new Set());
-
-        if (petlReconPanel.open) {
-          setPetlReconPanel(prev => ({ ...prev, open: false }));
-        }
-
-        // Reload summary endpoints.
-        setPetlReloadTick(t => t + 1);
-
-        setPetlDeleteMessage("Deleted PETL + components for this project.");
-      });
-    } catch (err: any) {
-      setPetlDeleteMessage(err?.message ?? "Delete failed.");
-    } finally {
-      setPetlDeleteBusy(false);
-    }
-  };
+    // Reload summary endpoints.
+    setPetlReloadTick((t) => t + 1);
+  }, []);
 
   const [dailyLogs, setDailyLogs] = useState<DailyLog[]>([]);
   const [dailyLogsLoading, setDailyLogsLoading] = useState(false);
@@ -3276,8 +3225,7 @@ ${htmlBody}
       activeTab === "PETL" ||
       activeTab === "STRUCTURE" ||
       activeTab === "SUMMARY" ||
-      petlDiagnosticsModalOpen ||
-      adminPetlToolsModalOpen;
+      petlDiagnosticsModalOpen;
 
     if (!shouldLoadPetl) {
       // SUMMARY also benefits from PETL data for overall/selection summaries
@@ -3293,7 +3241,7 @@ ${htmlBody}
     const alreadyLoadedForTick =
       last?.projectId === project.id && last?.reloadTick === petlReloadTick;
 
-    if (alreadyLoadedForTick && !petlDiagnosticsModalOpen && !adminPetlToolsModalOpen) {
+    if (alreadyLoadedForTick && !petlDiagnosticsModalOpen) {
       return;
     }
 
@@ -3436,7 +3384,7 @@ ${htmlBody}
     return () => {
       cancelled = true;
     };
-  }, [project, activeTab, petlReloadTick, petlDiagnosticsModalOpen, adminPetlToolsModalOpen]);
+  }, [project, activeTab, petlReloadTick, petlDiagnosticsModalOpen]);
 
   // Load pending PETL % update sessions (PM/owner/admin only)
   useEffect(() => {
@@ -4769,7 +4717,6 @@ ${htmlBody}
                         {isAdminOrAbove && (
                           <button
                             type="button"
-                            disabled={petlDeleteBusy}
                             onClick={() => {
                               void deletePetlLineItem(item);
                             }}
@@ -4779,7 +4726,7 @@ ${htmlBody}
                               border: "1px solid #b91c1c",
                               background: "#fff1f2",
                               fontSize: 11,
-                              cursor: petlDeleteBusy ? "default" : "pointer",
+                              cursor: "pointer",
                               color: "#b91c1c",
                             }}
                           >
@@ -4975,7 +4922,6 @@ ${htmlBody}
     activeTab,
     id,
     isAdminOrAbove,
-    petlDeleteBusy,
     petlDisplayMode,
     petlFlatItems,
     petlLoading,
@@ -5862,24 +5808,12 @@ ${htmlBody}
                     PETL Diagnostics
                   </button>
 
-                  {isAdminOrAbove && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAdminPetlToolsModalOpen(true);
-                      }}
-                      style={{
-                        padding: "3px 10px",
-                        borderRadius: 999,
-                        border: "1px solid #b91c1c",
-                        backgroundColor: "#fff1f2",
-                        color: "#b91c1c",
-                        fontSize: 11,
-                        cursor: "pointer",
-                      }}
-                    >
-                      Admin PETL Tools
-                    </button>
+                  {project && (
+                    <AdminPetlTools
+                      projectId={project.id}
+                      isAdminOrAbove={isAdminOrAbove}
+                      onDeleted={handlePetlWipeSuccess}
+                    />
                   )}
                 </div>
                 <p style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
@@ -15568,117 +15502,6 @@ ${htmlBody}
         </div>
       )}
 
-      {/* Admin PETL Tools modal (opened from Edit Project) */}
-      {adminPetlToolsModalOpen && isAdminOrAbove && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 60,
-            background: "rgba(15,23,42,0.45)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 12,
-          }}
-          onClick={() => setAdminPetlToolsModalOpen(false)}
-        >
-          <div
-            style={{
-              width: 720,
-              maxWidth: "95vw",
-              maxHeight: "90vh",
-              overflow: "auto",
-              background: "#ffffff",
-              borderRadius: 10,
-              border: "1px solid #e5e7eb",
-              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div
-              style={{
-                padding: "10px 12px",
-                borderBottom: "1px solid #e5e7eb",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                fontSize: 13,
-                fontWeight: 600,
-                background: "#f3f4f6",
-              }}
-            >
-              <span>Admin PETL Tools</span>
-              <button
-                type="button"
-                onClick={() => setAdminPetlToolsModalOpen(false)}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  cursor: "pointer",
-                  fontSize: 18,
-                  lineHeight: 1,
-                }}
-                aria-label="Close Admin PETL tools"
-              >
-                ×
-              </button>
-            </div>
-
-            <div style={{ padding: 12 }}>
-              <div
-                style={{
-                  borderRadius: 8,
-                  border: "1px solid #fecaca",
-                  background: "#fff1f2",
-                }}
-              >
-                <div
-                  style={{
-                    padding: "6px 10px",
-                    borderBottom: "1px solid #fecaca",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    background: "#ffe4e6",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <span>Admin PETL tools</span>
-                  <button
-                    type="button"
-                    disabled={petlDeleteBusy}
-                    onClick={deletePetlAndComponents}
-                    style={{
-                      padding: "4px 8px",
-                      borderRadius: 6,
-                      border: "1px solid #b91c1c",
-                      background: petlDeleteBusy ? "#e5e7eb" : "#b91c1c",
-                      cursor: petlDeleteBusy ? "default" : "pointer",
-                      fontSize: 12,
-                      color: petlDeleteBusy ? "#4b5563" : "#ffffff",
-                    }}
-                  >
-                    {petlDeleteBusy ? "Working…" : "Delete PETL + Components"}
-                  </button>
-                </div>
-                <div style={{ padding: 10, fontSize: 12, color: "#7f1d1d" }}>
-                  <div style={{ marginBottom: 6 }}>
-                    Use this to wipe imported estimate data so you can re-import. This is destructive and
-                    cannot be undone.
-                  </div>
-                  {petlDeleteMessage && (
-                    <div style={{ color: petlDeleteMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#7f1d1d" }}>
-                      {petlDeleteMessage}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
