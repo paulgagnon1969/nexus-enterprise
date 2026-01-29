@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 
 interface GenerateScheduleParams {
@@ -452,16 +452,18 @@ export class XactScheduleService {
     }
 
     // Load trade capacity configuration (company-wide and project-specific).
+    // NOTE: This is an optional/WIP model in some environments.
     const estimateCompanyId = estimate.project.companyId;
-    const tradeCapacityRows = await (this.prisma as any).tradeCapacityConfig.findMany({
-      where: {
-        companyId: estimateCompanyId,
-        OR: [
-          { projectId: null },
-          { projectId: estimate.projectId },
-        ],
-      },
-    });
+    const pAny: any = this.prisma as any;
+    const tradeCapacityRows: any[] =
+      typeof pAny?.tradeCapacityConfig?.findMany === "function"
+        ? await pAny.tradeCapacityConfig.findMany({
+            where: {
+              companyId: estimateCompanyId,
+              OR: [{ projectId: null }, { projectId: estimate.projectId }],
+            },
+          })
+        : [];
 
     const projectCapacityByTrade = new Map<string, number>();
     const companyCapacityByTrade = new Map<string, number>();
@@ -1050,7 +1052,19 @@ export class XactScheduleService {
     const { projectId, estimateVersionId, scheduledTasks, conflicts } = preview;
     const actorUserId = params.actorUserId;
 
-    const changes = await (this.prisma as any).$transaction(async (tx: any) => {
+    const pAny: any = this.prisma as any;
+
+    // These models may not exist yet in some environments if migrations haven't been applied.
+    if (
+      typeof pAny?.projectScheduleTask?.findMany !== "function" ||
+      typeof pAny?.projectScheduleChangeLog?.create !== "function"
+    ) {
+      throw new BadRequestException(
+        "Project scheduling tables are not available on this API instance. Run database migrations and redeploy.",
+      );
+    }
+
+    const changes = await pAny.$transaction(async (tx: any) => {
       const existing: any[] = await tx.projectScheduleTask.findMany({
         where: { projectId, estimateVersionId },
       });
@@ -1231,7 +1245,14 @@ export class XactScheduleService {
 
     const rangeEndExclusive = addDays(toDate, 1);
 
-    const tasks = await (this.prisma as any).projectScheduleTask.findMany({
+    const pAny: any = this.prisma as any;
+    if (typeof pAny?.projectScheduleTask?.findMany !== "function") {
+      throw new BadRequestException(
+        "Project scheduling tables are not available on this API instance. Run database migrations and redeploy.",
+      );
+    }
+
+    const tasks = await pAny.projectScheduleTask.findMany({
       where: {
         projectId,
         startDate: { lt: rangeEndExclusive },
