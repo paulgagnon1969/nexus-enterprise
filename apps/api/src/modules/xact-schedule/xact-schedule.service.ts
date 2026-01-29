@@ -187,6 +187,47 @@ function crewSizeForTrade(trade: string): number {
   }
 }
 
+function resolveProjectComponentsHourlyRateByCat(
+  hourlyRatesByCode: Map<string, number>,
+  cat: string | null | undefined,
+): { code: string; rate: number } | null {
+  const c = (cat ?? "").trim().toUpperCase();
+  if (!c) return null;
+
+  // First: direct lookup (many HR component codes are simple trade abbreviations).
+  const direct = hourlyRatesByCode.get(c);
+  if (direct && Number.isFinite(direct) && direct > 0) {
+    return { code: c, rate: direct };
+  }
+
+  // Second: common crosswalks between Xactimate CAT codes and common HR component codes.
+  const map: Record<string, string> = {
+    // water / mitigation is often expressed as a remediation/cleaning tech hourly rate in Components
+    WTR: "CLN-R",
+    // flooring
+    FCV: "FLR",
+    FCC: "FLR",
+    FCW: "FLR-W",
+    FCT: "FLR",
+    // carpentry finish covers trim/doors/cabinet install in many component sets
+    FNC: "CARP-FNC",
+    DOR: "CARP-FNC",
+    CAB: "CARP-FNC",
+    // hardware/finish
+    FNH: "HDW",
+  };
+
+  const mapped = map[c];
+  if (mapped) {
+    const rate = hourlyRatesByCode.get(mapped);
+    if (rate && Number.isFinite(rate) && rate > 0) {
+      return { code: mapped, rate };
+    }
+  }
+
+  return null;
+}
+
 function defaultTradeCapacity(trade: string): number {
   // Simple default capacities per trade. This can later move to DB.
   switch (trade) {
@@ -410,16 +451,6 @@ export class XactScheduleService {
       };
     }
 
-    // Determine active Golden price list.
-    const priceList = await this.prisma.priceList.findFirst({
-      where: { kind: "GOLDEN", isActive: true },
-      orderBy: { revision: "desc" },
-    });
-
-    if (!priceList) {
-      throw new NotFoundException("No active Golden Price List configured");
-    }
-
     // Load trade capacity configuration (company-wide and project-specific).
     const estimateCompanyId = estimate.project.companyId;
     const tradeCapacityRows = await (this.prisma as any).tradeCapacityConfig.findMany({
@@ -457,144 +488,266 @@ export class XactScheduleService {
       );
     };
 
-    // Collect unique Cat/Sel/Activity combos from the raw rows.
-    const cats = new Set<string>();
-    const sels = new Set<string>();
-
-    for (const row of rawRows) {
-      const cat = (row.cat ?? "").trim().toUpperCase();
-      const sel = (row.sel ?? "").trim().toUpperCase();
-      if (!cat || !sel) continue;
-      cats.add(cat);
-      sels.add(sel);
-    }
-
-    // Load relevant price list items for these Cats/Sels.
-    const priceItems = await this.prisma.priceListItem.findMany({
-      where: {
-        priceListId: priceList.id,
-        cat: { in: Array.from(cats) },
-        sel: { in: Array.from(sels) },
-      },
-    });
-
-    // First pass: derive hourly rates per labor minimum code from HR-unit items.
-    const hourlyRateByLaborMinimum = new Map<string, number>();
-
-    for (const item of priceItems) {
-      const raw = (item.rawJson ?? null) as Record<string, unknown> | null;
-      if (!raw) continue;
-
-      const unit = String(raw["Unit"] ?? item.unit ?? "").trim().toUpperCase();
-      if (unit !== "HR") continue;
-
-      const wage = toNumber(raw["Worker's Wage"]);
-      const burden = toNumber(raw["Labor burden"]);
-      const overhead = toNumber(raw["Labor Overhead"]);
-      const laborCostPerUnit = (wage ?? 0) + (burden ?? 0) + (overhead ?? 0);
-      if (!laborCostPerUnit) continue;
-
-      const lm = String(raw["Labor Minimum"] ?? "").trim();
-      if (!lm) continue;
-
-      if (!hourlyRateByLaborMinimum.has(lm)) {
-        hourlyRateByLaborMinimum.set(lm, laborCostPerUnit);
-      }
-    }
-
-    // Second pass: derive hours-per-unit per Cat/Sel/Activity from non-HR items.
-    const hoursPerUnitByKey = new Map<string, number>();
-
-    for (const item of priceItems) {
-      const raw = (item.rawJson ?? null) as Record<string, unknown> | null;
-      if (!raw) continue;
-
-      const unit = String(raw["Unit"] ?? item.unit ?? "").trim().toUpperCase();
-      if (!unit || unit === "HR") continue;
-
-      const wage = toNumber(raw["Worker's Wage"]);
-      const burden = toNumber(raw["Labor burden"]);
-      const overhead = toNumber(raw["Labor Overhead"]);
-      const laborCostPerUnit = (wage ?? 0) + (burden ?? 0) + (overhead ?? 0);
-      if (!laborCostPerUnit) continue;
-
-      const lm = String(raw["Labor Minimum"] ?? "").trim();
-      const hourlyRate = lm ? hourlyRateByLaborMinimum.get(lm) ?? null : null;
-      if (!hourlyRate) continue;
-
-      const hoursPerUnit = laborCostPerUnit / hourlyRate;
-      if (!hoursPerUnit || !Number.isFinite(hoursPerUnit)) continue;
-
-      const cat = (item.cat ?? "").trim().toUpperCase();
-      const sel = (item.sel ?? "").trim().toUpperCase();
-      const activity = (item.activity ?? "").trim();
-      if (!cat || !sel) continue;
-
-      const key = `${cat}||${sel}||${activity}`;
-      if (!hoursPerUnitByKey.has(key)) {
-        hoursPerUnitByKey.set(key, hoursPerUnit);
-      }
-    }
-
-    // Aggregate labor hours per raw row using the derived hours-per-unit map.
+    // Shared aggregation state (populated by either the project-components path
+    // or the Golden price list fallback).
     const missingPriceItems: { cat: string | null; sel: string | null; activity: string | null }[] = [];
     const missingKeySet = new Set<string>();
 
     type PackageKey = string;
-    const pkgMap = new Map<PackageKey, {
-      room: string;
-      trade: string;
-      phaseCode: number;
-      phaseLabel: string;
-      totalLaborHours: number;
-      lineCount: number;
-    }>();
+    const pkgMap = new Map<
+      PackageKey,
+      {
+        room: string;
+        trade: string;
+        phaseCode: number;
+        phaseLabel: string;
+        totalLaborHours: number;
+        lineCount: number;
+      }
+    >();
 
-    for (const row of rawRows) {
-      const catRaw = row.cat ?? null;
-      const selRaw = row.sel ?? null;
-      const activityRaw = row.activity ?? null;
-      const cat = (catRaw ?? "").trim().toUpperCase();
-      const sel = (selRaw ?? "").trim().toUpperCase();
-      const activity = (activityRaw ?? "").trim();
+    // Preferred path: derive hours from this project's imported Components CSV
+    // (zip/date-specific hourly rates) + project RAW labor dollars.
+    const componentHrRows = await this.prisma.componentSummary.findMany({
+      where: {
+        projectId: estimate.projectId,
+        estimateVersionId,
+        unit: { equals: "HR", mode: "insensitive" },
+      },
+      select: {
+        code: true,
+        quantity: true,
+        unitPrice: true,
+      },
+    });
 
-      if (!cat || !sel || row.qty == null || row.qty <= 0) {
+    const hourlyRateByComponentCode = new Map<string, number>();
+    const rateAcc = new Map<string, { numerator: number; denom: number }>();
+
+    for (const row of componentHrRows) {
+      const code = (row.code ?? "").trim().toUpperCase();
+      const unitPrice = row.unitPrice ?? null;
+      if (!code || unitPrice == null || !Number.isFinite(unitPrice) || unitPrice <= 0) {
         continue;
       }
 
-      const key = `${cat}||${sel}||${activity}`;
-      const hoursPerUnit = hoursPerUnitByKey.get(key);
+      const weight = row.quantity != null && Number.isFinite(row.quantity) && row.quantity > 0
+        ? row.quantity
+        : 1;
 
-      if (!hoursPerUnit) {
-        if (!missingKeySet.has(key)) {
-          missingKeySet.add(key);
-          missingPriceItems.push({ cat: catRaw, sel: selRaw, activity: activityRaw });
+      const acc = rateAcc.get(code) ?? { numerator: 0, denom: 0 };
+      acc.numerator += unitPrice * weight;
+      acc.denom += weight;
+      rateAcc.set(code, acc);
+    }
+
+    for (const [code, acc] of rateAcc.entries()) {
+      if (!acc.denom) continue;
+      const rate = acc.numerator / acc.denom;
+      if (Number.isFinite(rate) && rate > 0) {
+        hourlyRateByComponentCode.set(code, rate);
+      }
+    }
+
+    const useProjectComponentsHourlyRates = hourlyRateByComponentCode.size > 0;
+
+    if (useProjectComponentsHourlyRates) {
+      for (const row of rawRows) {
+        const catRaw = row.cat ?? null;
+        const selRaw = row.sel ?? null;
+        const activityRaw = row.activity ?? null;
+        const cat = (catRaw ?? "").trim().toUpperCase();
+        const sel = (selRaw ?? "").trim().toUpperCase();
+        const activity = (activityRaw ?? "").trim();
+
+        if (!cat || !sel || row.qty == null || row.qty <= 0) {
+          continue;
         }
-        continue;
+
+        const wage = row.workersWage ?? 0;
+        const burden = row.laborBurden ?? 0;
+        const overhead = row.laborOverhead ?? 0;
+        const laborCostPerUnit = wage + burden + overhead;
+        if (!laborCostPerUnit || !Number.isFinite(laborCostPerUnit)) {
+          continue;
+        }
+
+        const laborTotal = (row.qty ?? 0) * laborCostPerUnit;
+        if (!laborTotal || !Number.isFinite(laborTotal) || laborTotal <= 0) {
+          continue;
+        }
+
+        const resolved = resolveProjectComponentsHourlyRateByCat(hourlyRateByComponentCode, catRaw);
+        if (!resolved) {
+          const key = `${cat}||${sel}||${activity}||NO_COMPONENT_HR_RATE`;
+          if (!missingKeySet.has(key)) {
+            missingKeySet.add(key);
+            missingPriceItems.push({ cat: catRaw, sel: selRaw, activity: activityRaw });
+          }
+          continue;
+        }
+
+        const lineHours = laborTotal / resolved.rate;
+        if (!lineHours || !Number.isFinite(lineHours)) {
+          continue;
+        }
+
+        const room = (row.groupDescription || row.groupCode || "Unknown").trim();
+        const { trade, phaseCode, phaseLabel } = mapTradeAndPhase(catRaw, activityRaw);
+
+        const pkgKey = `${room}||${trade}||${phaseCode}`;
+        let pkg = pkgMap.get(pkgKey);
+        if (!pkg) {
+          pkg = {
+            room,
+            trade,
+            phaseCode,
+            phaseLabel,
+            totalLaborHours: 0,
+            lineCount: 0,
+          };
+          pkgMap.set(pkgKey, pkg);
+        }
+
+        pkg.totalLaborHours += lineHours;
+        pkg.lineCount += 1;
+      }
+    } else {
+      // Fallback: derive hours-per-unit from the active Golden price list.
+      const priceList = await this.prisma.priceList.findFirst({
+        where: { kind: "GOLDEN", isActive: true },
+        orderBy: { revision: "desc" },
+      });
+
+      if (!priceList) {
+        throw new NotFoundException("No active Golden Price List configured");
       }
 
-      const lineHours = (row.qty ?? 0) * hoursPerUnit;
-      if (!lineHours || !Number.isFinite(lineHours)) continue;
+      // Collect unique Cat/Sel/Activity combos from the raw rows.
+      const cats = new Set<string>();
+      const sels = new Set<string>();
 
-      const room = (row.groupDescription || row.groupCode || "Unknown").trim();
-      const { trade, phaseCode, phaseLabel } = mapTradeAndPhase(catRaw, activityRaw);
-
-      const pkgKey = `${room}||${trade}||${phaseCode}`;
-      let pkg = pkgMap.get(pkgKey);
-      if (!pkg) {
-        pkg = {
-          room,
-          trade,
-          phaseCode,
-          phaseLabel,
-          totalLaborHours: 0,
-          lineCount: 0,
-        };
-        pkgMap.set(pkgKey, pkg);
+      for (const row of rawRows) {
+        const cat = (row.cat ?? "").trim().toUpperCase();
+        const sel = (row.sel ?? "").trim().toUpperCase();
+        if (!cat || !sel) continue;
+        cats.add(cat);
+        sels.add(sel);
       }
 
-      pkg.totalLaborHours += lineHours;
-      pkg.lineCount += 1;
+      // Load relevant price list items for these Cats/Sels.
+      const priceItems = await this.prisma.priceListItem.findMany({
+        where: {
+          priceListId: priceList.id,
+          cat: { in: Array.from(cats) },
+          sel: { in: Array.from(sels) },
+        },
+      });
+
+      // First pass: derive hourly rates per labor minimum code from HR-unit items.
+      const hourlyRateByLaborMinimum = new Map<string, number>();
+
+      for (const item of priceItems) {
+        const raw = (item.rawJson ?? null) as Record<string, unknown> | null;
+        if (!raw) continue;
+
+        const unit = String(raw["Unit"] ?? item.unit ?? "").trim().toUpperCase();
+        if (unit !== "HR") continue;
+
+        const wage = toNumber(raw["Worker's Wage"]);
+        const burden = toNumber(raw["Labor burden"]);
+        const overhead = toNumber(raw["Labor Overhead"]);
+        const laborCostPerUnit = (wage ?? 0) + (burden ?? 0) + (overhead ?? 0);
+        if (!laborCostPerUnit) continue;
+
+        const lm = String(raw["Labor Minimum"] ?? "").trim();
+        if (!lm) continue;
+
+        if (!hourlyRateByLaborMinimum.has(lm)) {
+          hourlyRateByLaborMinimum.set(lm, laborCostPerUnit);
+        }
+      }
+
+      // Second pass: derive hours-per-unit per Cat/Sel/Activity from non-HR items.
+      const hoursPerUnitByKey = new Map<string, number>();
+
+      for (const item of priceItems) {
+        const raw = (item.rawJson ?? null) as Record<string, unknown> | null;
+        if (!raw) continue;
+
+        const unit = String(raw["Unit"] ?? item.unit ?? "").trim().toUpperCase();
+        if (!unit || unit === "HR") continue;
+
+        const wage = toNumber(raw["Worker's Wage"]);
+        const burden = toNumber(raw["Labor burden"]);
+        const overhead = toNumber(raw["Labor Overhead"]);
+        const laborCostPerUnit = (wage ?? 0) + (burden ?? 0) + (overhead ?? 0);
+        if (!laborCostPerUnit) continue;
+
+        const lm = String(raw["Labor Minimum"] ?? "").trim();
+        const hourlyRate = lm ? hourlyRateByLaborMinimum.get(lm) ?? null : null;
+        if (!hourlyRate) continue;
+
+        const hoursPerUnit = laborCostPerUnit / hourlyRate;
+        if (!hoursPerUnit || !Number.isFinite(hoursPerUnit)) continue;
+
+        const cat = (item.cat ?? "").trim().toUpperCase();
+        const sel = (item.sel ?? "").trim().toUpperCase();
+        const activity = (item.activity ?? "").trim();
+        if (!cat || !sel) continue;
+
+        const key = `${cat}||${sel}||${activity}`;
+        if (!hoursPerUnitByKey.has(key)) {
+          hoursPerUnitByKey.set(key, hoursPerUnit);
+        }
+      }
+
+      for (const row of rawRows) {
+        const catRaw = row.cat ?? null;
+        const selRaw = row.sel ?? null;
+        const activityRaw = row.activity ?? null;
+        const cat = (catRaw ?? "").trim().toUpperCase();
+        const sel = (selRaw ?? "").trim().toUpperCase();
+        const activity = (activityRaw ?? "").trim();
+
+        if (!cat || !sel || row.qty == null || row.qty <= 0) {
+          continue;
+        }
+
+        const key = `${cat}||${sel}||${activity}`;
+        const hoursPerUnit = hoursPerUnitByKey.get(key);
+
+        if (!hoursPerUnit) {
+          if (!missingKeySet.has(key)) {
+            missingKeySet.add(key);
+            missingPriceItems.push({ cat: catRaw, sel: selRaw, activity: activityRaw });
+          }
+          continue;
+        }
+
+        const lineHours = (row.qty ?? 0) * hoursPerUnit;
+        if (!lineHours || !Number.isFinite(lineHours)) continue;
+
+        const room = (row.groupDescription || row.groupCode || "Unknown").trim();
+        const { trade, phaseCode, phaseLabel } = mapTradeAndPhase(catRaw, activityRaw);
+
+        const pkgKey = `${room}||${trade}||${phaseCode}`;
+        let pkg = pkgMap.get(pkgKey);
+        if (!pkg) {
+          pkg = {
+            room,
+            trade,
+            phaseCode,
+            phaseLabel,
+            totalLaborHours: 0,
+            lineCount: 0,
+          };
+          pkgMap.set(pkgKey, pkg);
+        }
+
+        pkg.totalLaborHours += lineHours;
+        pkg.lineCount += 1;
+      }
     }
 
     const workPackages: WorkPackagePreview[] = [];

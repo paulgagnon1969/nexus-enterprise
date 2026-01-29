@@ -99,6 +99,7 @@ interface UserProfileDto {
   companyMembershipActive?: boolean;
   canEditHr?: boolean;
   canViewHr?: boolean;
+  canViewWorkerComp?: boolean;
   canEditWorkerComp?: boolean;
   hr?: HrDto | null;
   worker?: WorkerDto | null;
@@ -605,6 +606,8 @@ export default function CompanyUserProfilePage() {
   const canEditUserType = isAdminOrAbove;
   const canEditGlobalRole = isSuperAdmin;
   const canEditWorkerComp = !!profile.canEditWorkerComp && !!profile.worker;
+  const canViewWorkerComp =
+    !!profile.worker && ((profile.canViewWorkerComp ?? false) || canEditWorkerComp);
   const canManageTenantAccess = isAdminOrAbove || isSuperAdmin;
 
   async function handleToggleTenantAccess(nextIsActive: boolean) {
@@ -1718,179 +1721,229 @@ export default function CompanyUserProfilePage() {
                       {profile.worker.postalCode ? ` ${profile.worker.postalCode}` : ""}
                     </div>
                   ) : null}
-                  {canEditWorkerComp && (
+                  {canViewWorkerComp && (
+                    <Fragment>
                       <div style={{ marginTop: 8, fontSize: 12 }}>
                         <div style={{ fontWeight: 600, marginBottom: 2 }}>Compensation</div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
-                          <label style={{ flex: "0 0 140px" }}>
-                            <span>
-                              <strong>Base pay (hourly)</strong>
-                            </span>
+
+                      {/* Read-only view for PM+; editable inputs only for canEditWorkerComp */}
+                      {canEditWorkerComp ? (
+                        <>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexWrap: "wrap",
+                              gap: 8,
+                              marginBottom: 4,
+                            }}
+                          >
+                            <label style={{ flex: "0 0 140px" }}>
+                              <span>
+                                <strong>Base pay (hourly)</strong>
+                              </span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={workerPayRate}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  setWorkerPayRate(val);
+                                  const n = Number(val);
+                                  const hours = Number(workerHoursPerDay) || 10;
+                                  if (!Number.isNaN(n)) {
+                                    setWorkerDayRate(String(n * hours));
+                                  } else if (!val.trim()) {
+                                    setWorkerDayRate("");
+                                  }
+                                }}
+                                style={{
+                                  fontSize: 12,
+                                  padding: "2px 4px",
+                                  borderRadius: 4,
+                                  border: "1px solid #d1d5db",
+                                  width: "100%",
+                                }}
+                              />
+                            </label>
+                            <label style={{ flex: "0 0 160px" }}>
+                              <span>
+                                <strong>Base pay (day)</strong>
+                              </span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={workerDayRate}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  setWorkerDayRate(val);
+                                  const n = Number(val);
+                                  const hours = Number(workerHoursPerDay) || 10;
+                                  if (!Number.isNaN(n) && hours > 0) {
+                                    setWorkerPayRate(String(n / hours));
+                                  } else if (!val.trim()) {
+                                    setWorkerPayRate("");
+                                  }
+                                }}
+                                style={{
+                                  fontSize: 12,
+                                  padding: "2px 4px",
+                                  borderRadius: 4,
+                                  border: "1px solid #d1d5db",
+                                  width: "100%",
+                                }}
+                              />
+                            </label>
+                            <label style={{ flex: "0 0 120px" }}>
+                              <span>
+                                <strong>Units (hrs / day)</strong>
+                              </span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                value={workerHoursPerDay}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  setWorkerHoursPerDay(val);
+                                  const hours = Number(val) || 10;
+                                  const hourly = Number(workerPayRate);
+                                  if (!Number.isNaN(hourly)) {
+                                    setWorkerDayRate(String(hourly * hours));
+                                  }
+                                }}
+                                style={{
+                                  fontSize: 12,
+                                  padding: "2px 4px",
+                                  borderRadius: 4,
+                                  border: "1px solid #d1d5db",
+                                  width: "100%",
+                                }}
+                              />
+                            </label>
+                          </div>
+                          <div style={{ marginBottom: 4 }}>
+                            <strong>Bill rate (hourly):</strong>{" "}
                             <input
                               type="number"
                               step="0.01"
-                              value={workerPayRate}
-                              onChange={e => {
-                                const val = e.target.value;
-                                setWorkerPayRate(val);
-                                const n = Number(val);
-                                const hours = Number(workerHoursPerDay) || 10;
-                                if (!Number.isNaN(n)) {
-                                  setWorkerDayRate(String(n * hours));
-                                } else if (!val.trim()) {
-                                  setWorkerDayRate("");
-                                }
+                              value={workerBillRate}
+                              onChange={e => setWorkerBillRate(e.target.value)}
+                              style={{
+                                fontSize: 12,
+                                padding: "2px 4px",
+                                borderRadius: 4,
+                                border: "1px solid #d1d5db",
+                                minWidth: 100,
                               }}
+                            />
+                          </div>
+                          <div style={{ marginBottom: 4 }}>
+                            <strong>CP hourly rate:</strong>{" "}
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={workerCpRate}
+                              onChange={e => setWorkerCpRate(e.target.value)}
+                              style={{
+                                fontSize: 12,
+                                padding: "2px 4px",
+                                borderRadius: 4,
+                                border: "1px solid #d1d5db",
+                                minWidth: 100,
+                              }}
+                            />
+                          </div>
+                          <div style={{ marginBottom: 4 }}>
+                            <strong>CP estimated fringe ($/hr):</strong>{" "}
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={workerCpFringe}
+                              onChange={e => setWorkerCpFringe(e.target.value)}
+                              style={{
+                                fontSize: 12,
+                                padding: "2px 4px",
+                                borderRadius: 4,
+                                border: "1px solid #d1d5db",
+                                minWidth: 100,
+                              }}
+                            />
+                          </div>
+                          <div style={{ marginBottom: 4 }}>
+                            <strong>CP wage code / classification:</strong>{" "}
+                            <input
+                              type="text"
+                              value={workerCpRole}
+                              onChange={e => setWorkerCpRole(e.target.value)}
+                              style={{
+                                fontSize: 12,
+                                padding: "2px 4px",
+                                borderRadius: 4,
+                                border: "1px solid #d1d5db",
+                                minWidth: 140,
+                              }}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            disabled={workerSaving}
+                            onClick={handleSaveWorkerComp}
                             style={{
-                              fontSize: 12,
-                              padding: "2px 4px",
+                              marginTop: 4,
+                              padding: "4px 8px",
                               borderRadius: 4,
-                              border: "1px solid #d1d5db",
-                              width: "100%",
-                            }}
-                          />
-                        </label>
-                        <label style={{ flex: "0 0 160px" }}>
-                          <span>
-                            <strong>Base pay (day)</strong>
-                          </span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={workerDayRate}
-                            onChange={e => {
-                              const val = e.target.value;
-                              setWorkerDayRate(val);
-                              const n = Number(val);
-                              const hours = Number(workerHoursPerDay) || 10;
-                              if (!Number.isNaN(n) && hours > 0) {
-                                setWorkerPayRate(String(n / hours));
-                              } else if (!val.trim()) {
-                                setWorkerPayRate("");
-                              }
-                            }}
-                            style={{
+                              border: "1px solid #0f172a",
+                              backgroundColor: workerSaving ? "#e5e7eb" : "#0f172a",
+                              color: workerSaving ? "#4b5563" : "#f9fafb",
                               fontSize: 12,
-                              padding: "2px 4px",
-                              borderRadius: 4,
-                              border: "1px solid #d1d5db",
-                              width: "100%",
+                              cursor: workerSaving ? "default" : "pointer",
                             }}
-                          />
-                        </label>
-                        <label style={{ flex: "0 0 120px" }}>
-                          <span>
-                            <strong>Units (hrs / day)</strong>
-                          </span>
-                          <input
-                            type="number"
-                            step="0.1"
-                            min="0"
-                            value={workerHoursPerDay}
-                            onChange={e => {
-                              const val = e.target.value;
-                              setWorkerHoursPerDay(val);
-                              const hours = Number(val) || 10;
-                              const hourly = Number(workerPayRate);
-                              if (!Number.isNaN(hourly)) {
-                                setWorkerDayRate(String(hourly * hours));
-                              }
-                            }}
-                            style={{
-                              fontSize: 12,
-                              padding: "2px 4px",
-                              borderRadius: 4,
-                              border: "1px solid #d1d5db",
-                              width: "100%",
-                            }}
-                          />
-                        </label>
-                      </div>
-                      <div style={{ marginBottom: 4 }}>
-                        <strong>Bill rate (hourly):</strong>{" "}
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={workerBillRate}
-                          onChange={e => setWorkerBillRate(e.target.value)}
+                          >
+                            {workerSaving ? "Saving…" : "Save worker rates"}
+                          </button>
+                          {workerError && (
+                            <div
+                              style={{
+                                marginTop: 2,
+                                fontSize: 11,
+                                color: "#b91c1c",
+                              }}
+                            >
+                              {workerError}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div
                           style={{
-                            fontSize: 12,
-                            padding: "2px 4px",
-                            borderRadius: 4,
-                            border: "1px solid #d1d5db",
-                            minWidth: 100,
+                            marginTop: 4,
+                            display: "flex",
+                            flexWrap: "wrap",
+                            gap: 10,
+                            color: "#111827",
                           }}
-                        />
-                      </div>
-                      <div style={{ marginBottom: 4 }}>
-                        <strong>CP hourly rate:</strong>{" "}
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={workerCpRate}
-                          onChange={e => setWorkerCpRate(e.target.value)}
-                          style={{
-                            fontSize: 12,
-                            padding: "2px 4px",
-                            borderRadius: 4,
-                            border: "1px solid #d1d5db",
-                            minWidth: 100,
-                          }}
-                        />
-                      </div>
-                      <div style={{ marginBottom: 4 }}>
-                        <strong>CP estimated fringe ($/hr):</strong>{" "}
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={workerCpFringe}
-                          onChange={e => setWorkerCpFringe(e.target.value)}
-                          style={{
-                            fontSize: 12,
-                            padding: "2px 4px",
-                            borderRadius: 4,
-                            border: "1px solid #d1d5db",
-                            minWidth: 100,
-                          }}
-                        />
-                      </div>
-                      <div style={{ marginBottom: 4 }}>
-                        <strong>CP wage code / classification:</strong>{" "}
-                        <input
-                          type="text"
-                          value={workerCpRole}
-                          onChange={e => setWorkerCpRole(e.target.value)}
-                          style={{
-                            fontSize: 12,
-                            padding: "2px 4px",
-                            borderRadius: 4,
-                            border: "1px solid #d1d5db",
-                            minWidth: 140,
-                          }}
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        disabled={workerSaving}
-                        onClick={handleSaveWorkerComp}
-                        style={{
-                          marginTop: 4,
-                          padding: "4px 8px",
-                          borderRadius: 4,
-                          border: "1px solid #0f172a",
-                          backgroundColor: workerSaving ? "#e5e7eb" : "#0f172a",
-                          color: workerSaving ? "#4b5563" : "#f9fafb",
-                          fontSize: 12,
-                          cursor: workerSaving ? "default" : "pointer",
-                        }}
-                      >
-                        {workerSaving ? "Saving…" : "Save worker rates"}
-                      </button>
-                      {workerError && (
-                        <div style={{ marginTop: 2, fontSize: 11, color: "#b91c1c" }}>
-                          {workerError}
+                        >
+                          <div>
+                            <strong>Base pay (hourly):</strong> {workerPayRate || "—"}
+                          </div>
+                          <div>
+                            <strong>Base pay (day):</strong> {workerDayRate || "—"}
+                          </div>
+                          <div>
+                            <strong>Bill rate (hourly):</strong> {workerBillRate || "—"}
+                          </div>
+                          <div>
+                            <strong>CP hourly:</strong> {workerCpRate || "—"}
+                          </div>
+                          <div>
+                            <strong>CP fringe:</strong> {workerCpFringe || "—"}
+                          </div>
+                          <div>
+                            <strong>CP role:</strong> {workerCpRole || "—"}
+                          </div>
                         </div>
                       )}
+                      </div>
 
                       <div
                         style={{
@@ -2023,7 +2076,7 @@ export default function CompanyUserProfilePage() {
                           </div>
                         )}
                       </div>
-                    </div>
+                    </Fragment>
                   )}
                 </div>
               )}

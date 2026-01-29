@@ -985,7 +985,33 @@ export class UserService {
         // Nexus System HR/Admin can curate worker compensation records for any
         // worker while in the Nexus System company context.
         (isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile));
- 
+
+      // Worker comp visibility (BETA intent): PM+ should be able to *view* pay
+      // rates for staffing/competency decisions, while editing remains more
+      // restricted (canEditWorkerComp).
+      const isFinanceProfile = actor.profileCode === "FINANCE";
+      const isExecutiveProfile = actor.profileCode === "EXECUTIVE";
+      const isPmProfile = actor.profileCode === "PM" || actor.profileCode === "PM_OWNER";
+
+      const canViewWorkerComp =
+        isSuperAdmin ||
+        canEditWorkerComp ||
+        // Tenant view rules
+        (!isNexusSystemCompany &&
+          (isOwnerOrAdmin || isHrProfile || isFinanceProfile || isExecutiveProfile || isPmProfile));
+
+      const safeWorker = worker
+        ? {
+            ...worker,
+            // Only expose compensation fields when allowed.
+            defaultPayRate: canViewWorkerComp ? worker.defaultPayRate ?? null : null,
+            defaultHoursPerDay: canViewWorkerComp ? worker.defaultHoursPerDay ?? null : null,
+            billRate: canViewWorkerComp ? worker.billRate ?? null : null,
+            cpRate: canViewWorkerComp ? worker.cpRate ?? null : null,
+            cpRole: canViewWorkerComp ? worker.cpRole ?? null : null,
+          }
+        : null;
+
       return {
         id: user.id,
         email: user.email,
@@ -1012,8 +1038,9 @@ export class UserService {
         hr: hrPublic,
         canViewHr,
         canEditHr,
+        canViewWorkerComp,
         canEditWorkerComp,
-        worker,
+        worker: safeWorker,
         skills,
       };
     } catch (err) {
@@ -1078,6 +1105,16 @@ export class UserService {
 
       const canEditWorkerComp =
         isSuperAdmin || (isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile));
+
+      const isFinanceProfile = actor.profileCode === "FINANCE";
+      const isExecutiveProfile = actor.profileCode === "EXECUTIVE";
+      const isPmProfile = actor.profileCode === "PM" || actor.profileCode === "PM_OWNER";
+
+      const canViewWorkerComp =
+        isSuperAdmin ||
+        canEditWorkerComp ||
+        (!isNexusSystemCompany &&
+          (isOwnerOrAdmin || isHrProfile || isFinanceProfile || isExecutiveProfile || isPmProfile));
 
       return {
         id: user.id,
