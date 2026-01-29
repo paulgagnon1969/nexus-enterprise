@@ -8259,7 +8259,7 @@ export class ProjectService {
         particleByExternalKey.set(key, {
           particleId: p.id,
           unitId: p.unitId ?? null,
-          unitLabel: p.unit ? p.unit.label : null,
+          unitLabel: p.unit ? (this.formatUnitLabel(p.unit) ?? p.unit.label) : null,
           fullLabel: p.fullLabel,
         });
       }

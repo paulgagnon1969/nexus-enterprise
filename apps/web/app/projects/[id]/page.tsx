@@ -2523,11 +2523,26 @@ ${htmlBody}
       }
     }
 
+    const unitSortKey = (label: string) => {
+      const s = String(label ?? "");
+      const m = s.match(/^Unit\s+0*(\d+)\b/i);
+      if (m) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n)) return { kind: 0, n, s };
+      }
+      return { kind: 1, n: Number.POSITIVE_INFINITY, s: s.toLowerCase() };
+    };
+
     const arr = Array.from(map.values());
     arr.sort((a, b) => {
       if (a.unitKey === "unassigned" && b.unitKey !== "unassigned") return -1;
       if (b.unitKey === "unassigned" && a.unitKey !== "unassigned") return 1;
-      return a.unitLabel.localeCompare(b.unitLabel);
+
+      const ka = unitSortKey(a.unitLabel);
+      const kb = unitSortKey(b.unitLabel);
+      if (ka.kind !== kb.kind) return ka.kind - kb.kind;
+      if (ka.n !== kb.n) return ka.n - kb.n;
+      return ka.s.localeCompare(kb.s);
     });
 
     return arr;
