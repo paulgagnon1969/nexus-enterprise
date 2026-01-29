@@ -21,6 +21,63 @@ import { AdminPetlTools } from "./admin-petl-tools";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
+type MermaidModule = {
+  default: {
+    initialize: (config: any) => void;
+    render: (id: string, text: string) => Promise<{ svg: string; bindFunctions?: (el: Element) => void }>;
+  };
+};
+
+function makeMermaidSafeId(input: string) {
+  return input.replace(/[^A-Za-z0-9_]/g, "_");
+}
+
+function MermaidGantt(props: { ganttText: string }) {
+  const { ganttText } = props;
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const render = async () => {
+      if (!containerRef.current) return;
+      if (!ganttText.trim()) {
+        containerRef.current.innerHTML = "";
+        return;
+      }
+
+      // Load Mermaid from CDN at runtime.
+      const mod = (await import(
+        "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs"
+      )) as unknown as MermaidModule;
+      const mermaid = mod.default;
+
+      mermaid.initialize({ startOnLoad: false });
+
+      const id = `gantt_${makeMermaidSafeId(String(Date.now()))}`;
+      const { svg, bindFunctions } = await mermaid.render(id, ganttText);
+      if (cancelled) return;
+
+      if (containerRef.current) {
+        containerRef.current.innerHTML = svg;
+        try {
+          if (bindFunctions) bindFunctions(containerRef.current);
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    void render();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ganttText]);
+
+  return <div ref={containerRef} style={{ overflowX: "auto" }} />;
+}
+
 type CheckboxMultiSelectOption = { value: string; label: string };
 
 function CheckboxMultiSelect(props: {
@@ -410,6 +467,7 @@ interface ProjectEmployee {
 
 type TabKey =
   | "SUMMARY"
+  | "SCHEDULE"
   | "PETL"
   | "STRUCTURE"
   | "DAILY_LOGS"
@@ -442,6 +500,17 @@ export default function ProjectDetailPage({
   const [petlItems, setPetlItems] = useState<PetlItem[]>([]);
   const [petlReconciliationEntries, setPetlReconciliationEntries] = useState<any[]>([]);
   const [petlLoading, setPetlLoading] = useState(false);
+  const [petlEstimateVersionId, setPetlEstimateVersionId] = useState<string | null>(null);
+
+  const [schedulePreview, setSchedulePreview] = useState<any | null>(null);
+  const [schedulePreviewLoading, setSchedulePreviewLoading] = useState(false);
+  const [schedulePreviewError, setSchedulePreviewError] = useState<string | null>(null);
+  const [scheduleGroupMode, setScheduleGroupMode] = useState<"ROOM" | "TRADE">("ROOM");
+  const [scheduleStartDate, setScheduleStartDate] = useState<string>(() => {
+    // Default to today; can be overridden in the scheduler preview endpoint.
+    return new Date().toISOString().slice(0, 10);
+  });
+  const [scheduleReloadTick, setScheduleReloadTick] = useState(0);
 
   // Reconciliation activity (any reconciliation entry exists for this sowItem)
   const [petlReconActivityIds, setPetlReconActivityIds] = useState<Set<string>>(
@@ -2896,6 +2965,7 @@ ${htmlBody}
 
     if (
       tab === "SUMMARY" ||
+      tab === "SCHEDULE" ||
       tab === "PETL" ||
       tab === "STRUCTURE" ||
       tab === "DAILY_LOGS" ||
@@ -2905,6 +2975,8 @@ ${htmlBody}
       setTab(tab as TabKey);
     } else if (tab.toUpperCase() === "PETL") {
       setTab("PETL");
+    } else if (tab.toUpperCase() === "SCHEDULE") {
+      setTab("SCHEDULE");
     }
   }, [searchParams, setTab]);
 
@@ -3314,6 +3386,7 @@ ${htmlBody}
 
           debug.petl.estimateVersionId = petl?.estimateVersionId ?? null;
           debug.petl.itemsCount = items.length;
+          setPetlEstimateVersionId(petl?.estimateVersionId ?? null);
           debug.petl.reconciliationEntriesCount = recon.length;
           debug.petl.reconciliationActivitySowItemIdsCount = activityIds.length;
         } else if (!cancelled && !petlRes.ok) {
@@ -3323,6 +3396,7 @@ ${htmlBody}
           setPetlItems([]);
           setPetlReconciliationEntries([]);
           setPetlReconActivityIds(new Set());
+          setPetlEstimateVersionId(null);
 
           setPetlLoadError(
             `PETL fetch failed (${petlRes.status}). ${text || "<empty response>"}`.slice(0, 8000),
@@ -3385,6 +3459,307 @@ ${htmlBody}
       cancelled = true;
     };
   }, [project, activeTab, petlReloadTick, petlDiagnosticsModalOpen]);
+
+  // Schedule preview (Gantt) uses the project's imported estimate version.
+  useEffect(() => {
+    if (!project) return;
+
+    // We show the Gantt on both Summary (Project Overview) and the dedicated Schedule tab.
+    const showSchedule = activeTab === "SCHEDULE" || activeTab === "SUMMARY";
+    if (!showSchedule) return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setSchedulePreview(null);
+      setSchedulePreviewError("Missing access token. Please login again.");
+      setSchedulePreviewLoading(false);
+      return;
+    }
+
+    if (!petlEstimateVersionId) {
+      // PETL might still be loading; avoid surfacing an error until we actually have an estimateVersionId.
+      setSchedulePreview(null);
+      setSchedulePreviewError(null);
+      setSchedulePreviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadPreview = async () => {
+      setSchedulePreviewLoading(true);
+      setSchedulePreviewError(null);
+
+      try {
+        const res = await fetch(
+          `${API_BASE}/projects/${project.id}/xact-schedule/estimate/${petlEstimateVersionId}/preview`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ startDate: scheduleStartDate }),
+          },
+        );
+
+        if (cancelled) return;
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          setSchedulePreview(null);
+          setSchedulePreviewError(
+            `Failed to generate schedule preview (${res.status}). ${text}`.slice(0, 2000),
+          );
+          return;
+        }
+
+        const json: any = await res.json();
+        if (cancelled) return;
+        setSchedulePreview(json);
+      } catch (err: any) {
+        if (cancelled) return;
+        setSchedulePreview(null);
+        setSchedulePreviewError(err?.message ?? "Failed to generate schedule preview");
+      } finally {
+        if (!cancelled) setSchedulePreviewLoading(false);
+      }
+    };
+
+    void loadPreview();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project, activeTab, petlEstimateVersionId, scheduleStartDate, scheduleReloadTick]);
+
+  const scheduleGanttText = useMemo(() => {
+    const tasks: any[] = Array.isArray(schedulePreview?.scheduledTasks)
+      ? schedulePreview.scheduledTasks
+      : [];
+
+    if (tasks.length === 0) return "";
+
+    const header: string[] = [
+      "gantt",
+      "  title Project Schedule (preview)",
+      "  dateFormat  YYYY-MM-DD",
+      "  axisFormat  %m/%d",
+      "",
+    ];
+
+    const groupOf = (t: any): string => {
+      if (scheduleGroupMode === "TRADE") {
+        return String(t?.trade ?? "Unknown").trim() || "Unknown";
+      }
+      return String(t?.room ?? "Project").trim() || "Project";
+    };
+
+    const labelOf = (t: any): string => {
+      if (scheduleGroupMode === "TRADE") {
+        const room = String(t?.room ?? "Project").trim() || "Project";
+        const phase = String(t?.phaseLabel ?? t?.trade ?? "Task").trim() || "Task";
+        return `${room} · ${phase}`;
+      }
+      const trade = String(t?.trade ?? "Trade").trim() || "Trade";
+      const phase = String(t?.phaseLabel ?? "Work").trim() || "Work";
+      return `${trade} · ${phase}`;
+    };
+
+    const durationToken = (t: any): string => {
+      const d = Number(t?.durationDays);
+      if (!Number.isFinite(d) || d <= 0) return "1d";
+      if (Math.abs(d - Math.round(d)) < 1e-9) {
+        return `${Math.round(d)}d`;
+      }
+      // Mermaid supports hour durations (e.g. 4h) and our scheduler uses 8h/day.
+      const hours = Math.max(1, Math.round(d * 8));
+      return `${hours}h`;
+    };
+
+    const grouped = new Map<string, any[]>();
+    for (const t of tasks) {
+      const g = groupOf(t);
+      const arr = grouped.get(g);
+      if (arr) arr.push(t);
+      else grouped.set(g, [t]);
+    }
+
+    const groupNames = Array.from(grouped.keys()).sort((a, b) => a.localeCompare(b));
+
+    for (const groupName of groupNames) {
+      header.push(`  section ${groupName.replace(/\r|\n/g, " ")}`);
+      const groupTasks = grouped.get(groupName) ?? [];
+      groupTasks.sort((a, b) => {
+        const sa = String(a?.startDate ?? "");
+        const sb = String(b?.startDate ?? "");
+        if (sa !== sb) return sa.localeCompare(sb);
+        const pa = Number(a?.phaseCode ?? 0);
+        const pb = Number(b?.phaseCode ?? 0);
+        return pa - pb;
+      });
+
+      for (const t of groupTasks) {
+        const start = String(t?.startDate ?? "").trim();
+        if (!start) continue;
+
+        const rawLabel = labelOf(t).replace(/:/g, "-");
+        const label = rawLabel.length > 72 ? `${rawLabel.slice(0, 69)}…` : rawLabel;
+        const id = makeMermaidSafeId(`${t?.id ?? "task"}_${groupName}`);
+        header.push(`  ${label}: ${id}, ${start}, ${durationToken(t)}`);
+      }
+
+      header.push("");
+    }
+
+    return header.join("\n");
+  }, [schedulePreview, scheduleGroupMode]);
+
+  const renderSchedulePanel = () => (
+    <div
+      style={{
+        borderRadius: 8,
+        border: "1px solid #e5e7eb",
+        background: "#ffffff",
+        marginBottom: 12,
+      }}
+    >
+      <div
+        style={{
+          padding: "6px 10px",
+          borderBottom: "1px solid #e5e7eb",
+          fontSize: 13,
+          fontWeight: 600,
+          background: "#f3f4f6",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <span>Schedule (Gantt)</span>
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+            <span style={{ color: "#6b7280" }}>Group:</span>
+            <button
+              type="button"
+              onClick={() => setScheduleGroupMode("ROOM")}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid #d1d5db",
+                background: scheduleGroupMode === "ROOM" ? "#e0f2fe" : "#ffffff",
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              Room
+            </button>
+            <button
+              type="button"
+              onClick={() => setScheduleGroupMode("TRADE")}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid #d1d5db",
+                background: scheduleGroupMode === "TRADE" ? "#e0f2fe" : "#ffffff",
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              Trade
+            </button>
+          </div>
+
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+            <span style={{ color: "#6b7280" }}>Start:</span>
+            <input
+              type="date"
+              value={scheduleStartDate}
+              onChange={(e) => setScheduleStartDate(e.target.value)}
+              style={{
+                padding: "3px 6px",
+                borderRadius: 6,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={() => {
+              setScheduleReloadTick((t) => t + 1);
+            }}
+            style={{
+              padding: "4px 8px",
+              borderRadius: 6,
+              border: "1px solid #d1d5db",
+              background: "#ffffff",
+              cursor: "pointer",
+              fontSize: 12,
+            }}
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div style={{ padding: 10 }}>
+        {!petlEstimateVersionId && (
+          <div style={{ fontSize: 12, color: "#6b7280" }}>
+            Waiting for estimate data… (Open PETL at least once, or import Xactimate RAW + Components.)
+          </div>
+        )}
+
+        {petlEstimateVersionId && schedulePreviewLoading && (
+          <div style={{ fontSize: 12, color: "#6b7280" }}>Generating schedule preview…</div>
+        )}
+
+        {petlEstimateVersionId && schedulePreviewError && !schedulePreviewLoading && (
+          <div
+            style={{
+              marginTop: 8,
+              padding: 10,
+              borderRadius: 8,
+              border: "1px solid #fecaca",
+              background: "#fef2f2",
+              color: "#991b1b",
+              fontSize: 12,
+            }}
+          >
+            {schedulePreviewError}
+          </div>
+        )}
+
+        {petlEstimateVersionId &&
+          !schedulePreviewError &&
+          !schedulePreviewLoading &&
+          !scheduleGanttText && (
+            <div style={{ fontSize: 12, color: "#6b7280" }}>
+              No schedule tasks available yet. (Make sure Xact RAW + Components are imported.)
+            </div>
+          )}
+
+        {petlEstimateVersionId && scheduleGanttText && (
+          <div
+            style={{
+              marginTop: 10,
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+              padding: 10,
+              overflowX: "auto",
+            }}
+          >
+            <MermaidGantt ganttText={scheduleGanttText} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   // Load pending PETL % update sessions (PM/owner/admin only)
   useEffect(() => {
@@ -5991,9 +6366,10 @@ ${htmlBody}
           gap: 8,
         }}
       >
-        {(
+      {(
           [
             { key: "SUMMARY", label: "Summary" },
+            { key: "SCHEDULE", label: "Schedule" },
             { key: "PETL", label: "PETL" },
             { key: "STRUCTURE", label: "Project Organization" },
             { key: "DAILY_LOGS", label: "Daily Logs" },
@@ -6152,6 +6528,8 @@ ${htmlBody}
               </div>
             </div>
           </div>
+
+          {renderSchedulePanel()}
 
           {/* Job Notes card */}
           <div
@@ -12757,6 +13135,9 @@ ${htmlBody}
           </div>
         </div>
       )}
+
+      {/* SCHEDULE tab content */}
+      {activeTab === "SCHEDULE" && renderSchedulePanel()}
 
       {/* PETL tab content */}
       {activeTab === "PETL" && (
