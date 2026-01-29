@@ -343,8 +343,20 @@ export class PricingController {
       profileCode: user.profileCode ?? null,
     });
 
-    // Require OWNER (90) / ADMIN (80) at the tenant, or SUPER_ADMIN.
-    if (level < 80 && user.globalRole !== GlobalRole.SUPER_ADMIN) {
+    // Tenant cost book is tenant-managed (BETA intent):
+    // - OWNER/ADMIN can manage.
+    // - FINANCE/EXECUTIVE work-function profiles can manage.
+    // - SUPER_ADMIN can manage.
+    const canManageCostBook =
+      user.globalRole === GlobalRole.SUPER_ADMIN ||
+      user.role === Role.OWNER ||
+      user.role === Role.ADMIN ||
+      user.profileCode === "FINANCE" ||
+      user.profileCode === "EXECUTIVE" ||
+      // Fallback for legacy callers that don't have profileCode populated yet.
+      level >= 80;
+
+    if (!canManageCostBook) {
       throw new BadRequestException(
         "You do not have permission to create or reseed the company cost book.",
       );
@@ -383,8 +395,16 @@ export class PricingController {
         profileCode: user.profileCode ?? null,
       });
 
-      // Require OWNER (90) / ADMIN (80) at the tenant, or SUPER_ADMIN.
-      if (level < 80 && user.globalRole !== GlobalRole.SUPER_ADMIN) {
+      const canManageCostBook =
+        user.globalRole === GlobalRole.SUPER_ADMIN ||
+        user.role === Role.OWNER ||
+        user.role === Role.ADMIN ||
+        user.profileCode === "FINANCE" ||
+        user.profileCode === "EXECUTIVE" ||
+        // Fallback for legacy callers that don't have profileCode populated yet.
+        level >= 80;
+
+      if (!canManageCostBook) {
         throw new BadRequestException(
           "You do not have permission to upload a tenant cost book.",
         );

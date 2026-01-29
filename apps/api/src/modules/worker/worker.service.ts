@@ -150,8 +150,14 @@ export class WorkerService {
       cpFringeRate?: number | null;
     },
   ) {
-    // Authorization: SUPER_ADMIN anywhere, or Nexus System HR/OWNER/ADMIN in
-    // the Nexus System company context.
+    // Authorization (BETA intent):
+    // - SUPER_ADMIN can edit anywhere.
+    // - Nexus System HR / OWNER / ADMIN can edit while in the Nexus System context.
+    // - Tenant OWNER/ADMIN can edit for their tenant.
+    // - Tenant HR/FINANCE/EXECUTIVE profiles can edit for their tenant.
+    //
+    // Because Worker is a global table, tenant edits must be scoped to workers
+    // that are actually associated with the tenant (via a User email + CompanyMembership).
     const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
 
     let isNexusSystemCompany = false;
@@ -166,9 +172,57 @@ export class WorkerService {
 
     const isOwnerOrAdmin = actor.role === Role.OWNER || actor.role === Role.ADMIN;
     const isHrProfile = actor.profileCode === "HR";
+    const isFinanceProfile = actor.profileCode === "FINANCE";
+    const isExecutiveProfile = actor.profileCode === "EXECUTIVE";
 
-    if (!isSuperAdmin && !(isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile))) {
+    const canEditInNexusSystem = isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile);
+    const canEditInTenant = isOwnerOrAdmin || isHrProfile || isFinanceProfile || isExecutiveProfile;
+
+    if (!isSuperAdmin && !canEditInNexusSystem && !canEditInTenant) {
       throw new ForbiddenException("Not allowed to edit worker compensation");
+    }
+
+    // Tenant scoping: only allow editing Worker rows that map to a tenant member.
+    // SUPER_ADMIN and Nexus System privileged users can bypass this.
+    if (!isSuperAdmin && !canEditInNexusSystem) {
+      const worker = await (this.prisma as any).worker.findUnique({
+        where: { id: workerId },
+        select: { email: true },
+      });
+
+      const email = (worker?.email || "").trim().toLowerCase();
+      if (!email) {
+        throw new ForbiddenException(
+          "Not allowed to edit this worker: no email is associated to a tenant user",
+        );
+      }
+
+      const user = await this.prisma.user.findFirst({
+        where: { email: { equals: email, mode: "insensitive" } },
+        select: { id: true },
+      });
+
+      if (!user) {
+        throw new ForbiddenException(
+          "Not allowed to edit this worker: no tenant user exists for this email",
+        );
+      }
+
+      const membership = await this.prisma.companyMembership.findUnique({
+        where: {
+          userId_companyId: {
+            userId: user.id,
+            companyId: actor.companyId,
+          },
+        },
+        select: { userId: true },
+      });
+
+      if (!membership) {
+        throw new ForbiddenException(
+          "Not allowed to edit this worker: they are not a member of your company",
+        );
+      }
     }
 
     const data: any = {};
@@ -271,8 +325,10 @@ export class WorkerService {
   }
 
   async getWorkerMarketComp(actor: AuthenticatedUser, workerId: string) {
-    // Reuse the same authorization semantics as updateWorkerComp: SUPER_ADMIN
-    // anywhere, or Nexus System HR/OWNER/ADMIN in the Nexus System context.
+    // Authorization mirrors updateWorkerComp (BETA intent):
+    // - SUPER_ADMIN can view anywhere.
+    // - Nexus System HR / OWNER / ADMIN can view while in the Nexus System context.
+    // - Tenant OWNER/ADMIN/HR/FINANCE/EXECUTIVE can view for their tenant.
     const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
 
     let isNexusSystemCompany = false;
@@ -287,9 +343,61 @@ export class WorkerService {
 
     const isOwnerOrAdmin = actor.role === Role.OWNER || actor.role === Role.ADMIN;
     const isHrProfile = actor.profileCode === "HR";
+    const isFinanceProfile = actor.profileCode === "FINANCE";
+    const isExecutiveProfile = actor.profileCode === "EXECUTIVE";
+    const isPmProfile = actor.profileCode === "PM" || actor.profileCode === "PM_OWNER";
 
-    if (!isSuperAdmin && !(isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile))) {
+    const canViewInNexusSystem = isNexusSystemCompany && (isOwnerOrAdmin || isHrProfile);
+
+    // View-only: PMs can see compensation for workers in their tenant so they can
+    // staff jobs and plan labor. Editing remains restricted to OWNER/ADMIN/HR/FINANCE/EXECUTIVE.
+    const canViewInTenant =
+      isOwnerOrAdmin || isHrProfile || isFinanceProfile || isExecutiveProfile || isPmProfile;
+
+    if (!isSuperAdmin && !canViewInNexusSystem && !canViewInTenant) {
       throw new ForbiddenException("Not allowed to view worker market compensation");
+    }
+
+    // Tenant scoping (same reason as updateWorkerComp).
+    if (!isSuperAdmin && !canViewInNexusSystem) {
+      const worker = await (this.prisma as any).worker.findUnique({
+        where: { id: workerId },
+        select: { email: true },
+      });
+
+      const email = (worker?.email || "").trim().toLowerCase();
+      if (!email) {
+        throw new ForbiddenException(
+          "Not allowed to view this worker: no email is associated to a tenant user",
+        );
+      }
+
+      const user = await this.prisma.user.findFirst({
+        where: { email: { equals: email, mode: "insensitive" } },
+        select: { id: true },
+      });
+
+      if (!user) {
+        throw new ForbiddenException(
+          "Not allowed to view this worker: no tenant user exists for this email",
+        );
+      }
+
+      const membership = await this.prisma.companyMembership.findUnique({
+        where: {
+          userId_companyId: {
+            userId: user.id,
+            companyId: actor.companyId,
+          },
+        },
+        select: { userId: true },
+      });
+
+      if (!membership) {
+        throw new ForbiddenException(
+          "Not allowed to view this worker: they are not a member of your company",
+        );
+      }
     }
 
     const worker = await this.prisma.worker.findUnique({
