@@ -731,11 +731,39 @@ export async function importXactCsvForProject(options: {
   const createdAtBase = new Date();
 
   const rawRowsData = records.map((record, index) => {
-    const rawLineNoValue =
-      (record["#"] as string | undefined) ??
-      (record["\u001b#"] as string | undefined) ??
-      (record["﻿#"] as string | undefined) ??
-      (record[Object.keys(record)[0] ?? ""] as string | undefined);
+    // Xactimate exports often label the line number column as "#", but we see
+    // real-world variants due to BOM/control chars, hidden prefixes, or different
+    // export templates.
+    const keys = Object.keys(record ?? {});
+    const normalizeHeader = (k: string) =>
+      String(k ?? "")
+        .replace(/^\uFEFF/, "")
+        .replace(/[\u0000-\u001F]/g, "")
+        .trim()
+        .toLowerCase();
+
+    const pickLineKey = () => {
+      // Highest confidence: header is exactly "#" (after cleaning)
+      const exactHash = keys.find((k) => normalizeHeader(k) === "#");
+      if (exactHash) return exactHash;
+
+      // Next: header contains a #
+      const containsHash = keys.find((k) => normalizeHeader(k).includes("#"));
+      if (containsHash) return containsHash;
+
+      // Next: "line no" / "line number" variants
+      const lineNoLike = keys.find((k) => {
+        const n = normalizeHeader(k);
+        return (n.includes("line") && n.includes("no")) || n.includes("linenumber");
+      });
+      if (lineNoLike) return lineNoLike;
+
+      // Fallback: first column (what users typically expect)
+      return keys[0] ?? null;
+    };
+
+    const lineKey = pickLineKey();
+    const rawLineNoValue = lineKey ? (record[lineKey] as any) : undefined;
 
     const parsedLineNo = rawLineNoValue
       ? Number(String(rawLineNoValue).replace(/,/g, "")) || 0
