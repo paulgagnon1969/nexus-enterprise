@@ -32,6 +32,7 @@ import { DocumentsModule } from "./modules/documents/documents.module";
 import { TimecardModule } from "./modules/timecard/timecard.module";
 import { NttModule } from "./modules/ntt/ntt.module";
 import { UploadsModule } from "./modules/uploads/uploads.module";
+import { XactScheduleModule } from "./modules/xact-schedule/xact-schedule.module";
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { UploadsModule } from "./modules/uploads/uploads.module";
     CompanyModule,
     UserModule,
     ProjectModule,
+    XactScheduleModule,
     TaskModule,
     ParcelModule,
     AdminModule,
