@@ -107,6 +107,24 @@ function makeMermaidSafeId(input: string) {
   return input.replace(/[^A-Za-z0-9_]/g, "_");
 }
 
+// Derive a top-level org grouping code from a label such as
+// "RISK__E - Risk - Exterior" or "ELECTRI Electrical Room". This mirrors the
+// behavior used by invoice grouping helpers but is scoped to the schedule view.
+function scheduleExtractGroupCode(label: any): string | null {
+  const s = String(label ?? "").trim();
+  if (!s) return null;
+
+  // e.g. "RISK__E - Risk - Exterior" → "RISK__E"
+  const dashMatch = s.match(/^([A-Za-z0-9_]+)\s*[-–—].+$/);
+  if (dashMatch) return dashMatch[1];
+
+  // e.g. "ELECTRI Electrical Room" → "ELECTRI"
+  const firstToken = s.split(/\s+/)[0] ?? "";
+  if (/^[A-Z0-9_]{3,}$/.test(firstToken)) return firstToken;
+
+  return null;
+}
+
 function MermaidGantt(props: {
   ganttText: string;
   stickyHeader?: boolean;
@@ -628,6 +646,8 @@ export default function ProjectDetailPage({
   // Optional filter to focus the schedule/Gantt on a single Unit (labels as
   // derived from unitGroups / project organization). "ALL" = no filter.
   const [scheduleUnitFilter, setScheduleUnitFilter] = useState<string>("ALL");
+  // Optional filter for the top-level org group (e.g. ELECTRI, RISK__E, WASH_UT).
+  const [scheduleOrgGroupFilter, setScheduleOrgGroupFilter] = useState<string>("ALL");
   const [scheduleSummaryExpanded, setScheduleSummaryExpanded] = useState(false);
 
   // Draft edits (client-side). We turn these into taskOverrides when the user clicks Apply.
@@ -3740,22 +3760,69 @@ ${htmlBody}
     return a >= b ? a : b;
   };
 
+  const roomToUnitLabel = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const ug of unitGroups) {
+      const unitLabel = String((ug as any)?.unitLabel ?? "").trim();
+      if (!unitLabel) continue;
+      const rooms: any[] = Array.isArray((ug as any)?.rooms) ? (ug as any).rooms : [];
+      for (const r of rooms) {
+        const roomName = String(r?.roomName ?? "").trim();
+        if (!roomName) continue;
+        if (!map.has(roomName)) {
+          map.set(roomName, unitLabel);
+        }
+      }
+    }
+    return map;
+  }, [unitGroups]);
+
+  // Unique list of unit labels for the schedule filter, sorted with the same
+  // Unit 1 / Unit 2 / Unit 10-friendly behavior used elsewhere.
+  const scheduleUnitLabels = useMemo(() => {
+    const labels = unitGroups.map((ug) => String((ug as any)?.unitLabel || "(No unit)").trim());
+    const unique = Array.from(new Set(labels));
+
+    const unitSortKey = (label: string) => {
+      const s = String(label ?? "");
+      const m = s.match(/^Unit\s+0*(\d+)\b/i);
+      if (m) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n)) return { kind: 0, n, s };
+      }
+      return { kind: 1, n: Number.POSITIVE_INFINITY, s: s.toLowerCase() };
+    };
+
+    return unique.sort((a, b) => {
+      const ka = unitSortKey(a);
+      const kb = unitSortKey(b);
+      if (ka.kind !== kb.kind) return ka.kind - kb.kind;
+      if (ka.n !== kb.n) return ka.n - kb.n;
+      return ka.s.localeCompare(kb.s);
+    });
+  }, [unitGroups]);
+
   const scheduleTasks: any[] = useMemo(() => {
     const all = Array.isArray(schedulePreview?.scheduledTasks)
       ? schedulePreview.scheduledTasks
       : [];
 
-    if (!scheduleUnitFilter || scheduleUnitFilter === "ALL") return all;
-
-    // When a unit filter is active, keep only tasks whose derived unit label
-    // matches the filter. This uses the same room → unit mapping that powers
-    // the PETL project grouping view.
     return all.filter((t: any) => {
       const room = String(t?.room ?? "").trim();
       const unitLabel = roomToUnitLabel.get(room) ?? (room ? "Unassigned" : "Project");
-      return unitLabel === scheduleUnitFilter;
+      const groupCode = scheduleExtractGroupCode(unitLabel);
+
+      if (scheduleOrgGroupFilter && scheduleOrgGroupFilter !== "ALL") {
+        if (!groupCode || groupCode !== scheduleOrgGroupFilter) return false;
+      }
+
+      if (scheduleUnitFilter && scheduleUnitFilter !== "ALL") {
+        if (unitLabel !== scheduleUnitFilter) return false;
+      }
+
+      return true;
     });
-  }, [schedulePreview, scheduleUnitFilter, roomToUnitLabel]);
+  }, [schedulePreview, scheduleOrgGroupFilter, scheduleUnitFilter, roomToUnitLabel]);
 
   const scheduleTaskById = useMemo(() => {
     const m = new Map<string, any>();
@@ -3799,52 +3866,8 @@ ${htmlBody}
     return overrides;
   }, [scheduleDraftOverrides, scheduleDraftDeps, scheduleTaskById]);
 
-  const roomToUnitLabel = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const ug of unitGroups) {
-      const unitLabel = String((ug as any)?.unitLabel ?? "").trim();
-      if (!unitLabel) continue;
-      const rooms: any[] = Array.isArray((ug as any)?.rooms) ? (ug as any).rooms : [];
-      for (const r of rooms) {
-        const roomName = String(r?.roomName ?? "").trim();
-        if (!roomName) continue;
-        if (!map.has(roomName)) {
-          map.set(roomName, unitLabel);
-        }
-      }
-    }
-    return map;
-  }, [unitGroups]);
-
-  // Unique list of unit labels for the schedule filter, sorted with the same
-  // Unit 1 / Unit 2 / Unit 10-friendly behavior used elsewhere.
-  const scheduleUnitLabels = useMemo(() => {
-    const labels = unitGroups.map((ug) => String((ug as any)?.unitLabel || "(No unit)").trim());
-    const unique = Array.from(new Set(labels));
-
-    const unitSortKey = (label: string) => {
-      const s = String(label ?? "");
-      const m = s.match(/^Unit\s+0*(\d+)\b/i);
-      if (m) {
-        const n = Number(m[1]);
-        if (Number.isFinite(n)) return { kind: 0, n, s };
-      }
-      return { kind: 1, n: Number.POSITIVE_INFINITY, s: s.toLowerCase() };
-    };
-
-    return unique.sort((a, b) => {
-      const ka = unitSortKey(a);
-      const kb = unitSortKey(b);
-      if (ka.kind !== kb.kind) return ka.kind - kb.kind;
-      if (ka.n !== kb.n) return ka.n - kb.n;
-      return ka.s.localeCompare(kb.s);
-    });
-  }, [unitGroups]);
-
   const scheduleGanttText = useMemo(() => {
-    const allTasks: any[] = Array.isArray(schedulePreview?.scheduledTasks)
-      ? schedulePreview.scheduledTasks
-      : [];
+    const allTasks: any[] = scheduleTasks;
 
     if (allTasks.length === 0) return "";
 
@@ -4050,7 +4073,7 @@ ${htmlBody}
 
     return header.join("\n");
   }, [
-    schedulePreview,
+    scheduleTasks,
     scheduleGroupMode,
     roomToUnitLabel,
     scheduleViewPreset,
@@ -4103,7 +4126,7 @@ ${htmlBody}
           )}
 
           {(opts.mode === "SCHEDULE" || scheduleSummaryExpanded) && (
-            <>
+            <Fragment>
               <button
                 type="button"
                 onClick={() => {
@@ -4214,6 +4237,47 @@ ${htmlBody}
                 </div>
               )}
 
+              {scheduleOrgGroupCodes.length > 0 && (
+                <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                  <span style={{ color: "#6b7280" }}>Org group:</span>
+                  <button
+                    type="button"
+                    onClick={() => setScheduleOrgGroupFilter("ALL")}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #d1d5db",
+                      background:
+                        !scheduleOrgGroupFilter || scheduleOrgGroupFilter === "ALL"
+                          ? "#e0f2fe"
+                          : "#ffffff",
+                      cursor: "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    All
+                  </button>
+                  {scheduleOrgGroupCodes.map((code) => (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => setScheduleOrgGroupFilter(code)}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #d1d5db",
+                        background:
+                          scheduleOrgGroupFilter === code ? "#e0f2fe" : "#ffffff",
+                        cursor: "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      {code}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
                 <span style={{ color: "#6b7280" }}>Schedule Start:</span>
                 <input
@@ -4227,6 +4291,7 @@ ${htmlBody}
                     fontSize: 12,
                   }}
                 />
+              </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
                 <span style={{ color: "#6b7280" }}>Zoom:</span>
                 <button
@@ -4382,7 +4447,7 @@ ${htmlBody}
               >
                 Refresh
               </button>
-            </>
+            </Fragment>
           )}
         </div>
       </div>
