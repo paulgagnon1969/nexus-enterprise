@@ -843,6 +843,12 @@ export default function ProjectDetailPage({
   const [petlReconcileNotesImportError, setPetlReconcileNotesImportError] = useState<string | null>(null);
   const [petlReconcileNotesImportResult, setPetlReconcileNotesImportResult] = useState<any | null>(null);
 
+  // Build PETL baseline directly from the tenant Cost Book.
+  const [petlBaselineCostBookPickerOpen, setPetlBaselineCostBookPickerOpen] = useState(false);
+  const [petlBaselineCostBookPickerBusy, setPetlBaselineCostBookPickerBusy] = useState(false);
+  const [petlBaselineLocation, setPetlBaselineLocation] = useState("");
+  const [petlBaselineMessage, setPetlBaselineMessage] = useState<string | null>(null);
+
   // Rarely used: keep import UIs behind a modal so they don't affect initial render/layout.
   const [importsModalOpen, setImportsModalOpen] = useState(false);
 
@@ -2217,6 +2223,63 @@ ${htmlBody}
       })
       .filter((g) => g.items.length > 0);
   }, [activeInvoice?.lineItems]);
+
+  const submitBaselinePetlFromCostBook = async (selection: CostBookSelection[]) => {
+    if (!project) return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setPetlBaselineMessage("Missing access token.");
+      return;
+    }
+
+    if (!selection || selection.length === 0) {
+      setPetlBaselineMessage("No cost book items selected.");
+      return;
+    }
+
+    setPetlBaselineMessage(null);
+    setPetlBaselineCostBookPickerBusy(true);
+
+    try {
+      const lines = selection.map((sel) => ({
+        companyPriceListItemId: sel.item.id,
+        qty: sel.qty,
+      }));
+
+      const body: any = { lines };
+      const loc = petlBaselineLocation.trim();
+      if (loc) body.locationDescription = loc;
+
+      const res = await fetch(`${API_BASE}/projects/${project.id}/petl/add-from-cost-book`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        setPetlBaselineMessage(
+          `Create PETL from Cost Book failed (${res.status}) ${text}`.trim(),
+        );
+        return;
+      }
+
+      // Best effort: ignore payload details; rely on existing PETL reload path.
+      await res.json().catch(() => null);
+
+      setPetlReloadTick((t) => t + 1);
+      setPetlBaselineCostBookPickerOpen(false);
+      setPetlBaselineMessage("Created PETL from Cost Book.");
+    } catch (err: any) {
+      setPetlBaselineMessage(err?.message ?? "Failed to create PETL from Cost Book.");
+    } finally {
+      setPetlBaselineCostBookPickerBusy(false);
+    }
+  };
 
   const submitAddInvoiceLinesFromCostBook = async (selection: CostBookSelection[]) => {
     if (!project) return;
@@ -7457,33 +7520,113 @@ ${htmlBody}
           }}
         >
           <div style={{ fontWeight: 600, marginBottom: 4 }}>
-            Xactimate baseline not imported yet
+            Estimate baseline not created yet
           </div>
           <p style={{ margin: 0, marginBottom: 8 }}>
-            This project doesn&apos;t yet have an estimate baseline. Upload your
-            Xactimate CSV exports so Nexus can build the PETL and progress
-            tracking.
+            This project doesn&apos;t yet have an estimate baseline. You can either
+            import Xactimate CSV exports or build a PETL baseline directly from
+            your tenant Cost Book.
           </p>
-          <button
-            type="button"
-            onClick={() => {
-              if (typeof window !== "undefined") {
-                window.location.href = `/projects/import?projectId=${project.id}`;
-              }
-            }}
+
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>
+              Final material location (optional)
+            </div>
+            <input
+              value={petlBaselineLocation}
+              onChange={(e) => setPetlBaselineLocation(e.target.value)}
+              placeholder="e.g. Main yard – 1234 Logistics Way"
+              style={{
+                width: "100%",
+                maxWidth: 420,
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            />
+          </div>
+
+          <div
             style={{
-              padding: "6px 10px",
-              borderRadius: 4,
-              border: "1px solid #0f172a",
-              backgroundColor: "#0f172a",
-              color: "#f9fafb",
-              fontSize: 12,
-              cursor: "pointer",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
             }}
           >
-            Import Xactimate CSVs for this project
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  window.location.href = `/projects/import?projectId=${project.id}`;
+                }
+              }}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 4,
+                border: "1px solid #0f172a",
+                backgroundColor: "#0f172a",
+                color: "#f9fafb",
+                fontSize: 12,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Import Xactimate CSVs
+            </button>
+
+            {isPmOrAbove && (
+              <button
+                type="button"
+                onClick={() => {
+                  petlTransitionOverlayLabelRef.current = "Opening cost book…";
+                  busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+                  startPetlTransition(() => setPetlBaselineCostBookPickerOpen(true));
+                }}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #2563eb",
+                  backgroundColor: "#eff6ff",
+                  color: "#1d4ed8",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Build PETL from Cost Book
+              </button>
+            )}
+          </div>
+
+          {petlBaselineMessage && (
+            <div style={{ marginTop: 6, fontSize: 11, color: "#4b5563" }}>
+              {petlBaselineMessage}
+            </div>
+          )}
         </div>
+      )}
+
+      {petlBaselineCostBookPickerOpen && (
+        <CostBookPickerModal
+          title="Tenant Cost Book"
+          subtitle={
+            petlBaselineLocation.trim()
+              ? `Build PETL from Cost Book – Location: ${petlBaselineLocation.trim()}`
+              : "Build PETL from Cost Book"
+          }
+          confirmLabel={
+            petlBaselineCostBookPickerBusy ? "Adding…" : "Add selected to PETL"
+          }
+          confirmDisabled={petlBaselineCostBookPickerBusy}
+          onConfirm={submitBaselinePetlFromCostBook}
+          onClose={() => {
+            if (petlBaselineCostBookPickerBusy) return;
+            petlTransitionOverlayLabelRef.current = "Closing cost book…";
+            busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+            startPetlTransition(() => setPetlBaselineCostBookPickerOpen(false));
+          }}
+        />
       )}
 
       {petlItemCount !== null && petlItemCount > 0 && componentsCount === 0 && (
