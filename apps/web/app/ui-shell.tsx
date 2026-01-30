@@ -307,6 +307,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   // On first load after login, if we have a remembered lastCompanyId and the
   // user has access (or is SUPER_ADMIN), auto-switch company context once so
   // the dropdown and API context match their last selection.
+  //
+  // IMPORTANT: if we do switch companies, we must reload the page so any
+  // already-mounted pages don't keep using a now-stale company context.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const token = window.localStorage.getItem("accessToken");
@@ -315,6 +318,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (already === "1") return;
     const lastCompanyId = window.localStorage.getItem("lastCompanyId");
     if (!lastCompanyId) return;
+
+    const currentCompanyId = window.localStorage.getItem("companyId");
+    if (currentCompanyId && currentCompanyId === lastCompanyId) {
+      // Nothing to do; avoid switching + avoid re-running this effect on reload.
+      window.sessionStorage.setItem("nexusAutoCompanySwitchDone", "1");
+      return;
+    }
 
     (async () => {
       try {
@@ -340,10 +350,16 @@ export function AppShell({ children }: { children: ReactNode }) {
         if (!switchRes.ok) return;
         const json: any = await switchRes.json();
         if (json.accessToken && json.refreshToken && json.company?.id) {
+          const nextCompanyId = json.company.id;
           window.localStorage.setItem("accessToken", json.accessToken);
           window.localStorage.setItem("refreshToken", json.refreshToken);
-          window.localStorage.setItem("companyId", json.company.id);
+          window.localStorage.setItem("companyId", nextCompanyId);
+          window.localStorage.setItem("lastCompanyId", nextCompanyId);
           window.sessionStorage.setItem("nexusAutoCompanySwitchDone", "1");
+
+          // Reload so in-memory app state + any already-mounted pages re-fetch
+          // under the correct company context.
+          window.location.reload();
         }
       } catch {
         // ignore

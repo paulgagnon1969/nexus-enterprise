@@ -3323,47 +3323,42 @@ export class ProjectService {
       const byId = new Map<string, (typeof sowItems)[number]>(sowItems.map((s) => [s.id, s]));
       const updates = Array.from(percentBySowItemId.entries());
 
-      if (!dryRun) {
-        await this.prisma.$transaction(async (tx) => {
-          for (const [sowItemId, nextPct] of updates) {
-            const currentRow = byId.get(sowItemId);
-            if (!currentRow) continue;
+      const toUpdate: Array<{ sowItemId: string; nextPct: number }> = [];
 
-            const currentPct = Number(currentRow.percentComplete ?? 0);
-            const needsUpdate =
-              currentRow.isAcvOnly || Math.abs(currentPct - nextPct) > 0.0001;
+      for (const [sowItemId, nextPct] of updates) {
+        const currentRow = byId.get(sowItemId);
+        if (!currentRow) continue;
 
-            if (!needsUpdate) {
-              percentNoop += 1;
-              continue;
-            }
+        const currentPct = Number(currentRow.percentComplete ?? 0);
+        const needsUpdate = currentRow.isAcvOnly || Math.abs(currentPct - nextPct) > 0.0001;
 
-            await tx.sowItem.update({
-              where: { id: sowItemId },
-              data: {
-                percentComplete: nextPct,
-                isAcvOnly: false,
-              },
-            });
+        if (!needsUpdate) {
+          percentNoop += 1;
+          continue;
+        }
 
-            percentApplied += 1;
-          }
-        });
-      } else {
-        for (const [sowItemId, nextPct] of updates) {
-          const currentRow = byId.get(sowItemId);
-          if (!currentRow) continue;
+        percentApplied += 1;
+        toUpdate.push({ sowItemId, nextPct });
+      }
 
-          const currentPct = Number(currentRow.percentComplete ?? 0);
-          const needsUpdate =
-            currentRow.isAcvOnly || Math.abs(currentPct - nextPct) > 0.0001;
-
-          if (!needsUpdate) {
-            percentNoop += 1;
-            continue;
-          }
-
-          percentApplied += 1;
+      // IMPORTANT: Avoid Prisma interactive transactions here.
+      // In production, large reconcile imports can require hundreds/thousands of % updates, and
+      // Prisma interactive transactions default to a 5s timeout (P2028).
+      if (!dryRun && toUpdate.length > 0) {
+        const chunkSize = 200;
+        for (let i = 0; i < toUpdate.length; i += chunkSize) {
+          const chunk = toUpdate.slice(i, i + chunkSize);
+          await this.prisma.$transaction(
+            chunk.map(({ sowItemId, nextPct }) =>
+              this.prisma.sowItem.update({
+                where: { id: sowItemId },
+                data: {
+                  percentComplete: nextPct,
+                  isAcvOnly: false,
+                },
+              }),
+            ),
+          );
         }
       }
     }
@@ -6457,7 +6452,8 @@ export class ProjectService {
     try {
       const project = await this.getProjectByIdForUser(projectId, actor);
 
-      return this.prisma.projectBill.findMany({
+      // IMPORTANT: await the Prisma call so try/catch can intercept P2021.
+      const bills = await this.prisma.projectBill.findMany({
         where: {
           projectId: project.id,
           companyId: project.companyId,
@@ -6468,9 +6464,13 @@ export class ProjectService {
           attachments: { orderBy: { createdAt: "asc" } },
         },
       });
+
+      return bills;
     } catch (err: any) {
+      // In prod right now, the bills migration may not be applied yet.
+      // Don't 500 the project page; return an empty list.
       if (this.isBillTableMissingError(err)) {
-        this.throwBillTablesNotMigrated();
+        return [];
       }
       throw err;
     }
@@ -6990,7 +6990,20 @@ export class ProjectService {
       // Best effort: keep the living draft synced to PETL as the source of truth.
       // Only run if the Prisma client includes the new model.
       if (this.invoicePetlModelsAvailable()) {
-        await this.syncDraftInvoiceFromPetl(projectId, invoice.id, actor);
+        try {
+          await this.syncDraftInvoiceFromPetl(projectId, invoice.id, actor);
+        } catch (err: any) {
+          // If the DB schema is missing newly-added invoice PETL columns, don't block
+          // invoice creation; the draft can still be created and manual items can be added.
+          if (String(err?.code ?? "") !== "P2022") {
+            throw err;
+          }
+          const msg = String(err?.message ?? "");
+          if (!msg.includes("ProjectInvoicePetlLine")) {
+            throw err;
+          }
+          // swallow
+        }
       }
 
       return this.getProjectInvoice(projectId, invoice.id, actor);
@@ -7073,6 +7086,9 @@ export class ProjectService {
       if (this.invoicePetlModelsAvailable()) {
         try {
           const p: any = this.prisma as any;
+
+          // Explicit select so we can safely operate even if some newer columns haven't
+          // been added to the DB yet (e.g., sourceLineNoSnapshot).
           petlLines = await p.projectInvoicePetlLine.findMany({
             where: { invoiceId: invoice.id },
             orderBy: [
@@ -7081,9 +7097,51 @@ export class ProjectService {
               { kind: "asc" },
               { createdAt: "asc" },
             ],
+            select: {
+              id: true,
+              invoiceId: true,
+              kind: true,
+              billingTag: true,
+              parentLineId: true,
+              estimateVersionId: true,
+              sowItemId: true,
+              logicalItemId: true,
+              projectParticleId: true,
+              projectParticleLabelSnapshot: true,
+              projectUnitIdSnapshot: true,
+              projectUnitLabelSnapshot: true,
+              projectBuildingIdSnapshot: true,
+              projectBuildingLabelSnapshot: true,
+              projectTreePathSnapshot: true,
+              lineNoSnapshot: true,
+              // intentionally omit sourceLineNoSnapshot
+              categoryCodeSnapshot: true,
+              selectionCodeSnapshot: true,
+              descriptionSnapshot: true,
+              unitSnapshot: true,
+              percentCompleteSnapshot: true,
+              contractItemAmount: true,
+              contractTaxAmount: true,
+              contractOpAmount: true,
+              contractTotal: true,
+              earnedItemAmount: true,
+              earnedTaxAmount: true,
+              earnedOpAmount: true,
+              earnedTotal: true,
+              prevBilledItemAmount: true,
+              prevBilledTaxAmount: true,
+              prevBilledOpAmount: true,
+              prevBilledTotal: true,
+              thisInvItemAmount: true,
+              thisInvTaxAmount: true,
+              thisInvOpAmount: true,
+              thisInvTotal: true,
+              createdAt: true,
+              updatedAt: true,
+            },
           });
         } catch (err: any) {
-          if (!this.isMissingPrismaTableError(err, "ProjectInvoicePetlLine")) {
+          if (!this.isMissingPrismaTableError(err, "ProjectInvoicePetlLine") && String(err?.code ?? "") !== "P2022") {
             throw err;
           }
           petlLines = [];
@@ -7372,7 +7430,8 @@ export class ProjectService {
         projectBuildingLabelSnapshot: buildingLabel,
         projectTreePathSnapshot: treePath,
         lineNoSnapshot: s.lineNo,
-        sourceLineNoSnapshot: s.sourceLineNo ?? null,
+        // NOTE: sourceLineNoSnapshot exists in Prisma schema but is missing in prod DB right now.
+        // If we include it, createMany will throw P2022. We can re-enable once the DB is migrated.
         categoryCodeSnapshot: s.categoryCode ?? null,
         selectionCodeSnapshot: s.selectionCode ?? null,
         descriptionSnapshot: s.description,
