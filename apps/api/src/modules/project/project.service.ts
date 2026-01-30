@@ -1354,6 +1354,340 @@ export class ProjectService {
     });
   }
 
+  /**
+   * Create baseline PETL (SowItem) rows directly from the tenant Cost Book for a project.
+   *
+   * - If a PETL-backed estimate already exists, we append new lines to that version.
+   * - Otherwise we create a manual-from-cost-book EstimateVersion + Sow and attach rows there.
+   * - Optionally creates a zero-priced "Location" line item to track final material location.
+   */
+  async addPetlLinesFromCostBook(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    body: {
+      lines: {
+        companyPriceListItemId: string;
+        qty?: number | null;
+        projectParticleId?: string | null;
+        payerType?: string | null;
+        tag?: string | null;
+        note?: string | null;
+      }[];
+      locationDescription?: string | null;
+    },
+  ) {
+    const { lines, locationDescription } = body ?? {};
+
+    if (!Array.isArray(lines) || lines.length === 0) {
+      throw new BadRequestException("At least one Cost Book line is required");
+    }
+
+    // Reuse PETL access rules: only PM/Owner/Admin can materially change PETL.
+    const canEdit = await this.isProjectManagerOrAbove(projectId, actor);
+    if (!canEdit) {
+      throw new ForbiddenException("Only PM/owner/admin can add PETL line items from the Cost Book");
+    }
+
+    // Ensure the project exists in this company.
+    const project = await this.prisma.project.findFirst({ where: { id: projectId, companyId } });
+    if (!project) {
+      throw new NotFoundException("Project not found in this company");
+    }
+
+    // Prefer the same estimate version the PETL grid uses; fall back to a
+    // manual-from-cost-book version when no PETL exists yet.
+    let estimateVersion = await this.getLatestEstimateVersionForPetl(projectId);
+    if (!estimateVersion) {
+      estimateVersion = await this.getOrCreateManualCostBookEstimateVersion(projectId, actor);
+    }
+
+    // Ensure there is a SOW row for this estimate version.
+    let sow = await this.prisma.sow.findFirst({
+      where: { projectId, estimateVersionId: estimateVersion.id },
+    });
+    if (!sow) {
+      sow = await this.prisma.sow.create({
+        data: {
+          projectId,
+          estimateVersionId: estimateVersion.id,
+          sourceType: estimateVersion.sourceType || "manual_cost_book",
+          totalAmount: null,
+        },
+      });
+    }
+
+    const locationParticle = await this.ensureProjectLocationParticle(projectId);
+
+    // Helper to normalize quantities.
+    const toQty = (value: any, fallback: number): number => {
+      if (value == null) return fallback;
+      const n = Number(value);
+      if (!Number.isFinite(n) || n <= 0) return fallback;
+      return n;
+    };
+
+    // Helper to compute a simple logical signature for Cost Book–sourced lines.
+    const buildSignature = (item: {
+      cat: string | null;
+      sel: string | null;
+      description: string | null;
+      unit: string | null;
+    }) => {
+      const parts = [item.cat, item.sel, item.description, item.unit]
+        .map((x) => String(x ?? "").trim())
+        .filter((x) => x.length > 0);
+      return parts.join("|") || "(cost-book-line)";
+    };
+
+    const trimmedLocation = String(locationDescription ?? "").trim();
+
+    // Perform all writes in a single transaction so PETL stays consistent.
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Determine next PETL line number for this estimate version.
+      const maxAgg = await tx.sowItem.aggregate({
+        where: { estimateVersionId: estimateVersion.id },
+        _max: { lineNo: true },
+      });
+      let nextLineNo = (maxAgg._max.lineNo ?? 0) + 1;
+
+      // Preload all requested Cost Book items for the active tenant Cost Book.
+      const itemIds = Array.from(
+        new Set(lines.map((l) => String(l.companyPriceListItemId ?? "").trim()).filter(Boolean)),
+      );
+      const costBookItems = await tx.companyPriceListItem.findMany({
+        where: {
+          id: { in: itemIds },
+          companyPriceList: {
+            companyId,
+            isActive: true,
+          },
+        },
+      });
+
+      const costBookById = new Map(costBookItems.map((it) => [it.id, it]));
+      if (costBookById.size !== itemIds.length) {
+        throw new BadRequestException("One or more Cost Book items were not found for this company");
+      }
+
+      const createdSowItems: any[] = [];
+      let createdLocation: any | null = null;
+
+      // Optional Location line (zero-cost by default, but participates in PETL totals).
+      if (trimmedLocation) {
+        const existingLocation = await tx.sowItem.findFirst({
+          where: {
+            estimateVersionId: estimateVersion.id,
+            categoryCode: "LOG",
+            selectionCode: "LOCATION",
+          },
+        });
+
+        if (!existingLocation) {
+          const locationLineNo = nextLineNo++;
+          const locationLabel = `Location: ${trimmedLocation}`.slice(0, 255);
+
+          const rawLocation = await tx.rawXactRow.create({
+            data: {
+              estimateVersionId: estimateVersion.id,
+              lineNo: locationLineNo,
+              desc: locationLabel,
+              qty: 1,
+              unitCost: 0,
+              itemAmount: 0,
+              rcv: 0,
+              unit: "LS",
+              cat: "LOG",
+              sel: "LOCATION",
+              sourceName: "MANUAL_COST_BOOK_LOCATION",
+              rawRowJson: {
+                costBookSource: {
+                  kind: "LOCATION",
+                  locationDescription: trimmedLocation,
+                },
+              },
+            },
+          });
+
+          const logicalLocation = await tx.sowLogicalItem.create({
+            data: {
+              projectId,
+              projectParticleId: locationParticle.id,
+              signatureHash: `LOCATION|${locationLabel}`.slice(0, 255),
+            },
+          });
+
+          createdLocation = await tx.sowItem.create({
+            data: {
+              sowId: sow.id,
+              estimateVersionId: estimateVersion.id,
+              rawRowId: rawLocation.id,
+              logicalItemId: logicalLocation.id,
+              projectParticleId: locationParticle.id,
+              lineNo: locationLineNo,
+              description: locationLabel,
+              qty: 1,
+              originalQty: 1,
+              unit: "LS",
+              unitCost: 0,
+              itemAmount: 0,
+              rcvAmount: 0,
+              categoryCode: "LOG",
+              selectionCode: "LOCATION",
+              payerType: estimateVersion.defaultPayerType,
+              performed: false,
+              eligibleForAcvRefund: false,
+              acvRefundAmount: null,
+              percentComplete: 0,
+              isAcvOnly: false,
+              qtyFlaggedIncorrect: false,
+            },
+          });
+
+          createdSowItems.push(createdLocation);
+        }
+      }
+
+      // Create PETL rows for each requested Cost Book line.
+      for (const line of lines) {
+        const id = String(line.companyPriceListItemId ?? "").trim();
+        const costItem: any = costBookById.get(id);
+        if (!id || !costItem) {
+          throw new BadRequestException("Cost Book item not found or invalid");
+        }
+
+        const particleId =
+          (line.projectParticleId && String(line.projectParticleId).trim()) || locationParticle.id;
+
+        const qty = toQty(line.qty, 1);
+        const unitCost = (() => {
+          if (line.payerType && line.payerType === "0") return 0;
+          if (line.qty != null && line.qty <= 0) return costItem.unitPrice ?? 0;
+          const override = (line as any).unitCostOverride;
+          if (override != null) {
+            const n = Number(override);
+            if (Number.isFinite(n) && n >= 0) return n;
+          }
+          return costItem.unitPrice ?? 0;
+        })();
+
+        const itemAmount = qty * unitCost;
+        const rcvAmount = itemAmount;
+
+        const raw = await tx.rawXactRow.create({
+          data: {
+            estimateVersionId: estimateVersion.id,
+            lineNo: nextLineNo,
+            desc: costItem.description ?? null,
+            qty,
+            unitCost,
+            itemAmount,
+            rcv: rcvAmount,
+            unit: costItem.unit ?? null,
+            cat: costItem.cat ?? null,
+            sel: costItem.sel ?? null,
+            activity: costItem.activity ?? null,
+            groupCode: costItem.groupCode ?? null,
+            groupDescription: costItem.groupDescription ?? null,
+            owner: costItem.owner ?? null,
+            originalVendor: costItem.sourceVendor ?? null,
+            sourceDate: costItem.sourceDate ?? null,
+            sourceName: "MANUAL_COST_BOOK",
+            rawRowJson: {
+              costBookSource: {
+                kind: "COMPANY_PRICE_LIST_ITEM",
+                companyPriceListItemId: costItem.id,
+                companyPriceListId: costItem.companyPriceListId,
+              },
+              rawJson: costItem.rawJson ?? null,
+            },
+          },
+        });
+
+        const signature = buildSignature({
+          cat: costItem.cat ?? null,
+          sel: costItem.sel ?? null,
+          description: costItem.description ?? null,
+          unit: costItem.unit ?? null,
+        }).slice(0, 255);
+
+        let logical = await tx.sowLogicalItem.findFirst({
+          where: {
+            projectId,
+            projectParticleId: particleId,
+            signatureHash: signature,
+          },
+        });
+
+        if (!logical) {
+          logical = await tx.sowLogicalItem.create({
+            data: {
+              projectId,
+              projectParticleId: particleId,
+              signatureHash: signature,
+            },
+          });
+        }
+
+        const sowItem = await tx.sowItem.create({
+          data: {
+            sowId: sow.id,
+            estimateVersionId: estimateVersion.id,
+            rawRowId: raw.id,
+            logicalItemId: logical.id,
+            projectParticleId: particleId,
+            lineNo: nextLineNo,
+            description: costItem.description ?? "(Cost Book item)",
+            qty,
+            originalQty: qty,
+            unit: costItem.unit ?? null,
+            unitCost,
+            itemAmount,
+            rcvAmount,
+            acvAmount: null,
+            depreciationAmount: null,
+            salesTaxAmount: null,
+            categoryCode: costItem.cat ?? null,
+            selectionCode: costItem.sel ?? null,
+            activity: costItem.activity ?? null,
+            materialAmount: null,
+            equipmentAmount: null,
+            payerType: String(line.payerType ?? estimateVersion.defaultPayerType ?? "Insurance"),
+            performed: false,
+            eligibleForAcvRefund: false,
+            acvRefundAmount: null,
+            percentComplete: 0,
+            isAcvOnly: false,
+            qtyFlaggedIncorrect: false,
+          },
+        });
+
+        createdSowItems.push(sowItem);
+        nextLineNo += 1;
+      }
+
+      return {
+        projectId,
+        estimateVersionId: estimateVersion.id,
+        createdCount: createdSowItems.length,
+        createdLocation,
+        items: createdSowItems,
+      };
+    });
+
+    await this.audit.log(actor, "PROJECT_PETL_LINES_CREATED_FROM_COST_BOOK", {
+      companyId,
+      projectId,
+      metadata: {
+        estimateVersionId: result.estimateVersionId,
+        createdCount: result.createdCount,
+        hasLocation: !!result.createdLocation,
+      },
+    });
+
+    return result;
+  }
+
   private async resolveProjectParticlesForProject(options: {
     projectId: string;
     particleIds: string[];

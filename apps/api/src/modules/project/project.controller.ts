@@ -873,6 +873,28 @@ export class ProjectController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post(":id/petl/add-from-cost-book")
+  addPetlLinesFromCostBook(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body()
+    body: {
+      lines: {
+        companyPriceListItemId: string;
+        qty?: number | null;
+        projectParticleId?: string | null;
+        payerType?: string | null;
+        tag?: string | null;
+        note?: string | null;
+      }[];
+      locationDescription?: string | null;
+    },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.addPetlLinesFromCostBook(projectId, user.companyId, user, body);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post(":id/petl/:sowItemId/reconciliation/add-from-cost-book")
   createPetlReconciliationAddFromCostBook(
     @Req() req: any,
