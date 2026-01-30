@@ -21,50 +21,131 @@ import { AdminPetlTools } from "./admin-petl-tools";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-type MermaidModule = {
-  default: {
-    initialize: (config: any) => void;
-    render: (id: string, text: string) => Promise<{ svg: string; bindFunctions?: (el: Element) => void }>;
-  };
+declare global {
+  interface Window {
+    mermaid?: {
+      initialize: (config: any) => void;
+      render: (id: string, text: string) => Promise<{ svg: string; bindFunctions?: (el: Element) => void }>;
+    };
+  }
+}
+
+const MERMAID_CDN_SRC = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js";
+
+// Mermaid has a default maxTextSize guardrail; large projects can exceed it.
+// We raise it since this is an internal, authenticated UI.
+const MERMAID_INIT_CONFIG = {
+  startOnLoad: false,
+  maxTextSize: 2_000_000,
+  // Put the time axis on top so it can stay visible in our sticky header.
+  gantt: {
+    topAxis: true,
+    // Work-week semantics: week-based tick intervals should start on Monday.
+    weekday: "monday",
+  },
 };
+
+let mermaidLoadPromise: Promise<NonNullable<Window["mermaid"]>> | null = null;
+let mermaidInitialized = false;
+
+async function loadMermaid(): Promise<NonNullable<Window["mermaid"]>> {
+  if (typeof window === "undefined") {
+    throw new Error("Mermaid can only be loaded in the browser");
+  }
+
+  if (window.mermaid) {
+    if (!mermaidInitialized) {
+      window.mermaid.initialize(MERMAID_INIT_CONFIG);
+      mermaidInitialized = true;
+    }
+    return window.mermaid;
+  }
+
+  if (!mermaidLoadPromise) {
+    mermaidLoadPromise = new Promise((resolve, reject) => {
+      const existing = document.querySelector('script[data-nexus-mermaid="true"]') as
+        | HTMLScriptElement
+        | null;
+
+      const onLoaded = () => {
+        if (!window.mermaid) {
+          reject(new Error("Mermaid script loaded, but window.mermaid is missing"));
+          return;
+        }
+        if (!mermaidInitialized) {
+          window.mermaid.initialize(MERMAID_INIT_CONFIG);
+          mermaidInitialized = true;
+        }
+        resolve(window.mermaid);
+      };
+
+      if (existing) {
+        // If a script tag exists already, attach listeners and hope it loads.
+        existing.addEventListener("load", onLoaded);
+        existing.addEventListener("error", () => reject(new Error("Failed to load Mermaid")));
+        // If it already loaded, resolve immediately.
+        if ((existing as any).readyState === "complete" || (existing as any).readyState === "loaded") {
+          onLoaded();
+        }
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = MERMAID_CDN_SRC;
+      script.async = true;
+      script.dataset.nexusMermaid = "true";
+      script.addEventListener("load", onLoaded);
+      script.addEventListener("error", () => reject(new Error("Failed to load Mermaid")));
+      document.head.appendChild(script);
+    });
+  }
+
+  return mermaidLoadPromise;
+}
 
 function makeMermaidSafeId(input: string) {
   return input.replace(/[^A-Za-z0-9_]/g, "_");
 }
 
-function MermaidGantt(props: { ganttText: string }) {
-  const { ganttText } = props;
-  const containerRef = useRef<HTMLDivElement | null>(null);
+function MermaidGantt(props: {
+  ganttText: string;
+  stickyHeader?: boolean;
+  maxHeightPx?: number;
+}) {
+  const { ganttText, stickyHeader = true, maxHeightPx = 560 } = props;
+
+  const headerRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     const render = async () => {
-      if (!containerRef.current) return;
+      if (!headerRef.current || !bodyRef.current) return;
+
       if (!ganttText.trim()) {
-        containerRef.current.innerHTML = "";
+        headerRef.current.innerHTML = "";
+        bodyRef.current.innerHTML = "";
         return;
       }
 
-      // Load Mermaid from CDN at runtime.
-      const mod = (await import(
-        "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs"
-      )) as unknown as MermaidModule;
-      const mermaid = mod.default;
-
-      mermaid.initialize({ startOnLoad: false });
+      const mermaid = await loadMermaid();
 
       const id = `gantt_${makeMermaidSafeId(String(Date.now()))}`;
       const { svg, bindFunctions } = await mermaid.render(id, ganttText);
       if (cancelled) return;
 
-      if (containerRef.current) {
-        containerRef.current.innerHTML = svg;
-        try {
-          if (bindFunctions) bindFunctions(containerRef.current);
-        } catch {
-          // ignore
+      // We duplicate the SVG into a sticky header and a scrollable body.
+      headerRef.current.innerHTML = svg;
+      bodyRef.current.innerHTML = svg;
+
+      try {
+        if (bindFunctions) {
+          bindFunctions(headerRef.current);
+          bindFunctions(bodyRef.current);
         }
+      } catch {
+        // ignore
       }
     };
 
@@ -75,7 +156,45 @@ function MermaidGantt(props: { ganttText: string }) {
     };
   }, [ganttText]);
 
-  return <div ref={containerRef} style={{ overflowX: "auto" }} />;
+  const headerHeightPx = 64;
+
+  return (
+    <div
+      style={{
+        maxHeight: maxHeightPx,
+        overflow: "auto",
+        position: "relative",
+        borderRadius: 8,
+        border: "1px solid #e5e7eb",
+        background: "#ffffff",
+      }}
+    >
+      {stickyHeader && (
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 5,
+            height: headerHeightPx,
+            overflow: "hidden",
+            background: "#ffffff",
+            borderBottom: "1px solid #e5e7eb",
+          }}
+        >
+          <div ref={headerRef} />
+        </div>
+      )}
+
+      <div
+        style={{
+          // Hide the original SVG header area underneath the sticky header.
+          marginTop: stickyHeader ? -headerHeightPx : 0,
+        }}
+      >
+        <div ref={bodyRef} />
+      </div>
+    </div>
+  );
 }
 
 type CheckboxMultiSelectOption = { value: string; label: string };
@@ -505,11 +624,63 @@ export default function ProjectDetailPage({
   const [schedulePreview, setSchedulePreview] = useState<any | null>(null);
   const [schedulePreviewLoading, setSchedulePreviewLoading] = useState(false);
   const [schedulePreviewError, setSchedulePreviewError] = useState<string | null>(null);
-  const [scheduleGroupMode, setScheduleGroupMode] = useState<"ROOM" | "TRADE">("ROOM");
+  const [scheduleGroupMode, setScheduleGroupMode] = useState<"ROOM" | "TRADE" | "UNIT">("ROOM");
+  // Optional filter to focus the schedule/Gantt on a single Unit (labels as
+  // derived from unitGroups / project organization). "ALL" = no filter.
+  const [scheduleUnitFilter, setScheduleUnitFilter] = useState<string>("ALL");
+  const [scheduleSummaryExpanded, setScheduleSummaryExpanded] = useState(false);
+
+  // Draft edits (client-side). We turn these into taskOverrides when the user clicks Apply.
+  const [scheduleDraftOverrides, setScheduleDraftOverrides] = useState<
+    Record<string, { durationDays?: number; startDate?: string; lockType?: "SOFT" | "HARD" }>
+  >({});
+
+  // Dependency editor: we store lag days and use it to derive startDate overrides.
+  const [scheduleDraftDeps, setScheduleDraftDeps] = useState<
+    Record<string, { predecessorId: string; lagDays: number }[]>
+  >({});
+
+  const [scheduleOverridesPayload, setScheduleOverridesPayload] = useState<
+    Record<string, { durationDays?: number; startDate?: string; lockType?: "SOFT" | "HARD" }> | null
+  >(null);
+
+  const [scheduleInlineEditTaskId, setScheduleInlineEditTaskId] = useState<string | null>(null);
+
   const [scheduleStartDate, setScheduleStartDate] = useState<string>(() => {
     // Default to today; can be overridden in the scheduler preview endpoint.
     return new Date().toISOString().slice(0, 10);
   });
+
+  const isoAddDays = (iso: string, days: number): string => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const [scheduleViewPreset, setScheduleViewPreset] = useState<"ALL" | "30D" | "60D" | "90D" | "CUSTOM">(
+    "60D",
+  );
+
+  const [scheduleZoom, setScheduleZoom] = useState<"AUTO" | "DAY" | "WEEK" | "MONTH">("AUTO");
+
+  const [scheduleViewFrom, setScheduleViewFrom] = useState<string>(() => {
+    return new Date().toISOString().slice(0, 10);
+  });
+
+  const [scheduleViewTo, setScheduleViewTo] = useState<string>(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return isoAddDays(today, 60);
+  });
+
+  // Keep the view window synced to the schedule start date when using a preset.
+  useEffect(() => {
+    if (scheduleViewPreset === "ALL" || scheduleViewPreset === "CUSTOM") return;
+    const days = scheduleViewPreset === "30D" ? 30 : scheduleViewPreset === "60D" ? 60 : 90;
+    setScheduleViewFrom(scheduleStartDate);
+    setScheduleViewTo(isoAddDays(scheduleStartDate, days));
+  }, [scheduleStartDate, scheduleViewPreset]);
+
   const [scheduleReloadTick, setScheduleReloadTick] = useState(0);
 
   // Reconciliation activity (any reconciliation entry exists for this sowItem)
@@ -3464,8 +3635,9 @@ ${htmlBody}
   useEffect(() => {
     if (!project) return;
 
-    // We show the Gantt on both Summary (Project Overview) and the dedicated Schedule tab.
-    const showSchedule = activeTab === "SCHEDULE" || activeTab === "SUMMARY";
+    // We show the Gantt on the dedicated Schedule tab, and on Summary only when expanded.
+    const showSchedule =
+      activeTab === "SCHEDULE" || (activeTab === "SUMMARY" && scheduleSummaryExpanded);
     if (!showSchedule) return;
 
     const token = localStorage.getItem("accessToken");
@@ -3499,7 +3671,10 @@ ${htmlBody}
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ startDate: scheduleStartDate }),
+            body: JSON.stringify({
+              startDate: scheduleStartDate,
+              taskOverrides: scheduleOverridesPayload ?? undefined,
+            }),
           },
         );
 
@@ -3531,20 +3706,228 @@ ${htmlBody}
     return () => {
       cancelled = true;
     };
-  }, [project, activeTab, petlEstimateVersionId, scheduleStartDate, scheduleReloadTick]);
+  }, [
+    project,
+    activeTab,
+    petlEstimateVersionId,
+    scheduleStartDate,
+    scheduleReloadTick,
+    scheduleSummaryExpanded,
+    scheduleOverridesPayload,
+  ]);
 
-  const scheduleGanttText = useMemo(() => {
-    const tasks: any[] = Array.isArray(schedulePreview?.scheduledTasks)
+  const addDaysIso = (iso: string, deltaDays: number): string => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    d.setDate(d.getDate() + deltaDays);
+    // normalize back to YYYY-MM-DD
+    return d.toISOString().slice(0, 10);
+  };
+
+  const bumpToWeekdayIso = (iso: string): string => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    const day = d.getDay();
+    // 0=Sun,6=Sat
+    if (day === 6) d.setDate(d.getDate() + 2);
+    if (day === 0) d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const maxIso = (a: string, b: string): string => {
+    if (!a) return b;
+    if (!b) return a;
+    return a >= b ? a : b;
+  };
+
+  const scheduleTasks: any[] = useMemo(() => {
+    const all = Array.isArray(schedulePreview?.scheduledTasks)
       ? schedulePreview.scheduledTasks
       : [];
 
+    if (!scheduleUnitFilter || scheduleUnitFilter === "ALL") return all;
+
+    // When a unit filter is active, keep only tasks whose derived unit label
+    // matches the filter. This uses the same room → unit mapping that powers
+    // the PETL project grouping view.
+    return all.filter((t: any) => {
+      const room = String(t?.room ?? "").trim();
+      const unitLabel = roomToUnitLabel.get(room) ?? (room ? "Unassigned" : "Project");
+      return unitLabel === scheduleUnitFilter;
+    });
+  }, [schedulePreview, scheduleUnitFilter, roomToUnitLabel]);
+
+  const scheduleTaskById = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const t of scheduleTasks) {
+      if (t?.id) m.set(String(t.id), t);
+    }
+    return m;
+  }, [scheduleTasks]);
+
+  const buildOverridesFromDrafts = useCallback(() => {
+    // Start with explicit overrides.
+    const overrides: Record<string, { durationDays?: number; startDate?: string; lockType?: "SOFT" | "HARD" }> =
+      JSON.parse(JSON.stringify(scheduleDraftOverrides || {}));
+
+    // Apply dependency-derived start date constraints.
+    for (const [taskId, deps] of Object.entries(scheduleDraftDeps || {})) {
+      if (!Array.isArray(deps) || deps.length === 0) continue;
+
+      let requiredStart = "";
+      for (const dep of deps) {
+        const predId = String(dep?.predecessorId ?? "").trim();
+        if (!predId) continue;
+        const pred = scheduleTaskById.get(predId);
+        if (!pred) continue;
+
+        const predEnd = String(pred?.endDate ?? pred?.startDate ?? "").trim();
+        if (!predEnd) continue;
+
+        const lag = Number(dep?.lagDays ?? 0);
+        const candidate = bumpToWeekdayIso(addDaysIso(predEnd, Number.isFinite(lag) ? lag : 0));
+        requiredStart = requiredStart ? maxIso(requiredStart, candidate) : candidate;
+      }
+
+      if (!requiredStart) continue;
+
+      const existing = overrides[taskId] ?? {};
+      const nextStart = existing.startDate ? maxIso(existing.startDate, requiredStart) : requiredStart;
+      overrides[taskId] = { ...existing, startDate: nextStart };
+    }
+
+    return overrides;
+  }, [scheduleDraftOverrides, scheduleDraftDeps, scheduleTaskById]);
+
+  const roomToUnitLabel = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const ug of unitGroups) {
+      const unitLabel = String((ug as any)?.unitLabel ?? "").trim();
+      if (!unitLabel) continue;
+      const rooms: any[] = Array.isArray((ug as any)?.rooms) ? (ug as any).rooms : [];
+      for (const r of rooms) {
+        const roomName = String(r?.roomName ?? "").trim();
+        if (!roomName) continue;
+        if (!map.has(roomName)) {
+          map.set(roomName, unitLabel);
+        }
+      }
+    }
+    return map;
+  }, [unitGroups]);
+
+  // Unique list of unit labels for the schedule filter, sorted with the same
+  // Unit 1 / Unit 2 / Unit 10-friendly behavior used elsewhere.
+  const scheduleUnitLabels = useMemo(() => {
+    const labels = unitGroups.map((ug) => String((ug as any)?.unitLabel || "(No unit)").trim());
+    const unique = Array.from(new Set(labels));
+
+    const unitSortKey = (label: string) => {
+      const s = String(label ?? "");
+      const m = s.match(/^Unit\s+0*(\d+)\b/i);
+      if (m) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n)) return { kind: 0, n, s };
+      }
+      return { kind: 1, n: Number.POSITIVE_INFINITY, s: s.toLowerCase() };
+    };
+
+    return unique.sort((a, b) => {
+      const ka = unitSortKey(a);
+      const kb = unitSortKey(b);
+      if (ka.kind !== kb.kind) return ka.kind - kb.kind;
+      if (ka.n !== kb.n) return ka.n - kb.n;
+      return ka.s.localeCompare(kb.s);
+    });
+  }, [unitGroups]);
+
+  const scheduleGanttText = useMemo(() => {
+    const allTasks: any[] = Array.isArray(schedulePreview?.scheduledTasks)
+      ? schedulePreview.scheduledTasks
+      : [];
+
+    if (allTasks.length === 0) return "";
+
+    // Keep diagram sizes manageable by letting the user window the chart.
+    const fromIso = scheduleViewPreset === "ALL" ? "" : String(scheduleViewFrom || "").trim();
+    const toIso = scheduleViewPreset === "ALL" ? "" : String(scheduleViewTo || "").trim();
+
+    const tasks = allTasks.filter((t) => {
+      if (scheduleViewPreset === "ALL") return true;
+      const s = String(t?.startDate ?? "").trim();
+      const e = String(t?.endDate ?? t?.startDate ?? "").trim();
+
+      // If we don't have valid window bounds, fall back to showing everything.
+      if (!fromIso || !toIso) return true;
+      if (!s || !e) return true;
+
+      // overlap test (inclusive)
+      return s <= toIso && e >= fromIso;
+    });
+
     if (tasks.length === 0) return "";
+
+    const titleSuffix =
+      scheduleViewPreset === "ALL"
+        ? ""
+        : ` · ${fromIso || "?"} → ${toIso || "?"}`;
+
+    const daysBetweenIso = (aIso: string, bIso: string): number => {
+      const a = new Date(aIso);
+      const b = new Date(bIso);
+      if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0;
+      const ms = b.getTime() - a.getTime();
+      return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24)));
+    };
+
+    const inferredZoom = (() => {
+      if (scheduleZoom !== "AUTO") return scheduleZoom;
+
+      // Prefer the user-selected window bounds if present, otherwise infer from tasks.
+      let from = fromIso;
+      let to = toIso;
+
+      if (!from || !to) {
+        let min = "";
+        let max = "";
+        for (const t of tasks) {
+          const s = String(t?.startDate ?? "").trim();
+          const e = String(t?.endDate ?? t?.startDate ?? "").trim();
+          if (s && (!min || s < min)) min = s;
+          if (e && (!max || e > max)) max = e;
+        }
+        from = min;
+        to = max;
+      }
+
+      const spanDays = from && to ? daysBetweenIso(from, to) : 0;
+      if (spanDays <= 21) return "DAY";
+      if (spanDays <= 140) return "WEEK";
+      return "MONTH";
+    })();
+
+    const axisFormat =
+      inferredZoom === "MONTH"
+        ? "%b %Y"
+        : inferredZoom === "WEEK"
+        ? "%b W%W"
+        : "%b %d";
+
+    const tickInterval =
+      inferredZoom === "MONTH"
+        ? "1month"
+        : inferredZoom === "WEEK"
+        ? "1week"
+        : "1day";
 
     const header: string[] = [
       "gantt",
-      "  title Project Schedule (preview)",
+      `  title Project Schedule (preview)${titleSuffix}`,
       "  dateFormat  YYYY-MM-DD",
-      "  axisFormat  %m/%d",
+      `  axisFormat  ${axisFormat}`,
+      `  tickInterval ${tickInterval}`,
+      // Keep work weeks aligned to Monday.
+      ...(inferredZoom === "WEEK" ? ["  weekday monday"] : []),
       "",
     ];
 
@@ -3552,18 +3935,38 @@ ${htmlBody}
       if (scheduleGroupMode === "TRADE") {
         return String(t?.trade ?? "Unknown").trim() || "Unknown";
       }
-      return String(t?.room ?? "Project").trim() || "Project";
+
+      const room = String(t?.room ?? "").trim();
+      if (scheduleGroupMode === "UNIT") {
+        return roomToUnitLabel.get(room) ?? (room ? "Unassigned" : "Project");
+      }
+
+      return room || "Project";
+    };
+
+    const hoursSuffixOf = (t: any): string => {
+      const h = Number(t?.totalLaborHours);
+      if (!Number.isFinite(h) || h <= 0) return "";
+      const rounded = h >= 100 ? Math.round(h) : Math.round(h * 10) / 10;
+      return ` (${rounded}h)`;
     };
 
     const labelOf = (t: any): string => {
-      if (scheduleGroupMode === "TRADE") {
-        const room = String(t?.room ?? "Project").trim() || "Project";
-        const phase = String(t?.phaseLabel ?? t?.trade ?? "Task").trim() || "Task";
-        return `${room} · ${phase}`;
-      }
+      const hoursSuffix = hoursSuffixOf(t);
+
+      const room = String(t?.room ?? "Project").trim() || "Project";
       const trade = String(t?.trade ?? "Trade").trim() || "Trade";
       const phase = String(t?.phaseLabel ?? "Work").trim() || "Work";
-      return `${trade} · ${phase}`;
+
+      if (scheduleGroupMode === "TRADE") {
+        return `${room} · ${phase}${hoursSuffix}`;
+      }
+
+      if (scheduleGroupMode === "UNIT") {
+        return `${room} · ${trade} · ${phase}${hoursSuffix}`;
+      }
+
+      return `${trade} · ${phase}${hoursSuffix}`;
     };
 
     const durationToken = (t: any): string => {
@@ -3585,7 +3988,31 @@ ${htmlBody}
       else grouped.set(g, [t]);
     }
 
-    const groupNames = Array.from(grouped.keys()).sort((a, b) => a.localeCompare(b));
+    // When grouping by Unit, sort using the same numeric-friendly logic as the
+    // PETL project grouping (Unit 1, Unit 2, ... Unit 10) instead of
+    // pure lexicographic order (which would put "Unit 10" before "Unit 2").
+    const unitSortKey = (label: string) => {
+      const s = String(label ?? "");
+      const m = s.match(/^Unit\s+0*(\d+)\b/i);
+      if (m) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n)) return { kind: 0, n, s };
+      }
+      return { kind: 1, n: Number.POSITIVE_INFINITY, s: s.toLowerCase() };
+    };
+
+    let groupNames = Array.from(grouped.keys());
+    if (scheduleGroupMode === "UNIT") {
+      groupNames = groupNames.sort((a, b) => {
+        const ka = unitSortKey(a);
+        const kb = unitSortKey(b);
+        if (ka.kind !== kb.kind) return ka.kind - kb.kind;
+        if (ka.n !== kb.n) return ka.n - kb.n;
+        return ka.s.localeCompare(kb.s);
+      });
+    } else {
+      groupNames = groupNames.sort((a, b) => a.localeCompare(b));
+    }
 
     for (const groupName of groupNames) {
       header.push(`  section ${groupName.replace(/\r|\n/g, " ")}`);
@@ -3604,7 +4031,16 @@ ${htmlBody}
         if (!start) continue;
 
         const rawLabel = labelOf(t).replace(/:/g, "-");
-        const label = rawLabel.length > 72 ? `${rawLabel.slice(0, 69)}…` : rawLabel;
+
+        // Keep the hours suffix visible even when truncating.
+        const hoursMatch = rawLabel.match(/ \([0-9.]+h\)$/);
+        const hoursSuffix = hoursMatch ? hoursMatch[0] : "";
+        const base = hoursSuffix ? rawLabel.slice(0, -hoursSuffix.length) : rawLabel;
+
+        const maxLen = 72;
+        const baseMax = Math.max(20, maxLen - hoursSuffix.length);
+        const baseTrunc = base.length > baseMax ? `${base.slice(0, Math.max(0, baseMax - 1))}…` : base;
+        const label = `${baseTrunc}${hoursSuffix}`;
         const id = makeMermaidSafeId(`${t?.id ?? "task"}_${groupName}`);
         header.push(`  ${label}: ${id}, ${start}, ${durationToken(t)}`);
       }
@@ -3613,9 +4049,17 @@ ${htmlBody}
     }
 
     return header.join("\n");
-  }, [schedulePreview, scheduleGroupMode]);
+  }, [
+    schedulePreview,
+    scheduleGroupMode,
+    roomToUnitLabel,
+    scheduleViewPreset,
+    scheduleViewFrom,
+    scheduleViewTo,
+    scheduleZoom,
+  ]);
 
-  const renderSchedulePanel = () => (
+  const renderSchedulePanel = (opts: { mode: "SUMMARY" | "SCHEDULE" }) => (
     <div
       style={{
         borderRadius: 8,
@@ -3641,78 +4085,315 @@ ${htmlBody}
         <span>Schedule (Gantt)</span>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
-            <span style={{ color: "#6b7280" }}>Group:</span>
+          {opts.mode === "SUMMARY" && (
             <button
               type="button"
-              onClick={() => setScheduleGroupMode("ROOM")}
+              onClick={() => setScheduleSummaryExpanded((v) => !v)}
               style={{
                 padding: "4px 8px",
                 borderRadius: 6,
                 border: "1px solid #d1d5db",
-                background: scheduleGroupMode === "ROOM" ? "#e0f2fe" : "#ffffff",
+                background: "#ffffff",
                 cursor: "pointer",
                 fontSize: 12,
               }}
             >
-              Room
+              {scheduleSummaryExpanded ? "Hide Schedule" : "Show Schedule"}
             </button>
-            <button
-              type="button"
-              onClick={() => setScheduleGroupMode("TRADE")}
-              style={{
-                padding: "4px 8px",
-                borderRadius: 6,
-                border: "1px solid #d1d5db",
-                background: scheduleGroupMode === "TRADE" ? "#e0f2fe" : "#ffffff",
-                cursor: "pointer",
-                fontSize: 12,
-              }}
-            >
-              Trade
-            </button>
-          </div>
+          )}
 
-          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
-            <span style={{ color: "#6b7280" }}>Start:</span>
-            <input
-              type="date"
-              value={scheduleStartDate}
-              onChange={(e) => setScheduleStartDate(e.target.value)}
-              style={{
-                padding: "3px 6px",
-                borderRadius: 6,
-                border: "1px solid #d1d5db",
-                fontSize: 12,
-              }}
-            />
-          </label>
+          {(opts.mode === "SCHEDULE" || scheduleSummaryExpanded) && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setScheduleOverridesPayload(buildOverridesFromDrafts());
+                  setScheduleReloadTick((t) => t + 1);
+                }}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  border: "1px solid #d1d5db",
+                  background: "#ffffff",
+                  cursor: "pointer",
+                  fontSize: 12,
+                }}
+                title="Apply manual edits (durations / dependencies) to the preview"
+              >
+                Apply edits
+              </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setScheduleReloadTick((t) => t + 1);
-            }}
-            style={{
-              padding: "4px 8px",
-              borderRadius: 6,
-              border: "1px solid #d1d5db",
-              background: "#ffffff",
-              cursor: "pointer",
-              fontSize: 12,
-            }}
-          >
-            Refresh
-          </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setScheduleDraftOverrides({});
+                  setScheduleDraftDeps({});
+                  setScheduleOverridesPayload(null);
+                  setScheduleReloadTick((t) => t + 1);
+                }}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  border: "1px solid #d1d5db",
+                  background: "#ffffff",
+                  cursor: "pointer",
+                  fontSize: 12,
+                }}
+                title="Clear manual edits"
+              >
+                Reset edits
+              </button>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                <span style={{ color: "#6b7280" }}>Group:</span>
+                <button
+                  type="button"
+                  onClick={() => setScheduleGroupMode("ROOM")}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: scheduleGroupMode === "ROOM" ? "#e0f2fe" : "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Room
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleGroupMode("TRADE")}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: scheduleGroupMode === "TRADE" ? "#e0f2fe" : "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Trade
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleGroupMode("UNIT")}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: scheduleGroupMode === "UNIT" ? "#e0f2fe" : "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Unit
+                </button>
+              </div>
+
+              {/* Optional: filter schedule to a single Unit to approximate a
+                  collapsible project organization view. */}
+              {scheduleGroupMode === "UNIT" && scheduleUnitLabels.length > 0 && (
+                <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                  <span style={{ color: "#6b7280" }}>Unit scope:</span>
+                  <select
+                    value={scheduleUnitFilter}
+                    onChange={(e) => setScheduleUnitFilter(e.target.value)}
+                    style={{
+                      padding: "3px 6px",
+                      borderRadius: 6,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  >
+                    <option value="ALL">All units</option>
+                    {scheduleUnitLabels.map((label) => (
+                      <option key={label} value={label}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                <span style={{ color: "#6b7280" }}>Schedule Start:</span>
+                <input
+                  type="date"
+                  value={scheduleStartDate}
+                  onChange={(e) => setScheduleStartDate(e.target.value)}
+                  style={{
+                    padding: "3px 6px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                <span style={{ color: "#6b7280" }}>Zoom:</span>
+                <button
+                  type="button"
+                  onClick={() => setScheduleZoom("AUTO")}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: scheduleZoom === "AUTO" ? "#e0f2fe" : "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Auto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleZoom("DAY")}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: scheduleZoom === "DAY" ? "#e0f2fe" : "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Day
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleZoom("WEEK")}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: scheduleZoom === "WEEK" ? "#e0f2fe" : "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Week
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleZoom("MONTH")}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: scheduleZoom === "MONTH" ? "#e0f2fe" : "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Month
+                </button>
+              </div>
+
+              <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                <span style={{ color: "#6b7280" }}>Window:</span>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScheduleViewPreset("ALL");
+                  }}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: scheduleViewPreset === "ALL" ? "#e0f2fe" : "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  All
+                </button>
+
+                {([
+                  { key: "30D", label: "30d" },
+                  { key: "60D", label: "60d" },
+                  { key: "90D", label: "90d" },
+                ] as { key: "30D" | "60D" | "90D"; label: string }[]).map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => {
+                      setScheduleViewPreset(p.key);
+                    }}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #d1d5db",
+                      background: scheduleViewPreset === p.key ? "#e0f2fe" : "#ffffff",
+                      cursor: "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+
+                <input
+                  type="date"
+                  value={scheduleViewFrom}
+                  onChange={(e) => {
+                    setScheduleViewPreset("CUSTOM");
+                    setScheduleViewFrom(e.target.value);
+                  }}
+                  style={{
+                    padding: "3px 6px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                  disabled={scheduleViewPreset === "ALL"}
+                  title="Window start"
+                />
+                <span style={{ color: "#6b7280" }}>→</span>
+                <input
+                  type="date"
+                  value={scheduleViewTo}
+                  onChange={(e) => {
+                    setScheduleViewPreset("CUSTOM");
+                    setScheduleViewTo(e.target.value);
+                  }}
+                  style={{
+                    padding: "3px 6px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                  disabled={scheduleViewPreset === "ALL"}
+                  title="Window end"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setScheduleReloadTick((t) => t + 1);
+                }}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  border: "1px solid #d1d5db",
+                  background: "#ffffff",
+                  cursor: "pointer",
+                  fontSize: 12,
+                }}
+              >
+                Refresh
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      <div style={{ padding: 10 }}>
-        {!petlEstimateVersionId && (
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
-            Waiting for estimate data… (Open PETL at least once, or import Xactimate RAW + Components.)
-          </div>
-        )}
+      {opts.mode === "SUMMARY" && !scheduleSummaryExpanded ? null : (
+        <div style={{ padding: 10 }}>
+          {!petlEstimateVersionId && (
+            <div style={{ fontSize: 12, color: "#6b7280" }}>
+              Waiting for estimate data… (Open PETL at least once, or import Xactimate RAW + Components.)
+            </div>
+          )}
 
         {petlEstimateVersionId && schedulePreviewLoading && (
           <div style={{ fontSize: 12, color: "#6b7280" }}>Generating schedule preview…</div>
@@ -3744,20 +4425,411 @@ ${htmlBody}
           )}
 
         {petlEstimateVersionId && scheduleGanttText && (
-          <div
-            style={{
-              marginTop: 10,
-              borderRadius: 10,
-              border: "1px solid #e5e7eb",
-              background: "#ffffff",
-              padding: 10,
-              overflowX: "auto",
-            }}
-          >
-            <MermaidGantt ganttText={scheduleGanttText} />
+          <div style={{ marginTop: 10 }}>
+            <MermaidGantt ganttText={scheduleGanttText} stickyHeader maxHeightPx={1280} />
           </div>
         )}
-      </div>
+
+        {/* Edit panel (basic) */}
+        {petlEstimateVersionId && scheduleTasks.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Edit schedule</div>
+            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
+              Select a task to override duration/start. Dependencies are modeled as “must start after predecessor end + lag days”.
+            </div>
+
+            <div style={{ maxHeight: 440, overflow: "auto", border: "1px solid #e5e7eb", borderRadius: 8 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead style={{ position: "sticky", top: 0, background: "#f9fafb" }}>
+                  <tr>
+                    <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>Task</th>
+                    <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>Start</th>
+                    <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>End</th>
+                    <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>Days</th>
+                    <th style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>Hours</th>
+                    <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {scheduleTasks
+                    .filter((t) => String(t?.kind ?? "") !== "MITIGATION")
+                    .slice()
+                    .sort((a, b) => String(a?.startDate ?? "").localeCompare(String(b?.startDate ?? "")))
+                    .slice(0, 200)
+                    .map((t) => {
+                      const taskId = String(t.id);
+                      const isOpen = scheduleInlineEditTaskId === taskId;
+                      const override = scheduleDraftOverrides[taskId] ?? {};
+                      const deps = scheduleDraftDeps[taskId] ?? [];
+
+                      const setOverride = (patch: any) => {
+                        setScheduleDraftOverrides((prev) => ({
+                          ...prev,
+                          [taskId]: { ...(prev[taskId] ?? {}), ...patch },
+                        }));
+                      };
+
+                      const setDeps = (next: any[]) => {
+                        setScheduleDraftDeps((prev) => ({
+                          ...prev,
+                          [taskId]: next,
+                        }));
+                      };
+
+                      const allTaskOptions = isOpen
+                        ? scheduleTasks
+                            .filter(
+                              (x) =>
+                                x &&
+                                String(x.id) !== taskId &&
+                                String(x.kind ?? "") !== "MITIGATION",
+                            )
+                            .slice()
+                            .sort((a, b) =>
+                              String(a?.startDate ?? "").localeCompare(
+                                String(b?.startDate ?? ""),
+                              ),
+                            )
+                        : [];
+
+                      return (
+                        <Fragment key={taskId}>
+                          <tr>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderBottom: "1px solid #f3f4f6",
+                              }}
+                            >
+                              <div style={{ fontWeight: 600 }}>{taskId}</div>
+                              <div style={{ color: "#6b7280" }}>
+                                {(String(t?.room ?? "") || "Project") +
+                                  " · " +
+                                  (String(t?.trade ?? "") || "")}
+                              </div>
+                            </td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>
+                              {String(t?.startDate ?? "")}
+                            </td>
+                            <td style={{ padding: "6px 8px", borderBottom: "1px solid #f3f4f6" }}>
+                              {String(t?.endDate ?? "")}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderBottom: "1px solid #f3f4f6",
+                                textAlign: "right",
+                              }}
+                            >
+                              {Number(t?.durationDays ?? 0).toFixed(1)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderBottom: "1px solid #f3f4f6",
+                                textAlign: "right",
+                              }}
+                            >
+                              {Number(t?.totalLaborHours ?? 0).toFixed(0)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderBottom: "1px solid #f3f4f6",
+                                textAlign: "right",
+                              }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setScheduleInlineEditTaskId((prev) =>
+                                    prev === taskId ? null : taskId,
+                                  )
+                                }
+                                style={{
+                                  padding: "4px 8px",
+                                  borderRadius: 6,
+                                  border: "1px solid #d1d5db",
+                                  background: "#ffffff",
+                                  cursor: "pointer",
+                                  fontSize: 12,
+                                }}
+                              >
+                                {isOpen ? "Close" : "Edit"}
+                              </button>
+                            </td>
+                          </tr>
+
+                          {isOpen && (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                style={{
+                                  padding: 10,
+                                  borderBottom: "1px solid #f3f4f6",
+                                  background: "#f9fafb",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    gap: 12,
+                                    flexWrap: "wrap",
+                                    alignItems: "center",
+                                    marginBottom: 10,
+                                  }}
+                                >
+                                  <label
+                                    style={{
+                                      display: "flex",
+                                      gap: 6,
+                                      alignItems: "center",
+                                      fontSize: 12,
+                                    }}
+                                  >
+                                    <span style={{ color: "#6b7280" }}>Start</span>
+                                    <input
+                                      type="date"
+                                      value={override.startDate ?? ""}
+                                      onChange={(e) =>
+                                        setOverride({
+                                          startDate: e.target.value || undefined,
+                                        })
+                                      }
+                                      style={{
+                                        padding: "3px 6px",
+                                        borderRadius: 6,
+                                        border: "1px solid #d1d5db",
+                                        fontSize: 12,
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => setOverride({ startDate: undefined })}
+                                      style={{
+                                        padding: "3px 6px",
+                                        borderRadius: 6,
+                                        border: "1px solid #d1d5db",
+                                        background: "#ffffff",
+                                        cursor: "pointer",
+                                        fontSize: 12,
+                                      }}
+                                    >
+                                      Clear
+                                    </button>
+                                  </label>
+
+                                  <label
+                                    style={{
+                                      display: "flex",
+                                      gap: 6,
+                                      alignItems: "center",
+                                      fontSize: 12,
+                                    }}
+                                  >
+                                    <span style={{ color: "#6b7280" }}>Lock</span>
+                                    <select
+                                      value={override.lockType ?? "SOFT"}
+                                      onChange={(e) =>
+                                        setOverride({ lockType: e.target.value as any })
+                                      }
+                                      style={{
+                                        padding: "3px 6px",
+                                        borderRadius: 6,
+                                        border: "1px solid #d1d5db",
+                                        fontSize: 12,
+                                      }}
+                                    >
+                                      <option value="SOFT">Soft</option>
+                                      <option value="HARD">Hard</option>
+                                    </select>
+                                  </label>
+
+                                  <label
+                                    style={{
+                                      display: "flex",
+                                      gap: 6,
+                                      alignItems: "center",
+                                      fontSize: 12,
+                                    }}
+                                  >
+                                    <span style={{ color: "#6b7280" }}>Duration</span>
+                                    <input
+                                      type="number"
+                                      step="0.5"
+                                      min="0"
+                                      value={override.durationDays ?? ""}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        const n = v === "" ? undefined : Number(v);
+                                        setOverride({
+                                          durationDays:
+                                            n && Number.isFinite(n) ? n : undefined,
+                                        });
+                                      }}
+                                      style={{
+                                        width: 110,
+                                        padding: "3px 6px",
+                                        borderRadius: 6,
+                                        border: "1px solid #d1d5db",
+                                        fontSize: 12,
+                                      }}
+                                    />
+                                    <span style={{ color: "#6b7280" }}>days</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setOverride({ durationDays: undefined })}
+                                      style={{
+                                        padding: "3px 6px",
+                                        borderRadius: 6,
+                                        border: "1px solid #d1d5db",
+                                        background: "#ffffff",
+                                        cursor: "pointer",
+                                        fontSize: 12,
+                                      }}
+                                    >
+                                      Clear
+                                    </button>
+                                  </label>
+                                </div>
+
+                                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+                                  Dependencies
+                                </div>
+
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    gap: 8,
+                                    alignItems: "center",
+                                    marginBottom: 8,
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  <select
+                                    defaultValue=""
+                                    onChange={(e) => {
+                                      const pred = e.target.value;
+                                      if (!pred) return;
+                                      e.target.value = "";
+                                      if (deps.some((d: any) => d.predecessorId === pred)) return;
+                                      setDeps([...deps, { predecessorId: pred, lagDays: 0 }]);
+                                    }}
+                                    style={{
+                                      padding: "3px 6px",
+                                      borderRadius: 6,
+                                      border: "1px solid #d1d5db",
+                                      fontSize: 12,
+                                      maxWidth: 520,
+                                    }}
+                                  >
+                                    <option value="">+ Add predecessor…</option>
+                                    {allTaskOptions.slice(0, 400).map((x: any) => (
+                                      <option key={String(x.id)} value={String(x.id)}>
+                                        {String(x.id)} — {(String(x.room ?? "") || "Project") +
+                                          " · " +
+                                          String(x.trade ?? "")}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <span style={{ color: "#6b7280" }}>
+                                    Lag days (negative = lead/overlap)
+                                  </span>
+                                </div>
+
+                                {deps.length === 0 ? (
+                                  <div style={{ fontSize: 12, color: "#6b7280" }}>
+                                    No manual dependencies.
+                                  </div>
+                                ) : (
+                                  <div style={{ border: "1px solid #e5e7eb", borderRadius: 8 }}>
+                                    {deps.map((d: any, idx: number) => (
+                                      <div
+                                        key={d.predecessorId}
+                                        style={{
+                                          display: "flex",
+                                          gap: 10,
+                                          alignItems: "center",
+                                          padding: "6px 8px",
+                                          borderTop: idx === 0 ? "none" : "1px solid #f3f4f6",
+                                          background: "#ffffff",
+                                        }}
+                                      >
+                                        <div style={{ flex: 1 }}>
+                                          <div style={{ fontWeight: 600, fontSize: 12 }}>{d.predecessorId}</div>
+                                          <div style={{ color: "#6b7280", fontSize: 11 }}>
+                                            Ends {String(scheduleTaskById.get(d.predecessorId)?.endDate ?? "")}
+                                          </div>
+                                        </div>
+
+                                        <label
+                                          style={{
+                                            display: "flex",
+                                            gap: 6,
+                                            alignItems: "center",
+                                            fontSize: 12,
+                                          }}
+                                        >
+                                          <span style={{ color: "#6b7280" }}>Lag</span>
+                                          <input
+                                            type="number"
+                                            step="1"
+                                            value={Number(d.lagDays ?? 0)}
+                                            onChange={(e) => {
+                                              const n = Number(e.target.value);
+                                              const next = deps.slice();
+                                              next[idx] = {
+                                                ...next[idx],
+                                                lagDays: Number.isFinite(n) ? n : 0,
+                                              };
+                                              setDeps(next);
+                                            }}
+                                            style={{
+                                              width: 90,
+                                              padding: "3px 6px",
+                                              borderRadius: 6,
+                                              border: "1px solid #d1d5db",
+                                              fontSize: 12,
+                                            }}
+                                          />
+                                        </label>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setDeps(
+                                              deps.filter((x: any) => x.predecessorId !== d.predecessorId),
+                                            );
+                                          }}
+                                          style={{
+                                            padding: "3px 6px",
+                                            borderRadius: 6,
+                                            border: "1px solid #d1d5db",
+                                            background: "#ffffff",
+                                            cursor: "pointer",
+                                            fontSize: 12,
+                                          }}
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        </div>
+      )}
     </div>
   );
 
@@ -6529,7 +7601,7 @@ ${htmlBody}
             </div>
           </div>
 
-          {renderSchedulePanel()}
+          {renderSchedulePanel({ mode: "SUMMARY" })}
 
           {/* Job Notes card */}
           <div
@@ -13137,7 +14209,7 @@ ${htmlBody}
       )}
 
       {/* SCHEDULE tab content */}
-      {activeTab === "SCHEDULE" && renderSchedulePanel()}
+      {activeTab === "SCHEDULE" && renderSchedulePanel({ mode: "SCHEDULE" })}
 
       {/* PETL tab content */}
       {activeTab === "PETL" && (
