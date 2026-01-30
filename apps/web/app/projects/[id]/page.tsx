@@ -646,8 +646,8 @@ export default function ProjectDetailPage({
   // Optional filter to focus the schedule/Gantt on a single Unit (labels as
   // derived from unitGroups / project organization). "ALL" = no filter.
   const [scheduleUnitFilter, setScheduleUnitFilter] = useState<string>("ALL");
-  // Optional filter for the top-level org group (e.g. ELECTRI, RISK__E, WASH_UT).
-  const [scheduleOrgGroupFilter, setScheduleOrgGroupFilter] = useState<string>("ALL");
+  // Optional multi-select filter for top-level org groups (e.g. ELECTRI, RISK__E, WASH_UT).
+  const [scheduleOrgGroupFilters, setScheduleOrgGroupFilters] = useState<string[]>([]);
   const [scheduleSummaryExpanded, setScheduleSummaryExpanded] = useState(false);
 
   // Draft edits (client-side). We turn these into taskOverrides when the user clicks Apply.
@@ -3802,18 +3802,43 @@ ${htmlBody}
     });
   }, [unitGroups]);
 
+  // Top-level org groups (e.g. ELECTRI, RISK__E) derived from the schedule
+  // preview's room labels so they directly match what the Gantt will render.
+  const scheduleOrgGroupCodes = useMemo(() => {
+    const codes = new Set<string>();
+    const all = Array.isArray(schedulePreview?.scheduledTasks)
+      ? schedulePreview.scheduledTasks
+      : [];
+
+    for (const t of all as any[]) {
+      const room = String((t as any)?.room ?? "").trim();
+      if (!room) continue;
+      const code = scheduleExtractGroupCode(room);
+      if (code) codes.add(code);
+    }
+
+    return Array.from(codes.values()).sort((a, b) => a.localeCompare(b));
+  }, [schedulePreview]);
+
+  const scheduleOrgGroupFilterSet = useMemo(
+    () => new Set(scheduleOrgGroupFilters),
+    [scheduleOrgGroupFilters],
+  );
+
   const scheduleTasks: any[] = useMemo(() => {
     const all = Array.isArray(schedulePreview?.scheduledTasks)
       ? schedulePreview.scheduledTasks
       : [];
 
-    return all.filter((t: any) => {
+    if (all.length === 0) return [];
+
+    const filtered = all.filter((t: any) => {
       const room = String(t?.room ?? "").trim();
       const unitLabel = roomToUnitLabel.get(room) ?? (room ? "Unassigned" : "Project");
-      const groupCode = scheduleExtractGroupCode(unitLabel);
+      const groupCode = scheduleExtractGroupCode(room);
 
-      if (scheduleOrgGroupFilter && scheduleOrgGroupFilter !== "ALL") {
-        if (!groupCode || groupCode !== scheduleOrgGroupFilter) return false;
+      if (scheduleOrgGroupFilterSet.size > 0) {
+        if (!groupCode || !scheduleOrgGroupFilterSet.has(groupCode)) return false;
       }
 
       if (scheduleUnitFilter && scheduleUnitFilter !== "ALL") {
@@ -3822,7 +3847,20 @@ ${htmlBody}
 
       return true;
     });
-  }, [schedulePreview, scheduleOrgGroupFilter, scheduleUnitFilter, roomToUnitLabel]);
+
+    // Only fall back to the unfiltered schedule when *no* filters are active.
+    const hasFilters =
+      scheduleOrgGroupFilterSet.size > 0 ||
+      (scheduleUnitFilter && scheduleUnitFilter !== "ALL");
+
+    if (!hasFilters) return all;
+    return filtered;
+  }, [
+    schedulePreview,
+    scheduleOrgGroupFilterSet,
+    scheduleUnitFilter,
+    roomToUnitLabel,
+  ]);
 
   const scheduleTaskById = useMemo(() => {
     const m = new Map<string, any>();
@@ -4240,41 +4278,14 @@ ${htmlBody}
               {scheduleOrgGroupCodes.length > 0 && (
                 <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
                   <span style={{ color: "#6b7280" }}>Org group:</span>
-                  <button
-                    type="button"
-                    onClick={() => setScheduleOrgGroupFilter("ALL")}
-                    style={{
-                      padding: "4px 8px",
-                      borderRadius: 6,
-                      border: "1px solid #d1d5db",
-                      background:
-                        !scheduleOrgGroupFilter || scheduleOrgGroupFilter === "ALL"
-                          ? "#e0f2fe"
-                          : "#ffffff",
-                      cursor: "pointer",
-                      fontSize: 12,
-                    }}
-                  >
-                    All
-                  </button>
-                  {scheduleOrgGroupCodes.map((code) => (
-                    <button
-                      key={code}
-                      type="button"
-                      onClick={() => setScheduleOrgGroupFilter(code)}
-                      style={{
-                        padding: "4px 8px",
-                        borderRadius: 6,
-                        border: "1px solid #d1d5db",
-                        background:
-                          scheduleOrgGroupFilter === code ? "#e0f2fe" : "#ffffff",
-                        cursor: "pointer",
-                        fontSize: 12,
-                      }}
-                    >
-                      {code}
-                    </button>
-                  ))}
+                  <CheckboxMultiSelect
+                    placeholder="All groups"
+                    options={scheduleOrgGroupCodes.map((code) => ({ value: code, label: code }))}
+                    selectedValues={scheduleOrgGroupFilters}
+                    onChangeSelectedValues={setScheduleOrgGroupFilters}
+                    minWidth={160}
+                    minListHeight={220}
+                  />
                 </div>
               )}
 
