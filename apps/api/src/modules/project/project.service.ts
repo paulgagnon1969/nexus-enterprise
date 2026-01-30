@@ -1249,6 +1249,111 @@ export class ProjectService {
     return latestVersion;
   }
 
+  /**
+   * Ensure there is a manual-from-cost-book EstimateVersion + Sow for this project
+   * that we can attach PETL rows to when the user builds an estimate directly from
+   * the tenant Cost Book.
+   */
+  private async getOrCreateManualCostBookEstimateVersion(projectId: string, actor: AuthenticatedUser) {
+    const project = await this.prisma.project.findFirst({ where: { id: projectId } });
+    if (!project) {
+      throw new NotFoundException("Project not found");
+    }
+
+    // Try to find an existing manual-from-cost-book estimate for this project.
+    let version = await this.prisma.estimateVersion.findFirst({
+      where: {
+        projectId,
+        OR: [
+          { sourceType: "manual_cost_book" },
+          { estimateKind: "manual" },
+        ],
+      },
+      orderBy: [
+        { sequenceNo: "desc" },
+        { importedAt: "desc" },
+        { createdAt: "desc" },
+      ],
+    });
+
+    if (version) {
+      return version;
+    }
+
+    const maxAgg = await this.prisma.estimateVersion.aggregate({
+      where: { projectId },
+      _max: { sequenceNo: true },
+    });
+    const nextSequenceNo = (maxAgg._max.sequenceNo ?? 0) + 1;
+
+    const now = new Date();
+    const defaultPayerType = "Insurance";
+
+    version = await this.prisma.estimateVersion.create({
+      data: {
+        projectId,
+        sourceType: "manual_cost_book",
+        fileName: `Manual Cost Book Estimate – ${project.name}`.slice(0, 255),
+        storedPath: "(manual)",
+        estimateKind: "manual",
+        sequenceNo: nextSequenceNo,
+        defaultPayerType,
+        description: "Manual PETL estimate built from tenant cost book",
+        status: "completed",
+        importedByUserId: actor.userId,
+        importedAt: now,
+      },
+    });
+
+    // Ensure a SOW exists for this manual estimate version.
+    await this.prisma.sow.create({
+      data: {
+        projectId,
+        estimateVersionId: version.id,
+        sourceType: "manual_cost_book",
+        totalAmount: null,
+      },
+    });
+
+    return version;
+  }
+
+  /**
+   * Ensure we have a top-level project particle representing the whole site/location
+   * that we can attach manual PETL lines to by default.
+   */
+  private async ensureProjectLocationParticle(projectId: string) {
+    const project = await this.prisma.project.findFirst({ where: { id: projectId } });
+    if (!project) {
+      throw new NotFoundException("Project not found");
+    }
+
+    const existing = await this.prisma.projectParticle.findFirst({
+      where: {
+        projectId,
+        companyId: project.companyId,
+        buildingId: null,
+        unitId: null,
+        type: ProjectParticleType.ROOM,
+        fullLabel: project.name,
+      },
+    });
+
+    if (existing) return existing;
+
+    return this.prisma.projectParticle.create({
+      data: {
+        companyId: project.companyId,
+        projectId: project.id,
+        buildingId: null,
+        unitId: null,
+        type: ProjectParticleType.ROOM,
+        name: project.name,
+        fullLabel: project.name,
+      },
+    });
+  }
+
   private async resolveProjectParticlesForProject(options: {
     projectId: string;
     particleIds: string[];
