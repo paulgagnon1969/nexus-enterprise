@@ -642,6 +642,20 @@ export default function ProjectDetailPage({
   const [schedulePreview, setSchedulePreview] = useState<any | null>(null);
   const [schedulePreviewLoading, setSchedulePreviewLoading] = useState(false);
   const [schedulePreviewError, setSchedulePreviewError] = useState<string | null>(null);
+
+  // Canonical, persisted schedule tasks (ProjectScheduleTask) bound to project
+  // Units/Particles/org groups. These back the "Org structure" schedule
+  // source, while the preview continues to reflect the live Xact-driven
+  // engine.
+  const [schedulePersistedTasks, setSchedulePersistedTasks] = useState<any[] | null>(null);
+  const [schedulePersistedLoading, setSchedulePersistedLoading] = useState(false);
+  const [schedulePersistedError, setSchedulePersistedError] = useState<string | null>(null);
+
+  // Which schedule source is driving the Gantt. PREVIEW = Xact estimate
+  // preview (in-memory). ORG = canonical persisted schedule from
+  // ProjectScheduleTask (org-structure bound).
+  const [scheduleSource, setScheduleSource] = useState<"PREVIEW" | "ORG">("PREVIEW");
+
   const [scheduleGroupMode, setScheduleGroupMode] = useState<"ROOM" | "TRADE" | "UNIT">("ROOM");
   // Optional filter to focus the schedule/Gantt on a single Unit (labels as
   // derived from unitGroups / project organization). "ALL" = no filter.
@@ -3407,6 +3421,125 @@ ${htmlBody}
     selectionCodeFilterSet,
   ]);
 
+  const [petlEditingCell, setPetlEditingCell] = useState<
+    | null
+    | {
+        sowItemId: string;
+        field: "qty" | "unit" | "rcvAmount" | "categoryCode" | "selectionCode";
+      }
+  >(null);
+  const [petlEditDraft, setPetlEditDraft] = useState<string>("");
+  const [petlEditSaving, setPetlEditSaving] = useState(false);
+
+  const openPetlCellEditor = (
+    sowItemId: string,
+    field: "qty" | "unit" | "rcvAmount" | "categoryCode" | "selectionCode",
+    current: any,
+  ) => {
+    if (!isPmOrAbove) return;
+    let draft = "";
+    if (current !== null && current !== undefined) {
+      draft = String(current);
+    }
+    setPetlEditingCell({ sowItemId, field });
+    setPetlEditDraft(draft);
+  };
+
+  const cancelPetlCellEditor = () => {
+    if (petlEditSaving) return;
+    setPetlEditingCell(null);
+    setPetlEditDraft("");
+  };
+
+  const savePetlInlineEdit = async () => {
+    if (!petlEditingCell) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token; please log in again.");
+      return;
+    }
+
+    const { sowItemId, field } = petlEditingCell;
+    let payload: any = {};
+    const raw = petlEditDraft.trim();
+
+    if (field === "qty" || field === "rcvAmount") {
+      if (raw === "") {
+        payload[field] = null;
+      } else {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) {
+          alert("Value must be a number.");
+          return;
+        }
+        payload[field] = n;
+      }
+    } else {
+      // string fields
+      payload[field] = raw === "" ? null : raw;
+    }
+
+    setPetlEditSaving(true);
+
+    try {
+      await busyOverlay.run("Saving PETL edit…", async () => {
+        const res = await fetch(
+          `${API_BASE}/projects/${id}/petl/${sowItemId}/line`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(payload),
+          },
+        );
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          alert(`Save failed (${res.status}) ${text}`.trim());
+          return;
+        }
+
+        const json = await res.json().catch(() => null as any);
+
+        if (json && json.status === "ok") {
+          const updatedId = String(json.sowItemId ?? sowItemId);
+          setPetlItems((prev) =>
+            prev.map((it) =>
+              it.id === updatedId
+                ? {
+                    ...it,
+                    qty: json.qty ?? it.qty,
+                    unit: json.unit ?? it.unit,
+                    itemAmount:
+                      json.itemAmount !== undefined ? json.itemAmount : it.itemAmount,
+                    rcvAmount:
+                      json.rcvAmount !== undefined ? json.rcvAmount : it.rcvAmount,
+                    categoryCode:
+                      json.categoryCode !== undefined ? json.categoryCode : it.categoryCode,
+                    selectionCode:
+                      json.selectionCode !== undefined
+                        ? json.selectionCode
+                        : it.selectionCode,
+                    description:
+                      json.description !== undefined ? json.description : it.description,
+                  }
+                : it,
+            ),
+          );
+        }
+      });
+    } catch (err: any) {
+      alert(err?.message ?? "Save failed");
+    } finally {
+      setPetlEditSaving(false);
+      cancelPetlCellEditor();
+      // Keep server-side summaries in sync after edits that affect dollars.
+      setPetlReloadTick((t) => t + 1);
+    }
+  };
+
   const petlFlatListRef = useRef<HTMLDivElement | null>(null);
 
   const toggleImportBucketExpanded = async (bucket: ImportRoomBucket) => {
@@ -3799,6 +3932,89 @@ ${htmlBody}
     scheduleOverridesPayload,
   ]);
 
+  // Canonical, persisted schedule tasks for the current project/estimate.
+  // These are only loaded when the schedule is visible and the source is set
+  // to ORG so we avoid unnecessary traffic.
+  useEffect(() => {
+    if (!project) return;
+
+    const showSchedule =
+      activeTab === "SCHEDULE" || (activeTab === "SUMMARY" && scheduleSummaryExpanded);
+    if (!showSchedule) return;
+
+    if (scheduleSource !== "ORG") return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setSchedulePersistedTasks(null);
+      setSchedulePersistedError("Missing access token. Please login again.");
+      setSchedulePersistedLoading(false);
+      return;
+    }
+
+    if (!petlEstimateVersionId) {
+      // Wait until we know which estimate version backs PETL before attempting
+      // to load canonical tasks.
+      setSchedulePersistedTasks(null);
+      setSchedulePersistedError(null);
+      setSchedulePersistedLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadTasks = async () => {
+      setSchedulePersistedLoading(true);
+      setSchedulePersistedError(null);
+
+      try {
+        const res = await fetch(
+          `${API_BASE}/projects/${project.id}/xact-schedule/estimate/${petlEstimateVersionId}/tasks`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+
+        if (cancelled) return;
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          setSchedulePersistedTasks(null);
+          setSchedulePersistedError(
+            `Failed to load canonical schedule tasks (${res.status}). ${text}`.slice(0, 2000),
+          );
+          return;
+        }
+
+        const json: any = await res.json();
+        if (cancelled) return;
+
+        const rows = Array.isArray(json) ? json : [];
+        setSchedulePersistedTasks(rows);
+      } catch (err: any) {
+        if (cancelled) return;
+        setSchedulePersistedTasks(null);
+        setSchedulePersistedError(err?.message ?? "Failed to load canonical schedule tasks");
+      } finally {
+        if (!cancelled) setSchedulePersistedLoading(false);
+      }
+    };
+
+    void loadTasks();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    project,
+    activeTab,
+    petlEstimateVersionId,
+    scheduleSource,
+    scheduleReloadTick,
+    scheduleSummaryExpanded,
+  ]);
   const addDaysIso = (iso: string, deltaDays: number): string => {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
@@ -3865,15 +4081,39 @@ ${htmlBody}
     });
   }, [unitGroups]);
 
-  // Top-level org groups (e.g. ELECTRI, RISK__E) derived from the schedule
-  // preview's room labels so they directly match what the Gantt will render.
+  // All preview tasks (Xact-driven estimate schedule) and canonical org-bound
+  // tasks (persisted ProjectScheduleTask rows).
+  const schedulePreviewTasksAll: any[] = useMemo(
+    () =>
+      Array.isArray(schedulePreview?.scheduledTasks)
+        ? (schedulePreview!.scheduledTasks as any[])
+        : [],
+    [schedulePreview],
+  );
+
+  const scheduleOrgTasksAll: any[] = useMemo(
+    () => (Array.isArray(schedulePersistedTasks) ? schedulePersistedTasks : []),
+    [schedulePersistedTasks],
+  );
+
+  // Top-level org groups (e.g. ELECTRI, RISK__E) derived from whichever
+  // schedule source is currently active. Prefer explicit orgGroupCode when
+  // available, falling back to parsing the room label.
   const scheduleOrgGroupCodes = useMemo(() => {
     const codes = new Set<string>();
-    const all = Array.isArray(schedulePreview?.scheduledTasks)
-      ? schedulePreview.scheduledTasks
-      : [];
 
-    for (const t of all as any[]) {
+    const sourceTasks =
+      scheduleSource === "ORG" && scheduleOrgTasksAll.length > 0
+        ? scheduleOrgTasksAll
+        : schedulePreviewTasksAll;
+
+    for (const t of sourceTasks as any[]) {
+      const explicit = String((t as any)?.orgGroupCode ?? "").trim();
+      if (explicit) {
+        codes.add(explicit);
+        continue;
+      }
+
       const room = String((t as any)?.room ?? "").trim();
       if (!room) continue;
       const code = scheduleExtractGroupCode(room);
@@ -3881,24 +4121,27 @@ ${htmlBody}
     }
 
     return Array.from(codes.values()).sort((a, b) => a.localeCompare(b));
-  }, [schedulePreview]);
+  }, [scheduleSource, schedulePreviewTasksAll, scheduleOrgTasksAll]);
 
   const scheduleOrgGroupFilterSet = useMemo(
     () => new Set(scheduleOrgGroupFilters),
     [scheduleOrgGroupFilters],
   );
 
+  // Tasks used for the edit panel and override/dependency editing always come
+  // from the PREVIEW source so that overrides remain keyed by the synthetic
+  // work package ids (wp-1, wp-2, ...). Filters still apply.
   const scheduleTasks: any[] = useMemo(() => {
-    const all = Array.isArray(schedulePreview?.scheduledTasks)
-      ? schedulePreview.scheduledTasks
-      : [];
+    const all = schedulePreviewTasksAll;
 
     if (all.length === 0) return [];
 
     const filtered = all.filter((t: any) => {
       const room = String(t?.room ?? "").trim();
       const unitLabel = roomToUnitLabel.get(room) ?? (room ? "Unassigned" : "Project");
-      const groupCode = scheduleExtractGroupCode(room);
+
+      const explicit = String((t as any)?.orgGroupCode ?? "").trim();
+      const groupCode = explicit || scheduleExtractGroupCode(room);
 
       if (scheduleOrgGroupFilterSet.size > 0) {
         if (!groupCode || !scheduleOrgGroupFilterSet.has(groupCode)) return false;
@@ -3911,7 +4154,6 @@ ${htmlBody}
       return true;
     });
 
-    // Only fall back to the unfiltered schedule when *no* filters are active.
     const hasFilters =
       scheduleOrgGroupFilterSet.size > 0 ||
       (scheduleUnitFilter && scheduleUnitFilter !== "ALL");
@@ -3919,7 +4161,49 @@ ${htmlBody}
     if (!hasFilters) return all;
     return filtered;
   }, [
-    schedulePreview,
+    schedulePreviewTasksAll,
+    scheduleOrgGroupFilterSet,
+    scheduleUnitFilter,
+    roomToUnitLabel,
+  ]);
+
+  // Tasks feeding the Gantt come from whichever schedule source is active.
+  const scheduleGanttTasks: any[] = useMemo(() => {
+    const baseAll =
+      scheduleSource === "ORG" && scheduleOrgTasksAll.length > 0
+        ? scheduleOrgTasksAll
+        : schedulePreviewTasksAll;
+
+    if (baseAll.length === 0) return [];
+
+    const filtered = baseAll.filter((t: any) => {
+      const room = String(t?.room ?? "").trim();
+      const unitLabel = roomToUnitLabel.get(room) ?? (room ? "Unassigned" : "Project");
+
+      const explicit = String((t as any)?.orgGroupCode ?? "").trim();
+      const groupCode = explicit || scheduleExtractGroupCode(room);
+
+      if (scheduleOrgGroupFilterSet.size > 0) {
+        if (!groupCode || !scheduleOrgGroupFilterSet.has(groupCode)) return false;
+      }
+
+      if (scheduleUnitFilter && scheduleUnitFilter !== "ALL") {
+        if (unitLabel !== scheduleUnitFilter) return false;
+      }
+
+      return true;
+    });
+
+    const hasFilters =
+      scheduleOrgGroupFilterSet.size > 0 ||
+      (scheduleUnitFilter && scheduleUnitFilter !== "ALL");
+
+    if (!hasFilters) return baseAll;
+    return filtered;
+  }, [
+    scheduleSource,
+    schedulePreviewTasksAll,
+    scheduleOrgTasksAll,
     scheduleOrgGroupFilterSet,
     scheduleUnitFilter,
     roomToUnitLabel,
@@ -3927,11 +4211,11 @@ ${htmlBody}
 
   const scheduleTaskById = useMemo(() => {
     const m = new Map<string, any>();
-    for (const t of scheduleTasks) {
+    for (const t of schedulePreviewTasksAll) {
       if (t?.id) m.set(String(t.id), t);
     }
     return m;
-  }, [scheduleTasks]);
+  }, [schedulePreviewTasksAll]);
 
   const buildOverridesFromDrafts = useCallback(() => {
     // Start with explicit overrides.
@@ -3967,8 +4251,10 @@ ${htmlBody}
     return overrides;
   }, [scheduleDraftOverrides, scheduleDraftDeps, scheduleTaskById]);
 
-  const scheduleGanttText = useMemo(() => {
-    const allTasks: any[] = scheduleTasks;
+  const scheduleGanttText = useMemo(
+    () => {
+      const allTasks: any[] = scheduleGanttTasks;
+    const allTasks: any[] = scheduleGanttTasks;
 
     if (allTasks.length === 0) return "";
 
@@ -3995,6 +4281,9 @@ ${htmlBody}
       scheduleViewPreset === "ALL"
         ? ""
         : ` · ${fromIso || "?"} → ${toIso || "?"}`;
+
+    const titleBase =
+      scheduleSource === "ORG" ? "Project Schedule (org structure)" : "Project Schedule (preview)";
 
     const daysBetweenIso = (aIso: string, bIso: string): number => {
       const a = new Date(aIso);
@@ -4046,7 +4335,7 @@ ${htmlBody}
 
     const header: string[] = [
       "gantt",
-      `  title Project Schedule (preview)${titleSuffix}`,
+      `  title ${titleBase}${titleSuffix}`,
       "  dateFormat  YYYY-MM-DD",
       `  axisFormat  ${axisFormat}`,
       `  tickInterval ${tickInterval}`,
@@ -4228,6 +4517,40 @@ ${htmlBody}
 
           {(opts.mode === "SCHEDULE" || scheduleSummaryExpanded) && (
             <Fragment>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                <span style={{ color: "#6b7280" }}>Source:</span>
+                <button
+                  type="button"
+                  onClick={() => setScheduleSource("PREVIEW")}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: scheduleSource === "PREVIEW" ? "#e0f2fe" : "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                  title="Xact-driven estimate preview (live interpolation)"
+                >
+                  Estimate (Xact)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleSource("ORG")}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: scheduleSource === "ORG" ? "#e0f2fe" : "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                  title="Canonical org-structure schedule (persisted)"
+                >
+                  Org structure
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={() => {
@@ -4534,29 +4857,57 @@ ${htmlBody}
             </div>
           )}
 
-        {petlEstimateVersionId && schedulePreviewLoading && (
+        {petlEstimateVersionId && scheduleSource === "PREVIEW" && schedulePreviewLoading && (
           <div style={{ fontSize: 12, color: "#6b7280" }}>Generating schedule preview…</div>
         )}
 
-        {petlEstimateVersionId && schedulePreviewError && !schedulePreviewLoading && (
-          <div
-            style={{
-              marginTop: 8,
-              padding: 10,
-              borderRadius: 8,
-              border: "1px solid #fecaca",
-              background: "#fef2f2",
-              color: "#991b1b",
-              fontSize: 12,
-            }}
-          >
-            {schedulePreviewError}
-          </div>
+        {petlEstimateVersionId && scheduleSource === "ORG" && schedulePersistedLoading && (
+          <div style={{ fontSize: 12, color: "#6b7280" }}>Loading canonical org schedule…</div>
         )}
 
         {petlEstimateVersionId &&
+          scheduleSource === "PREVIEW" &&
+          schedulePreviewError &&
+          !schedulePreviewLoading && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: 10,
+                borderRadius: 8,
+                border: "1px solid #fecaca",
+                background: "#fef2f2",
+                color: "#991b1b",
+                fontSize: 12,
+              }}
+            >
+              {schedulePreviewError}
+            </div>
+          )}
+
+        {petlEstimateVersionId &&
+          scheduleSource === "ORG" &&
+          schedulePersistedError &&
+          !schedulePersistedLoading && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: 10,
+                borderRadius: 8,
+                border: "1px solid #fecaca",
+                background: "#fef2f2",
+                color: "#991b1b",
+                fontSize: 12,
+              }}
+            >
+              {schedulePersistedError}
+            </div>
+          )}
+
+        {petlEstimateVersionId &&
           !schedulePreviewError &&
+          !schedulePersistedError &&
           !schedulePreviewLoading &&
+          !schedulePersistedLoading &&
           !scheduleGanttText && (
             <div style={{ fontSize: 12, color: "#6b7280" }}>
               No schedule tasks available yet. (Make sure Xact RAW + Components are imported.)
@@ -6072,7 +6423,53 @@ ${htmlBody}
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {item.qty ?? ""}
+                      {isPmOrAbove &&
+                      petlEditingCell?.sowItemId === item.id &&
+                      petlEditingCell.field === "qty" ? (
+                        <input
+                          type="number"
+                          value={petlEditDraft}
+                          autoFocus
+                          onChange={(e) => setPetlEditDraft(e.target.value)}
+                          onBlur={savePetlInlineEdit}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              void savePetlInlineEdit();
+                            } else if (e.key === "Escape") {
+                              cancelPetlCellEditor();
+                            }
+                          }}
+                          disabled={petlEditSaving}
+                          style={{
+                            width: 80,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 11,
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!isPmOrAbove}
+                          onClick={() =>
+                            openPetlCellEditor(item.id, "qty", item.qty)
+                          }
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            padding: 0,
+                            margin: 0,
+                            cursor: isPmOrAbove ? "pointer" : "default",
+                            minWidth: 60,
+                            textAlign: "right",
+                            fontFamily: "inherit",
+                            fontSize: 12,
+                          }}
+                        >
+                          {item.qty ?? ""}
+                        </button>
+                      )}
                     </td>
                     <td
                       style={{
@@ -6082,7 +6479,53 @@ ${htmlBody}
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {item.unit ?? ""}
+                      {isPmOrAbove &&
+                      petlEditingCell?.sowItemId === item.id &&
+                      petlEditingCell.field === "unit" ? (
+                        <input
+                          type="text"
+                          value={petlEditDraft}
+                          autoFocus
+                          onChange={(e) => setPetlEditDraft(e.target.value)}
+                          onBlur={savePetlInlineEdit}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              void savePetlInlineEdit();
+                            } else if (e.key === "Escape") {
+                              cancelPetlCellEditor();
+                            }
+                          }}
+                          disabled={petlEditSaving}
+                          style={{
+                            width: 80,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 11,
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!isPmOrAbove}
+                          onClick={() =>
+                            openPetlCellEditor(item.id, "unit", item.unit)
+                          }
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            padding: 0,
+                            margin: 0,
+                            cursor: isPmOrAbove ? "pointer" : "default",
+                            minWidth: 60,
+                            textAlign: "right",
+                            fontFamily: "inherit",
+                            fontSize: 12,
+                          }}
+                        >
+                          {item.unit ?? ""}
+                        </button>
+                      )}
                     </td>
                     <td
                       style={{
@@ -6106,11 +6549,57 @@ ${htmlBody}
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {item.rcvAmount != null
-                        ? item.rcvAmount.toLocaleString(undefined, {
-                            maximumFractionDigits: 2,
-                          })
-                        : ""}
+                      {isPmOrAbove &&
+                      petlEditingCell?.sowItemId === item.id &&
+                      petlEditingCell.field === "rcvAmount" ? (
+                        <input
+                          type="number"
+                          value={petlEditDraft}
+                          autoFocus
+                          onChange={(e) => setPetlEditDraft(e.target.value)}
+                          onBlur={savePetlInlineEdit}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              void savePetlInlineEdit();
+                            } else if (e.key === "Escape") {
+                              cancelPetlCellEditor();
+                            }
+                          }}
+                          disabled={petlEditSaving}
+                          style={{
+                            width: 100,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 11,
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!isPmOrAbove}
+                          onClick={() =>
+                            openPetlCellEditor(item.id, "rcvAmount", item.rcvAmount)
+                          }
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            padding: 0,
+                            margin: 0,
+                            cursor: isPmOrAbove ? "pointer" : "default",
+                            minWidth: 80,
+                            textAlign: "right",
+                            fontFamily: "inherit",
+                            fontSize: 12,
+                          }}
+                        >
+                          {item.rcvAmount != null
+                            ? item.rcvAmount.toLocaleString(undefined, {
+                                maximumFractionDigits: 2,
+                              })
+                            : ""}
+                        </button>
+                      )}
                     </td>
                     <td
                       style={{
@@ -6243,7 +6732,57 @@ ${htmlBody}
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {item.categoryCode ?? ""}
+                      {isPmOrAbove &&
+                      petlEditingCell?.sowItemId === item.id &&
+                      petlEditingCell.field === "categoryCode" ? (
+                        <input
+                          type="text"
+                          value={petlEditDraft}
+                          autoFocus
+                          onChange={(e) => setPetlEditDraft(e.target.value)}
+                          onBlur={savePetlInlineEdit}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              void savePetlInlineEdit();
+                            } else if (e.key === "Escape") {
+                              cancelPetlCellEditor();
+                            }
+                          }}
+                          disabled={petlEditSaving}
+                          style={{
+                            width: 80,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 11,
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!isPmOrAbove}
+                          onClick={() =>
+                            openPetlCellEditor(
+                              item.id,
+                              "categoryCode",
+                              item.categoryCode,
+                            )
+                          }
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            padding: 0,
+                            margin: 0,
+                            cursor: isPmOrAbove ? "pointer" : "default",
+                            minWidth: 60,
+                            textAlign: "left",
+                            fontFamily: "inherit",
+                            fontSize: 12,
+                          }}
+                        >
+                          {item.categoryCode ?? ""}
+                        </button>
+                      )}
                     </td>
                     <td
                       style={{
@@ -6252,7 +6791,57 @@ ${htmlBody}
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {item.selectionCode ?? ""}
+                      {isPmOrAbove &&
+                      petlEditingCell?.sowItemId === item.id &&
+                      petlEditingCell.field === "selectionCode" ? (
+                        <input
+                          type="text"
+                          value={petlEditDraft}
+                          autoFocus
+                          onChange={(e) => setPetlEditDraft(e.target.value)}
+                          onBlur={savePetlInlineEdit}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              void savePetlInlineEdit();
+                            } else if (e.key === "Escape") {
+                              cancelPetlCellEditor();
+                            }
+                          }}
+                          disabled={petlEditSaving}
+                          style={{
+                            width: 80,
+                            padding: "2px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 11,
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!isPmOrAbove}
+                          onClick={() =>
+                            openPetlCellEditor(
+                              item.id,
+                              "selectionCode",
+                              item.selectionCode,
+                            )
+                          }
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            padding: 0,
+                            margin: 0,
+                            cursor: isPmOrAbove ? "pointer" : "default",
+                            minWidth: 60,
+                            textAlign: "left",
+                            fontFamily: "inherit",
+                            fontSize: 12,
+                          }}
+                        >
+                          {item.selectionCode ?? ""}
+                        </button>
+                      )}
                     </td>
                     <td
                       style={{
@@ -14934,7 +15523,8 @@ ${htmlBody}
               selectedValues={categoryCodeFilters}
               onChangeSelectedValues={setCategoryCodeFilters}
               minWidth={110}
-              minListHeight={220}
+              // Slightly taller list for CAT so longer lists feel less cramped.
+              minListHeight={264}
             />
           </div>
 

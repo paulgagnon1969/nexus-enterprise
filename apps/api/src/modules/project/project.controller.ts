@@ -734,6 +734,33 @@ export class ProjectController {
     );
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Patch(":id/petl/:sowItemId/line")
+  updatePetlLineItem(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("sowItemId") sowItemId: string,
+    @Body()
+    body: {
+      qty?: number | null;
+      unit?: string | null;
+      itemAmount?: number | null;
+      rcvAmount?: number | null;
+      categoryCode?: string | null;
+      selectionCode?: string | null;
+      description?: string | null;
+    },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.updatePetlLineItemForProject(
+      projectId,
+      user.companyId,
+      user,
+      sowItemId,
+      body,
+    );
+  }
+
   // Pending PETL percent updates (crew/field proposals -> PM approval)
 
   @UseGuards(JwtAuthGuard)

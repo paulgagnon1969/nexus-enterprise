@@ -5270,6 +5270,210 @@ export class ProjectService {
     };
   }
 
+  async updatePetlLineItemForProject(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    sowItemId: string,
+    patch: {
+      qty?: number | null;
+      unit?: string | null;
+      itemAmount?: number | null;
+      rcvAmount?: number | null;
+      categoryCode?: string | null;
+      selectionCode?: string | null;
+      description?: string | null;
+    },
+  ) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, companyId },
+    });
+
+    if (!project) {
+      throw new NotFoundException("Project not found in this company");
+    }
+
+    const canEdit = await this.isProjectManagerOrAbove(projectId, actor);
+    if (!canEdit) {
+      throw new ForbiddenException(
+        "Only project managers/owners/admins can edit PETL line items",
+      );
+    }
+
+    const sowItem = await this.prisma.sowItem.findFirst({
+      where: {
+        id: sowItemId,
+        sow: { projectId },
+      },
+    });
+
+    if (!sowItem) {
+      throw new NotFoundException("PETL line item not found for this project");
+    }
+
+    // Compute field-level diffs.
+    const changes: {
+      field: string;
+      oldValue: any;
+      newValue: any;
+    }[] = [];
+
+    const normalizeString = (v: any) => {
+      if (v === undefined) return undefined;
+      if (v === null) return null;
+      const s = String(v).trim();
+      return s === "" ? null : s;
+    };
+
+    const numericPatch = (value: any) => {
+      if (value === undefined) return undefined;
+      if (value === null) return null;
+      const n = Number(value);
+      if (!Number.isFinite(n)) return undefined;
+      return n;
+    };
+
+    const nextQty = numericPatch(patch.qty);
+    if (patch.qty !== undefined) {
+      const oldQty = sowItem.qty ?? null;
+      if (nextQty !== undefined && nextQty !== oldQty) {
+        changes.push({ field: "qty", oldValue: oldQty, newValue: nextQty });
+      }
+    }
+
+    const nextUnit = normalizeString(patch.unit);
+    if (patch.unit !== undefined) {
+      const oldUnit = sowItem.unit ?? null;
+      if (nextUnit !== oldUnit) {
+        changes.push({ field: "unit", oldValue: oldUnit, newValue: nextUnit });
+      }
+    }
+
+    const nextItemAmount = numericPatch(patch.itemAmount);
+    if (patch.itemAmount !== undefined) {
+      const oldItemAmount = sowItem.itemAmount ?? null;
+      if (nextItemAmount !== undefined && nextItemAmount !== oldItemAmount) {
+        changes.push({
+          field: "item_amount",
+          oldValue: oldItemAmount,
+          newValue: nextItemAmount,
+        });
+      }
+    }
+
+    const nextRcvAmount = numericPatch(patch.rcvAmount);
+    if (patch.rcvAmount !== undefined) {
+      const oldRcvAmount = sowItem.rcvAmount ?? null;
+      if (nextRcvAmount !== undefined && nextRcvAmount !== oldRcvAmount) {
+        changes.push({
+          field: "rcv_amount",
+          oldValue: oldRcvAmount,
+          newValue: nextRcvAmount,
+        });
+      }
+    }
+
+    const nextCategoryCode = normalizeString(patch.categoryCode);
+    if (patch.categoryCode !== undefined) {
+      const oldCategoryCode = sowItem.categoryCode ?? null;
+      if (nextCategoryCode !== oldCategoryCode) {
+        changes.push({
+          field: "category_code",
+          oldValue: oldCategoryCode,
+          newValue: nextCategoryCode,
+        });
+      }
+    }
+
+    const nextSelectionCode = normalizeString(patch.selectionCode);
+    if (patch.selectionCode !== undefined) {
+      const oldSelectionCode = sowItem.selectionCode ?? null;
+      if (nextSelectionCode !== oldSelectionCode) {
+        changes.push({
+          field: "selection_code",
+          oldValue: oldSelectionCode,
+          newValue: nextSelectionCode,
+        });
+      }
+    }
+
+    const nextDescription = normalizeString(patch.description);
+    if (patch.description !== undefined) {
+      const oldDescription = sowItem.description ?? null;
+      if (nextDescription !== oldDescription) {
+        changes.push({
+          field: "description",
+          oldValue: oldDescription,
+          newValue: nextDescription,
+        });
+      }
+    }
+
+    if (changes.length === 0) {
+      return { status: "noop" };
+    }
+
+    const now = new Date();
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const sessionId = await this.ensurePetlEditSessionId(
+        tx,
+        projectId,
+        actor.userId,
+      );
+
+      for (const change of changes) {
+        await tx.petlEditChange.create({
+          data: {
+            sessionId,
+            sowItemId: sowItem.id,
+            field: change.field,
+            oldValue: change.oldValue,
+            newValue: change.newValue,
+            effectiveAt: now,
+          },
+        });
+      }
+
+      const data: any = {};
+      for (const change of changes) {
+        if (change.field === "qty") data.qty = change.newValue;
+        if (change.field === "unit") data.unit = change.newValue;
+        if (change.field === "item_amount") data.itemAmount = change.newValue;
+        if (change.field === "rcv_amount") data.rcvAmount = change.newValue;
+        if (change.field === "category_code") data.categoryCode = change.newValue;
+        if (change.field === "selection_code") data.selectionCode = change.newValue;
+        if (change.field === "description") data.description = change.newValue;
+      }
+
+      return tx.sowItem.update({
+        where: { id: sowItem.id },
+        data,
+      });
+    });
+
+    // Best effort: keep living draft invoice in sync when RCV or amounts change.
+    if (changes.some((c) => c.field === "rcv_amount" || c.field === "item_amount")) {
+      try {
+        await this.maybeSyncLivingDraftInvoiceFromPetl(projectId, companyId, actor);
+      } catch {
+        // non-fatal for inline edits
+      }
+    }
+
+    return {
+      status: "ok",
+      sowItemId: updated.id,
+      qty: updated.qty,
+      unit: updated.unit,
+      itemAmount: updated.itemAmount,
+      rcvAmount: updated.rcvAmount,
+      categoryCode: updated.categoryCode,
+      selectionCode: updated.selectionCode,
+      description: updated.description,
+    };
+  }
+
   /**
    * Field PETL view for PUDL / Daily Logs.
    * Returns PETL (SOW) rows without any pricing information so that

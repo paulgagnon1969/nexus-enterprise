@@ -1716,60 +1716,69 @@ model RawComponentRow {
   @@index([estimateVersionId], map: "RawComponentRow_estimate_idx")
 }
 
-// BEGIN WIP: Project scheduling models temporarily disabled for production build
-// model ProjectScheduleTask {
-//   id                String   @id @default(cuid())
-//   projectId         String
-//   estimateVersionId String
-//   syntheticId       String   // matches ScheduledTaskPreview.id (e.g. "wp-3", "mitigation-<estimateId>")
-//   kind              String   // "MITIGATION" | "WORK" for now
-//   room              String?
-//   trade             String
-//   phaseCode         Int
-//   phaseLabel        String
-//   startDate         DateTime
-//   endDate           DateTime
-//   durationDays      Float
-//   totalLaborHours   Float?
-//   crewSize          Int?
-//   predecessorIds    Json?
-//   createdAt         DateTime @default(now())
-//   updatedAt         DateTime @updatedAt
-//
-//   project         Project         @relation(fields: [projectId], references: [id])
-//   estimateVersion EstimateVersion @relation(fields: [estimateVersionId], references: [id])
-//   changeLogs      ProjectScheduleChangeLog[]
-//
-//   @@unique([projectId, estimateVersionId, syntheticId], map: "ProjectScheduleTask_project_estimate_synth_idx")
-//   @@index([projectId, estimateVersionId], map: "ProjectScheduleTask_project_estimate_idx")
-// }
-//
-// model ProjectScheduleChangeLog {
-//   id                String   @id @default(cuid())
-//   projectId         String
-//   estimateVersionId String
-//   scheduleTaskId    String
-//   taskSyntheticId   String
-//   changeType        String   // e.g. "TASK_CREATED", "TASK_UPDATED"
-//   previousStartDate DateTime?
-//   previousEndDate   DateTime?
-//   previousDurationDays Float?
-//   newStartDate      DateTime?
-//   newEndDate        DateTime?
-//   newDurationDays   Float?
-//   actorUserId       String
-//   createdAt         DateTime @default(now())
-//   updatedAt         DateTime @updatedAt
-//
-//   project         Project            @relation(fields: [projectId], references: [id])
-//   estimateVersion EstimateVersion    @relation(fields: [estimateVersionId], references: [id])
-//   scheduleTask    ProjectScheduleTask @relation(fields: [scheduleTaskId], references: [id])
-//   actor           User               @relation(fields: [actorUserId], references: [id])
-//
-//   @@index([projectId, estimateVersionId, createdAt], map: "ProjectScheduleChangeLog_project_estimate_created_idx")
-//   @@index([scheduleTaskId, createdAt], map: "ProjectScheduleChangeLog_task_created_idx")
-// }
-// END WIP: Project scheduling models
+model ProjectScheduleTask {
+  id                String   @id @default(cuid())
+  projectId         String
+  estimateVersionId String
+  syntheticId       String   // matches ScheduledTaskPreview.id (e.g. "wp-3", "mitigation-<estimateId>")
+  kind              String   // "MITIGATION" | "WORK" for now
+  room              String?
+  trade             String
+  phaseCode         Int
+  phaseLabel        String
+  startDate         DateTime
+  endDate           DateTime
+  durationDays      Float
+  totalLaborHours   Float?
+  crewSize          Int?
+  predecessorIds    Json?
+
+  /// Canonical project organization bindings (optional but preferred when available).
+  /// These mirror ProjectUnit / ProjectParticle identity and the import-time org group
+  /// code used for units like ELECTRI, RISK__E, WASH_UT, UNIT_01, etc.
+  projectUnitId     String?
+  projectParticleId String?
+  orgGroupCode      String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  project         Project         @relation(fields: [projectId], references: [id])
+  estimateVersion EstimateVersion @relation(fields: [estimateVersionId], references: [id])
+  changeLogs      ProjectScheduleChangeLog[]
+
+  @@unique([projectId, estimateVersionId, syntheticId], map: "ProjectScheduleTask_project_estimate_synth_idx")
+  @@index([projectId, estimateVersionId], map: "ProjectScheduleTask_project_estimate_idx")
+  @@index([projectId, projectUnitId], map: "ProjectScheduleTask_project_unit_idx")
+  @@index([projectId, projectParticleId], map: "ProjectScheduleTask_project_particle_idx")
+  @@index([projectId, orgGroupCode], map: "ProjectScheduleTask_project_orggroup_idx")
+}
+
+model ProjectScheduleChangeLog {
+  id                   String   @id @default(cuid())
+  projectId            String
+  estimateVersionId    String
+  scheduleTaskId       String
+  taskSyntheticId      String
+  changeType           String   // e.g. "TASK_CREATED", "TASK_UPDATED"
+  previousStartDate    DateTime?
+  previousEndDate      DateTime?
+  previousDurationDays Float?
+  newStartDate         DateTime?
+  newEndDate           DateTime?
+  newDurationDays      Float?
+  actorUserId          String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  project         Project             @relation(fields: [projectId], references: [id])
+  estimateVersion EstimateVersion     @relation(fields: [estimateVersionId], references: [id])
+  scheduleTask    ProjectScheduleTask @relation(fields: [scheduleTaskId], references: [id])
+  actor           User                @relation(fields: [actorUserId], references: [id])
+
+  @@index([projectId, estimateVersionId, createdAt], map: "ProjectScheduleChangeLog_project_estimate_created_idx")
+  @@index([scheduleTaskId, createdAt], map: "ProjectScheduleChangeLog_task_created_idx")
+}
 model ComponentSummary {
   id                       String                   @id @default(cuid())
   projectId                String
