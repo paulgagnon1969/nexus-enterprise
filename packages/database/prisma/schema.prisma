@@ -344,6 +344,9 @@ model User {
   // Pending PETL percent updates (field-proposed, PM-approved)
   petlPercentUpdateSessionsCreated  PetlPercentUpdateSession[] @relation("PetlPercentUpdateSessionCreatedBy")
   petlPercentUpdateSessionsReviewed PetlPercentUpdateSession[] @relation("PetlPercentUpdateSessionReviewedBy")
+
+  // Project scheduling change logs where this user is the actor.
+  projectScheduleChangeLogs ProjectScheduleChangeLog[] @relation("ProjectScheduleChangeLogActor")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -904,6 +907,10 @@ model Project {
 
   // Pending PETL percent updates
   petlPercentUpdateSessions PetlPercentUpdateSession[]
+
+  // Project scheduling (canonical schedule + change history)
+  scheduleTasks      ProjectScheduleTask[]
+  scheduleChangeLogs ProjectScheduleChangeLog[]
 
   @@index([companyId, groupId], map: "Project_company_group_idx")
 }
@@ -1644,6 +1651,10 @@ model EstimateVersion {
   petlArchivesRestored      ProjectPetlArchive[] @relation("PetlArchiveRestoredEstimateVersion")
   petlPercentUpdateSessions PetlPercentUpdateSession[]
 
+  // Project scheduling (canonical schedule + change history)
+  scheduleTasks      ProjectScheduleTask[]
+  scheduleChangeLogs ProjectScheduleChangeLog[]
+
   @@index([projectId, sequenceNo], map: "EstimateVersion_project_sequence_idx")
 }
 
@@ -1774,7 +1785,7 @@ model ProjectScheduleChangeLog {
   project         Project             @relation(fields: [projectId], references: [id])
   estimateVersion EstimateVersion     @relation(fields: [estimateVersionId], references: [id])
   scheduleTask    ProjectScheduleTask @relation(fields: [scheduleTaskId], references: [id])
-  actor           User                @relation(fields: [actorUserId], references: [id])
+  actor           User                @relation("ProjectScheduleChangeLogActor", fields: [actorUserId], references: [id])
 
   @@index([projectId, estimateVersionId, createdAt], map: "ProjectScheduleChangeLog_project_estimate_created_idx")
   @@index([scheduleTaskId, createdAt], map: "ProjectScheduleChangeLog_task_created_idx")
