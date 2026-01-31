@@ -28,6 +28,10 @@ interface WorkPackagePreview {
   crewSize: number;
   durationDays: number;
   lineCount: number;
+  // Optional canonical org bindings for this work package.
+  projectUnitId?: string | null;
+  projectParticleId?: string | null;
+  orgGroupCode?: string | null;
 }
 
 interface MitigationWindowPreview {
@@ -121,6 +125,10 @@ interface ScheduledTaskPreview {
   totalLaborHours?: number;
   crewSize?: number;
   predecessorIds: string[];
+  // Optional canonical org bindings for this scheduled task.
+  projectUnitId?: string | null;
+  projectParticleId?: string | null;
+  orgGroupCode?: string | null;
 }
 
 const HOURS_PER_DAY_DEFAULT = 8;
@@ -490,6 +498,58 @@ export class XactScheduleService {
       );
     };
 
+    // Bridge RAW rows to canonical project organization (particles/units) via PETL.
+    // SowItem rows link RawXactRow to ProjectParticle; particles link to ProjectUnit
+    // and carry the externalGroupCode used for org group filters.
+    const rawRowIds = rawRows.map((r) => r.id);
+
+    const sowItemsForEstimate = await this.prisma.sowItem.findMany({
+      where: {
+        estimateVersionId,
+        rawRowId: { in: rawRowIds },
+      },
+      select: {
+        rawRowId: true,
+        projectParticleId: true,
+      },
+    });
+
+    const particleIdByRawRowId = new Map<string, string>();
+    for (const item of sowItemsForEstimate) {
+      if (!item.rawRowId || !item.projectParticleId) continue;
+      if (!particleIdByRawRowId.has(item.rawRowId)) {
+        particleIdByRawRowId.set(item.rawRowId, item.projectParticleId);
+      }
+    }
+
+    const particleIds = Array.from(new Set(particleIdByRawRowId.values()));
+
+    const particles = particleIds.length
+      ? await this.prisma.projectParticle.findMany({
+          where: { id: { in: particleIds }, projectId },
+          select: {
+            id: true,
+            unitId: true,
+            externalGroupCode: true,
+          },
+        })
+      : [];
+
+    const particleMetaById = new Map<
+      string,
+      {
+        unitId: string | null;
+        orgGroupCode: string | null;
+      }
+    >();
+    for (const p of particles) {
+      const orgGroupCode = (p.externalGroupCode ?? "").trim() || null;
+      particleMetaById.set(p.id, {
+        unitId: p.unitId ?? null,
+        orgGroupCode,
+      });
+    }
+
     // Shared aggregation state (populated by either the project-components path
     // or the Golden price list fallback).
     const missingPriceItems: { cat: string | null; sel: string | null; activity: string | null }[] = [];
@@ -505,6 +565,9 @@ export class XactScheduleService {
         phaseLabel: string;
         totalLaborHours: number;
         lineCount: number;
+        projectUnitId: string | null;
+        projectParticleId: string | null;
+        orgGroupCode: string | null;
       }
     >();
 
@@ -597,6 +660,11 @@ export class XactScheduleService {
         const room = (row.groupDescription || row.groupCode || "Unknown").trim();
         const { trade, phaseCode, phaseLabel } = mapTradeAndPhase(catRaw, activityRaw);
 
+        const rawParticleId = particleIdByRawRowId.get(row.id) ?? null;
+        const particleMeta = rawParticleId ? particleMetaById.get(rawParticleId) ?? null : null;
+        const projectUnitId = particleMeta?.unitId ?? null;
+        const orgGroupCode = particleMeta?.orgGroupCode ?? null;
+
         const pkgKey = `${room}||${trade}||${phaseCode}`;
         let pkg = pkgMap.get(pkgKey);
         if (!pkg) {
@@ -607,8 +675,22 @@ export class XactScheduleService {
             phaseLabel,
             totalLaborHours: 0,
             lineCount: 0,
+            projectUnitId,
+            projectParticleId: rawParticleId,
+            orgGroupCode,
           };
           pkgMap.set(pkgKey, pkg);
+        }
+
+        // Backfill org bindings if this package didn't have them yet.
+        if (!pkg.projectUnitId && projectUnitId) {
+          pkg.projectUnitId = projectUnitId;
+        }
+        if (!pkg.projectParticleId && rawParticleId) {
+          pkg.projectParticleId = rawParticleId;
+        }
+        if (!pkg.orgGroupCode && orgGroupCode) {
+          pkg.orgGroupCode = orgGroupCode;
         }
 
         pkg.totalLaborHours += lineHours;
@@ -733,6 +815,11 @@ export class XactScheduleService {
         const room = (row.groupDescription || row.groupCode || "Unknown").trim();
         const { trade, phaseCode, phaseLabel } = mapTradeAndPhase(catRaw, activityRaw);
 
+        const rawParticleId = particleIdByRawRowId.get(row.id) ?? null;
+        const particleMeta = rawParticleId ? particleMetaById.get(rawParticleId) ?? null : null;
+        const projectUnitId = particleMeta?.unitId ?? null;
+        const orgGroupCode = particleMeta?.orgGroupCode ?? null;
+
         const pkgKey = `${room}||${trade}||${phaseCode}`;
         let pkg = pkgMap.get(pkgKey);
         if (!pkg) {
@@ -743,8 +830,21 @@ export class XactScheduleService {
             phaseLabel,
             totalLaborHours: 0,
             lineCount: 0,
+            projectUnitId,
+            projectParticleId: rawParticleId,
+            orgGroupCode,
           };
           pkgMap.set(pkgKey, pkg);
+        }
+
+        if (!pkg.projectUnitId && projectUnitId) {
+          pkg.projectUnitId = projectUnitId;
+        }
+        if (!pkg.projectParticleId && rawParticleId) {
+          pkg.projectParticleId = rawParticleId;
+        }
+        if (!pkg.orgGroupCode && orgGroupCode) {
+          pkg.orgGroupCode = orgGroupCode;
         }
 
         pkg.totalLaborHours += lineHours;
@@ -773,6 +873,9 @@ export class XactScheduleService {
         crewSize,
         durationDays,
         lineCount: pkg.lineCount,
+        projectUnitId: pkg.projectUnitId ?? null,
+        projectParticleId: pkg.projectParticleId ?? null,
+        orgGroupCode: pkg.orgGroupCode ?? null,
       });
     }
 
@@ -854,6 +957,10 @@ export class XactScheduleService {
       const id = `wp-${index + 1}`;
       const override = overrides[id];
       const lockType: "SOFT" | "HARD" = override?.lockType === "HARD" ? "HARD" : "SOFT";
+
+      const projectUnitId = (wp as any).projectUnitId ?? null;
+      const projectParticleId = (wp as any).projectParticleId ?? null;
+      const orgGroupCode = (wp as any).orgGroupCode ?? null;
 
       // Capture requested start (if any) for conflict reporting and locking.
       let requestedStart: Date | null = null;
@@ -1025,6 +1132,9 @@ export class XactScheduleService {
         totalLaborHours: wp.totalLaborHours,
         crewSize: wp.crewSize,
         predecessorIds: predecessors,
+        projectUnitId,
+        projectParticleId,
+        orgGroupCode,
       };
 
       scheduledTasks.push(task);
@@ -1102,6 +1212,9 @@ export class XactScheduleService {
               totalLaborHours: task.totalLaborHours ?? null,
               crewSize: task.crewSize ?? null,
               predecessorIds: task.predecessorIds ?? [],
+              projectUnitId: task.projectUnitId ?? null,
+              projectParticleId: task.projectParticleId ?? null,
+              orgGroupCode: task.orgGroupCode ?? null,
             },
           });
 
@@ -1151,6 +1264,9 @@ export class XactScheduleService {
               totalLaborHours: task.totalLaborHours ?? prev.totalLaborHours ?? null,
               crewSize: task.crewSize ?? prev.crewSize ?? null,
               predecessorIds: task.predecessorIds ?? prev.predecessorIds ?? [],
+              projectUnitId: task.projectUnitId ?? prev.projectUnitId ?? null,
+              projectParticleId: task.projectParticleId ?? prev.projectParticleId ?? null,
+              orgGroupCode: task.orgGroupCode ?? prev.orgGroupCode ?? null,
             },
           });
 
