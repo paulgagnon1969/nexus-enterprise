@@ -6166,6 +6166,17 @@ ${htmlBody}
             ? "Estimate items (Reconciliation activity only)"
             : "Estimate items"}
         </h2>
+        {isPmOrAbove && !isAdminOrAbove && (
+          <div
+            style={{
+              fontSize: 11,
+              color: "#9ca3af",
+              marginBottom: 4,
+            }}
+          >
+            Some PETL actions and fields are available only to Admin/Owner/Super Admin.
+          </div>
+        )}
         <div
           ref={petlFlatListRef}
           style={{
@@ -6888,7 +6899,7 @@ ${htmlBody}
                         >
                           Reconcile
                         </button>
-                        {isAdminOrAbove && (
+                        {isAdminOrAbove ? (
                           <button
                             type="button"
                             onClick={() => {
@@ -6906,6 +6917,21 @@ ${htmlBody}
                           >
                             Delete
                           </button>
+                        ) : (
+                          isPmOrAbove && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: "#9ca3af",
+                                padding: "0 6px",
+                                borderRadius: 999,
+                                border: "1px dashed #e5e7eb",
+                              }}
+                              title="Additional admin-only actions are available for this line"
+                            >
+                              Admin-only
+                            </span>
+                          )
                         )}
                       </div>
                     </td>
@@ -7096,6 +7122,7 @@ ${htmlBody}
     activeTab,
     id,
     isAdminOrAbove,
+    isPmOrAbove,
     petlDisplayMode,
     petlFlatItems,
     petlLoading,
