@@ -4254,7 +4254,6 @@ ${htmlBody}
   const scheduleGanttText = useMemo(
     () => {
       const allTasks: any[] = scheduleGanttTasks;
-    const allTasks: any[] = scheduleGanttTasks;
 
     if (allTasks.length === 0) return "";
 
