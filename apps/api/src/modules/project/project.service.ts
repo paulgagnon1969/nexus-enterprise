@@ -7638,26 +7638,14 @@ export class ProjectService {
         try {
           await this.syncDraftInvoiceFromPetl(projectId, invoice.id, actor);
         } catch (err: any) {
-          const code = String(err?.code ?? "");
-          const msg = String(err?.message ?? "");
-
-          // If the DB schema is missing the invoice PETL table or newer columns,
-          // don't block invoice creation; the draft can still be created and
-          // manual items can be added.
-          const isMissingPetlTable = this.isMissingPrismaTableError(
-            err,
-            "ProjectInvoicePetlLine",
-          );
-          const isMissingPetlColumn = code === "P2022" && msg.includes("ProjectInvoicePetlLine");
-
-          if (!isMissingPetlTable && !isMissingPetlColumn) {
-            throw err;
-          }
-
+          const code = String((err as any)?.code ?? "");
+          const msg = String((err as any)?.message ?? "");
           this.logger.warn(
-            `Skipping syncDraftInvoiceFromPetl for invoice ${invoice.id} on project ${projectId} due to missing ProjectInvoicePetlLine schema (code=${code}).`,
+            `syncDraftInvoiceFromPetl failed for invoice ${invoice.id} on project ${projectId} (code=${code}): ${msg}`,
           );
-          // swallow missing-table / missing-column errors
+          // Do not block draft creation on PETL sync failures. The user can still
+          // add manual line items, and PETL-derived lines can be investigated
+          // separately via logs / diagnostics.
         }
       }
 
