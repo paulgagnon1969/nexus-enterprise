@@ -8135,26 +8135,31 @@ export class ProjectService {
       }
     }
 
-    await pAny.$transaction(async (tx: any) => {
-      await tx.projectInvoicePetlLine.deleteMany({ where: { invoiceId: invoice.id } });
-      await tx.projectInvoicePetlLine.createMany({ data: linesToCreate });
+    await pAny.$transaction(
+      async (tx: any) => {
+        await tx.projectInvoicePetlLine.deleteMany({ where: { invoiceId: invoice.id } });
+        await tx.projectInvoicePetlLine.createMany({ data: linesToCreate });
 
-      // Recompute totals inside the same transaction
-      const manualAgg = await tx.projectInvoiceLineItem.aggregate({
-        where: { invoiceId: invoice.id },
-        _sum: { amount: true },
-      });
-      const petlAgg = await tx.projectInvoicePetlLine.aggregate({
-        where: { invoiceId: invoice.id },
-        _sum: { thisInvTotal: true },
-      });
-      const totalAmount = (manualAgg?._sum?.amount ?? 0) + (petlAgg?._sum?.thisInvTotal ?? 0);
+        // Recompute totals inside the same transaction
+        const manualAgg = await tx.projectInvoiceLineItem.aggregate({
+          where: { invoiceId: invoice.id },
+          _sum: { amount: true },
+        });
+        const petlAgg = await tx.projectInvoicePetlLine.aggregate({
+          where: { invoiceId: invoice.id },
+          _sum: { thisInvTotal: true },
+        });
+        const totalAmount = (manualAgg?._sum?.amount ?? 0) + (petlAgg?._sum?.thisInvTotal ?? 0);
 
-      await tx.projectInvoice.update({
-        where: { id: invoice.id },
-        data: { totalAmount },
-      });
-    });
+        await tx.projectInvoice.update({
+          where: { id: invoice.id },
+          data: { totalAmount },
+        });
+      },
+      // Large PETL grids can involve many rows; extend the interactive transaction
+      // timeout so Cloud SQL / Prisma do not abort with P2028 under normal loads.
+      { timeout: 600_000, maxWait: 60_000 },
+    );
 
     return { status: "ok", estimateVersionId: latestVersion.id, lineCount: linesToCreate.length };
   }
