@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -26,6 +27,7 @@ export default function ProjectPayrollDetailsPage({
   params: Promise<{ id: string; employeeId: string }>;
 }) {
   const { id, employeeId } = React.use(params);
+  const router = useRouter();
 
   const [rows, setRows] = React.useState<PayrollWeekRow[] | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -112,12 +114,22 @@ export default function ProjectPayrollDetailsPage({
           </p>
         </div>
         <div>
-          <a
-            href={`/projects/${id}?tab=FINANCIAL`}
-            style={{ fontSize: 12, color: "#2563eb", textDecoration: "none" }}
+          <button
+            type="button"
+            onClick={() => router.push(`/projects/${id}?tab=FINANCIAL`)}
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: "#0f172a",
+              textDecoration: "none",
+              border: "none",
+              background: "transparent",
+              padding: 0,
+              cursor: "pointer",
+            }}
           >
-            ← Back to project financials
-          </a>
+             Back to project financials
+          </button>
         </div>
       </div>
 
