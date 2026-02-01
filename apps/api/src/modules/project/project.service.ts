@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, HttpException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, HttpException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuditService } from "../../common/audit.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
@@ -166,6 +166,8 @@ type PetlArchiveBundleV1 = {
 
 @Injectable()
 export class ProjectService {
+  private readonly logger = new Logger(ProjectService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -7636,16 +7638,26 @@ export class ProjectService {
         try {
           await this.syncDraftInvoiceFromPetl(projectId, invoice.id, actor);
         } catch (err: any) {
-          // If the DB schema is missing newly-added invoice PETL columns, don't block
-          // invoice creation; the draft can still be created and manual items can be added.
-          if (String(err?.code ?? "") !== "P2022") {
-            throw err;
-          }
+          const code = String(err?.code ?? "");
           const msg = String(err?.message ?? "");
-          if (!msg.includes("ProjectInvoicePetlLine")) {
+
+          // If the DB schema is missing the invoice PETL table or newer columns,
+          // don't block invoice creation; the draft can still be created and
+          // manual items can be added.
+          const isMissingPetlTable = this.isMissingPrismaTableError(
+            err,
+            "ProjectInvoicePetlLine",
+          );
+          const isMissingPetlColumn = code === "P2022" && msg.includes("ProjectInvoicePetlLine");
+
+          if (!isMissingPetlTable && !isMissingPetlColumn) {
             throw err;
           }
-          // swallow
+
+          this.logger.warn(
+            `Skipping syncDraftInvoiceFromPetl for invoice ${invoice.id} on project ${projectId} due to missing ProjectInvoicePetlLine schema (code=${code}).`,
+          );
+          // swallow missing-table / missing-column errors
         }
       }
 
