@@ -9,12 +9,11 @@ set -euo pipefail
 #
 # USAGE (recommended):
 #   cd ~/nexus-enterprise
-#   export PROD_DB_PASSWORD="<your-prod-password>"
 #   ./scripts/db-migrate-prod-with-proxy.sh
 #
 # Or, if you already have DATABASE_URL pointing at 127.0.0.1:5433:
 #   cd ~/nexus-enterprise
-#   export DATABASE_URL="postgresql://postgres:<pwd>@127.0.0.1:5433/nexus_db"
+#   export DATABASE_URL="postgresql://postgres:Nexusprodpass.22@127.0.0.1:5433/nexus_db"
 #   ./scripts/db-migrate-prod-with-proxy.sh
 #
 # REQUIREMENTS:
