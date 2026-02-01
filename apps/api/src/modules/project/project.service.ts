@@ -1697,7 +1697,8 @@ export class ProjectService {
     const { projectId, particleIds } = options;
 
     const ids = Array.from(new Set(particleIds.filter(Boolean)));
-    if (ids.length === 0) return new Map<string, { id: string; name: string; fullLabel: string }>();
+    if (ids.length === 0)
+      return new Map<string, { id: string; name: string; fullLabel: string; externalGroupCode: string | null }>();
 
     // NOTE: We intentionally do NOT rely on Prisma relation includes here.
     // Some legacy/imported rows in prod can have orphaned foreign keys, and
@@ -1711,12 +1712,21 @@ export class ProjectService {
         id: true,
         name: true,
         fullLabel: true,
+        externalGroupCode: true,
       },
     });
 
-    const byId = new Map<string, { id: string; name: string; fullLabel: string }>();
+    const byId = new Map<
+      string,
+      { id: string; name: string; fullLabel: string; externalGroupCode: string | null }
+    >();
     for (const p of particles) {
-      byId.set(p.id, p);
+      byId.set(p.id, {
+        id: p.id,
+        name: p.name,
+        fullLabel: p.fullLabel,
+        externalGroupCode: (p as any).externalGroupCode ?? null,
+      });
     }
     return byId;
   }
@@ -4529,6 +4539,7 @@ export class ProjectService {
         roomParticleIds?: string[];
         categoryCodes?: string[];
         selectionCodes?: string[];
+        orgGroupCodes?: string[];
       };
       operation?: "set" | "increment" | "decrement";
       percent?: number;
@@ -4695,6 +4706,12 @@ export class ProjectService {
     }
     if (filters?.selectionCodes && filters.selectionCodes.length > 0) {
       where.selectionCode = { in: filters.selectionCodes };
+    }
+    if (filters?.orgGroupCodes && filters.orgGroupCodes.length > 0) {
+      where.projectParticle = {
+        ...(where.projectParticle || {}),
+        externalGroupCode: { in: filters.orgGroupCodes },
+      };
     }
 
     const items = await this.prisma.sowItem.findMany({ where });
@@ -5560,6 +5577,12 @@ export class ProjectService {
 
     const mapped = items.map((item) => {
       const particle = particleById.get(item.projectParticleId) ?? null;
+      const orgGroupCode =
+        (particle as any)?.externalGroupCode &&
+        String((particle as any).externalGroupCode).trim()
+          ? String((particle as any).externalGroupCode).trim()
+          : null;
+
       return {
         id: item.id,
         lineNo: item.lineNo,
@@ -5575,6 +5598,7 @@ export class ProjectService {
         qtyFlaggedIncorrect: item.qtyFlaggedIncorrect,
         qtyFieldReported: item.qtyFieldReported ?? null,
         qtyReviewStatus: item.qtyReviewStatus ?? null,
+        orgGroupCode,
       };
     });
 

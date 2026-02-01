@@ -1381,6 +1381,7 @@ export class ProjectController {
         roomParticleIds?: string[];
         categoryCodes?: string[];
         selectionCodes?: string[];
+        orgGroupCodes?: string[];
       };
       operation?: "set" | "increment" | "decrement";
       percent?: number;

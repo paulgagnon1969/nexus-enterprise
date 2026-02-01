@@ -573,6 +573,37 @@ interface ImportRoomLine {
   sourceName: string | null;
 }
 
+// Scope-only PETL view for PUDL / Daily Logs.
+interface FieldPetlItem {
+  sowItemId: string;
+  lineNo: number;
+  roomParticleId: string | null;
+  roomName: string | null;
+  categoryCode: string | null;
+  selectionCode: string | null;
+  activity: string | null;
+  description: string | null;
+  unit: string | null;
+  originalQty: number | null;
+  qty: number | null;
+  qtyFlaggedIncorrect: boolean;
+  qtyFieldReported: number | null;
+  qtyReviewStatus: string | null;
+  orgGroupCode: string | null;
+  // Percent comes from main PETL items; we merge it client-side when needed.
+  percentComplete?: number;
+}
+
+interface FieldPetlEditState {
+  item: FieldPetlItem;
+  incorrect: boolean;
+  fieldQty: string;
+  newPercent: string;
+  note: string;
+  saving: boolean;
+  error: string | null;
+}
+
 interface FinancialSummary {
   totalRcvClaim: number;
   totalAcvClaim: number;
@@ -809,6 +840,7 @@ export default function ProjectDetailPage({
   const [roomParticleIdFilters, setRoomParticleIdFilters] = useState<string[]>([]);
   const [categoryCodeFilters, setCategoryCodeFilters] = useState<string[]>([]);
   const [selectionCodeFilters, setSelectionCodeFilters] = useState<string[]>([]);
+  const [petlOrgGroupFilters, setPetlOrgGroupFilters] = useState<string[]>([]);
 
   const roomParticleIdFilterSet = useMemo(
     () => new Set(roomParticleIdFilters),
@@ -822,6 +854,20 @@ export default function ProjectDetailPage({
     () => new Set(selectionCodeFilters),
     [selectionCodeFilters],
   );
+  const petlOrgGroupFilterSet = useMemo(
+    () => new Set(petlOrgGroupFilters),
+    [petlOrgGroupFilters],
+  );
+
+  const petlOrgGroupCodes = useMemo(() => {
+    const codes = new Set<string>();
+    for (const it of petlItems) {
+      const raw = (it as any).projectParticle?.orgGroupCode ?? (it as any).orgGroupCode ?? null;
+      const code = String(raw ?? "").trim();
+      if (code) codes.add(code);
+    }
+    return Array.from(codes.values()).sort((a, b) => a.localeCompare(b));
+  }, [petlItems]);
 
   // PETL view toggle: project organization grouping vs line sequence
   // Default to LINE_SEQUENCE (and persist per-project) so the cost book / line-by-line
@@ -2669,6 +2715,12 @@ ${htmlBody}
   const [dailyLogMessage, setDailyLogMessage] = useState<string | null>(null);
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [showPendingClientOnly, setShowPendingClientOnly] = useState(false);
+
+  // Field PETL (scope-only) view for Daily Logs.
+  const [fieldPetlItems, setFieldPetlItems] = useState<FieldPetlItem[]>([]);
+  const [fieldPetlLoading, setFieldPetlLoading] = useState(false);
+  const [fieldPetlError, setFieldPetlError] = useState<string | null>(null);
+  const [fieldPetlEdit, setFieldPetlEdit] = useState<FieldPetlEditState | null>(null);
   // Person/s onsite multi-select state for Daily Logs
   const [personOnsiteList, setPersonOnsiteList] = useState<string[]>([]);
   const [personOnsiteDraft, setPersonOnsiteDraft] = useState<string>("");
@@ -5614,6 +5666,230 @@ ${htmlBody}
       cancelled = true;
     };
   }, [project, activeTab]);
+
+  // Load Field PETL scope when DAILY_LOGS tab is active
+  useEffect(() => {
+    if (!project) return;
+    if (activeTab !== "DAILY_LOGS") return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    const loadFieldPetl = async () => {
+      try {
+        setFieldPetlLoading(true);
+        setFieldPetlError(null);
+        const res = await fetch(`${API_BASE}/projects/${project.id}/petl-field`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Field PETL load failed (${res.status}) ${text}`);
+        }
+        const json: any = await res.json();
+        if (cancelled) return;
+        const items: any[] = Array.isArray(json?.items) ? json.items : [];
+        const mapped: FieldPetlItem[] = items.map((it: any) => ({
+          sowItemId: String(it.id),
+          lineNo: Number(it.lineNo ?? 0),
+          roomParticleId: it.roomParticleId ?? null,
+          roomName: it.roomName ?? null,
+          categoryCode: it.categoryCode ?? null,
+          selectionCode: it.selectionCode ?? null,
+          activity: it.activity ?? null,
+          description: it.description ?? null,
+          unit: it.unit ?? null,
+          originalQty: typeof it.originalQty === "number" ? it.originalQty : null,
+          qty: typeof it.qty === "number" ? it.qty : null,
+          qtyFlaggedIncorrect: !!it.qtyFlaggedIncorrect,
+          qtyFieldReported:
+            typeof it.qtyFieldReported === "number" ? it.qtyFieldReported : null,
+          qtyReviewStatus: it.qtyReviewStatus ?? null,
+          orgGroupCode: it.orgGroupCode ?? null,
+        }));
+        setFieldPetlItems(mapped);
+      } catch (err: any) {
+        if (!cancelled) {
+          setFieldPetlError(err?.message ?? "Failed to load Field PETL.");
+          setFieldPetlItems([]);
+        }
+      } finally {
+        if (!cancelled) setFieldPetlLoading(false);
+      }
+    };
+
+    void loadFieldPetl();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project, activeTab]);
+
+  const openFieldPetlEdit = useCallback((item: FieldPetlItem) => {
+    setFieldPetlEdit({
+      item,
+      incorrect: item.qtyFlaggedIncorrect,
+      fieldQty:
+        item.qtyFieldReported != null && !Number.isNaN(item.qtyFieldReported)
+          ? String(item.qtyFieldReported)
+          : "",
+      newPercent: "",
+      note: "",
+      saving: false,
+      error: null,
+    });
+  }, []);
+
+  const closeFieldPetlEdit = useCallback(() => {
+    setFieldPetlEdit(null);
+  }, []);
+
+  const submitFieldPetlEdit = useCallback(async () => {
+    if (!project || !fieldPetlEdit) return;
+    const { item, incorrect, fieldQty, newPercent, note } = fieldPetlEdit;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setFieldPetlEdit(prev => (prev ? { ...prev, error: "Missing access token." } : prev));
+      return;
+    }
+
+    let parsedFieldQty: number | null = null;
+    if (incorrect) {
+      if (!fieldQty.trim()) {
+        setFieldPetlEdit(prev => (prev ? { ...prev, error: "Enter a field quantity." } : prev));
+        return;
+      }
+      parsedFieldQty = Number(fieldQty);
+      if (!Number.isFinite(parsedFieldQty) || parsedFieldQty < 0) {
+        setFieldPetlEdit(prev => (prev ? { ...prev, error: "Field qty must be a non-negative number." } : prev));
+        return;
+      }
+    }
+
+    let parsedPercent: number | null = null;
+    const pctRaw = newPercent.trim();
+    if (pctRaw !== "") {
+      const n = Number(pctRaw);
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        setFieldPetlEdit(prev => (prev ? { ...prev, error: "Percent must be between 0 and 100." } : prev));
+        return;
+      }
+      parsedPercent = n;
+    }
+
+    setFieldPetlEdit(prev => (prev ? { ...prev, saving: true, error: null } : prev));
+
+    try {
+      // 1) Qty flags
+      if (incorrect || item.qtyFlaggedIncorrect) {
+        const payload = incorrect
+          ? {
+              items: [
+                {
+                  sowItemId: item.sowItemId,
+                  qtyFlaggedIncorrect: true,
+                  qtyFieldReported: parsedFieldQty,
+                  notes: note || null,
+                },
+              ],
+            }
+          : {
+              items: [
+                {
+                  sowItemId: item.sowItemId,
+                  qtyFlaggedIncorrect: false,
+                  qtyFieldReported: null,
+                  notes: null,
+                },
+              ],
+            };
+
+        const res = await fetch(
+          `${API_BASE}/projects/${project.id}/petl-field/qty-flags`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(payload),
+          },
+        );
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Qty flag failed (${res.status}) ${text}`);
+        }
+      }
+
+      // 2) Percent update (optional)
+      if (parsedPercent != null) {
+        const res = await fetch(
+          `${API_BASE}/projects/${project.id}/petl/percentage-edits`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              changes: [
+                {
+                  sowItemId: item.sowItemId,
+                  newPercent: parsedPercent,
+                },
+              ],
+            }),
+          },
+        );
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`Percent update failed (${res.status}) ${text}`);
+        }
+      }
+
+      // Reload Field PETL scope to reflect new flags
+      try {
+        const res = await fetch(`${API_BASE}/projects/${project.id}/petl-field`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const json: any = await res.json();
+          const items: any[] = Array.isArray(json?.items) ? json.items : [];
+          const mapped: FieldPetlItem[] = items.map((it: any) => ({
+            sowItemId: String(it.id),
+            lineNo: Number(it.lineNo ?? 0),
+            roomParticleId: it.roomParticleId ?? null,
+            roomName: it.roomName ?? null,
+            categoryCode: it.categoryCode ?? null,
+            selectionCode: it.selectionCode ?? null,
+            activity: it.activity ?? null,
+            description: it.description ?? null,
+            unit: it.unit ?? null,
+            originalQty: typeof it.originalQty === "number" ? it.originalQty : null,
+            qty: typeof it.qty === "number" ? it.qty : null,
+            qtyFlaggedIncorrect: !!it.qtyFlaggedIncorrect,
+            qtyFieldReported:
+              typeof it.qtyFieldReported === "number" ? it.qtyFieldReported : null,
+            qtyReviewStatus: it.qtyReviewStatus ?? null,
+            orgGroupCode: it.orgGroupCode ?? null,
+          }));
+          setFieldPetlItems(mapped);
+        }
+      } catch {
+        // non-fatal
+      }
+
+      // Close modal
+      setFieldPetlEdit(null);
+    } catch (err: any) {
+      setFieldPetlEdit(prev =>
+        prev ? { ...prev, saving: false, error: err?.message ?? "Save failed." } : prev,
+      );
+      return;
+    }
+  }, [project, fieldPetlEdit]);
 
   // Initial selection summary (no filters) once PETL items are present
   useEffect(() => {
@@ -9968,13 +10244,23 @@ ${htmlBody}
           )}
 
           {invoiceFullscreen && (
-            <div style={{ marginBottom: 8 }}>
-              <a
-                href={`/projects/${id}?tab=FINANCIAL`}
-                style={{ fontSize: 12, color: "#2563eb", textDecoration: "none" }}
+            <div style={{ marginBottom: 10 }}>
+              <button
+                type="button"
+                onClick={() => router.push(`/projects/${id}?tab=FINANCIAL`)}
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#0f172a",
+                  textDecoration: "none",
+                  border: "none",
+                  background: "transparent",
+                  padding: 0,
+                  cursor: "pointer",
+                }}
               >
-                ← Back to project
-              </a>
+                 Back to project
+              </button>
             </div>
           )}
 
@@ -11540,17 +11826,13 @@ ${htmlBody}
                       const json: any = await res.json();
 
                       if (!invoiceFullscreen) {
-                        // Open invoice in a new tab for full-screen editing.
-                        window.open(
+                        // Navigate in the same tab into full-screen invoice mode.
+                        router.push(
                           `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${json.id}`,
-                          "_blank",
-                          "noopener,noreferrer",
                         );
-                        setInvoiceMessage("Opened draft invoice in a new tab.");
-                        setActiveInvoice(null);
-                        return;
                       }
 
+                      // Keep local state in sync so the invoice renders immediately.
                       setActiveInvoice(json);
                       setProjectInvoices(null);
                     } catch (err: any) {
@@ -11609,15 +11891,10 @@ ${htmlBody}
                       const json: any = await res.json();
 
                       if (!invoiceFullscreen) {
-                        window.open(
+                        // Navigate in the same tab into full-screen invoice mode.
+                        router.push(
                           `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${json.id}`,
-                          "_blank",
-                          "noopener,noreferrer",
                         );
-                        setInvoiceMessage("Opened new draft invoice in a new tab.");
-                        setActiveInvoice(null);
-                        setProjectInvoices(null);
-                        return;
                       }
 
                       setActiveInvoice(json);
@@ -15037,6 +15314,160 @@ ${htmlBody}
                   )}
                 </div>
               </div>
+
+              {/* Field PETL scope (read-only for now, with Incorrect Qty entrypoint) */}
+              <div
+                style={{
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                  background: "#ffffff",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "6px 10px",
+                    borderBottom: "1px solid #e5e7eb",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    background: "#f3f4f6",
+                  }}
+                >
+                  Field PETL scope
+                </div>
+                <div style={{ padding: 10, fontSize: 13 }}>
+                  {fieldPetlLoading && (
+                    <div style={{ color: "#6b7280" }}>Loading PETL scope…</div>
+                  )}
+                  {fieldPetlError && !fieldPetlLoading && (
+                    <div style={{ color: "#b91c1c" }}>{fieldPetlError}</div>
+                  )}
+                  {!fieldPetlLoading && !fieldPetlError && fieldPetlItems.length === 0 && (
+                    <div style={{ color: "#6b7280" }}>
+                      No PETL scope rows found for this project.
+                    </div>
+                  )}
+                  {!fieldPetlLoading && !fieldPetlError && fieldPetlItems.length > 0 && (
+                    <div style={{ maxHeight: 260, overflowY: "auto" }}>
+                      <table
+                        style={{
+                          width: "100%",
+                          borderCollapse: "collapse",
+                          fontSize: 12,
+                        }}
+                      >
+                        <thead>
+                          <tr style={{ backgroundColor: "#f9fafb" }}>
+                            <th style={{ textAlign: "left", padding: "4px 6px" }}>#</th>
+                            <th style={{ textAlign: "left", padding: "4px 6px" }}>Room</th>
+                            <th style={{ textAlign: "left", padding: "4px 6px" }}>Task</th>
+                            <th style={{ textAlign: "left", padding: "4px 6px" }}>
+                              Qty (orig → current)
+                            </th>
+                            <th style={{ textAlign: "left", padding: "4px 6px" }}>Status</th>
+                            <th style={{ textAlign: "left", padding: "4px 6px" }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {fieldPetlItems.map((it) => {
+                            const orig = it.originalQty ?? it.qty ?? null;
+                            const curr = it.qty ?? null;
+                            const hasField = typeof it.qtyFieldReported === "number";
+                            let statusLabel = "OK";
+                            if (it.qtyFlaggedIncorrect && it.qtyReviewStatus === "PENDING") {
+                              statusLabel =
+                                hasField && it.qtyFieldReported != null
+                                  ? `Pending (${it.qtyFieldReported})`
+                                  : "Pending";
+                            } else if (it.qtyReviewStatus === "ACCEPTED") {
+                              statusLabel = "Accepted";
+                            } else if (it.qtyReviewStatus === "REJECTED") {
+                              statusLabel = "Rejected";
+                            }
+
+                            return (
+                              <tr key={it.sowItemId}>
+                                <td
+                                  style={{
+                                    padding: "4px 6px",
+                                    borderTop: "1px solid #e5e7eb",
+                                  }}
+                                >
+                                  {it.lineNo}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "4px 6px",
+                                    borderTop: "1px solid #e5e7eb",
+                                  }}
+                                >
+                                  {it.roomName || "—"}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "4px 6px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    maxWidth: 180,
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                >
+                                  {it.description || "—"}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "4px 6px",
+                                    borderTop: "1px solid #e5e7eb",
+                                  }}
+                                >
+                                  {orig != null ? orig : "—"}
+                                  {" "}→{" "}
+                                  {curr != null ? curr : "—"}
+                                  {hasField && it.qtyFieldReported != null && (
+                                    <span style={{ marginLeft: 4, color: "#b91c1c" }}>
+                                      (field {it.qtyFieldReported})
+                                    </span>
+                                  )}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "4px 6px",
+                                    borderTop: "1px solid #e5e7eb",
+                                  }}
+                                >
+                                  {statusLabel}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "4px 6px",
+                                    borderTop: "1px solid #e5e7eb",
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => openFieldPetlEdit(it)}
+                                    style={{
+                                      padding: "2px 6px",
+                                      borderRadius: 4,
+                                      border: "1px solid #0f172a",
+                                      backgroundColor: "#0f172a",
+                                      color: "#f9fafb",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Verify / Edit
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -15566,6 +15997,18 @@ ${htmlBody}
             />
           </div>
 
+          <div>
+            <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Org Group</div>
+            <CheckboxMultiSelect
+              placeholder="All"
+              options={petlOrgGroupCodes.map(code => ({ value: code, label: code }))}
+              selectedValues={petlOrgGroupFilters}
+              onChangeSelectedValues={setPetlOrgGroupFilters}
+              minWidth={140}
+              minListHeight={240}
+            />
+          </div>
+
           <form
             onSubmit={async (e) => {
               e.preventDefault();
@@ -15606,6 +16049,7 @@ ${htmlBody}
                 roomParticleIds?: string[];
                 categoryCodes?: string[];
                 selectionCodes?: string[];
+                orgGroupCodes?: string[];
               } = {};
 
               if (roomParticleIdFilters.length) {
@@ -15616,6 +16060,9 @@ ${htmlBody}
               }
               if (selectionCodeFilters.length) {
                 filters.selectionCodes = selectionCodeFilters;
+              }
+              if (petlOrgGroupFilters.length) {
+                filters.orgGroupCodes = petlOrgGroupFilters;
               }
 
               try {
