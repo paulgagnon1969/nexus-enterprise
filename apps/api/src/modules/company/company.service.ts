@@ -65,7 +65,10 @@ export class CompanyService {
     const company = await this.prisma.$transaction(async tx => {
       const created = await tx.company.create({
         data: {
-          name
+          name,
+          // Seed a worker invite token so this organization can invite crew via
+          // the public onboarding flow.
+          workerInviteToken: randomUUID(),
         }
       });
 

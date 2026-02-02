@@ -416,6 +416,8 @@ interface Project {
   addressLine1: string;
   addressLine2: string | null;
   createdAt: string;
+  // Optional per-project role of the current user (OWNER, ADMIN, PM, VIEWER, etc.)
+  userRole?: string;
 }
 
 interface PetlItem {
@@ -1173,6 +1175,34 @@ export default function ProjectDetailPage({
 
   const [invoiceMessage, setInvoiceMessage] = useState<string | null>(null);
   const [paymentsMessage, setPaymentsMessage] = useState<string | null>(null);
+
+  async function loadActiveInvoice() {
+    if (!project || !activeInvoice?.id) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setInvoiceMessage("Missing access token.");
+      return;
+    }
+
+    setActiveInvoiceLoading(true);
+    setActiveInvoiceError(null);
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to load invoice (${res.status}) ${text}`);
+      }
+      const json: any = await res.json();
+      setActiveInvoice(json);
+    } catch (err: any) {
+      setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
+    } finally {
+      setActiveInvoiceLoading(false);
+    }
+  }
 
   // Invoice printing
   const [invoicePrintDialogOpen, setInvoicePrintDialogOpen] = useState(false);
@@ -13282,42 +13312,27 @@ ${htmlBody}
                                       >
                                         {li.description}
                                       </td>
-                                    <td
-                                      style={{
-                                        padding: "6px 8px",
-                                        borderTop: "1px solid #e5e7eb",
-                                        textAlign: "left",
-                                        color: "#4b5563",
-                                      }}
-                                    >
-                                      {tagLabel}
-                                    </td>
-                                    <td
-                                      style={{
-                                        padding: "6px 8px",
-                                        borderTop: "1px solid #e5e7eb",
-                                        textAlign: "left",
-                                      }}
-                                    >
-                                      <span
+                                      <td
                                         style={{
-                                          display: "inline-flex",
-                                          alignItems: "center",
-                                          padding: "2px 6px",
-                                          borderRadius: 999,
-                                          border: "1px solid #e5e7eb",
-                                          fontSize: 10,
-                                          fontWeight: 600,
-                                          textTransform: "uppercase",
-                                          letterSpacing: "0.06em",
-                                          color: statusColor,
+                                          padding: "6px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                          textAlign: "right",
+                                          color: "#4b5563",
                                         }}
                                       >
-                                        {statusLabel}
-                                      </span>
-                                    </td>
-                                    <td
-                                      style={{
+                                        {li.qty != null ? li.qty : ""}
+                                      </td>
+                                      <td
+                                        style={{
+                                          padding: "6px 8px",
+                                          borderTop: "1px solid #e5e7eb",
+                                          textAlign: "right",
+                                        }}
+                                      >
+                                        {li.unitPrice != null ? formatMoney(li.unitPrice) : ""}
+                                      </td>
+                                      <td
+                                        style={{
                                         padding: "6px 8px",
                                         borderTop: "1px solid #e5e7eb",
                                         textAlign: "right",
@@ -18533,8 +18548,20 @@ ${htmlBody}
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          setReconEditEntry(e);
-                                          setReconEditModalOpen(true);
+                                          setReconEntryEdit({
+                                            entry: e,
+                                            draft: {
+                                              tag: (String(e?.tag ?? "").trim() || "") as ReconEntryTag,
+                                              description: String(e?.description ?? ""),
+                                              note: String(e?.note ?? ""),
+                                              rcvAmount:
+                                                e?.rcvAmount != null && !Number.isNaN(e.rcvAmount)
+                                                  ? String(e.rcvAmount)
+                                                  : "",
+                                            },
+                                            saving: false,
+                                            error: null,
+                                          });
                                         }}
                                         style={{
                                           padding: "4px 8px",

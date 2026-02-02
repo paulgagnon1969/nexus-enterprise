@@ -72,7 +72,10 @@ export class AuthService {
       }),
       this.prisma.company.create({
         data: {
-          name: dto.companyName
+          name: dto.companyName,
+          // Seed a worker invite token so this tenant can immediately invite
+          // crew members via /apply?companyToken=...
+          workerInviteToken: randomUUID(),
         }
       })
     ]);
@@ -166,7 +169,10 @@ export class AuthService {
     });
     if (existingMemberships.length === 0) {
       const company = await this.prisma.company.create({
-        data: { name: "Nexus System" }
+        data: {
+          name: "Nexus System",
+          workerInviteToken: randomUUID(),
+        }
       });
       await this.prisma.companyMembership.create({
         data: {
