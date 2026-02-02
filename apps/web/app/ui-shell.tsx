@@ -520,7 +520,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
           <NavDropdown
             label={h.people}
-            active={path.startsWith("/company/") || path.startsWith("/workers")}
+            active={
+              path.startsWith("/company/") ||
+              path.startsWith("/workers") ||
+              path.startsWith("/settings/roles")
+            }
             items={[
               { label: h.workerProfiles, href: "/company/users" },
               {
@@ -530,6 +534,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               { label: h.openTradesProfile, href: "/company/trades" },
               { label: h.clientProfiles, href: "/company/clients" },
               { label: h.fieldWorkersBia, href: "/workers" },
+              // Tenant-level role configuration lives under People so admins can
+              // fine-tune who can view/edit/mark-for-deletion entities by role.
+              { label: "Roles & permissions", href: "/settings/roles" },
             ]}
           />
           <Link

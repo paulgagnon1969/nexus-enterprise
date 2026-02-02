@@ -721,6 +721,12 @@ export class UserService {
           company: {
             select: { id: true, name: true },
           },
+          profile: {
+            select: {
+              code: true,
+              label: true,
+            },
+          },
         },
       });
 
@@ -1022,6 +1028,8 @@ export class UserService {
         company: membership.company,
         companyRole: membership.role,
         companyMembershipActive: membership.isActive,
+        companyProfileCode: (membership as any).profile?.code ?? null,
+        companyProfileLabel: (membership as any).profile?.label ?? null,
         reputation: {
           avg: user.reputationOverallAvg,
           count: user.reputationOverallCount,
@@ -1085,6 +1093,12 @@ export class UserService {
           company: {
             select: { id: true, name: true },
           },
+          profile: {
+            select: {
+              code: true,
+              label: true,
+            },
+          },
         },
       });
 
@@ -1126,6 +1140,8 @@ export class UserService {
         company: membership.company,
         companyRole: membership.role,
         companyMembershipActive: membership.isActive,
+        companyProfileCode: (membership as any).profile?.code ?? null,
+        companyProfileLabel: (membership as any).profile?.label ?? null,
         reputation: {
           avg: user.reputationOverallAvg,
           count: user.reputationOverallCount,

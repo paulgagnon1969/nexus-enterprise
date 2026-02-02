@@ -433,19 +433,28 @@ Fix:
 
 After a reboot or when sitting down to work on Nexus:
 
-1. **Start proxy (once)**
-   
-   ```bash
-   cloud-sql-proxy --port=5433 nexus-enterprise-480610:us-central1:nexus-prod-postgres
-   ```
-
-2. **Start API**
+1. **Start local Docker infra (Postgres + Redis)**
    
    ```bash
    cd /Users/pg/nexus-enterprise
-   export DATABASE_URL="postgresql://postgres:NEXUS_2025_PROD-v2@127.0.0.1:5433/nexus_db"
-   bash ./scripts/dev-api-cloud-db.sh
+   docker compose -f infra/docker/docker-compose.yml up -d
    ```
+
+2. **Start / reset the dev stack (API + web) against local Docker DB**
+   
+   The recommended path is to use the hard-reset wrapper, which kills dev ports and delegates to `scripts/dev-start.sh`:
+   
+   ```bash
+   cd /Users/pg/nexus-enterprise
+   ./start-dev-clear-all.sh
+   ```
+
+   This will:
+   
+   - Ensure Docker is running (if invoked via the Automator app described above).
+   - Kill any listeners on ports 3000, 8000, 5432, 6380.
+   - Start the API dev server on `http://localhost:8000`.
+   - Start the web dev server on `http://localhost:3000`.
 
 3. **Check health**
    
@@ -453,13 +462,82 @@ After a reboot or when sitting down to work on Nexus:
    curl -i http://localhost:8000/health
    ```
 
-4. **Start web**
+   You should see `200 OK` with `{ "ok": true, "dbTime": "...", "redis": "PONG" }`.
+
+4. **Start worker (optional but recommended for imports / background jobs)**
+   
+   If the worker is not already running:
    
    ```bash
-   cd /Users/pg/nexus-enterprise/apps/web
-   npm run dev
+   cd /Users/pg/nexus-enterprise/apps/api
+   npm run worker:dev
    ```
 
 5. **Log in** as either superadmin or Paul and do your work.
 
-If any step fails, use the health + lsof checks above to see which layer is broken (proxy, API, or web) and fix that layer first.
+   - Superadmin: `pg.superadmin@ncc.local` + whatever password you last set via `/auth/bootstrap-superadmin`.
+   - Paul (tenant): `paul@nfsgrp.com` + the current dev/prod password you use in production.
+
+If any step fails, use the health + `lsof` checks above to see which layer is broken (DB container, API, or web) and fix that layer first.
+
+---
+
+## 9. Refreshing local Docker DB from prod (manual SOP)
+
+Occasionally you may want to refresh your **local Docker dev database** from **prod** and then continue working locally. This is the supported manual flow.
+
+**WARNING:** This will overwrite the local `nexus_db` data in Docker Postgres. Make sure you really want a fresh clone from prod.
+
+Steps:
+
+1. **Ensure local Docker Postgres is running**
+   
+   ```bash
+   cd /Users/pg/nexus-enterprise
+   docker compose -f infra/docker/docker-compose.yml up -d postgres
+   ```
+
+2. **Clone prod → local Docker via Cloud SQL proxy + pg_dump (Postgres 18)**
+   
+   This uses `scripts/prod-db-run-with-proxy.sh` to start a Cloud SQL Proxy for `nexusprod-v2` on port 5434 and then streams a `pg_dump` from prod into local Docker Postgres.
+   
+   ```bash
+   cd /Users/pg/nexus-enterprise
+
+   # Load PROD_DB_PASSWORD from .env (contains the prod DB password)
+   set -a && source .env && set +a
+
+   ./scripts/prod-db-run-with-proxy.sh --port 5434 --allow-kill-port --no-prompt -- \
+     bash -lc 'docker run --rm -e PGPASSWORD="$PROD_DB_PASSWORD" postgres:18 \
+       pg_dump --clean --no-owner --no-privileges \
+         -h host.docker.internal -p 5434 -U postgres nexus_db \
+       | PGPASSWORD="nexus_password" psql \
+         -h 127.0.0.1 -p 5433 -U nexus_user nexus_db'
+   ```
+
+   Notes:
+   
+   - `postgres:18` matches the server version used by Cloud SQL.
+   - `PROD_DB_PASSWORD` must be set in `.env` (do **not** hard-code secrets into scripts).
+   - The pipeline applies `pg_dump --clean` output directly into the local Docker DB.
+
+3. **Bring the local schema fully up-to-date (Prisma migrations)**
+   
+   After cloning, always run Prisma migrations against the local DB so the schema matches the Prisma client used by the API:
+   
+   ```bash
+   cd /Users/pg/nexus-enterprise/packages/database
+   DATABASE_URL="postgresql://nexus_user:nexus_password@127.0.0.1:5433/nexus_db" \
+     npx prisma migrate deploy --schema=prisma/schema.prisma
+   ```
+
+4. **Restart the dev stack on the cloned DB**
+   
+   ```bash
+   cd /Users/pg/nexus-enterprise
+   ./start-dev-clear-all.sh
+   ```
+
+   This will restart API + web pointing at the refreshed local Docker DB. You can now log in as `paul@nfsgrp.com` with your usual prod password and exercise the UI against the cloned data.
+
+If any of these steps fail (e.g., `pg_dump` server version mismatch, Prisma `P2022` column errors, etc.), fix that layer first before trying to debug the web app or login flows.

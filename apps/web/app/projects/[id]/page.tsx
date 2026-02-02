@@ -2892,6 +2892,12 @@ ${htmlBody}
           tag: ReconEntryTag;
           description: string;
           note: string;
+          qty: string;
+          unit: string;
+          unitCost: string;
+          itemAmount: string;
+          salesTaxAmount: string;
+          opAmount: string;
           rcvAmount: string;
         };
         saving: boolean;
@@ -7725,6 +7731,27 @@ ${htmlBody}
         tag: draftTag,
         description: String(entry?.description ?? ""),
         note: String(entry?.note ?? ""),
+        qty:
+          typeof entry?.qty === "number" && Number.isFinite(entry.qty)
+            ? String(entry.qty)
+            : "",
+        unit: String(entry?.unit ?? ""),
+        unitCost:
+          typeof entry?.unitCost === "number" && Number.isFinite(entry.unitCost)
+            ? String(entry.unitCost)
+            : "",
+        itemAmount:
+          typeof entry?.itemAmount === "number" && Number.isFinite(entry.itemAmount)
+            ? String(entry.itemAmount)
+            : "",
+        salesTaxAmount:
+          typeof entry?.salesTaxAmount === "number" && Number.isFinite(entry.salesTaxAmount)
+            ? String(entry.salesTaxAmount)
+            : "",
+        opAmount:
+          typeof entry?.opAmount === "number" && Number.isFinite(entry.opAmount)
+            ? String(entry.opAmount)
+            : "",
         rcvAmount:
           typeof entry?.rcvAmount === "number" && Number.isFinite(entry.rcvAmount)
             ? String(entry.rcvAmount)
@@ -7736,6 +7763,47 @@ ${htmlBody}
   };
 
   const closeReconEntryEdit = () => setReconEntryEdit(null);
+
+  const deleteReconEntryFromEditor = async () => {
+    if (!reconEntryEdit) return;
+    if (!project) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token; please log in again.");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Delete this reconciliation entry? Use Reject if you just want to keep a record without charging.",
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${project.id}/petl-reconciliation/entries/${reconEntryEdit.entry.id}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        alert(`Delete failed (${res.status}) ${text}`);
+        return;
+      }
+      setReconEntryEdit(null);
+      setPetlReloadTick((t) => t + 1);
+      if (petlReconPanel.sowItemId) {
+        void loadPetlReconciliation(petlReconPanel.sowItemId);
+      }
+      await loadActiveInvoice();
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to delete reconciliation entry.");
+    }
+  };
 
   const saveReconEntryEdit = async () => {
     if (!reconEntryEdit) return;
@@ -7751,6 +7819,13 @@ ${htmlBody}
 
     const patch: any = {};
 
+    const cleanNumber = (raw: string): number | null => {
+      const s = raw.trim().replace(/,/g, "");
+      if (!s) return null;
+      const n = Number(s);
+      return Number.isFinite(n) ? n : NaN;
+    };
+
     const nextTag = d.tag || null;
     const prevTag = entry?.tag ?? null;
     if (nextTag !== prevTag) patch.tag = nextTag;
@@ -7763,13 +7838,95 @@ ${htmlBody}
     const prevNote = entry?.note ?? null;
     if (nextNote !== prevNote) patch.note = nextNote;
 
-    const rcvRaw = d.rcvAmount.trim();
-    const nextRcv = rcvRaw === "" ? null : Number(rcvRaw);
-    if (rcvRaw !== "" && (!Number.isFinite(nextRcv) || Number.isNaN(nextRcv))) {
-      alert("RCV must be a number (or blank). ");
+    const qtyRaw = d.qty;
+    const qtyVal = cleanNumber(qtyRaw);
+    if (qtyRaw.trim() !== "" && qtyVal === null) {
+      alert("Qty must be a number (or blank).");
       return;
     }
+    const nextQty = qtyVal;
+    const prevQty = typeof entry?.qty === "number" ? entry.qty : null;
+    if (nextQty !== prevQty) patch.qty = nextQty;
+
+    const unitRaw = d.unit.trim();
+    const nextUnit = unitRaw || null;
+    const prevUnit = entry?.unit ?? null;
+    if (nextUnit !== prevUnit) patch.unit = nextUnit;
+
+    const unitCostRaw = d.unitCost;
+    const unitCostVal = cleanNumber(unitCostRaw);
+    if (unitCostRaw.trim() !== "" && unitCostVal === null) {
+      alert("Unit cost must be a number (or blank).");
+      return;
+    }
+    const nextUnitCost = unitCostVal;
+    const prevUnitCost = typeof entry?.unitCost === "number" ? entry.unitCost : null;
+    if (nextUnitCost !== prevUnitCost) patch.unitCost = nextUnitCost;
+
+    const itemRaw = d.itemAmount;
+    const itemVal = cleanNumber(itemRaw);
+    if (itemRaw.trim() !== "" && itemVal === null) {
+      alert("Item amount must be a number (or blank).");
+      return;
+    }
+    let nextItem = itemVal;
+    const prevItem = typeof entry?.itemAmount === "number" ? entry.itemAmount : null;
+
+    const taxRaw = d.salesTaxAmount;
+    const taxVal = cleanNumber(taxRaw);
+    if (taxRaw.trim() !== "" && taxVal === null) {
+      alert("Tax amount must be a number (or blank).");
+      return;
+    }
+    let nextTax = taxVal;
+    const prevTax = typeof entry?.salesTaxAmount === "number" ? entry.salesTaxAmount : null;
+
+    const opRaw = d.opAmount;
+    const opVal = cleanNumber(opRaw);
+    if (opRaw.trim() !== "" && opVal === null) {
+      alert("O&P amount must be a number (or blank).");
+      return;
+    }
+    let nextOp = opVal;
+    const prevOp = typeof entry?.opAmount === "number" ? entry.opAmount : null;
+
+    const rcvRaw = d.rcvAmount;
+    const rcvVal = cleanNumber(rcvRaw);
+    if (rcvRaw.trim() !== "" && rcvVal === null) {
+      alert("RCV must be a number (or blank).");
+      return;
+    }
+    let nextRcv = rcvVal;
     const prevRcv = typeof entry?.rcvAmount === "number" ? entry.rcvAmount : null;
+
+    // Derive itemAmount/RCV when qty/unitCost change and amounts are not explicitly overridden.
+    const qtyChanged = nextQty !== prevQty;
+    const unitCostChanged = nextUnitCost !== prevUnitCost;
+
+    if (nextItem === null && (qtyChanged || unitCostChanged)) {
+      const qtyForCalc = nextQty ?? prevQty;
+      const unitForCalc = nextUnitCost ?? prevUnitCost;
+      if (qtyForCalc != null && unitForCalc != null) {
+        nextItem = qtyForCalc * unitForCalc;
+      }
+    }
+
+    // If RCV wasn't explicitly set, recompute from components when they change.
+    const itemForCalc = nextItem ?? prevItem ?? 0;
+    const taxForCalc = nextTax ?? prevTax ?? 0;
+    const opForCalc = nextOp ?? prevOp ?? 0;
+
+    const anyAmountChanged =
+      nextItem !== prevItem || nextTax !== prevTax || nextOp !== prevOp;
+
+    if (rcvRaw.trim() === "" && anyAmountChanged) {
+      nextRcv = itemForCalc + taxForCalc + opForCalc;
+    }
+
+    // Now build patch only for fields that changed.
+    if (nextItem !== prevItem) patch.itemAmount = nextItem;
+    if (nextTax !== prevTax) patch.salesTaxAmount = nextTax;
+    if (nextOp !== prevOp) patch.opAmount = nextOp;
     if (nextRcv !== prevRcv) patch.rcvAmount = nextRcv;
 
     if (Object.keys(patch).length === 0) {
@@ -18045,7 +18202,7 @@ ${htmlBody}
             inset: 0,
             zIndex: 45,
             display: "flex",
-            justifyContent: "flex-end",
+            justifyContent: "center",
             backgroundColor: "rgba(15,23,42,0.35)",
           }}
           onClick={() =>
@@ -18058,13 +18215,13 @@ ${htmlBody}
           <div
             style={{
               position: "relative",
-              top: 0,
-              bottom: 0,
-              width: 520,
-              maxWidth: "92vw",
+              margin: "24px 0",
+              width: "min(960px, 96vw)",
+              maxWidth: "96vw",
+              maxHeight: "70vh",
               backgroundColor: "#ffffff",
-              borderLeft: "1px solid #e5e7eb",
-              boxShadow: "-4px 0 12px rgba(15,23,42,0.12)",
+              borderRadius: 10,
+              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
               display: "flex",
               flexDirection: "column",
             }}
@@ -18349,6 +18506,10 @@ ${htmlBody}
 
                   <div>
                     <div style={{ fontWeight: 600, marginBottom: 6 }}>Reconciliation entries</div>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>
+                      Tip: click a row to edit. To move a reconciliation line to a different PETL item,
+                      Delete it here and recreate it under the correct line.
+                    </div>
                     {(petlReconPanel.data.reconciliationCase?.entries || []).length === 0 ? (
                       <div style={{ color: "#6b7280" }}>No entries yet.</div>
                     ) : (
@@ -18356,10 +18517,17 @@ ${htmlBody}
                         style={{
                           border: "1px solid #e5e7eb",
                           borderRadius: 8,
-                          overflow: "hidden",
+                          overflowX: "auto",
+                          overflowY: "hidden",
                         }}
                       >
-                        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <table
+                          style={{
+                            width: "100%",
+                            borderCollapse: "collapse",
+                            minWidth: 600,
+                          }}
+                        >
                           <thead>
                             <tr style={{ background: "#f9fafb" }}>
                               <th style={{ textAlign: "left", padding: "6px 8px", width: 70 }}>Line</th>
@@ -18411,6 +18579,45 @@ ${htmlBody}
                                   project.userRole === "ADMIN" ||
                                   project.userRole === "PM");
 
+                              const deleteEntry = async () => {
+                                if (!project) return;
+                                const token = localStorage.getItem("accessToken");
+                                if (!token) {
+                                  alert("Missing access token.");
+                                  return;
+                                }
+                                if (
+                                  !window.confirm(
+                                    "Delete this reconciliation entry? Use Reject if you just want to keep a record without charging.",
+                                  )
+                                ) {
+                                  return;
+                                }
+                                try {
+                                  const res = await fetch(
+                                    `${API_BASE}/projects/${project.id}/petl-reconciliation/entries/${e.id}`,
+                                    {
+                                      method: "DELETE",
+                                      headers: {
+                                        Authorization: `Bearer ${token}`,
+                                      },
+                                    },
+                                  );
+                                  if (!res.ok) {
+                                    const text = await res.text().catch(() => "");
+                                    alert(`Delete failed (${res.status}) ${text}`);
+                                    return;
+                                  }
+                                  setPetlReloadTick((t) => t + 1);
+                                  if (petlReconPanel.sowItemId) {
+                                    void loadPetlReconciliation(petlReconPanel.sowItemId);
+                                  }
+                                  await loadActiveInvoice();
+                                } catch (err: any) {
+                                  alert(err?.message ?? "Failed to delete reconciliation entry.");
+                                }
+                              };
+
                               const changeStatus = async (nextStatus: "APPROVED" | "REJECTED") => {
                                 if (!project) return;
                                 const token = localStorage.getItem("accessToken");
@@ -18448,7 +18655,11 @@ ${htmlBody}
                               };
 
                               return (
-                                <tr key={e.id}>
+                                <tr
+                                  key={e.id}
+                                  onClick={() => openReconEntryEdit(e)}
+                                  style={{ cursor: "pointer" }}
+                                >
                                   <td
                                     style={{
                                       padding: "6px 8px",
@@ -18547,21 +18758,9 @@ ${htmlBody}
                                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                                       <button
                                         type="button"
-                                        onClick={() => {
-                                          setReconEntryEdit({
-                                            entry: e,
-                                            draft: {
-                                              tag: (String(e?.tag ?? "").trim() || "") as ReconEntryTag,
-                                              description: String(e?.description ?? ""),
-                                              note: String(e?.note ?? ""),
-                                              rcvAmount:
-                                                e?.rcvAmount != null && !Number.isNaN(e.rcvAmount)
-                                                  ? String(e.rcvAmount)
-                                                  : "",
-                                            },
-                                            saving: false,
-                                            error: null,
-                                          });
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          openReconEntryEdit(e);
                                         }}
                                         style={{
                                           padding: "4px 8px",
@@ -18578,7 +18777,10 @@ ${htmlBody}
                                         <>
                                           <button
                                             type="button"
-                                            onClick={() => void changeStatus("APPROVED")}
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              void changeStatus("APPROVED");
+                                            }}
                                             style={{
                                               padding: "4px 8px",
                                               borderRadius: 6,
@@ -18593,7 +18795,10 @@ ${htmlBody}
                                           </button>
                                           <button
                                             type="button"
-                                            onClick={() => void changeStatus("REJECTED")}
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              void changeStatus("REJECTED");
+                                            }}
                                             style={{
                                               padding: "4px 8px",
                                               borderRadius: 6,
@@ -18605,6 +18810,24 @@ ${htmlBody}
                                             }}
                                           >
                                             Reject
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              void deleteEntry();
+                                            }}
+                                            style={{
+                                              padding: "4px 8px",
+                                              borderRadius: 6,
+                                              border: "1px solid #6b7280",
+                                              background: "#f9fafb",
+                                              color: "#374151",
+                                              cursor: "pointer",
+                                              fontSize: 11,
+                                            }}
+                                          >
+                                            Delete
                                           </button>
                                         </>
                                       )}
@@ -18643,7 +18866,7 @@ ${htmlBody}
             style={{
               width: 640,
               maxWidth: "96vw",
-              maxHeight: "90vh",
+              maxHeight: "55vh",
               overflow: "auto",
               background: "#ffffff",
               borderRadius: 10,
@@ -18711,6 +18934,129 @@ ${htmlBody}
                   <option value="OTHER">Other</option>
                   <option value="WARRANTY">Warranty</option>
                 </select>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Qty</div>
+                  <input
+                    value={reconEntryEdit.draft.qty}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setReconEntryEdit((prev) =>
+                        prev ? { ...prev, draft: { ...prev.draft, qty: v } } : prev,
+                      );
+                    }}
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 8,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                      width: "100%",
+                    }}
+                  />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Unit</div>
+                  <input
+                    value={reconEntryEdit.draft.unit}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setReconEntryEdit((prev) =>
+                        prev ? { ...prev, draft: { ...prev.draft, unit: v } } : prev,
+                      );
+                    }}
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 8,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                      width: "100%",
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Unit cost</div>
+                  <input
+                    value={reconEntryEdit.draft.unitCost}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setReconEntryEdit((prev) =>
+                        prev ? { ...prev, draft: { ...prev.draft, unitCost: v } } : prev,
+                      );
+                    }}
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 8,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                      width: "100%",
+                    }}
+                  />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Item amount</div>
+                  <input
+                    value={reconEntryEdit.draft.itemAmount}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setReconEntryEdit((prev) =>
+                        prev ? { ...prev, draft: { ...prev.draft, itemAmount: v } } : prev,
+                      );
+                    }}
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 8,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                      width: "100%",
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Tax</div>
+                  <input
+                    value={reconEntryEdit.draft.salesTaxAmount}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setReconEntryEdit((prev) =>
+                        prev ? { ...prev, draft: { ...prev.draft, salesTaxAmount: v } } : prev,
+                      );
+                    }}
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 8,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                      width: "100%",
+                    }}
+                  />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>O&P / Other</div>
+                  <input
+                    value={reconEntryEdit.draft.opAmount}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setReconEntryEdit((prev) =>
+                        prev ? { ...prev, draft: { ...prev.draft, opAmount: v } } : prev,
+                      );
+                    }}
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 8,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                      width: "100%",
+                    }}
+                  />
+                </div>
               </div>
 
               <div>
@@ -18782,38 +19128,60 @@ ${htmlBody}
                 <div style={{ fontSize: 12, color: "#b91c1c" }}>{reconEntryEdit.error}</div>
               )}
 
-              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                <button
-                  type="button"
-                  onClick={closeReconEntryEdit}
-                  disabled={reconEntryEdit.saving}
-                  style={{
-                    padding: "6px 10px",
-                    borderRadius: 8,
-                    border: "1px solid #d1d5db",
-                    background: "#ffffff",
-                    cursor: reconEntryEdit.saving ? "default" : "pointer",
-                    fontSize: 12,
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={saveReconEntryEdit}
-                  disabled={reconEntryEdit.saving}
-                  style={{
-                    padding: "6px 10px",
-                    borderRadius: 8,
-                    border: "1px solid #0f172a",
-                    background: reconEntryEdit.saving ? "#e5e7eb" : "#0f172a",
-                    color: reconEntryEdit.saving ? "#4b5563" : "#f9fafb",
-                    cursor: reconEntryEdit.saving ? "default" : "pointer",
-                    fontSize: 12,
-                  }}
-                >
-                  {reconEntryEdit.saving ? "Saving…" : "Save"}
-                </button>
+              <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
+                <div>
+                  {isPmOrAbove && (
+                      <button
+                        type="button"
+                        onClick={deleteReconEntryFromEditor}
+                        disabled={reconEntryEdit.saving}
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 8,
+                          border: "1px solid #6b7280",
+                          background: "#f9fafb",
+                          color: "#374151",
+                          cursor: reconEntryEdit.saving ? "default" : "pointer",
+                          fontSize: 12,
+                        }}
+                      >
+                        Delete entry
+                      </button>
+                    )}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={closeReconEntryEdit}
+                    disabled={reconEntryEdit.saving}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 8,
+                      border: "1px solid #d1d5db",
+                      background: "#ffffff",
+                      cursor: reconEntryEdit.saving ? "default" : "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveReconEntryEdit}
+                    disabled={reconEntryEdit.saving}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 8,
+                      border: "1px solid #0f172a",
+                      background: reconEntryEdit.saving ? "#e5e7eb" : "#0f172a",
+                      color: reconEntryEdit.saving ? "#4b5563" : "#f9fafb",
+                      cursor: reconEntryEdit.saving ? "default" : "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    {reconEntryEdit.saving ? "Saving…" : "Save"}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

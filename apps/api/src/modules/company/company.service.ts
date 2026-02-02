@@ -833,6 +833,40 @@ export class CompanyService {
       },
     });
 
+    // Best-effort: keep Nex-Net candidate assignment in sync with tenant
+    // membership. When a worker is deactivated in this company, we clear their
+    // companyId on NexNetCandidate so they remain only in the global pool. When
+    // reactivated, we reattach them to this company.
+    try {
+      if (!isActive) {
+        await this.prisma.nexNetCandidate.updateMany({
+          where: {
+            userId,
+            companyId,
+          },
+          data: {
+            companyId: null,
+          },
+        });
+      } else {
+        await this.prisma.nexNetCandidate.updateMany({
+          where: {
+            userId,
+            OR: [
+              { companyId: null },
+              { companyId },
+            ],
+          },
+          data: {
+            companyId,
+          },
+        });
+      }
+    } catch {
+      // Non-fatal: Nex-Net denormalization issues should never block tenant
+      // access changes.
+    }
+
     await this.audit.log(actor, "COMPANY_MEMBER_ACCESS_UPDATED", {
       companyId,
       metadata: {
