@@ -15,6 +15,7 @@ import {
   PetlReconciliationCaseStatus,
   PetlReconciliationEntryKind,
   PetlReconciliationEntryTag,
+  PetlReconciliationEntryStatus,
   PetlPercentUpdateSessionStatus,
   PetlPercentUpdateTargetType,
   ProjectBillLineItemAmountSource,
@@ -2762,6 +2763,7 @@ export class ProjectService {
                 projectParticleId: String(e.projectParticleId ?? parent.projectParticleId),
                 kind: kindRaw,
                 tag: tagRaw,
+                status: PetlReconciliationEntryStatus.APPROVED,
                 description: e.description ?? null,
                 categoryCode: e.categoryCode ?? null,
                 selectionCode: e.selectionCode ?? null,
@@ -3348,6 +3350,7 @@ export class ProjectService {
         projectParticleId: sowItem.projectParticleId,
         kind,
         tag,
+        status: PetlReconciliationEntryStatus.APPROVED,
         note: body.note ?? null,
         rcvAmount: null,
         percentComplete: 0,
@@ -3904,6 +3907,7 @@ export class ProjectService {
         projectParticleId: sowItem.projectParticleId,
         kind: PetlReconciliationEntryKind.CREDIT,
         tag,
+        status: PetlReconciliationEntryStatus.APPROVED,
         description: sowItem.description,
         categoryCode: sowItem.categoryCode,
         selectionCode: sowItem.selectionCode,
@@ -4017,6 +4021,7 @@ export class ProjectService {
         projectParticleId: sowItem.projectParticleId,
         kind: PetlReconciliationEntryKind.ADD,
         tag,
+        status: PetlReconciliationEntryStatus.APPROVED,
         description: body.description ?? sowItem.description,
         categoryCode: body.categoryCode ?? null,
         selectionCode: body.selectionCode ?? null,
@@ -4129,6 +4134,7 @@ export class ProjectService {
         projectParticleId: sowItem.projectParticleId,
         kind: PetlReconciliationEntryKind.ADD,
         tag,
+        status: PetlReconciliationEntryStatus.APPROVED,
         description: costBookItem.description,
         categoryCode: costBookItem.cat,
         selectionCode: costBookItem.sel,
@@ -4292,6 +4298,7 @@ export class ProjectService {
     body: {
       kind?: string | null;
       tag?: string | null;
+      status?: string | null;
       description?: string | null;
       categoryCode?: string | null;
       selectionCode?: string | null;
@@ -4315,6 +4322,25 @@ export class ProjectService {
 
     if (!entry || entry.projectId !== projectId) {
       throw new NotFoundException("Reconciliation entry not found for this project");
+    }
+
+    const status = (() => {
+      if (body.status === undefined) return undefined;
+      const raw = String(body.status).trim();
+      if (!raw) return undefined;
+      if ((Object.values(PetlReconciliationEntryStatus) as string[]).includes(raw)) {
+        return raw as PetlReconciliationEntryStatus;
+      }
+      throw new BadRequestException("Invalid reconciliation entry status");
+    })();
+
+    if (status !== undefined) {
+      const canChangeStatus = await this.isProjectManagerOrAbove(projectId, actor);
+      if (!canChangeStatus) {
+        throw new ForbiddenException(
+          "Only project managers/owners/admins can change reconciliation entry status",
+        );
+      }
     }
 
     const cleanText = (value: any, max = 5000): string | null => {
@@ -4423,6 +4449,7 @@ export class ProjectService {
     const data: Prisma.PetlReconciliationEntryUpdateInput = {
       kind: kind === undefined ? undefined : kind ?? undefined,
       tag: tag === undefined ? undefined : tag,
+      status: status === undefined ? undefined : status,
       description:
         body.description === undefined
           ? undefined
@@ -4470,9 +4497,10 @@ export class ProjectService {
           estimateVersionId: entry.estimateVersionId,
           caseId: entry.caseId,
           eventType: "ENTRY_UPDATED",
-          payloadJson: {
+            payloadJson: {
             kind: body.kind ?? undefined,
             tag: body.tag ?? undefined,
+            status: body.status ?? undefined,
             description: body.description ?? undefined,
             categoryCode: body.categoryCode ?? undefined,
             selectionCode: body.selectionCode ?? undefined,
@@ -5226,6 +5254,7 @@ export class ProjectService {
         where: {
           projectId,
           estimateVersionId: latestVersion.id,
+          status: PetlReconciliationEntryStatus.APPROVED,
           rcvAmount: { not: null },
           ...(filters.roomParticleIds?.length
             ? { projectParticleId: { in: filters.roomParticleIds } }
@@ -5577,11 +5606,9 @@ export class ProjectService {
 
     const mapped = items.map((item) => {
       const particle = particleById.get(item.projectParticleId) ?? null;
-      const orgGroupCode =
-        (particle as any)?.externalGroupCode &&
-        String((particle as any).externalGroupCode).trim()
-          ? String((particle as any).externalGroupCode).trim()
-          : null;
+      const orgGroupCode = (particle as any)?.externalGroupCode
+        ? String((particle as any).externalGroupCode).trim() || null
+        : null;
 
       return {
         id: item.id,
@@ -5598,6 +5625,7 @@ export class ProjectService {
         qtyFlaggedIncorrect: item.qtyFlaggedIncorrect,
         qtyFieldReported: item.qtyFieldReported ?? null,
         qtyReviewStatus: item.qtyReviewStatus ?? null,
+        percentComplete: item.percentComplete ?? 0,
         orgGroupCode,
       };
     });
@@ -7782,6 +7810,11 @@ export class ProjectService {
               projectTreePathSnapshot: true,
               lineNoSnapshot: true,
               // intentionally omit sourceLineNoSnapshot
+              displayLineNo: true,
+              anchorRootSourceLineNo: true,
+              anchorKind: true,
+              anchorSubIndex: true,
+              anchorGroupSubIndex: true,
               categoryCodeSnapshot: true,
               selectionCodeSnapshot: true,
               descriptionSnapshot: true,
@@ -8029,6 +8062,10 @@ export class ProjectService {
         select: {
           sowItemId: true,
           kind: true,
+          billingTag: true,
+          lineNoSnapshot: true,
+          anchorRootSourceLineNo: true,
+          anchorSubIndex: true,
           thisInvItemAmount: true,
           thisInvTaxAmount: true,
           thisInvOpAmount: true,
@@ -8036,7 +8073,46 @@ export class ProjectService {
         },
       });
 
+      // Track previously billed amounts for base/ACV PETL lines and, separately,
+      // for reconciliation-driven supplement / change-order lines.
+      const prevReconByKey = new Map<
+        string,
+        {
+          item: number;
+          tax: number;
+          op: number;
+          total: number;
+        }
+      >();
+
       for (const row of priorLines) {
+        const isReconLine =
+          row.kind === "BASE" &&
+          row.billingTag !== ProjectInvoicePetlLineBillingTag.PETL_LINE_ITEM;
+
+        if (isReconLine) {
+          // Recon lines are keyed by (sowItemId, root, subIndex, billingTag) so each
+          // supplement / change order can be tracked independently across invoices.
+          const root = (row.anchorRootSourceLineNo ?? row.lineNoSnapshot ?? 0) as number;
+          const subIndex = (row.anchorSubIndex ?? 0) as number;
+          const reconKey = `${row.sowItemId}:${root}:${subIndex}:${row.billingTag}`;
+
+          const existingRecon = prevReconByKey.get(reconKey) ?? {
+            item: 0,
+            tax: 0,
+            op: 0,
+            total: 0,
+          };
+          existingRecon.item += row.thisInvItemAmount ?? 0;
+          existingRecon.tax += row.thisInvTaxAmount ?? 0;
+          existingRecon.op += row.thisInvOpAmount ?? 0;
+          existingRecon.total += row.thisInvTotal ?? 0;
+          prevReconByKey.set(reconKey, existingRecon);
+
+          // Do not let recon lines bleed into base/ACV prevByKey aggregation.
+          continue;
+        }
+
         const key = `${row.sowItemId}:${row.kind}`;
         const existing = prevByKey.get(key) ?? { item: 0, tax: 0, op: 0, total: 0 };
         existing.item += row.thisInvItemAmount ?? 0;
@@ -8045,9 +8121,51 @@ export class ProjectService {
         existing.total += row.thisInvTotal ?? 0;
         prevByKey.set(key, existing);
       }
+
+      // Expose prevReconByKey to the rest of this function via closure.
+      (prevByKey as any)._recon = prevReconByKey;
     }
 
     const ACV_HOLDBACK_RATE = 0.8;
+
+    // Line-tied reconciliation entries (APPROVED, monetary) keyed by parent sowItemId.
+    let reconByParent = new Map<string, any[]>();
+    let lineSubIndexByRoot = new Map<number, number>();
+    try {
+      const reconEntries = await this.prisma.petlReconciliationEntry.findMany({
+        where: {
+          projectId: project.id,
+          estimateVersionId: latestVersion.id,
+          status: PetlReconciliationEntryStatus.APPROVED,
+          rcvAmount: { not: null },
+          parentSowItemId: { not: null },
+        },
+        orderBy: { createdAt: "asc" },
+      });
+      reconByParent = new Map();
+      for (const e of reconEntries as any[]) {
+        const key = String(e.parentSowItemId);
+        const arr = reconByParent.get(key) ?? [];
+        arr.push(e);
+        reconByParent.set(key, arr);
+      }
+    } catch (err: any) {
+      if (
+        !this.isMissingPrismaTableError(err, "PetlReconciliationEntry") &&
+        !this.isMissingPrismaTableError(err, "PetlReconciliationCase")
+      ) {
+        throw err;
+      }
+      reconByParent = new Map();
+      lineSubIndexByRoot = new Map();
+    }
+
+    const nextLineSubIndex = (root: number) => {
+      const current = lineSubIndexByRoot.get(root) ?? 0;
+      const next = current + 1;
+      lineSubIndexByRoot.set(root, next);
+      return next;
+    };
 
     const linesToCreate: any[] = [];
 
@@ -8076,6 +8194,17 @@ export class ProjectService {
       const treePath = [buildingLabel, unitLabel, particleLabel].filter(Boolean).join(" · ") || null;
 
       const basePrev = prevByKey.get(`${s.id}:BASE`) ?? { item: 0, tax: 0, op: 0, total: 0 };
+      const prevReconByKey = (prevByKey as any)._recon as
+        | Map<
+            string,
+            {
+              item: number;
+              tax: number;
+              op: number;
+              total: number;
+            }
+          >
+        | undefined;
 
       const baseThisInvItem = earnedItem - basePrev.item;
       const baseThisInvTax = earnedTax - basePrev.tax;
@@ -8099,6 +8228,13 @@ export class ProjectService {
         lineNoSnapshot: s.lineNo,
         // NOTE: sourceLineNoSnapshot exists in Prisma schema but is missing in prod DB right now.
         // If we include it, createMany will throw P2022. We can re-enable once the DB is migrated.
+        // For now, derive display and anchor information from PETL-managed lineNo.
+        displayLineNo: String(s.lineNo),
+        anchorRootSourceLineNo: s.sourceLineNo ?? s.lineNo,
+        anchorKind: "BASE",
+        anchorSubIndex: null,
+        anchorGroupSubIndex: null,
+        billingTag: ProjectInvoicePetlLineBillingTag.PETL_LINE_ITEM,
         categoryCodeSnapshot: s.categoryCode ?? null,
         selectionCodeSnapshot: s.selectionCode ?? null,
         descriptionSnapshot: s.description,
@@ -8123,6 +8259,101 @@ export class ProjectService {
       };
 
       linesToCreate.push(baseLine);
+
+      // Line-tied reconciliation entries (supplements / client-pay COs)
+      const parentReconEntries = reconByParent.get(s.id) ?? [];
+      if (parentReconEntries.length > 0) {
+        const root = s.sourceLineNo ?? s.lineNo;
+
+        for (const e of parentReconEntries) {
+          const isSupplement = e.tag === PetlReconciliationEntryTag.SUPPLEMENT;
+          const isChangeOrder =
+            e.kind === PetlReconciliationEntryKind.CHANGE_ORDER_CLIENT_PAY ||
+            e.tag === PetlReconciliationEntryTag.CHANGE_ORDER;
+
+          if (!isSupplement && !isChangeOrder) continue;
+
+          const subIndex = nextLineSubIndex(root);
+          const displayLineNo = `${root}.${subIndex.toString().padStart(3, "0")}`;
+
+          const contractItem = e.itemAmount ?? 0;
+          const contractTax = e.salesTaxAmount ?? 0;
+          const contractOp = e.opAmount ?? 0;
+          const contractTotal = e.rcvAmount ?? 0;
+
+          const reconPct = this.clampPercentComplete(e.percentComplete) / 100;
+          const earnedItem = contractItem * reconPct;
+          const earnedTax = contractTax * reconPct;
+          const earnedOp = contractOp * reconPct;
+          const earnedTotal = contractTotal * reconPct;
+
+          const reconBillingTag = isSupplement
+            ? ProjectInvoicePetlLineBillingTag.SUPPLEMENT
+            : ProjectInvoicePetlLineBillingTag.CHANGE_ORDER;
+
+          const reconKey = `${e.parentSowItemId}:${root}:${subIndex}:${reconBillingTag}`;
+          const reconPrev = prevReconByKey?.get(reconKey) ?? { item: 0, tax: 0, op: 0, total: 0 };
+
+          let thisInvItem = earnedItem - reconPrev.item;
+          let thisInvTax = earnedTax - reconPrev.tax;
+          let thisInvOp = earnedOp - reconPrev.op;
+          let thisInvTotal = earnedTotal - reconPrev.total;
+
+          // If entry has since been marked REJECTED, zero out dollars but keep the line.
+          if (e.status === PetlReconciliationEntryStatus.REJECTED) {
+            thisInvItem = 0;
+            thisInvTax = 0;
+            thisInvOp = 0;
+            thisInvTotal = 0;
+          }
+
+          const reconLine = {
+            invoiceId: invoice.id,
+            kind: "BASE" as const,
+            parentLineId: null,
+            estimateVersionId: e.estimateVersionId,
+            sowItemId: e.parentSowItemId,
+            logicalItemId: s.logicalItemId,
+            projectParticleId: e.projectParticleId,
+            projectParticleLabelSnapshot: particleLabel,
+            projectUnitIdSnapshot: unit?.id ?? null,
+            projectUnitLabelSnapshot: unitLabel,
+            projectBuildingIdSnapshot: building?.id ?? null,
+            projectBuildingLabelSnapshot: buildingLabel,
+            projectTreePathSnapshot: treePath,
+            lineNoSnapshot: s.lineNo,
+            displayLineNo,
+            anchorRootSourceLineNo: root,
+            anchorKind: "LINE_TIED",
+            anchorSubIndex: subIndex,
+            anchorGroupSubIndex: null,
+            billingTag: reconBillingTag,
+            categoryCodeSnapshot: e.categoryCode ?? s.categoryCode ?? null,
+            selectionCodeSnapshot: e.selectionCode ?? s.selectionCode ?? null,
+            descriptionSnapshot: e.description ?? s.description,
+            unitSnapshot: e.unit ?? s.unit ?? null,
+            percentCompleteSnapshot: this.clampPercentComplete(e.percentComplete),
+            contractItemAmount: contractItem,
+            contractTaxAmount: contractTax,
+            contractOpAmount: contractOp,
+            contractTotal,
+            earnedItemAmount: earnedItem,
+            earnedTaxAmount: earnedTax,
+            earnedOpAmount: earnedOp,
+            earnedTotal: earnedTotal,
+            prevBilledItemAmount: reconPrev.item,
+            prevBilledTaxAmount: reconPrev.tax,
+            prevBilledOpAmount: reconPrev.op,
+            prevBilledTotal: reconPrev.total,
+            thisInvItemAmount: thisInvItem,
+            thisInvTaxAmount: thisInvTax,
+            thisInvOpAmount: thisInvOp,
+            thisInvTotal: thisInvTotal,
+          };
+
+          linesToCreate.push(reconLine);
+        }
+      }
 
       if (s.isAcvOnly) {
         const creditPrev =

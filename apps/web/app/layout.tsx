@@ -7,7 +7,9 @@ import { LanguageProvider, Locale } from "./language-context";
 
 export const metadata = {
   title: "Nexus Enterprise",
-  description: "Nexus project management portal"
+  description: "Nexus project management portal",
+  applicationName: "Nexus Enterprise",
+  themeColor: "#0f172a",
 };
 
 const supportedLocales: Locale[] = ["en", "es"];
