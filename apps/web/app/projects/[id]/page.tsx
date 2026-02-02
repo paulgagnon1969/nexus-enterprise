@@ -18358,245 +18358,234 @@ ${htmlBody}
                             </tr>
                           </thead>
                           <tbody>
-                            {(() => {
-                              const entries = (petlReconPanel.data.reconciliationCase?.entries || []) as any[];
-                              const baseLineNoRaw = petlReconPanel.data?.sowItem?.lineNo;
-                              const baseLineNo =
-                                typeof baseLineNoRaw === "number" && Number.isFinite(baseLineNoRaw)
-                                  ? baseLineNoRaw
-                                  : null;
+                            {reconEntries.map((e: any) => {
+                              const pct = e.isPercentCompleteLocked ? 0 : (e.percentComplete ?? 0);
+                              const seq = reconSeqById.get(String(e.id));
+                              const lineLabel =
+                                reconBaseLineNo != null && seq != null ? `${reconBaseLineNo}.${seq}` : "—";
 
-                              // Only number “real” financial entries; note-only entries don’t shift the decimal.
-                              const numbered = entries.filter((x) => String(x.kind) !== "NOTE_ONLY");
-                              const seqById = new Map<string, number>();
-                              numbered.forEach((x, idx) => {
-                                if (x?.id) seqById.set(String(x.id), idx + 1);
-                              });
+                              const tagRaw = String(e?.tag ?? "").trim();
+                              const tagLabel =
+                                tagRaw === "SUPPLEMENT"
+                                  ? "Supplement"
+                                  : tagRaw === "CHANGE_ORDER"
+                                    ? "Change order"
+                                    : tagRaw === "OTHER"
+                                      ? "Other"
+                                      : tagRaw === "WARRANTY"
+                                        ? "Warranty"
+                                        : "";
 
-                              return entries.map((e: any) => {
-                                const pct = e.isPercentCompleteLocked ? 0 : (e.percentComplete ?? 0);
-                                const seq = seqById.get(String(e.id));
-                                const lineLabel =
-                                  baseLineNo != null && seq != null ? `${baseLineNo}.${seq}` : "—";
-
-                                const tagRaw = String(e?.tag ?? "").trim();
-                                const tagLabel =
-                                  tagRaw === "SUPPLEMENT"
-                                    ? "Supplement"
-                                    : tagRaw === "CHANGE_ORDER"
-                                      ? "Change order"
-                                      : tagRaw === "OTHER"
-                                        ? "Other"
-                                        : tagRaw === "WARRANTY"
-                                          ? "Warranty"
-                                          : "";
-
-                                const statusRaw = String(e?.status ?? "").trim().toUpperCase() || "PENDING";
-                                const statusLabel = statusRaw === "APPROVED"
+                              const statusRaw = String(e?.status ?? "").trim().toUpperCase() || "PENDING";
+                              const statusLabel =
+                                statusRaw === "APPROVED"
                                   ? "Approved"
                                   : statusRaw === "REJECTED"
                                     ? "Rejected"
                                     : "Pending";
-                                const statusColor =
-                                  statusRaw === "APPROVED"
-                                    ? "#16a34a"
-                                    : statusRaw === "REJECTED"
-                                      ? "#b91c1c"
-                                      : "#6b7280";
+                              const statusColor =
+                                statusRaw === "APPROVED"
+                                  ? "#16a34a"
+                                  : statusRaw === "REJECTED"
+                                    ? "#b91c1c"
+                                    : "#6b7280";
 
-                                const canChangeStatus =
-                                  project &&
-                                  (project.userRole === "OWNER" || project.userRole === "ADMIN" || project.userRole === "PM");
+                              const canChangeStatus =
+                                project &&
+                                (project.userRole === "OWNER" ||
+                                  project.userRole === "ADMIN" ||
+                                  project.userRole === "PM");
 
-                                const changeStatus = async (nextStatus: "APPROVED" | "REJECTED") => {
-                                  if (!project) return;
-                                  const token = localStorage.getItem("accessToken");
-                                  if (!token) {
-                                    alert("Missing access token.");
+                              const changeStatus = async (nextStatus: "APPROVED" | "REJECTED") => {
+                                if (!project) return;
+                                const token = localStorage.getItem("accessToken");
+                                if (!token) {
+                                  alert("Missing access token.");
+                                  return;
+                                }
+                                try {
+                                  const res = await fetch(
+                                    `${API_BASE}/projects/${project.id}/petl-reconciliation/entries/${e.id}`,
+                                    {
+                                      method: "PATCH",
+                                      headers: {
+                                        "Content-Type": "application/json",
+                                        Authorization: `Bearer ${token}`,
+                                      },
+                                      body: JSON.stringify({ status: nextStatus }),
+                                    },
+                                  );
+                                  if (!res.ok) {
+                                    const text = await res.text().catch(() => "");
+                                    alert(`Update failed (${res.status}) ${text}`);
                                     return;
                                   }
-                                  try {
-                                    const res = await fetch(
-                                      `${API_BASE}/projects/${project.id}/petl-reconciliation/entries/${e.id}`,
-                                      {
-                                        method: "PATCH",
-                                        headers: {
-                                          "Content-Type": "application/json",
-                                          Authorization: `Bearer ${token}`,
-                                        },
-                                        body: JSON.stringify({ status: nextStatus }),
-                                      },
-                                    );
-                                    if (!res.ok) {
-                                      const text = await res.text().catch(() => "");
-                                      alert(`Update failed (${res.status}) ${text}`);
-                                      return;
-                                    }
-                                    // Refresh PETL + this reconciliation panel and invoice
-                                    setPetlReloadTick((t) => t + 1);
-                                    if (petlReconPanel.sowItemId) {
-                                      void loadPetlReconciliation(petlReconPanel.sowItemId);
-                                    }
-                                    // Best effort: refresh active invoice from API
-                                    await loadActiveInvoice();
-                                  } catch (err: any) {
-                                    alert(err?.message ?? "Failed to update reconciliation status.");
+                                  // Refresh PETL + this reconciliation panel and invoice
+                                  setPetlReloadTick((t) => t + 1);
+                                  if (petlReconPanel.sowItemId) {
+                                    void loadPetlReconciliation(petlReconPanel.sowItemId);
                                   }
-                                };
+                                  // Best effort: refresh active invoice from API
+                                  await loadActiveInvoice();
+                                } catch (err: any) {
+                                  alert(err?.message ?? "Failed to update reconciliation status.");
+                                }
+                              };
 
-                                return (
-                                  <tr key={e.id}>
-                                    <td
-                                      style={{
-                                        padding: "6px 8px",
-                                        borderTop: "1px solid #e5e7eb",
-                                        fontFamily:
-                                          "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-                                        color: "#4b5563",
-                                        whiteSpace: "nowrap",
-                                      }}
-                                    >
-                                      {lineLabel}
-                                    </td>
-                                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                      {e.kind}
-                                    </td>
-                                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                      {tagLabel ? (
-                                        <span
-                                          style={{
-                                            display: "inline-flex",
-                                            padding: "2px 8px",
-                                            borderRadius: 999,
-                                            border: "1px solid #d1d5db",
-                                            background: "#ffffff",
-                                            fontSize: 11,
-                                            color: "#374151",
-                                            whiteSpace: "nowrap",
-                                          }}
-                                        >
-                                          {tagLabel}
-                                        </span>
-                                      ) : (
-                                        <span style={{ color: "#9ca3af" }}>—</span>
+                              return (
+                                <tr key={e.id}>
+                                  <td
+                                    style={{
+                                      padding: "6px 8px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      fontFamily:
+                                        "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+                                      color: "#4b5563",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {lineLabel}
+                                  </td>
+                                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                    {e.kind}
+                                  </td>
+                                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                    {tagLabel ? (
+                                      <span
+                                        style={{
+                                          display: "inline-flex",
+                                          padding: "2px 8px",
+                                          borderRadius: 999,
+                                          border: "1px solid #d1d5db",
+                                          background: "#ffffff",
+                                          fontSize: 11,
+                                          color: "#374151",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                      >
+                                        {tagLabel}
+                                      </span>
+                                    ) : (
+                                      <span style={{ color: "#9ca3af" }}>—</span>
+                                    )}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "6px 8px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      textAlign: "right",
+                                    }}
+                                  >
+                                    {(e.rcvAmount ?? 0).toLocaleString(undefined, {
+                                      maximumFractionDigits: 2,
+                                    })}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "6px 8px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      textAlign: "right",
+                                    }}
+                                  >
+                                    {e.isPercentCompleteLocked ? (
+                                      "—"
+                                    ) : (
+                                      <select
+                                        value={String(pct)}
+                                        onChange={(ev) => {
+                                          const next = Number(ev.target.value);
+                                          if (Number.isNaN(next)) return;
+                                          void submitReconEntryPercent(e.id, next);
+                                        }}
+                                        style={{
+                                          width: 70,
+                                          padding: "2px 4px",
+                                          borderRadius: 6,
+                                          border: "1px solid #d1d5db",
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        <option value="0">0%</option>
+                                        <option value="10">10%</option>
+                                        <option value="20">20%</option>
+                                        <option value="30">30%</option>
+                                        <option value="40">40%</option>
+                                        <option value="50">50%</option>
+                                        <option value="60">60%</option>
+                                        <option value="70">70%</option>
+                                        <option value="80">80%</option>
+                                        <option value="90">90%</option>
+                                        <option value="100">100%</option>
+                                      </select>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                    {e.note ?? ""}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "6px 8px",
+                                      borderTop: "1px solid #e5e7eb",
+                                      textAlign: "left",
+                                    }}
+                                  >
+                                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setReconEditEntry(e);
+                                          setReconEditModalOpen(true);
+                                        }}
+                                        style={{
+                                          padding: "4px 8px",
+                                          borderRadius: 6,
+                                          border: "1px solid #d1d5db",
+                                          background: "#ffffff",
+                                          cursor: "pointer",
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        Edit
+                                      </button>
+                                      {canChangeStatus && (
+                                        <>
+                                          <button
+                                            type="button"
+                                            onClick={() => void changeStatus("APPROVED")}
+                                            style={{
+                                              padding: "4px 8px",
+                                              borderRadius: 6,
+                                              border: "1px solid #16a34a",
+                                              background: "#ecfdf3",
+                                              color: "#166534",
+                                              cursor: "pointer",
+                                              fontSize: 11,
+                                            }}
+                                          >
+                                            Approve
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => void changeStatus("REJECTED")}
+                                            style={{
+                                              padding: "4px 8px",
+                                              borderRadius: 6,
+                                              border: "1px solid #b91c1c",
+                                              background: "#fef2f2",
+                                              color: "#b91c1c",
+                                              cursor: "pointer",
+                                              fontSize: 11,
+                                            }}
+                                          >
+                                            Reject
+                                          </button>
+                                        </>
                                       )}
-                                    </td>
-                                    <td
-                                      style={{
-                                        padding: "6px 8px",
-                                        borderTop: "1px solid #e5e7eb",
-                                        textAlign: "right",
-                                      }}
-                                    >
-                                      {(e.rcvAmount ?? 0).toLocaleString(undefined, {
-                                        maximumFractionDigits: 2,
-                                      })}
-                                    </td>
-                                    <td
-                                      style={{
-                                        padding: "6px 8px",
-                                        borderTop: "1px solid #e5e7eb",
-                                        textAlign: "right",
-                                      }}
-                                    >
-                                      {e.isPercentCompleteLocked ? (
-                                        "—"
-                                      ) : (
-                                        <select
-                                          value={String(pct)}
-                                          onChange={(ev) => {
-                                            const next = Number(ev.target.value);
-                                            if (Number.isNaN(next)) return;
-                                            void submitReconEntryPercent(e.id, next);
-                                          }}
-                                          style={{
-                                            width: 70,
-                                            padding: "2px 4px",
-                                            borderRadius: 6,
-                                            border: "1px solid #d1d5db",
-                                            fontSize: 11,
-                                          }}
-                                        >
-                                          <option value="0">0%</option>
-                                          <option value="10">10%</option>
-                                          <option value="20">20%</option>
-                                          <option value="30">30%</option>
-                                          <option value="40">40%</option>
-                                          <option value="50">50%</option>
-                                          <option value="60">60%</option>
-                                          <option value="70">70%</option>
-                                          <option value="80">80%</option>
-                                          <option value="90">90%</option>
-                                          <option value="100">100%</option>
-                                        </select>
-                                      )}
-                                    </td>
-                                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                      {e.note ?? ""}
-                                    </td>
-                                    <td
-                                      style={{
-                                        padding: "6px 8px",
-                                        borderTop: "1px solid #e5e7eb",
-                                        textAlign: "left",
-                                      }}
-                                    >
-                                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setReconEditEntry(e);
-                                            setReconEditModalOpen(true);
-                                          }}
-                                          style={{
-                                            padding: "4px 8px",
-                                            borderRadius: 6,
-                                            border: "1px solid #d1d5db",
-                                            background: "#ffffff",
-                                            cursor: "pointer",
-                                            fontSize: 11,
-                                          }}
-                                        >
-                                          Edit
-                                        </button>
-                                        {canChangeStatus && (
-                                          <>
-                                            <button
-                                              type="button"
-                                              onClick={() => void changeStatus("APPROVED")}
-                                              style={{
-                                                padding: "4px 8px",
-                                                borderRadius: 6,
-                                                border: "1px solid #16a34a",
-                                                background: "#ecfdf3",
-                                                color: "#166534",
-                                                cursor: "pointer",
-                                                fontSize: 11,
-                                              }}
-                                            >
-                                              Approve
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => void changeStatus("REJECTED")}
-                                              style={{
-                                                padding: "4px 8px",
-                                                borderRadius: 6,
-                                                border: "1px solid #b91c1c",
-                                                background: "#fef2f2",
-                                                color: "#b91c1c",
-                                                cursor: "pointer",
-                                                fontSize: 11,
-                                              }}
-                                            >
-                                              Reject
-                                            </button>
-                                          </>
-                                        )}
-                                      </div>
-                                    </td>
-                              });
-                            })()}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
