@@ -1,5 +1,10 @@
--- CreateEnum
-CREATE TYPE "DocumentTemplateType" AS ENUM ('INVOICE', 'QUOTE', 'SOP', 'GENERIC');
+-- CreateEnum (idempotent for existing databases)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'DocumentTemplateType') THEN
+        CREATE TYPE "DocumentTemplateType" AS ENUM ('INVOICE', 'QUOTE', 'SOP', 'GENERIC');
+    END IF;
+END $$;
 
 -- CreateTable
 CREATE TABLE "DocumentTemplate" (
