@@ -4290,6 +4290,37 @@ export class ProjectService {
     return { entry: updated, reconciliationCase: updated.case };
   }
 
+  async deletePetlReconciliationEntry(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    entryId: string,
+  ) {
+    await this.getProjectByIdForUser(projectId, actor);
+
+    const canEdit = await this.isProjectManagerOrAbove(projectId, actor);
+    if (!canEdit) {
+      throw new ForbiddenException(
+        "Only project managers/owners/admins can delete reconciliation entries",
+      );
+    }
+
+    const entry = await this.prisma.petlReconciliationEntry.findUnique({
+      where: { id: entryId },
+      include: { case: true },
+    });
+
+    if (!entry || entry.projectId !== projectId || entry.case.projectId !== projectId) {
+      throw new NotFoundException("Reconciliation entry not found for this project");
+    }
+
+    await this.prisma.petlReconciliationEntry.delete({ where: { id: entryId } });
+
+    await this.maybeSyncLivingDraftInvoiceFromPetl(projectId, companyId, actor);
+
+    return { deleted: true };
+  }
+
   async updatePetlReconciliationEntry(
     projectId: string,
     companyId: string,

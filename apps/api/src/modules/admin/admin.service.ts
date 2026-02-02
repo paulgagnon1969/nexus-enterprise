@@ -4,7 +4,7 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 import * as argon2 from "argon2";
 import { UserType, CompanyKind } from "@prisma/client";
 import { GlobalRole, Role } from "../auth/auth.guards";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 
 @Injectable()
 export class AdminService {

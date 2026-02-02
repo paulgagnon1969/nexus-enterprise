@@ -96,6 +96,8 @@ interface UserProfileDto {
   userType: string;
   company: { id: string; name: string };
   companyRole: string;
+  companyProfileCode?: string | null;
+  companyProfileLabel?: string | null;
   companyMembershipActive?: boolean;
   canEditHr?: boolean;
   canViewHr?: boolean;
@@ -1210,7 +1212,10 @@ export default function CompanyUserProfilePage() {
           Worker profile{displayName ? ` – ${displayName}` : ""}
         </h1>
         <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
-          {profile.company.name} \u00b7 {profile.companyRole}
+          {profile.company.name}  b7 {profile.companyRole}
+          {profile.companyProfileLabel || profile.companyProfileCode
+            ? `  b7 ${profile.companyProfileLabel || profile.companyProfileCode}`
+            : ""}
         </p>
 
         <div

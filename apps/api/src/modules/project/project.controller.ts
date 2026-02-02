@@ -1027,6 +1027,22 @@ export class ProjectController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Delete(":id/petl-reconciliation/entries/:entryId")
+  deletePetlReconciliationEntry(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("entryId") entryId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.deletePetlReconciliationEntry(
+      projectId,
+      user.companyId,
+      user,
+      entryId,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(":id/petl-groups")
   getPetlGroups(@Req() req: any, @Param("id") projectId: string) {
     const user = req.user as AuthenticatedUser;

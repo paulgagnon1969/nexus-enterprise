@@ -12,14 +12,15 @@ INSERT INTO "RoleProfile" (
   "isStandard", "active", "sourceProfileId", "createdAt", "createdBy", "updatedAt"
 )
 VALUES
-  ('ROLE_EXECUTIVE', NULL, 'EXECUTIVE', 'Executive', 'Executive / leadership profile for organization-level decisions.', true, true, NULL, NOW(), NULL, NOW()),
-  ('ROLE_PM',        NULL, 'PM',        'Project manager', 'Project manager profile for day-to-day job management.', true, true, NULL, NOW(), NULL, NOW()),
-  ('ROLE_HR',        NULL, 'HR',        'HR', 'Human resources / people operations profile.', true, true, NULL, NOW(), NULL, NOW()),
-  ('ROLE_FINANCE',   NULL, 'FINANCE',   'Finance', 'Finance / billing / accounting profile.', true, true, NULL, NOW(), NULL, NOW()),
-  ('ROLE_FOREMAN_STD', NULL, 'FOREMAN', 'Foreman', 'Field foreman / supervisor profile.', true, true, NULL, NOW(), NULL, NOW()),
-  ('ROLE_CREW_STD',    NULL, 'CREW',    'Crew', 'Field crew member profile.', true, true, NULL, NOW(), NULL, NOW()),
-  ('ROLE_CLIENT_OWNER', NULL, 'CLIENT_OWNER', 'Client – owner', 'External client owner / primary decision maker.', true, true, NULL, NOW(), NULL, NOW()),
-  ('ROLE_CLIENT_REP',   NULL, 'CLIENT_REP',   'Client – representative', 'External client representative with limited authority.', true, true, NULL, NOW(), NULL, NOW())
+  ('ROLE_EXECUTIVE',      NULL, 'EXECUTIVE',      'Executive',      'Executive / leadership profile for organization-level decisions.', true, true, NULL, NOW(), NULL, NOW()),
+  ('ROLE_PM',             NULL, 'PM',             'Project manager', 'Project manager profile for day-to-day job management.',        true, true, NULL, NOW(), NULL, NOW()),
+  ('ROLE_SUPERINTENDENT', NULL, 'SUPERINTENDENT', 'Superintendent', 'On-site superintendent / field leadership profile.',            true, true, NULL, NOW(), NULL, NOW()),
+  ('ROLE_HR',             NULL, 'HR',             'HR',              'Human resources / people operations profile.',                  true, true, NULL, NOW(), NULL, NOW()),
+  ('ROLE_FINANCE',        NULL, 'FINANCE',        'Finance',         'Finance / billing / accounting profile.',                       true, true, NULL, NOW(), NULL, NOW()),
+  ('ROLE_FOREMAN_STD',    NULL, 'FOREMAN',        'Foreman',         'Field foreman / supervisor profile.',                           true, true, NULL, NOW(), NULL, NOW()),
+  ('ROLE_CREW_STD',       NULL, 'CREW',           'Crew',            'Field crew member profile.',                                   true, true, NULL, NOW(), NULL, NOW()),
+  ('ROLE_CLIENT_OWNER',   NULL, 'CLIENT_OWNER',   'Client – owner',  'External client owner / primary decision maker.',              true, true, NULL, NOW(), NULL, NOW()),
+  ('ROLE_CLIENT_REP',     NULL, 'CLIENT_REP',     'Client – representative', 'External client representative with limited authority.', true, true, NULL, NOW(), NULL, NOW())
 ON CONFLICT ("id") DO NOTHING;
 
 -- 2) Per-company standard RoleProfiles for all ORGANIZATION companies.
@@ -70,6 +71,30 @@ WHERE c."kind" = 'ORGANIZATION'
   AND NOT EXISTS (
     SELECT 1 FROM "RoleProfile" rp
     WHERE rp."companyId" = c."id" AND rp."code" = 'PM'
+  );
+
+-- SUPERINTENDENT
+INSERT INTO "RoleProfile" (
+  "id", "companyId", "code", "label", "description",
+  "isStandard", "active", "sourceProfileId", "createdAt", "createdBy", "updatedAt"
+)
+SELECT
+  'SUPERINTENDENT_' || c."id" AS id,
+  c."id" AS companyId,
+  'SUPERINTENDENT' AS code,
+  'Superintendent' AS label,
+  'On-site superintendent / field leadership profile.' AS description,
+  true AS isStandard,
+  true AS active,
+  'ROLE_SUPERINTENDENT' AS sourceProfileId,
+  NOW() AS createdAt,
+  NULL AS createdBy,
+  NOW() AS updatedAt
+FROM "Company" c
+WHERE c."kind" = 'ORGANIZATION'
+  AND NOT EXISTS (
+    SELECT 1 FROM "RoleProfile" rp
+    WHERE rp."companyId" = c."id" AND rp."code" = 'SUPERINTENDENT'
   );
 
 -- HR

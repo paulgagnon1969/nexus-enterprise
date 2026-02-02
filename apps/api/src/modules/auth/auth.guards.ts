@@ -97,6 +97,8 @@ export const GLOBAL_ROLE_LEVELS: Record<GlobalRole, number> = {
 export const PROFILE_LEVELS: Record<string, number> = {
   EXECUTIVE: 70,
   PM: 60,
+  // Superintendent (on-site daily leadership) sits between PM and Foreman.
+  SUPERINTENDENT: 58,
   HR: 55,
   FINANCE: 55,
   FOREMAN: 50,
