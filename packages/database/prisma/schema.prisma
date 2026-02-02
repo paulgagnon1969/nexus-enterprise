@@ -333,13 +333,14 @@ model User {
   createdTasks Task[] @relation("TaskCreatedBy")
 
   // PETL reconciliation audit trail
-  petlReconciliationCasesCreated  PetlReconciliationCase[]  @relation("PetlReconCaseCreatedBy")
-  petlReconciliationEntriesCreated PetlReconciliationEntry[] @relation("PetlReconEntryCreatedBy")
-  petlReconciliationEventsCreated PetlReconciliationEvent[] @relation("PetlReconEventCreatedBy")
+  petlReconciliationCasesCreated   PetlReconciliationCase[]   @relation("PetlReconCaseCreatedBy")
+  petlReconciliationEntriesCreated PetlReconciliationEntry[]  @relation("PetlReconEntryCreatedBy")
+  petlReconciliationEntriesApproved PetlReconciliationEntry[] @relation("PetlReconEntryApprovedBy")
+  petlReconciliationEventsCreated  PetlReconciliationEvent[]  @relation("PetlReconEventCreatedBy")
 
   // PETL archives
-  petlArchivesCreated  ProjectPetlArchive[] @relation("PetlArchiveCreatedBy")
-  petlArchivesRestored ProjectPetlArchive[] @relation("PetlArchiveRestoredBy")
+  petlArchivesCreated   ProjectPetlArchive[] @relation("PetlArchiveCreatedBy")
+  petlArchivesRestored  ProjectPetlArchive[] @relation("PetlArchiveRestoredBy")
 
   // Pending PETL percent updates (field-proposed, PM-approved)
   petlPercentUpdateSessionsCreated  PetlPercentUpdateSession[] @relation("PetlPercentUpdateSessionCreatedBy")
@@ -1364,6 +1365,13 @@ model ProjectInvoicePetlLine {
   lineNoSnapshot        Int
   /// Original line number from the source estimate export (e.g. Xactimate "#").
   sourceLineNoSnapshot  Int?
+  /// Rich invoice display/ordering for PETL-derived lines (e.g. 3958, 3958.001, 3958.1).
+  displayLineNo         String?
+  anchorRootSourceLineNo Int?
+  anchorKind            String?
+  anchorSubIndex        Int?
+  anchorGroupSubIndex   Int?
+
   categoryCodeSnapshot  String?
   selectionCodeSnapshot String?
   descriptionSnapshot   String
@@ -2102,6 +2110,12 @@ enum PetlReconciliationEntryTag {
   WARRANTY
 }
 
+enum PetlReconciliationEntryStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model PetlReconciliationCase {
   id                String                      @id @default(cuid())
   projectId         String
@@ -2137,6 +2151,7 @@ model PetlReconciliationEntry {
   projectParticleId String
   kind              PetlReconciliationEntryKind @default(NOTE_ONLY)
   tag               PetlReconciliationEntryTag?
+  status            PetlReconciliationEntryStatus @default(PENDING)
 
   // Snapshot of the reconciled / added line item (RCV breakdown)
   description       String?
@@ -2162,9 +2177,11 @@ model PetlReconciliationEntry {
   // Notes / placeholder semantics (rcvAmount null excludes from rollups)
   note             String?
 
-  createdByUserId  String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdByUserId    String?
+  approvedByUserId   String?
+  approvedAt         DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   project         Project               @relation(fields: [projectId], references: [id])
   estimateVersion EstimateVersion       @relation(fields: [estimateVersionId], references: [id])
@@ -2173,6 +2190,7 @@ model PetlReconciliationEntry {
   projectParticle ProjectParticle       @relation(fields: [projectParticleId], references: [id])
   companyPriceListItem CompanyPriceListItem? @relation(fields: [companyPriceListItemId], references: [id])
   createdBy       User?                 @relation("PetlReconEntryCreatedBy", fields: [createdByUserId], references: [id])
+  approvedBy      User?                 @relation("PetlReconEntryApprovedBy", fields: [approvedByUserId], references: [id])
   petlPercentUpdates PetlPercentUpdate[]
   events          PetlReconciliationEvent[]
 

@@ -26,9 +26,13 @@ apps/web/tmp_uploads/
 .vercel
 .env*.local
 
-# Local helper scripts
+# Local helper scripts (machine-specific / personal wrappers at repo root)
 run-nexus-dev.sh
 start-dev-clear-all.sh
+start-dev-clear_ALL.sh
+start-dev-local.sh
+start-dev-cloud-all.sh
+start-prod-all.sh
 
 # Data promotion artifacts (never commit real data snapshots)
 scripts/data-promotion/*.json

@@ -1001,6 +1001,7 @@ export class ProjectController {
     body: {
       kind?: string | null;
       tag?: string | null;
+      status?: string | null;
       description?: string | null;
       categoryCode?: string | null;
       selectionCode?: string | null;
