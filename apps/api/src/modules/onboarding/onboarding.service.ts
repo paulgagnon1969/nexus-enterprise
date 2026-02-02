@@ -497,28 +497,55 @@ export class OnboardingService {
     return session;
   }
 
-  async startPublicSession(email: string, password: string, referralToken?: string) {
-    // Recruiting pool must attach to the canonical Nexus System tenant so
-    // applicants never get mixed into normal organizations. Rather than
-    // relying on an env var or a specific `kind`, we always resolve the
-    // company row named "Nexus System".
-    const recruitingCompany = await this.prisma.company.findFirst({
-      where: {
-        name: {
-          equals: "Nexus System",
-          mode: "insensitive",
-        } as any,
-      },
-      select: { id: true, kind: true },
-    });
+  async startPublicSession(
+    email: string,
+    password: string,
+    referralToken?: string,
+    companyToken?: string,
+  ) {
+    const normalizedCompanyToken = (companyToken || "").trim();
 
-    if (!recruitingCompany) {
-      throw new BadRequestException(
-        "Recruiting pool company (Nexus System) not found. Ensure a company named 'Nexus System' exists."
-      );
+    // Resolve which company this onboarding session should attach to.
+    // - If a valid company worker invite token is provided, attach the user to
+    //   that tenant.
+    // - Otherwise, fall back to the global Nexus System recruiting pool.
+    let companyId: string;
+
+    if (normalizedCompanyToken) {
+      const targetCompany = await this.prisma.company.findFirst({
+        where: {
+          workerInviteToken: normalizedCompanyToken,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+
+      if (!targetCompany) {
+        throw new BadRequestException(
+          "Company worker invite token is invalid or expired.",
+        );
+      }
+
+      companyId = targetCompany.id;
+    } else {
+      const recruitingCompany = await this.prisma.company.findFirst({
+        where: {
+          name: {
+            equals: "Nexus System",
+            mode: "insensitive",
+          } as any,
+        },
+        select: { id: true, kind: true },
+      });
+
+      if (!recruitingCompany) {
+        throw new BadRequestException(
+          "Recruiting pool company (Nexus System) not found. Ensure a company named 'Nexus System' exists.",
+        );
+      }
+
+      companyId = recruitingCompany.id;
     }
-
-    const companyId = recruitingCompany.id;
 
     const normalizedEmail = this.normalizeEmail(email);
     if (!normalizedEmail) {
@@ -552,11 +579,32 @@ export class OnboardingService {
         }
       });
 
+      // Default membership into the resolved company. For worker-invite flows we
+      // also best-effort attach the standard CREW RoleProfile so RBAC can treat
+      // these users as crew-level by default.
+      let profileId: string | null = null;
+      if (normalizedCompanyToken) {
+        try {
+          const crewProfile = await tx.roleProfile.findFirst({
+            where: {
+              companyId,
+              code: "CREW",
+              active: true,
+            },
+            select: { id: true },
+          });
+          profileId = crewProfile?.id ?? null;
+        } catch {
+          profileId = null;
+        }
+      }
+
       await tx.companyMembership.create({
         data: {
           userId: user.id,
           companyId,
           role: Role.MEMBER,
+          profileId: profileId ?? undefined,
         }
       });
 
@@ -575,6 +623,49 @@ export class OnboardingService {
           userId: user.id,
         }
       });
+
+      // Ensure this user is represented in the Nex-Net candidate pool so system
+      // views (e.g. /system/nex-net) can reason about them, even when they came
+      // in via a company-specific worker invite link.
+      if (normalizedCompanyToken) {
+        try {
+          let candidate = await tx.nexNetCandidate.findFirst({
+            where: {
+              OR: [
+                { userId: user.id },
+                { email: normalizedEmail },
+              ],
+            },
+          });
+
+          if (!candidate) {
+            candidate = await tx.nexNetCandidate.create({
+              data: {
+                userId: user.id,
+                companyId,
+                firstName: null,
+                lastName: null,
+                email: normalizedEmail,
+                phone: null,
+                source: NexNetSource.PUBLIC_APPLY,
+                status: NexNetStatus.NOT_STARTED,
+              },
+            });
+          } else {
+            candidate = await tx.nexNetCandidate.update({
+              where: { id: candidate.id },
+              data: {
+                userId: candidate.userId ?? user.id,
+                email: candidate.email ?? normalizedEmail,
+              },
+            });
+          }
+
+          await this.ensureFortifiedVisibilityForCandidate(tx, candidate.id, user.id);
+        } catch {
+          // Non-fatal: failure to mirror into Nex-Net pool should not block signup.
+        }
+      }
 
       // If this signup came from a referral token, attach user/candidate to that referral.
       if (referralToken) {

@@ -27,6 +27,11 @@ function ApplyPageInner() {
  
   const token = searchParams.get("token") || "";
   const referralToken = searchParams.get("referralToken") || "";
+  // Optional: company worker invite / referral token. When present, we treat
+  // this apply flow as a tenant-specific worker signup rather than a generic
+  // Nexus System pool signup.
+  const companyToken =
+    searchParams.get("companyToken") || searchParams.get("companyReferralToken") || "";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -127,6 +132,7 @@ function ApplyPageInner() {
           email: email.trim(),
           password,
           referralToken: referralToken || undefined,
+          companyToken: companyToken || undefined,
         }),
       });
 

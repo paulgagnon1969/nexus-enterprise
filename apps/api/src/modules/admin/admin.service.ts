@@ -502,6 +502,9 @@ export class AdminService {
         kind: CompanyKind.ORGANIZATION,
         templateId: template.id,
         templateVersionId: template.currentVersionId,
+        // Seed a worker invite token for this tenant so they can invite crew via
+        // the public onboarding flow.
+        workerInviteToken: randomUUID(),
       },
       select: {
         id: true,
@@ -556,6 +559,7 @@ export class AdminService {
         trialStatus: "ACTIVE" as any,
         templateId: template.id,
         templateVersionId: template.currentVersionId,
+        workerInviteToken: randomUUID(),
       },
       select: {
         id: true,

@@ -29,6 +29,12 @@ model Company {
   reputationOverallOverride Int?
   kind                      CompanyKind @default(ORGANIZATION)
 
+  /// Optional worker invite / referral token that this company can share with
+  /// prospective crew members. When a worker signs up using this token, they
+  /// are automatically attached to this tenant and posted into the Nex-Net
+  /// candidate pool. Multiple companies will never share the same token.
+  workerInviteToken         String?     @unique
+
   /// When set, this organization has been deactivated / removed from the
   /// marketplace and should no longer appear in tenant lists or allow login.
   deletedAt                 DateTime?

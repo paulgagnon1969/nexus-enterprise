@@ -38,8 +38,17 @@ export class OnboardingController {
     @Body("email") email: string,
     @Body("password") password: string,
     @Body("referralToken") referralToken?: string,
+    // Optional: company worker invite token. When present, the onboarding
+    // session and membership are attached to that company instead of the
+    // global Nexus System recruiting pool.
+    @Body("companyToken") companyToken?: string,
   ) {
-    const session = await this.onboarding.startPublicSession(email, password, referralToken);
+    const session = await this.onboarding.startPublicSession(
+      email,
+      password,
+      referralToken,
+      companyToken,
+    );
     return { id: session.id, token: session.token };
   }
 
