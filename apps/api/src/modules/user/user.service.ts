@@ -87,6 +87,7 @@ export class UserService {
         lastName: true,
         globalRole: true,
         userType: true,
+        peopleToken: true,
         profileCompletionPercent: true,
         memberships: {
           select: {

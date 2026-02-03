@@ -2905,6 +2905,10 @@ ${htmlBody}
       }
   >(null);
 
+  // Cost book integration for reconciliation entries (edit modal)
+  const [reconEntryCostBookOpen, setReconEntryCostBookOpen] = useState(false);
+
+  // Legacy reconciliation cost book picker (drawer-level "Add from Cost Book")
   const [costBookModalOpen, setCostBookModalOpen] = useState(false);
   const [petlCostBookPickerBusy, setPetlCostBookPickerBusy] = useState(false);
 
@@ -7762,7 +7766,87 @@ ${htmlBody}
     });
   };
 
-  const closeReconEntryEdit = () => setReconEntryEdit(null);
+  const closeReconEntryEdit = () => {
+    setReconEntryCostBookOpen(false);
+    setReconEntryEdit(null);
+  };
+
+  const handleReconEntryCostBookConfirm = async (selection: CostBookSelection[]) => {
+    if (!reconEntryEdit) return;
+    if (selection.length === 0) {
+      alert("Select a cost book item first.");
+      return;
+    }
+    if (selection.length > 1) {
+      alert("For a reconciliation entry, please select exactly one cost book item.");
+      return;
+    }
+
+    const { item, qty } = selection[0];
+    const safeQty = Number.isFinite(qty) && qty > 0 ? qty : 1;
+    const unitPrice =
+      typeof item.unitPrice === "number" && Number.isFinite(item.unitPrice)
+        ? item.unitPrice
+        : null;
+
+    setReconEntryEdit((prev) => {
+      if (!prev) return prev;
+
+      // Derive existing effective tax / O&P rates from the entry, if possible.
+      const prevItemNum = Number(prev.draft.itemAmount);
+      const prevTaxNum = Number(prev.draft.salesTaxAmount);
+      const prevOpNum = Number(prev.draft.opAmount);
+
+      const hasPrevItem = Number.isFinite(prevItemNum) && prevItemNum !== 0;
+      const taxRate = hasPrevItem && Number.isFinite(prevTaxNum) ? prevTaxNum / prevItemNum : null;
+      const opRate = hasPrevItem && Number.isFinite(prevOpNum) ? prevOpNum / prevItemNum : null;
+
+      let nextItemAmount = prev.draft.itemAmount;
+      let nextTaxAmount = prev.draft.salesTaxAmount;
+      let nextOpAmount = prev.draft.opAmount;
+      let nextRcvAmount = prev.draft.rcvAmount;
+
+      if (unitPrice != null) {
+        const base = safeQty * unitPrice;
+        nextItemAmount = String(base);
+
+        // Scale tax / O&P using previous effective rates when available; otherwise keep as-is.
+        if (taxRate !== null) {
+          nextTaxAmount = String(base * taxRate);
+        }
+        if (opRate !== null) {
+          nextOpAmount = String(base * opRate);
+        }
+
+        // If RCV was previously blank or zero, recompute from components.
+        const prevRcvNum = Number(prev.draft.rcvAmount);
+        if (!Number.isFinite(prevRcvNum) || prevRcvNum === 0) {
+          const itemVal = Number(nextItemAmount) || 0;
+          const taxVal = Number(nextTaxAmount) || 0;
+          const opVal = Number(nextOpAmount) || 0;
+          nextRcvAmount = String(itemVal + taxVal + opVal);
+        }
+      }
+
+      return {
+        ...prev,
+        draft: {
+          ...prev.draft,
+          qty: String(safeQty),
+          unit: item.unit ? String(item.unit) : prev.draft.unit,
+          unitCost: unitPrice != null ? String(unitPrice) : prev.draft.unitCost,
+          itemAmount: nextItemAmount,
+          salesTaxAmount: nextTaxAmount,
+          opAmount: nextOpAmount,
+          rcvAmount: nextRcvAmount,
+          description: item.description ? String(item.description) : prev.draft.description,
+          // Keep existing note so imported reconcile notes remain attached.
+        },
+      };
+    });
+
+    setReconEntryCostBookOpen(false);
+  };
 
   const deleteReconEntryFromEditor = async () => {
     if (!reconEntryEdit) return;
@@ -18849,65 +18933,83 @@ ${htmlBody}
       ) : null}
 
       {reconEntryEdit && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 70,
-            background: "rgba(15,23,42,0.45)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 12,
-          }}
-          onClick={closeReconEntryEdit}
-        >
+        <>
           <div
             style={{
-              width: 640,
-              maxWidth: "96vw",
-              maxHeight: "55vh",
-              overflow: "auto",
-              background: "#ffffff",
-              borderRadius: 10,
-              border: "1px solid #e5e7eb",
-              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
+              position: "fixed",
+              inset: 0,
+              zIndex: 70,
+              background: "rgba(15,23,42,0.45)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 12,
             }}
-            onClick={(e) => e.stopPropagation()}
+            onClick={closeReconEntryEdit}
           >
             <div
               style={{
-                padding: "10px 12px",
-                borderBottom: "1px solid #e5e7eb",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                fontSize: 13,
-                fontWeight: 600,
-                background: "#f3f4f6",
+                width: 640,
+                maxWidth: "96vw",
+                maxHeight: "55vh",
+                overflow: "auto",
+                background: "#ffffff",
+                borderRadius: 10,
+                border: "1px solid #e5e7eb",
+                boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
               }}
+              onClick={(e) => e.stopPropagation()}
             >
-              <div>
-                Edit reconciliation entry
-                <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>
-                  {reconEntryEdit.entry?.kind ?? ""}
+              <div
+                style={{
+                  padding: "10px 12px",
+                  borderBottom: "1px solid #e5e7eb",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: "#f3f4f6",
+                }}
+              >
+                <div>
+                  Edit reconciliation entry
+                  <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>
+                    {reconEntryEdit.entry?.kind ?? ""}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => setReconEntryCostBookOpen(true)}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 999,
+                      border: "1px solid #2563eb",
+                      background: "#eff6ff",
+                      cursor: "pointer",
+                      fontSize: 11,
+                      color: "#1d4ed8",
+                    }}
+                  >
+                    Open Cost Book
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeReconEntryEdit}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      fontSize: 18,
+                      lineHeight: 1,
+                    }}
+                    aria-label="Close reconciliation entry editor"
+                  >
+                    ×
+                  </button>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={closeReconEntryEdit}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  cursor: "pointer",
-                  fontSize: 18,
-                  lineHeight: 1,
-                }}
-                aria-label="Close reconciliation entry editor"
-              >
-                ×
-              </button>
-            </div>
 
             <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
               <div>
@@ -19186,6 +19288,29 @@ ${htmlBody}
             </div>
           </div>
         </div>
+
+          {reconEntryCostBookOpen && (
+            <CostBookPickerModal
+              title="Cost Book"
+              subtitle="Search the Cost Book, then apply a line to this reconciliation entry."
+              initialCats={(() => {
+                const cat = String(reconEntryEdit.entry?.categoryCode ?? "").trim();
+                return cat ? [cat] : undefined;
+              })()}
+              initialSel={String(reconEntryEdit.entry?.selectionCode ?? "").trim() || undefined}
+              // Start with an empty description search; user can type or paste notes as needed.
+              defaultQty={(() => {
+                const raw = reconEntryEdit.draft.qty || String(reconEntryEdit.entry?.qty ?? "");
+                const n = Number(raw);
+                return Number.isFinite(n) && n > 0 ? n : 1;
+              })()}
+              confirmLabel="Use in entry"
+              confirmDisabled={false}
+              onConfirm={handleReconEntryCostBookConfirm}
+              onClose={() => setReconEntryCostBookOpen(false)}
+            />
+          )}
+        </>
       )}
 
             </>

@@ -502,8 +502,10 @@ export class OnboardingService {
     password: string,
     referralToken?: string,
     companyToken?: string,
+    inviterToken?: string,
   ) {
     const normalizedCompanyToken = (companyToken || "").trim();
+    const normalizedInviterToken = (inviterToken || "").trim();
 
     // Resolve which company this onboarding session should attach to.
     // - If a valid company worker invite token is provided, attach the user to
@@ -567,6 +569,21 @@ export class OnboardingService {
     const passwordHash = await argon2.hash(password);
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // Best-effort lookup of inviter by people token so we can attribute this
+      // signup to a specific user for audit / reporting.
+      let invitedByUserId: string | null = null;
+      if (normalizedInviterToken) {
+        try {
+          const inviter = await tx.user.findFirst({
+            where: { peopleToken: normalizedInviterToken },
+            select: { id: true },
+          });
+          invitedByUserId = inviter?.id ?? null;
+        } catch {
+          invitedByUserId = null;
+        }
+      }
+
       const user = await tx.user.create({
         data: {
           email: normalizedEmail,
@@ -621,6 +638,7 @@ export class OnboardingService {
             skillsComplete: false
           }),
           userId: user.id,
+          invitedByUserId: invitedByUserId ?? undefined,
         }
       });
 
