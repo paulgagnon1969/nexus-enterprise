@@ -226,6 +226,27 @@ export default function ReferralsPage() {
     <PageCard>
       <h1 style={{ marginTop: 0, fontSize: 20 }}>Refer a Friend</h1>
 
+      {/* Confidential personal contact book banner */}
+      <div
+        style={{
+          marginTop: 4,
+          marginBottom: 10,
+          padding: 10,
+          borderRadius: 10,
+          border: "1px solid #e5e7eb",
+          background: "#ecfdf5",
+          color: "#166534",
+          fontSize: 12,
+          maxWidth: 720,
+        }}
+      >
+        <strong>Your personal contact book is confidential.</strong>
+        <div style={{ marginTop: 4 }}>
+          Your personal contact book is confidential and tied to your profile, not your company. Only you can see these
+          contacts. Organizations see invited candidates&apos; details only after the candidate accepts the invite.
+        </div>
+      </div>
+
       {/* Promo/education card for the referral program */}
       <div
         style={{
@@ -370,6 +391,25 @@ export default function ReferralsPage() {
             gap: 8,
           }}
         >
+          {/* TODO: wire this to a dedicated "Invite from my contacts" flow once the
+              personal-contacts API has a client UI. For now, the main flows are
+              manual email/SMS plus a tracked referral link. */}
+          <button
+            type="button"
+            disabled
+            style={{
+              padding: "8px 10px",
+              borderRadius: 6,
+              border: "1px dashed #9ca3af",
+              background: "#f9fafb",
+              color: "#6b7280",
+              fontSize: 12,
+              cursor: "not-allowed",
+            }}
+            title="Coming soon: pick from your confidential contact book"
+          >
+            Invite from my contacts (coming soon)
+          </button>
           <button
             type="button"
             onClick={handleCreateTrackedReferral}
