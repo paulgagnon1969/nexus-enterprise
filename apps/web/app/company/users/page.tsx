@@ -4409,9 +4409,23 @@ function ProspectiveCandidatesPanel({
       );
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        throw new Error(
-          text || `Failed to share candidates (${res.status})`,
-        );
+        const message = text || `Failed to share candidates (${res.status})`;
+
+        // UX tweak: provide a clearer message when candidates are currently
+        // employed/assigned and therefore cannot be shared.
+        if (
+          res.status === 400 &&
+          /currently assigned to a tenant/i.test(message) ||
+          /currently an active member of a tenant/i.test(message)
+        ) {
+          alert(
+            "One or more selected candidates are currently employed by a tenant. " +
+              "To share them with other organizations, first mark them Inactive/Released in People → Worker Profiles.",
+          );
+        } else {
+          alert(message);
+        }
+        return;
       }
       const json: any = await res.json().catch(() => ({}));
       const sharedCount = typeof json.candidateCount === "number" ? json.candidateCount : selected.length;

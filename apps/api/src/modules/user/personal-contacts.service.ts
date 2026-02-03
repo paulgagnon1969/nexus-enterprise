@@ -1,6 +1,7 @@
 import { Injectable, ForbiddenException, BadRequestException } from "@nestjs/common";
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { PrismaService } from "../../infra/prisma/prisma.service";
+import { GlobalRole } from "../auth/auth.guards";
 import { PersonalContactSource, PersonalContactSubjectType } from "@prisma/client";
 
 interface ImportContactInput {
@@ -33,13 +34,12 @@ export class PersonalContactsService {
     return actor.userId;
   }
 
-  async importContacts(actor: AuthenticatedUser, inputs: ImportContactInput[]) {
-    const ownerUserId = this.ensureUserId(actor);
+  private buildContactsForOwner(ownerUserId: string, inputs: ImportContactInput[]) {
     if (!inputs?.length) {
       throw new BadRequestException("No contacts provided for import.");
     }
 
-    const contacts = inputs.map(input => {
+    return inputs.map(input => {
       const email = this.normalizeEmail(input.email);
       const phone = this.normalizePhone(input.phone);
       const source = input.source ?? PersonalContactSource.UPLOAD;
@@ -51,8 +51,20 @@ export class PersonalContactsService {
         phone ||
         null;
 
-      return { ownerUserId, displayName, firstName: input.firstName ?? null, lastName: input.lastName ?? null, email, phone, source };
+      return {
+        ownerUserId,
+        displayName,
+        firstName: input.firstName ?? null,
+        lastName: input.lastName ?? null,
+        email,
+        phone,
+        source,
+      };
     });
+  }
+
+  private async upsertContactsForOwner(ownerUserId: string, inputs: ImportContactInput[]) {
+    const contacts = this.buildContactsForOwner(ownerUserId, inputs);
 
     const created = await this.prisma.$transaction(async tx => {
       const results = [] as any[];
@@ -87,6 +99,34 @@ export class PersonalContactsService {
       }
       return results;
     });
+
+    return created;
+  }
+
+  async importContacts(actor: AuthenticatedUser, inputs: ImportContactInput[]) {
+    const ownerUserId = this.ensureUserId(actor);
+    const created = await this.upsertContactsForOwner(ownerUserId, inputs);
+
+    return {
+      count: created.length,
+      contacts: created.map(c => ({
+        id: c.id,
+        displayName: c.displayName,
+        email: c.email,
+        phone: c.phone,
+      })),
+    };
+  }
+
+  async importContactsForUser(actor: AuthenticatedUser, targetUserId: string, inputs: ImportContactInput[]) {
+    if (actor.globalRole !== GlobalRole.SUPER_ADMIN) {
+      throw new ForbiddenException("Only Nexus System admins can import contacts for other users.");
+    }
+    if (!targetUserId) {
+      throw new BadRequestException("userId is required");
+    }
+
+    const created = await this.upsertContactsForOwner(targetUserId, inputs);
 
     return {
       count: created.length,
@@ -159,5 +199,164 @@ export class PersonalContactsService {
     });
 
     return link;
+  }
+
+  async getContactsForCandidate(actor: AuthenticatedUser, candidateId: string) {
+    const ownerUserId = this.ensureUserId(actor);
+    if (!candidateId) {
+      throw new BadRequestException("candidateId is required");
+    }
+
+    const candidate = await this.prisma.nexNetCandidate.findUnique({
+      where: { id: candidateId },
+      include: {
+        user: {
+          select: { email: true },
+        },
+      },
+    });
+
+    if (!candidate) {
+      throw new BadRequestException("Candidate not found");
+    }
+
+    const emailSet = new Set<string>();
+    const phoneSet = new Set<string>();
+
+    const candEmail = this.normalizeEmail(candidate.email);
+    if (candEmail) emailSet.add(candEmail);
+    const userEmail = this.normalizeEmail(candidate.user?.email ?? null);
+    if (userEmail) emailSet.add(userEmail);
+
+    const candPhone = this.normalizePhone(candidate.phone);
+    if (candPhone) phoneSet.add(candPhone);
+
+    const linked = await this.prisma.personalContactLink.findMany({
+      where: {
+        subjectType: PersonalContactSubjectType.CANDIDATE,
+        subjectId: candidateId,
+        personalContact: { ownerUserId },
+      },
+      include: { personalContact: true },
+    });
+
+    const linkedContacts = linked.map(l => l.personalContact);
+    const linkedIds = linkedContacts.map(c => c.id);
+
+    const or: any[] = [];
+    for (const email of emailSet) {
+      if (email) {
+        or.push({ email });
+      }
+    }
+    for (const phone of phoneSet) {
+      if (phone) {
+        or.push({ phone });
+      }
+    }
+
+    let matchingContacts: any[] = [];
+    if (or.length) {
+      matchingContacts = await this.prisma.personalContact.findMany({
+        where: {
+          ownerUserId,
+          id: { notIn: linkedIds },
+          OR: or,
+        },
+      });
+    }
+
+    const toSummary = (c: any) => ({
+      id: c.id,
+      displayName: c.displayName,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      email: c.email,
+      phone: c.phone,
+      source: c.source,
+    });
+
+    return {
+      linkedContacts: linkedContacts.map(toSummary),
+      matchingContacts: matchingContacts.map(toSummary),
+    };
+  }
+
+  async getContactsForWorker(actor: AuthenticatedUser, workerId: string) {
+    const ownerUserId = this.ensureUserId(actor);
+    if (!workerId) {
+      throw new BadRequestException("workerId is required");
+    }
+
+    // Use a raw Worker query (like WorkerService) to be resilient to legacy
+    // schema differences while we only need a small subset of columns.
+    const worker = await (this.prisma as any).worker.findUnique({
+      where: { id: workerId },
+      select: {
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+      },
+    });
+
+    if (!worker) {
+      throw new BadRequestException("Worker not found");
+    }
+
+    const emailSet = new Set<string>();
+    const phoneSet = new Set<string>();
+
+    const email = this.normalizeEmail(worker.email ?? null);
+    if (email) emailSet.add(email);
+
+    const phone = this.normalizePhone(worker.phone ?? null);
+    if (phone) phoneSet.add(phone);
+
+    const linked = await this.prisma.personalContactLink.findMany({
+      where: {
+        subjectType: PersonalContactSubjectType.WORKER,
+        subjectId: workerId,
+        personalContact: { ownerUserId },
+      },
+      include: { personalContact: true },
+    });
+
+    const linkedContacts = linked.map(l => l.personalContact);
+    const linkedIds = linkedContacts.map(c => c.id);
+
+    const or: any[] = [];
+    for (const e of emailSet) {
+      if (e) or.push({ email: e });
+    }
+    for (const p of phoneSet) {
+      if (p) or.push({ phone: p });
+    }
+
+    let matchingContacts: any[] = [];
+    if (or.length) {
+      matchingContacts = await this.prisma.personalContact.findMany({
+        where: {
+          ownerUserId,
+          id: { notIn: linkedIds },
+          OR: or,
+        },
+      });
+    }
+
+    const toSummary = (c: any) => ({
+      id: c.id,
+      displayName: c.displayName,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      email: c.email,
+      phone: c.phone,
+      source: c.source,
+    });
+
+    return {
+      linkedContacts: linkedContacts.map(toSummary),
+      matchingContacts: matchingContacts.map(toSummary),
+    };
   }
 }
