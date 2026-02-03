@@ -1014,6 +1014,7 @@ export default function ReferralsPage() {
                           c.email ||
                           c.phone ||
                           "(No name)";
+                        const isUpload = (c.source || "").toString().toUpperCase() === "UPLOAD";
                         return (
                           <tr key={c.id} style={{ background: bg }}>
                             <td
@@ -1034,7 +1035,23 @@ export default function ReferralsPage() {
                                 borderTop: "1px solid #e5e7eb",
                               }}
                             >
-                              {name}
+                              <div>{name}</div>
+                              {isUpload && (
+                                <div
+                                  style={{
+                                    marginTop: 2,
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    padding: "1px 6px",
+                                    borderRadius: 999,
+                                    backgroundColor: "#eef2ff",
+                                    color: "#4f46e5",
+                                    fontSize: 10,
+                                  }}
+                                >
+                                  Imported from CSV
+                                </div>
+                              )}
                             </td>
                             <td
                               style={{

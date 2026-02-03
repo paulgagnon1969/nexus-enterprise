@@ -372,6 +372,100 @@ export class ReferralsService {
       }
     }
 
+    // Aggregate how many distinct users have this candidate in their personal
+    // contact book (by email/phone match). This is system-level only and does
+    // not expose which users own the contacts.
+    const emailKeyByCandidateId = new Map<string, Set<string>>();
+    const phoneKeyByCandidateId = new Map<string, Set<string>>();
+
+    const normalizeEmail = (value: string | null | undefined) => {
+      const trimmed = (value ?? "").trim();
+      return trimmed ? trimmed.toLowerCase() : null;
+    };
+    const normalizePhone = (value: string | null | undefined) => {
+      const trimmed = (value ?? "").trim();
+      return trimmed || null;
+    };
+
+    for (const c of candidates) {
+      const emailSet = new Set<string>();
+      const phoneSet = new Set<string>();
+
+      const candEmail = normalizeEmail(c.email);
+      if (candEmail) emailSet.add(candEmail);
+      const userEmail = normalizeEmail((c.user as any)?.email ?? null);
+      if (userEmail) emailSet.add(userEmail);
+
+      const candPhone = normalizePhone(c.phone);
+      if (candPhone) phoneSet.add(candPhone);
+
+      if (emailSet.size) emailKeyByCandidateId.set(c.id, emailSet);
+      if (phoneSet.size) phoneKeyByCandidateId.set(c.id, phoneSet);
+    }
+
+    const allEmailKeys = Array.from(
+      new Set(
+        Array.from(emailKeyByCandidateId.values()).flatMap(set => Array.from(set)),
+      ),
+    );
+    const allPhoneKeys = Array.from(
+      new Set(
+        Array.from(phoneKeyByCandidateId.values()).flatMap(set => Array.from(set)),
+      ),
+    );
+
+    const contactWhereOr: any[] = [];
+    if (allEmailKeys.length) {
+      contactWhereOr.push({ email: { in: allEmailKeys } });
+    }
+    if (allPhoneKeys.length) {
+      contactWhereOr.push({ phone: { in: allPhoneKeys } });
+    }
+
+    const candidateContactOwnerIdsByCandidate = new Map<string, Set<string>>();
+
+    if (contactWhereOr.length) {
+      const contacts = await this.prisma.personalContact.findMany({
+        where: { OR: contactWhereOr },
+        select: { ownerUserId: true, email: true, phone: true },
+      });
+
+      for (const pc of contacts) {
+        const ownersToMark = new Set<string>();
+        const ownerId = pc.ownerUserId;
+        if (!ownerId) continue;
+
+        const emailKey = normalizeEmail(pc.email);
+        const phoneKey = normalizePhone(pc.phone);
+
+        if (emailKey) {
+          for (const [candId, keys] of emailKeyByCandidateId.entries()) {
+            if (keys.has(emailKey)) {
+              let ownerSet = candidateContactOwnerIdsByCandidate.get(candId);
+              if (!ownerSet) {
+                ownerSet = new Set<string>();
+                candidateContactOwnerIdsByCandidate.set(candId, ownerSet);
+              }
+              ownerSet.add(ownerId);
+            }
+          }
+        }
+
+        if (phoneKey) {
+          for (const [candId, keys] of phoneKeyByCandidateId.entries()) {
+            if (keys.has(phoneKey)) {
+              let ownerSet = candidateContactOwnerIdsByCandidate.get(candId);
+              if (!ownerSet) {
+                ownerSet = new Set<string>();
+                candidateContactOwnerIdsByCandidate.set(candId, ownerSet);
+              }
+              ownerSet.add(ownerId);
+            }
+          }
+        }
+      }
+    }
+
     return candidates.map(c => {
       const userId = (c.userId as string | null) ?? null;
       const mems = userId ? membershipsByUserId.get(userId) ?? [] : [];
@@ -394,6 +488,8 @@ export class ReferralsService {
 
       const latestReferral = (c as any).referralsAsReferee?.[0] ?? null;
       const email = c.email ?? c.user?.email ?? null;
+      const ownerSet = candidateContactOwnerIdsByCandidate.get(c.id) ?? new Set<string>();
+      const personalContactMatchCount = ownerSet.size;
 
       return {
         candidateId: c.id,
@@ -408,6 +504,7 @@ export class ReferralsService {
         primaryReferrerEmail: latestReferral?.referrer?.email ?? null,
         assignedTenantCount,
         assignedTenants,
+        personalContactMatchCount,
       };
     });
   }
