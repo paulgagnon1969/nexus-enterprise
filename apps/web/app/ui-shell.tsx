@@ -432,6 +432,17 @@ export function AppShell({ children }: { children: ReactNode }) {
       >
         {h.marketplaceFaqs}
       </Link>
+      {userType !== "APPLICANT" && !isAuthRoute && !isPublicRoute && (
+        <Link
+          href="/projects"
+          className={
+            "app-nav-link" +
+            (isActive("/projects") ? " app-nav-link-active" : "")
+          }
+        >
+          Go to your organization
+        </Link>
+      )}
     </nav>
   );
 
@@ -562,11 +573,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     </nav>
   );
 
+  const logoHref = isAuthRoute || isPublicRoute ? "/" : "/projects";
+
   return (
     <div className="app-shell">
       <header className="app-header">
         <div className="app-header-left">
-          <div className="app-logo">
+          <Link href={logoHref} className="app-logo">
             {/* Permanent Nexus Deconstruct Hires brand (animated GIF) */}
             <img
               src="/nexus-deconstruct-hires.gif"
@@ -581,7 +594,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </div>
               </div>
             )}
-          </div>
+          </Link>
 
           {/* Company switcher (hide for applicant pool accounts; hide on auth and /system routes for SUPER_ADMIN) */}
           {!isAuthRoute &&
