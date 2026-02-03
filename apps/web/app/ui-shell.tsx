@@ -401,11 +401,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     path === "/settings/skills";
 
   // Hide the main app navigation on auth routes like /login so the global menu
-  // doesn&apos;t distract first-time candidates during sign-in. On /referrals,
-  // show only the focused Nexus Marketplace nav (Learning + FAQs) regardless
-  // of user role; on all other authenticated routes, show the full nav.
+  // doesn&apos;t distract first-time candidates during sign-in.
+  //
+  // On /referrals:
+  //   - APPLICANT users see a focused Nexus Marketplace nav (Learning + FAQs).
+  //   - All other users see the full workspace nav so they can easily get back
+  //     to their organization/app menus.
   const hideNavOnThisPage = isAuthRoute;
-  const useMarketplaceNavOnly = isReferralRoute;
+  const useMarketplaceNavOnly = isReferralRoute && userType === "APPLICANT";
 
   if (isPublicRoute) {
     return (
@@ -432,17 +435,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       >
         {h.marketplaceFaqs}
       </Link>
-      {userType !== "APPLICANT" && !isAuthRoute && !isPublicRoute && (
-        <Link
-          href="/projects"
-          className={
-            "app-nav-link" +
-            (isActive("/projects") ? " app-nav-link-active" : "")
-          }
-        >
-          Go to your organization
-        </Link>
-      )}
     </nav>
   );
 
