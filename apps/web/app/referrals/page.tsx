@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { PageCard } from "../ui-shell";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -406,23 +405,6 @@ export default function ReferralsPage() {
 
   return (
     <PageCard>
-      <div style={{ marginBottom: 6 }}>
-        <Link
-          href="/projects"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            fontSize: 12,
-            color: "#1d4ed8",
-            textDecoration: "none",
-            cursor: "pointer",
-          }}
-        >
-          <span aria-hidden="true">←</span>
-          <span>Go back to organization</span>
-        </Link>
-      </div>
       <h1 style={{ marginTop: 0, fontSize: 20 }}>Refer a Friend</h1>
 
       {/* Confidential personal contact book banner */}
