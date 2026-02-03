@@ -1271,64 +1271,49 @@ export default function CompanyUserProfilePage() {
 
     try {
       const text = await file.text();
-      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const lines = text.split(/\r?\n/).filter(l => l.trim() !== "");
       if (!lines.length) {
         throw new Error("CSV file is empty.");
       }
 
-      // Normalize header cells: strip quotes, lowercase, trim.
+      // Strict, template-based header: First Name, Last Name, Email, Phone (optional).
       const rawHeader = lines[0].split(",");
       const header = rawHeader.map(h => h.replace(/"/g, "").trim().toLowerCase());
 
-      const findIndex = (predicate: (h: string) => boolean) =>
-        header.findIndex(h => predicate(h));
+      const findIndex = (name: string) =>
+        header.findIndex(h => h === name || h === name.replace(" ", "") || h === `${name} address`);
 
-      const idxName = findIndex(h => h === "name" || h === "full name" || h === "fullname");
-      const idxFirst = findIndex(h => h === "firstname" || h === "first name");
-      const idxLast = findIndex(h => h === "lastname" || h === "last name");
-      const idxEmail = findIndex(
-        h =>
-          h === "email" ||
-          h === "email address" ||
-          h === "e-mail" ||
-          h === "e mail" ||
-          h.includes("email"),
-      );
-      const idxPhone = findIndex(
-        h =>
-          h === "phone" ||
-          h === "phone number" ||
-          h === "mobile" ||
-          h === "mobile phone" ||
-          h.includes("phone") ||
-          h.includes("mobile"),
-      );
+      const idxFirst = findIndex("first name");
+      const idxLast = findIndex("last name");
+      const idxEmail = findIndex("email");
+      const idxPhone = findIndex("phone");
 
-      if (idxEmail === -1 && idxPhone === -1) {
+      if (idxEmail === -1) {
         throw new Error(
-          `CSV must include at least an email or phone column. Found headers: ${header.join(", ") || "<none>"}`,
+          `Expected an 'Email' column. Please use the CSV template (First Name, Last Name, Email, Phone). ` +
+            `Found headers: ${header.join(", ") || "<none>"}`,
         );
       }
 
       const contacts: any[] = [];
-      for (let i = 1; i < lines.length; i += 1; i += 1) {
+      for (let i = 1; i < lines.length; i += 1) {
         const row = lines[i];
         if (!row) continue;
         const cols = row.split(",");
         const get = (idx: number) => (idx >= 0 && idx < cols.length ? cols[idx].trim() : "");
 
-        const name = idxName >= 0 ? get(idxName) : "";
         const firstName = idxFirst >= 0 ? get(idxFirst) : "";
         const lastName = idxLast >= 0 ? get(idxLast) : "";
-        const email = idxEmail >= 0 ? get(idxEmail) : "";
+        const email = get(idxEmail);
         const phone = idxPhone >= 0 ? get(idxPhone) : "";
 
-        if (!email && !phone) {
+        // Require at least an email; phone is optional.
+        if (!email) {
           continue;
         }
 
         contacts.push({
-          displayName: name || undefined,
+          displayName: undefined,
           firstName: firstName || undefined,
           lastName: lastName || undefined,
           email: email || undefined,
@@ -1418,6 +1403,85 @@ export default function CompanyUserProfilePage() {
             ? `  b7 ${profile.companyProfileLabel || profile.companyProfileCode}`
             : ""}
         </p>
+
+        {canUseAdminContactImport && (
+          <section
+            style={{
+              marginTop: 8,
+              display: "flex",
+              justifyContent: "flex-end",
+            }}
+          >
+            <div
+              style={{
+                maxWidth: 360,
+                padding: 10,
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                backgroundColor: "#f9fafb",
+                fontSize: 12,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                <h2 style={{ fontSize: 14, marginTop: 0, marginBottom: 4 }}>
+                  Personal contacts (system admin)
+                </h2>
+                <a
+                  href="/templates/personal-contacts-template.csv"
+                  download
+                  style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}
+                >
+                  Download CSV template
+                </a>
+              </div>
+              <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+                Import this worker&apos;s personal contacts from a CSV file. Use the CSV template format:
+                First Name, Last Name, Email, Phone (optional). Contacts are attached to their global
+                profile and remain confidential to them; tenants and admins cannot browse these contacts.
+              </p>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                disabled={adminCsvSaving}
+                onChange={e => {
+                  const file = e.target.files?.[0] ?? null;
+                  setAdminCsvFile(file);
+                  setAdminCsvStatus(null);
+                  setAdminCsvError(null);
+                }}
+                style={{ fontSize: 12 }}
+              />
+              {adminCsvSaving && (
+                <p style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>Importing contacts…</p>
+              )}
+              {adminCsvStatus && (
+                <p style={{ fontSize: 12, color: "#166534", marginTop: 4 }}>{adminCsvStatus}</p>
+              )}
+              {adminCsvError && (
+                <p style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>{adminCsvError}</p>
+              )}
+              <div style={{ marginTop: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => void handleAdminImportContactsCsv(adminCsvFile)}
+                  disabled={!adminCsvFile || adminCsvSaving}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 4,
+                    border: "1px solid #0f172a",
+                    backgroundColor:
+                      !adminCsvFile || adminCsvSaving ? "#e5e7eb" : "#0f172a",
+                    color: !adminCsvFile || adminCsvSaving ? "#4b5563" : "#f9fafb",
+                    fontSize: 12,
+                    cursor: !adminCsvFile || adminCsvSaving ? "default" : "pointer",
+                  }}
+                >
+                  {adminCsvSaving ? "Importing…" : "Import contacts from CSV"}
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
 
         <div
           style={{
@@ -1700,56 +1764,6 @@ export default function CompanyUserProfilePage() {
                 </form>
               )}
             </section>
-
-            {canUseAdminContactImport && (
-              <section style={{ marginTop: 12 }}>
-                <h2 style={{ fontSize: 14, marginBottom: 4 }}>Personal contacts (system admin)</h2>
-                <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
-                  Import this worker&apos;s personal contacts from a CSV file. Contacts are attached to their
-                  global profile and remain confidential to them; tenants and admins cannot browse these contacts.
-                </p>
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  disabled={adminCsvSaving}
-                  onChange={e => {
-                    const file = e.target.files?.[0] ?? null;
-                    setAdminCsvFile(file);
-                    setAdminCsvStatus(null);
-                    setAdminCsvError(null);
-                  }}
-                  style={{ fontSize: 12 }}
-                />
-                {adminCsvSaving && (
-                  <p style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>Importing contacts…</p>
-                )}
-                {adminCsvStatus && (
-                  <p style={{ fontSize: 12, color: "#166534", marginTop: 4 }}>{adminCsvStatus}</p>
-                )}
-                {adminCsvError && (
-                  <p style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>{adminCsvError}</p>
-                )}
-                <div style={{ marginTop: 6 }}>
-                  <button
-                    type="button"
-                    onClick={() => void handleAdminImportContactsCsv(adminCsvFile)}
-                    disabled={!adminCsvFile || adminCsvSaving}
-                    style={{
-                      padding: "4px 10px",
-                      borderRadius: 4,
-                      border: "1px solid #0f172a",
-                      backgroundColor:
-                        !adminCsvFile || adminCsvSaving ? "#e5e7eb" : "#0f172a",
-                      color: !adminCsvFile || adminCsvSaving ? "#4b5563" : "#f9fafb",
-                      fontSize: 12,
-                      cursor: !adminCsvFile || adminCsvSaving ? "default" : "pointer",
-                    }}
-                  >
-                    {adminCsvSaving ? "Importing…" : "Import contacts from CSV"}
-                  </button>
-                </div>
-              </section>
-            )}
 
             <section style={{ marginTop: 16 }}>
               <h2 style={{ fontSize: 16, marginBottom: 4 }}>Worker record</h2>
