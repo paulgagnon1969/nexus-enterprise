@@ -9,8 +9,6 @@ import { useLanguage } from "./language-context";
 import { NttBadge } from "./components/ntt-badge";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-// Hard-coded Nexus System tenant id, used to detect internal Nexus System admins.
-const NEXUS_SYSTEM_COMPANY_ID = "cmjr7o4zs000101s6z1rt1ssz";
 
 interface UserMeResponse {
   id: string;
@@ -36,7 +34,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const h = messages.header;
   const [globalRole, setGlobalRole] = useState<string | null>(null);
   const [userType, setUserType] = useState<string | null>(null);
-  const [isNexusSystemAdminOrAbove, setIsNexusSystemAdminOrAbove] = useState(false);
   const [currentCompanyName, setCurrentCompanyName] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
 
@@ -248,18 +245,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         const nextGlobalRole = json.globalRole ?? null;
         const nextUserType = json.userType ?? null;
-        const memberships = Array.isArray(json.memberships)
-          ? json.memberships
-          : [];
-        const isNexusSystemAdminOrAbove = memberships.some(
-          m =>
-            m.companyId === NEXUS_SYSTEM_COMPANY_ID &&
-            (m.role === "OWNER" || m.role === "ADMIN"),
-        );
 
         setGlobalRole(nextGlobalRole);
         setUserType(nextUserType);
-        setIsNexusSystemAdminOrAbove(isNexusSystemAdminOrAbove);
 
         // Post-login sync: keep localStorage in sync so layouts that rely on
         // cached globalRole/userType (e.g. /system) behave correctly even
@@ -415,14 +403,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Hide the main app navigation on auth routes like /login so the global menu
   // doesn&apos;t distract first-time candidates during sign-in.
   //
-  // On /referrals:
-  //   - Nexus System admins and above (internal Nexus team) see the full
-  //     workspace nav so they can easily get back to their organization/app
-  //     menus.
-  //   - Everyone else (including APPLICANT users and tenant users) sees the
-  //     focused Nexus Marketplace nav (Learning + FAQs).
+  // On /referrals, show only the focused Nexus Marketplace nav (Learning + FAQs)
+  // regardless of user role; on all other authenticated routes, show the full
+  // nav.
   const hideNavOnThisPage = isAuthRoute;
-  const useMarketplaceNavOnly = isReferralRoute && !isNexusSystemAdminOrAbove;
+  const useMarketplaceNavOnly = isReferralRoute;
 
   if (isPublicRoute) {
     return (
@@ -612,10 +597,27 @@ export function AppShell({ children }: { children: ReactNode }) {
               </div>
             )}
 
+          {/* Simple back arrow on referrals to return to org workspace */}
+          {isReferralRoute && (
+            <Link
+              href="/projects"
+              className="app-nav-link"
+              style={{
+                marginLeft: 16,
+                marginRight: 8,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              <span aria-hidden="true">←</span>
+              <span>Back to your organization</span>
+            </Link>
+          )}
+
           {/* Primary app navigation.
               - On /login and /accept-invite, hide the nav entirely.
-              - On /referrals and for APPLICANT users, show a focused Nexus
-                Marketplace nav (Learning + FAQs).
+              - On /referrals, show a focused Nexus Marketplace nav (Learning + FAQs).
               - On all other authenticated routes, show the full workspace nav. */}
           {!hideNavOnThisPage && (useMarketplaceNavOnly ? renderApplicantNav() : renderStandardNav())}
         </div>
