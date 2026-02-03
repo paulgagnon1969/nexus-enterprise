@@ -15,6 +15,8 @@ interface CreateReferralDto {
   prospectName?: string | null;
   prospectEmail?: string | null;
   prospectPhone?: string | null;
+  // Optional backref when a referral is initiated from a personal contact.
+  personalContactId?: string | null;
 }
 
 @Injectable()
@@ -134,6 +136,7 @@ export class ReferralsService {
           token,
           candidateId: candidate.id,
           status: ReferralStatus.INVITED,
+          personalContactId: dto.personalContactId ?? null,
         },
       });
 
@@ -229,6 +232,63 @@ export class ReferralsService {
       },
       take: 200,
     });
+  }
+
+  /**
+   * Bulk-create referrals from a caller's personal contact book.
+   */
+  async inviteFromPersonalContacts(actor: AuthenticatedUser, personalContactIds: string[]) {
+    if (!actor.userId) {
+      throw new ForbiddenException("Missing user id for referrer.");
+    }
+    if (!personalContactIds?.length) {
+      throw new BadRequestException("personalContactIds is required.");
+    }
+
+    const ownerUserId = actor.userId;
+
+    const contacts = await this.prisma.personalContact.findMany({
+      where: {
+        ownerUserId,
+        id: { in: personalContactIds },
+      },
+    });
+
+    if (!contacts.length) {
+      throw new BadRequestException("No matching personal contacts found for this user.");
+    }
+
+    const results = [] as Array<{
+      personalContactId: string;
+      referralId: string;
+      referralToken: string;
+      applyPath: string;
+    }>;
+
+    for (const contact of contacts) {
+      const prospectName =
+        contact.displayName ||
+        [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
+        contact.email ||
+        contact.phone ||
+        null;
+
+      const { referral, applyPath } = await this.createReferralForUser(actor, {
+        prospectName,
+        prospectEmail: contact.email,
+        prospectPhone: contact.phone,
+        personalContactId: contact.id,
+      });
+
+      results.push({
+        personalContactId: contact.id,
+        referralId: referral.id,
+        referralToken: referral.token,
+        applyPath,
+      });
+    }
+
+    return { invitations: results };
   }
 
   async listCandidatesForSystem(actor: AuthenticatedUser) {

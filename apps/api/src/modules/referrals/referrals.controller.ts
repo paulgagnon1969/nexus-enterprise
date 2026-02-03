@@ -34,6 +34,20 @@ export class ReferralsController {
     return result;
   }
 
+  // Bulk-create referrals from the caller's personal contacts.
+  @UseGuards(JwtAuthGuard)
+  @Post("from-contacts")
+  async createFromContacts(
+    @Req() req: any,
+    @Body()
+    body: {
+      personalContactIds: string[];
+    },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.referrals.inviteFromPersonalContacts(actor, body?.personalContactIds ?? []);
+  }
+
   // Current user's referrals (who I have referred).
   @UseGuards(JwtAuthGuard)
   @Get("me")

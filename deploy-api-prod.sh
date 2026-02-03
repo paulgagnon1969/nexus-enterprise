@@ -41,10 +41,8 @@ docker build -f apps/api/Dockerfile -t "${IMAGE}" .
 echo "=== Pushing image to GCR: ${IMAGE} ==="
 docker push "${IMAGE}"
 
-echo "=== Running Prisma migrations against prod DB ==="
-cd packages/database
-npx prisma migrate deploy --schema=prisma/schema.prisma
-cd "$ROOT_DIR"
+echo "=== Running Prisma migrations against prod DB via scripts/db-migrate-prod.sh ==="
+"$ROOT_DIR/scripts/db-migrate-prod.sh"
 
 echo "=== Deploying Cloud Run service: ${SERVICE} in ${REGION} ==="
 gcloud run deploy "${SERVICE}" \
