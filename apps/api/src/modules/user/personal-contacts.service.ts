@@ -66,8 +66,11 @@ export class PersonalContactsService {
   private async upsertContactsForOwner(ownerUserId: string, inputs: ImportContactInput[]) {
     const contacts = this.buildContactsForOwner(ownerUserId, inputs);
 
-    const created = await this.prisma.$transaction(async tx => {
+    const { rows, createdCount, updatedCount } = await this.prisma.$transaction(async tx => {
       const results = [] as any[];
+      let created = 0;
+      let updated = 0;
+
       for (const c of contacts) {
         const existing = await tx.personalContact.findFirst({
           where: {
@@ -80,7 +83,7 @@ export class PersonalContactsService {
         });
 
         if (existing) {
-          const updated = await tx.personalContact.update({
+          const updatedRow = await tx.personalContact.update({
             where: { id: existing.id },
             data: {
               displayName: c.displayName ?? existing.displayName,
@@ -91,25 +94,30 @@ export class PersonalContactsService {
               source: c.source ?? existing.source,
             },
           });
-          results.push(updated);
+          updated += 1;
+          results.push(updatedRow);
         } else {
           const createdRow = await tx.personalContact.create({ data: c });
+          created += 1;
           results.push(createdRow);
         }
       }
-      return results;
+
+      return { rows: results, createdCount: created, updatedCount: updated };
     });
 
-    return created;
+    return { rows, createdCount, updatedCount };
   }
 
   async importContacts(actor: AuthenticatedUser, inputs: ImportContactInput[]) {
     const ownerUserId = this.ensureUserId(actor);
-    const created = await this.upsertContactsForOwner(ownerUserId, inputs);
+    const { rows, createdCount, updatedCount } = await this.upsertContactsForOwner(ownerUserId, inputs);
 
     return {
-      count: created.length,
-      contacts: created.map(c => ({
+      count: rows.length,
+      createdCount,
+      updatedCount,
+      contacts: rows.map(c => ({
         id: c.id,
         displayName: c.displayName,
         email: c.email,
@@ -126,11 +134,13 @@ export class PersonalContactsService {
       throw new BadRequestException("userId is required");
     }
 
-    const created = await this.upsertContactsForOwner(targetUserId, inputs);
+    const { rows, createdCount, updatedCount } = await this.upsertContactsForOwner(targetUserId, inputs);
 
     return {
-      count: created.length,
-      contacts: created.map(c => ({
+      count: rows.length,
+      createdCount,
+      updatedCount,
+      contacts: rows.map(c => ({
         id: c.id,
         displayName: c.displayName,
         email: c.email,
