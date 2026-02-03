@@ -87,6 +87,15 @@ interface WorkerDto {
   cpFringeRate: number | null;
 }
 
+interface PersonalContactSummary {
+  id: string;
+  displayName: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
 interface UserProfileDto {
   id: string;
   email: string;
@@ -241,6 +250,18 @@ export default function CompanyUserProfilePage() {
   const [workerMarketLoading, setWorkerMarketLoading] = useState(false);
   const [workerMarketError, setWorkerMarketError] = useState<string | null>(null);
   const [showMarketDetails, setShowMarketDetails] = useState(false);
+
+  // Viewer-specific personal contact matches for the linked worker (confidential)
+  const [workerPersonalContacts, setWorkerPersonalContacts] = useState<{
+    linkedContacts: PersonalContactSummary[];
+    matchingContacts: PersonalContactSummary[];
+  } | null>(null);
+  const [workerPersonalContactsLoading, setWorkerPersonalContactsLoading] = useState(false);
+  const [workerPersonalContactsError, setWorkerPersonalContactsError] = useState<string | null>(null);
+
+  // System-admin-only CSV import of personal contacts for this user
+  const [adminCsvStatus, setAdminCsvStatus] = useState<string | null>(null);
+  const [adminCsvError, setAdminCsvError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -404,6 +425,60 @@ export default function CompanyUserProfilePage() {
     }
 
     void loadMarket();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.worker?.id]);
+
+  useEffect(() => {
+    // Load viewer's personal contact matches for this worker (if worker link exists).
+    const workerId = profile?.worker?.id;
+    if (!workerId) {
+      setWorkerPersonalContacts(null);
+      setWorkerPersonalContactsError(null);
+      setWorkerPersonalContactsLoading(false);
+      return;
+    }
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    async function loadWorkerContacts() {
+      try {
+        setWorkerPersonalContactsLoading(true);
+        setWorkerPersonalContactsError(null);
+        const res = await fetch(`${API_BASE}/personal-contacts/for-worker/${workerId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(
+            text || `Failed to load your personal contact matches for this worker (${res.status})`,
+          );
+        }
+        const json = await res.json();
+        if (cancelled) return;
+        setWorkerPersonalContacts({
+          linkedContacts: Array.isArray(json?.linkedContacts) ? json.linkedContacts : [],
+          matchingContacts: Array.isArray(json?.matchingContacts) ? json.matchingContacts : [],
+        });
+      } catch (e: any) {
+        if (!cancelled) {
+          setWorkerPersonalContactsError(
+            e?.message ?? "Failed to load your personal contact matches for this worker.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setWorkerPersonalContactsLoading(false);
+        }
+      }
+    }
+
+    void loadWorkerContacts();
 
     return () => {
       cancelled = true;
@@ -611,6 +686,8 @@ export default function CompanyUserProfilePage() {
   const canViewWorkerComp =
     !!profile.worker && ((profile.canViewWorkerComp ?? false) || canEditWorkerComp);
   const canManageTenantAccess = isAdminOrAbove || isSuperAdmin;
+
+  const canUseAdminContactImport = isSuperAdmin;
 
   async function handleToggleTenantAccess(nextIsActive: boolean) {
     setTenantAccessError(null);
@@ -1179,6 +1256,86 @@ export default function CompanyUserProfilePage() {
   const totalSkills = profile.skills.length;
   const ratedSkills = profile.skills.filter(s => getSkillSort(s).rated).length;
 
+  const handleAdminImportContactsCsv = async (file: File) => {
+    setAdminCsvStatus(null);
+    setAdminCsvError(null);
+
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      if (!lines.length) {
+        throw new Error("CSV file is empty.");
+      }
+
+      const header = lines[0].split(",").map(h => h.trim().toLowerCase());
+      const idxName = header.findIndex(h => h === "name" || h === "full name" || h === "fullname");
+      const idxFirst = header.findIndex(h => h === "firstname" || h === "first name");
+      const idxLast = header.findIndex(h => h === "lastname" || h === "last name");
+      const idxEmail = header.findIndex(h => h === "email" || h === "email address");
+      const idxPhone = header.findIndex(h => h === "phone" || h === "phone number" || h === "mobile");
+
+      if (idxEmail === -1 && idxPhone === -1) {
+        throw new Error("CSV must include at least an email or phone column.");
+      }
+
+      const contacts: any[] = [];
+      for (let i = 1; i < lines.length; i += 1) {
+        const row = lines[i];
+        if (!row) continue;
+        const cols = row.split(",");
+        const get = (idx: number) => (idx >= 0 && idx < cols.length ? cols[idx].trim() : "");
+
+        const name = idxName >= 0 ? get(idxName) : "";
+        const firstName = idxFirst >= 0 ? get(idxFirst) : "";
+        const lastName = idxLast >= 0 ? get(idxLast) : "";
+        const email = idxEmail >= 0 ? get(idxEmail) : "";
+        const phone = idxPhone >= 0 ? get(idxPhone) : "";
+
+        if (!email && !phone) {
+          continue;
+        }
+
+        contacts.push({
+          displayName: name || undefined,
+          firstName: firstName || undefined,
+          lastName: lastName || undefined,
+          email: email || undefined,
+          phone: phone || undefined,
+        });
+      }
+
+      if (!contacts.length) {
+        throw new Error("No contacts with email or phone were found in the CSV.");
+      }
+
+      const token = localStorage.getItem("accessToken");
+      if (!token) {
+        throw new Error("Missing access token. Please log in again.");
+      }
+
+      const res = await fetch(`${API_BASE}/personal-contacts/admin/import-for-user`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ userId: profile.id, contacts }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Import failed (${res.status})`);
+      }
+
+      const json: any = await res.json().catch(() => null);
+      const count = typeof json?.count === "number" ? json.count : contacts.length;
+      setAdminCsvStatus(
+        `Imported or updated ${count} contact(s) into this user\'s confidential personal contact book.`,
+      );
+    } catch (e: any) {
+      setAdminCsvError(e?.message ?? "Failed to import contacts from CSV.");
+    }
+  };
+
   return (
     <div
       className="app-card"
@@ -1375,7 +1532,7 @@ export default function CompanyUserProfilePage() {
           }}
         >
           <div style={{ flex: "0 0 360px", minWidth: 320, maxWidth: 420 }}>
-          <section>
+            <section>
               <h2 style={{ fontSize: 16, marginBottom: 4 }}>Identity</h2>
 
               {canEditNames ? (
@@ -1500,6 +1657,34 @@ export default function CompanyUserProfilePage() {
               )}
             </section>
 
+            {canUseAdminContactImport && (
+              <section style={{ marginTop: 12 }}>
+                <h2 style={{ fontSize: 14, marginBottom: 4 }}>Personal contacts (system admin)</h2>
+                <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
+                  Import this worker&apos;s personal contacts from a CSV file. Contacts are attached to their
+                  global profile and remain confidential to them; tenants and admins cannot browse these contacts.
+                </p>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      void handleAdminImportContactsCsv(file);
+                      e.target.value = "";
+                    }
+                  }}
+                  style={{ fontSize: 12 }}
+                />
+                {adminCsvStatus && (
+                  <p style={{ fontSize: 12, color: "#166534", marginTop: 4 }}>{adminCsvStatus}</p>
+                )}
+                {adminCsvError && (
+                  <p style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>{adminCsvError}</p>
+                )}
+              </section>
+            )}
+
             <section style={{ marginTop: 16 }}>
               <h2 style={{ fontSize: 16, marginBottom: 4 }}>Worker record</h2>
               {!hasWorker || !profile.worker ? (
@@ -1577,6 +1762,55 @@ export default function CompanyUserProfilePage() {
                       <span>—</span>
                     )}
                   </div>
+
+                  {workerPersonalContactsLoading && (
+                    <p style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                      Checking your personal contact book for this worker…
+                    </p>
+                  )}
+                  {workerPersonalContactsError && !workerPersonalContactsLoading && (
+                    <p style={{ fontSize: 11, color: "#b91c1c", marginTop: 4 }}>
+                      {workerPersonalContactsError}
+                    </p>
+                  )}
+                  {workerPersonalContacts && !workerPersonalContactsLoading && (
+                    (() => {
+                      const linked = workerPersonalContacts.linkedContacts || [];
+                      const matching = workerPersonalContacts.matchingContacts || [];
+                      const any = (linked?.length || 0) + (matching?.length || 0) > 0;
+                      if (!any) return null;
+
+                      const first = linked[0] || matching[0];
+                      if (!first) return null;
+
+                      const label =
+                        first.displayName ||
+                        [first.firstName, first.lastName].filter(Boolean).join(" ") ||
+                        first.email ||
+                        first.phone ||
+                        "this person";
+
+                      return (
+                        <div
+                          style={{
+                            marginTop: 6,
+                            padding: 8,
+                            borderRadius: 8,
+                            border: "1px solid #bbf7d0",
+                            backgroundColor: "#ecfdf5",
+                            color: "#166534",
+                            fontSize: 11,
+                          }}
+                        >
+                          <div style={{ fontWeight: 600 }}>In your personal contacts</div>
+                          <div style={{ marginTop: 2 }}>
+                            It looks like you know <strong>{label}</strong> from your confidential personal
+                            contact book. Only you can see this match.
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
                   {canEditWorkerComp ? (
                     <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
                       <div style={{ fontWeight: 600, marginBottom: 2 }}>Assignment & classification</div>
