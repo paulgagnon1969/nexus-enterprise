@@ -1,7 +1,7 @@
-import { Body, Controller, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Post, Req, UseGuards, Query } from "@nestjs/common";
 import { AuthService } from "./auth.service";
 import { RegisterDto, LoginDto, ChangePasswordDto } from "./dto/auth.dto";
-import { JwtAuthGuard } from "./auth.guards";
+import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles, GlobalRole } from "./auth.guards";
 import { AuthenticatedUser } from "./jwt.strategy";
 import { AcceptInviteDto } from "./dto/accept-invite.dto";
 
@@ -12,6 +12,46 @@ export class AuthController {
   @Post("register")
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
+  }
+
+  // --- Organization onboarding (Nexus System → new tenant owners) ---
+
+  // SUPER_ADMIN only: create an org invite and send an email with a link to
+  // /org-onboarding?token=...
+  @UseGuards(JwtAuthGuard, GlobalRolesGuard)
+  @GlobalRoles(GlobalRole.SUPER_ADMIN)
+  @Post("org-invites")
+  createOrgInvite(@Req() req: any, @Body("email") email: string, @Body("expiresInDays") expiresInDays?: number) {
+    const actor = req.user as AuthenticatedUser;
+    return this.auth.createOrgInvite(actor, email, expiresInDays);
+  }
+
+  // Public: validate an organization invite token and return basic metadata
+  // (email + expiry) so the web wizard can display it.
+  @Get("org-onboarding")
+  getOrgInvite(@Query("token") token: string) {
+    return this.auth.getOrgInvite(token);
+  }
+
+  // Public: complete org onboarding (create owner user, company, first office)
+  // and return login tokens.
+  @Post("org-onboarding")
+  completeOrgOnboarding(
+    @Body()
+    body: {
+      token: string;
+      password: string;
+      companyName: string;
+      officeLabel?: string;
+      addressLine1: string;
+      addressLine2?: string | null;
+      city: string;
+      state: string;
+      postalCode: string;
+      country?: string | null;
+    },
+  ) {
+    return this.auth.completeOrgOnboarding(body);
   }
 
   // One-time bootstrap: create or promote a user to SUPER_ADMIN when none exist yet.
