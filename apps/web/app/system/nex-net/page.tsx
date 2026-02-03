@@ -28,6 +28,9 @@ interface NexNetCandidateRow {
   createdAt?: string | null;
   referrerEmail?: string | null;
 
+  // Aggregate signal from personal contacts across the network
+  personalContactMatchCount?: number | null;
+
   // Optional assignment metadata from the API: which tenants already
   // "own" this candidate as a worker. The current UI does not depend on
   // these fields but they are available for future tabs/filters.
@@ -71,6 +74,8 @@ export default function NexNetSystemPage() {
   const [prospects, setProspects] = useState<NexNetCandidateRow[] | null>(null);
   const [prospectsLoading, setProspectsLoading] = useState(false);
   const [prospectsError, setProspectsError] = useState<string | null>(null);
+  const [contactSignalFilter, setContactSignalFilter] = useState<"ALL" | "HAS_MATCH" | "STRONG">("ALL");
+  const [contactModalCandidate, setContactModalCandidate] = useState<NexNetCandidateRow | null>(null);
 
   const [referrals, setReferrals] = useState<ReferralRow[] | null>(null);
   const [referralsBase, setReferralsBase] = useState<ReferralRow[] | null>(null);
@@ -82,6 +87,19 @@ export default function NexNetSystemPage() {
   const [gamingError, setGamingError] = useState<string | null>(null);
   const [showOnlySuspicious, setShowOnlySuspicious] = useState(false);
   const [activeReferrerFilter, setActiveReferrerFilter] = useState<string | null>(null);
+
+  const filteredProspects = prospects
+    ? prospects.filter(p => {
+        const count = p.personalContactMatchCount ?? 0;
+        if (contactSignalFilter === "HAS_MATCH") {
+          return count > 0;
+        }
+        if (contactSignalFilter === "STRONG") {
+          return count >= 5;
+        }
+        return true;
+      })
+    : prospects;
 
   // Load prospects when Prospects tab is active
   useEffect(() => {
@@ -120,6 +138,7 @@ export default function NexNetSystemPage() {
             status: c.status ?? null,
             createdAt: c.createdAt ?? null,
             referrerEmail: latestReferral?.referrer?.email ?? null,
+            personalContactMatchCount: c.personalContactMatchCount ?? null,
           };
         });
         setProspects(mapped);
@@ -289,104 +308,188 @@ export default function NexNetSystemPage() {
               <h3 style={{ marginTop: 0, fontSize: 15 }}>Prospects (Nex-Net pool)</h3>
               <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 8 }}>
                 This view lists Nex-Net candidates, including referral pre-profiles. Data currently focuses on basic
-                contact info, source, status, and primary referrer.
+                contact info, source, status, and primary referrer. It also surfaces an aggregate signal from users'
+                confidential personal contact books.
               </p>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 8,
+                  fontSize: 11,
+                  color: "#4b5563",
+                }}
+              >
+                <span>Filter by personal contact signal:</span>
+                {([
+                  ["ALL", "All"],
+                  ["HAS_MATCH", "At least 1"],
+                  ["STRONG", "Strong (≥5)"],
+                ] as const).map(([value, label]) => {
+                  const active = contactSignalFilter === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setContactSignalFilter(value)}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 999,
+                        border: active ? "1px solid #0f172a" : "1px solid #e5e7eb",
+                        backgroundColor: active ? "#0f172a" : "#ffffff",
+                        color: active ? "#f9fafb" : "#111827",
+                        fontSize: 11,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
               {prospectsLoading && (
                 <p style={{ fontSize: 12, color: "#6b7280" }}>Loading prospects…</p>
               )}
               {prospectsError && !prospectsLoading && (
                 <p style={{ fontSize: 12, color: "#b91c1c" }}>{prospectsError}</p>
               )}
-              {!prospectsLoading && !prospectsError && (!prospects || prospects.length === 0) && (
-                <p style={{ fontSize: 12, color: "#6b7280" }}>No prospects found yet.</p>
-              )}
-              {!prospectsLoading && !prospectsError && prospects && prospects.length > 0 && (
-                <div style={{ overflowX: "auto", marginTop: 6 }}>
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "collapse",
-                      fontSize: 12,
-                    }}
-                  >
-                    <thead>
-                      <tr>
-                        <th style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #e5e7eb" }}>
-                          Name
-                        </th>
-                        <th style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #e5e7eb" }}>
-                          Email
-                        </th>
-                        <th style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #e5e7eb" }}>
-                          Phone
-                        </th>
-                        <th style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #e5e7eb" }}>
-                          Source
-                        </th>
-                        <th style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #e5e7eb" }}>
-                          Status
-                        </th>
-                        <th style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #e5e7eb" }}>
-                          Referrer
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {prospects.map(p => {
-                        const name = (p.firstName || p.lastName)
-                          ? `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim()
-                          : "—";
-                        return (
-                          <tr key={p.id}>
-                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>{name}</td>
-                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
-                              {p.email ? (
-                                <a
-                                  href={`mailto:${p.email}`}
-                                  style={{ color: "#2563eb", textDecoration: "none" }}
-                                >
-                                  {p.email}
-                                </a>
-                              ) : (
-                                "—"
-                              )}
-                            </td>
-                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
-                              {p.phone ? (
-                                <a
-                                  href={`tel:${p.phone.replace(/[^\\d+]/g, "")}`}
-                                  style={{ color: "#6b7280", textDecoration: "none" }}
-                                >
-                                  {p.phone}
-                                </a>
-                              ) : (
-                                "—"
-                              )}
-                            </td>
-                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
-                              {p.source || "—"}
-                            </td>
-                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
-                              {p.status || "—"}
-                            </td>
-                            <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
-                              {p.referrerEmail ? (
-                                <a
-                                  href={`mailto:${p.referrerEmail}`}
-                                  style={{ color: "#2563eb", textDecoration: "none" }}
-                                >
-                                  {p.referrerEmail}
-                                </a>
-                              ) : (
-                                "—"
-                              )}
-                            </td>
+              {!prospectsLoading && !prospectsError && (
+                <>
+                  {(!prospects || prospects.length === 0) && (
+                    <p style={{ fontSize: 12, color: "#6b7280" }}>No prospects found yet.</p>
+                  )}
+                  {prospects && prospects.length > 0 && filteredProspects && filteredProspects.length === 0 && (
+                    <p style={{ fontSize: 12, color: "#6b7280" }}>No prospects match the current filter.</p>
+                  )}
+                  {filteredProspects && filteredProspects.length > 0 && (
+                    <div style={{ overflowX: "auto", marginTop: 6 }}>
+                      <table
+                        style={{
+                          width: "100%",
+                          borderCollapse: "collapse",
+                          fontSize: 12,
+                        }}
+                      >
+                        <thead>
+                          <tr>
+                            <th
+                              style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #e5e7eb" }}
+                            >
+                              Name
+                            </th>
+                            <th
+                              style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #e5e7eb" }}
+                            >
+                              Email
+                            </th>
+                            <th
+                              style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #e5e7eb" }}
+                            >
+                              Phone
+                            </th>
+                            <th
+                              style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #e5e7eb" }}
+                            >
+                              Source
+                            </th>
+                            <th
+                              style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #e5e7eb" }}
+                            >
+                              Status
+                            </th>
+                            <th
+                              style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #e5e7eb" }}
+                            >
+                              Referrer
+                            </th>
+                            <th
+                              style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #e5e7eb" }}
+                            >
+                              Personal contacts
+                            </th>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                        </thead>
+                        <tbody>
+                          {filteredProspects.map(p => {
+                            const name = (p.firstName || p.lastName)
+                              ? `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim()
+                              : "—";
+                            const matchCount = p.personalContactMatchCount ?? 0;
+                            return (
+                              <tr key={p.id}>
+                                <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>{name}</td>
+                                <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
+                                  {p.email ? (
+                                    <a
+                                      href={`mailto:${p.email}`}
+                                      style={{ color: "#2563eb", textDecoration: "none" }}
+                                    >
+                                      {p.email}
+                                    </a>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                                <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
+                                  {p.phone ? (
+                                    <a
+                                      href={`tel:${p.phone.replace(/[^\\d+]/g, "")}`}
+                                      style={{ color: "#6b7280", textDecoration: "none" }}
+                                    >
+                                      {p.phone}
+                                    </a>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                                <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
+                                  {p.source || "—"}
+                                </td>
+                                <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
+                                  {p.status || "—"}
+                                </td>
+                                <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
+                                  {p.referrerEmail ? (
+                                    <a
+                                      href={`mailto:${p.referrerEmail}`}
+                                      style={{ color: "#2563eb", textDecoration: "none" }}
+                                    >
+                                      {p.referrerEmail}
+                                    </a>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                                <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
+                                  {matchCount > 0 ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setContactModalCandidate(p)}
+                                      style={{
+                                        padding: "3px 8px",
+                                        borderRadius: 999,
+                                        border: "1px solid #d1d5db",
+                                        backgroundColor: "#f9fafb",
+                                        fontSize: 11,
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      View count ({matchCount})
+                                    </button>
+                                  ) : (
+                                    <span style={{ color: "#9ca3af" }}>—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -782,6 +885,89 @@ export default function NexNetSystemPage() {
                 operating procedures, and program documentation. For now, refer to internal Nex-Net policy docs
                 maintained by Nexus System.
               </p>
+            </div>
+          )}
+
+          {contactModalCandidate && (
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                backgroundColor: "rgba(15,23,42,0.45)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 16,
+                zIndex: 50,
+              }}
+            >
+              <div
+                style={{
+                  maxWidth: 480,
+                  width: "100%",
+                  borderRadius: 12,
+                  backgroundColor: "#ffffff",
+                  boxShadow:
+                    "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)",
+                  padding: 16,
+                  fontSize: 13,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    gap: 8,
+                    marginBottom: 8,
+                  }}
+                >
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: 15 }}>Personal contact signal</h4>
+                    <p style={{ margin: 0, marginTop: 2, fontSize: 12, color: "#6b7280" }}>
+                      This shows how many Nex-Net users have this person in their confidential personal contact books.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setContactModalCandidate(null)}
+                    aria-label="Close personal contact signal dialog"
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      fontSize: 18,
+                      lineHeight: 1,
+                      padding: 2,
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  <div style={{ marginBottom: 6 }}>
+                    <span style={{ color: "#4b5563" }}>Candidate: </span>
+                    <strong>
+                      {(contactModalCandidate.firstName || contactModalCandidate.lastName)
+                        ? `${contactModalCandidate.firstName ?? ""} ${
+                            contactModalCandidate.lastName ?? ""
+                          }`.trim()
+                        : contactModalCandidate.email || contactModalCandidate.phone || "Unknown"}
+                    </strong>
+                  </div>
+                  <p style={{ marginTop: 4, marginBottom: 4 }}>
+                    Currently <strong>{contactModalCandidate.personalContactMatchCount ?? 0}</strong> Nex-Net
+                    user
+                    {contactModalCandidate.personalContactMatchCount === 1 ? "" : "s"} have this candidate in
+                    their personal contacts.
+                  </p>
+                  <p style={{ marginTop: 4, fontSize: 12, color: "#6b7280" }}>
+                    This is an aggregate signal only. Individual contact books remain confidential and are never
+                    shown here. Organizations only see invited candidates&rsquo; details after the candidate accepts an
+                    invite.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
         </section>
