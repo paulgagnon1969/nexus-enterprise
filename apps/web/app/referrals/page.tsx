@@ -36,6 +36,16 @@ interface ReferralRow {
   createdAt: string;
 }
 
+interface PersonalContactRow {
+  id: string;
+  displayName: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+  source: string;
+}
+
 export default function ReferralsPage() {
   const [recruitEmail, setRecruitEmail] = useState("");
   const [recruitPhone, setRecruitPhone] = useState("");
@@ -55,6 +65,17 @@ export default function ReferralsPage() {
   const [rows, setRows] = useState<ReferralRow[]>([]);
   const [rowsLoading, setRowsLoading] = useState(false);
   const [rowsError, setRowsError] = useState<string | null>(null);
+
+  // CSV import status
+  const [csvImportStatus, setCsvImportStatus] = useState<string | null>(null);
+  const [csvImportError, setCsvImportError] = useState<string | null>(null);
+
+  // Personal contacts picker state
+  const [contactsOpen, setContactsOpen] = useState(false);
+  const [contacts, setContacts] = useState<PersonalContactRow[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactsError, setContactsError] = useState<string | null>(null);
+  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -213,6 +234,166 @@ export default function ReferralsPage() {
     window.location.href = href;
   };
 
+  const handleOpenContacts = async () => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setContactsError("Missing access token; please log in again.");
+      setContactsOpen(true);
+      return;
+    }
+
+    try {
+      setContactsOpen(true);
+      setContactsLoading(true);
+      setContactsError(null);
+      const res = await fetch(`${API_BASE}/personal-contacts?limit=200`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to load personal contacts (${res.status})`);
+      }
+      const json = (await res.json()) as PersonalContactRow[];
+      setContacts(json);
+      setSelectedContactIds([]);
+    } catch (e: any) {
+      setContactsError(e?.message ?? "Failed to load personal contacts.");
+    } finally {
+      setContactsLoading(false);
+    }
+  };
+
+  const toggleContactSelected = (id: string) => {
+    setSelectedContactIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id],
+    );
+  };
+
+  const handleInviteFromContacts = async () => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setContactsError("Missing access token; please log in again.");
+      return;
+    }
+    if (!selectedContactIds.length) {
+      setContactsError("Select at least one contact to invite.");
+      return;
+    }
+
+    try {
+      setContactsLoading(true);
+      setContactsError(null);
+      const res = await fetch(`${API_BASE}/referrals/from-contacts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ personalContactIds: selectedContactIds }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Invite from contacts failed (${res.status}) ${text}`);
+      }
+
+      // After creating referrals from contacts, refresh the referral list.
+      const listRes = await fetch(`${API_BASE}/referrals/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (listRes.ok) {
+        const listJson = await listRes.json();
+        setRows(listJson as ReferralRow[]);
+      }
+
+      setContactsOpen(false);
+      setSelectedContactIds([]);
+    } catch (e: any) {
+      setContactsError(e?.message ?? "Failed to invite from contacts.");
+    } finally {
+      setContactsLoading(false);
+    }
+  };
+
+  const handleImportCsvFile = async (file: File) => {
+    setCsvImportStatus(null);
+    setCsvImportError(null);
+
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      if (!lines.length) {
+        throw new Error("CSV file is empty.");
+      }
+
+      const header = lines[0].split(",").map(h => h.trim().toLowerCase());
+      const idxName = header.findIndex(h => h === "name" || h === "full name" || h === "fullname");
+      const idxFirst = header.findIndex(h => h === "firstname" || h === "first name");
+      const idxLast = header.findIndex(h => h === "lastname" || h === "last name");
+      const idxEmail = header.findIndex(h => h === "email" || h === "email address");
+      const idxPhone = header.findIndex(h => h === "phone" || h === "phone number" || h === "mobile");
+
+      if (idxEmail === -1 && idxPhone === -1) {
+        throw new Error("CSV must include at least an email or phone column.");
+      }
+
+      const contacts: any[] = [];
+      for (let i = 1; i < lines.length; i += 1) {
+        const row = lines[i];
+        if (!row) continue;
+        const cols = row.split(",");
+        const get = (idx: number) => (idx >= 0 && idx < cols.length ? cols[idx].trim() : "");
+
+        const name = idxName >= 0 ? get(idxName) : "";
+        const firstName = idxFirst >= 0 ? get(idxFirst) : "";
+        const lastName = idxLast >= 0 ? get(idxLast) : "";
+        const email = idxEmail >= 0 ? get(idxEmail) : "";
+        const phone = idxPhone >= 0 ? get(idxPhone) : "";
+
+        if (!email && !phone) {
+          continue;
+        }
+
+        contacts.push({
+          displayName: name || undefined,
+          firstName: firstName || undefined,
+          lastName: lastName || undefined,
+          email: email || undefined,
+          phone: phone || undefined,
+        });
+      }
+
+      if (!contacts.length) {
+        throw new Error("No contacts with email or phone were found in the CSV.");
+      }
+
+      if (typeof window === "undefined") return;
+      const token = window.localStorage.getItem("accessToken");
+      if (!token) {
+        throw new Error("Missing access token; please log in again.");
+      }
+
+      const res = await fetch(`${API_BASE}/personal-contacts/import`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ contacts }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Import failed (${res.status})`);
+      }
+
+      const json: any = await res.json().catch(() => null);
+      const count = typeof json?.count === "number" ? json.count : contacts.length;
+      setCsvImportStatus(`Imported or updated ${count} contact(s) into your personal contact book.`);
+    } catch (e: any) {
+      setCsvImportError(e?.message ?? "Failed to import contacts from CSV.");
+    }
+  };
+
   const totalInvitedFromSummary = summary?.totals.totalInvited ?? rows.length;
   const totalApplied = useMemo(
     () => rows.filter(r => r.status === "APPLIED" || r.status === "HIRED").length,
@@ -225,6 +406,67 @@ export default function ReferralsPage() {
   return (
     <PageCard>
       <h1 style={{ marginTop: 0, fontSize: 20 }}>Refer a Friend</h1>
+
+      {/* Confidential personal contact book banner */}
+      <div
+        style={{
+          marginTop: 4,
+          marginBottom: 10,
+          padding: 10,
+          borderRadius: 10,
+          border: "1px solid #e5e7eb",
+          background: "#ecfdf5",
+          color: "#166534",
+          fontSize: 12,
+          maxWidth: 720,
+        }}
+      >
+        <strong>Your personal contact book is confidential.</strong>
+        <div style={{ marginTop: 4 }}>
+          Your personal contact book is confidential and tied to your profile, not your company. Only you can see these
+          contacts. Organizations see invited candidates&apos; details only after the candidate accepts the invite.
+        </div>
+      </div>
+
+      {/* CSV personal contact import (optional) */}
+      <section
+        style={{
+          marginTop: 8,
+          marginBottom: 8,
+          maxWidth: 720,
+          borderRadius: 10,
+          padding: 10,
+          border: "1px dashed #e5e7eb",
+          backgroundColor: "#f9fafb",
+        }}
+      >
+        <div style={{ fontSize: 13, marginBottom: 4 }}>
+          <strong>Import contacts from CSV (optional)</strong>
+        </div>
+        <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
+          Export your address book from your phone or desktop (as a CSV) and upload it here. We&apos;ll add those entries to
+          your confidential personal contact book.
+        </p>
+        <input
+          type="file"
+          accept=".csv,text/csv"
+          onChange={e => {
+            const file = e.target.files?.[0];
+            if (file) {
+              void handleImportCsvFile(file);
+              // reset input so the same file can be re-selected if needed
+              e.target.value = "";
+            }
+          }}
+          style={{ fontSize: 12 }}
+        />
+        {csvImportStatus && (
+          <p style={{ fontSize: 12, color: "#166534", marginTop: 4 }}>{csvImportStatus}</p>
+        )}
+        {csvImportError && (
+          <p style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>{csvImportError}</p>
+        )}
+      </section>
 
       {/* Promo/education card for the referral program */}
       <div
@@ -370,6 +612,22 @@ export default function ReferralsPage() {
             gap: 8,
           }}
         >
+          <button
+            type="button"
+            onClick={handleOpenContacts}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 6,
+              border: "1px dashed #16a34a",
+              background: "#f0fdf4",
+              color: "#166534",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+            title="Invite directly from your confidential contact book"
+          >
+            Invite from my contacts
+          </button>
           <button
             type="button"
             onClick={handleCreateTrackedReferral}
@@ -635,6 +893,218 @@ export default function ReferralsPage() {
           </>
         )}
       </section>
+      {contactsOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15,23,42,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 50,
+          }}
+        >
+          <div
+            style={{
+              width: "min(800px, 100% - 32px)",
+              maxHeight: "80vh",
+              background: "#ffffff",
+              borderRadius: 12,
+              boxShadow: "0 24px 60px rgba(15,23,42,0.35)",
+              padding: 16,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 4,
+              }}
+            >
+              <div>
+                <h2 style={{ margin: 0, fontSize: 16 }}>Invite from your contacts</h2>
+                <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>
+                  Your personal contact book is confidential and tied to your profile, not your company. Only you can see
+                  these contacts.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setContactsOpen(false)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: 18,
+                }}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            {contactsLoading && (
+              <p style={{ fontSize: 13, color: "#6b7280" }}>Loading your contacts…</p>
+            )}
+            {contactsError && !contactsLoading && (
+              <p style={{ fontSize: 13, color: "#b91c1c" }}>{contactsError}</p>
+            )}
+
+            {!contactsLoading && !contactsError && contacts.length === 0 && (
+              <p style={{ fontSize: 13, color: "#6b7280" }}>
+                You don&apos;t have any personal contacts yet. You&apos;ll be able to import contacts from your phone or
+                desktop address book in a future update.
+              </p>
+            )}
+
+            {!contactsLoading && contacts.length > 0 && (
+              <div
+                style={{
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 8,
+                  overflow: "hidden",
+                  flex: 1,
+                  minHeight: 0,
+                }}
+              >
+                <div style={{ maxHeight: "50vh", overflow: "auto" }}>
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: 13,
+                    }}
+                  >
+                    <thead>
+                      <tr>
+                        <th style={{ width: 36 }} />
+                        <th
+                          style={{
+                            textAlign: "left",
+                            padding: "6px 10px",
+                            background: "#f9fafb",
+                            borderBottom: "1px solid #e5e7eb",
+                          }}
+                        >
+                          Name
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "left",
+                            padding: "6px 10px",
+                            background: "#f9fafb",
+                            borderBottom: "1px solid #e5e7eb",
+                          }}
+                        >
+                          Contact
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {contacts.map((c, idx) => {
+                        const bg = idx % 2 === 0 ? "#ffffff" : "#fcfcfd";
+                        const name =
+                          c.displayName ||
+                          [c.firstName, c.lastName].filter(Boolean).join(" ") ||
+                          c.email ||
+                          c.phone ||
+                          "(No name)";
+                        return (
+                          <tr key={c.id} style={{ background: bg }}>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedContactIds.includes(c.id)}
+                                onChange={() => toggleContactSelected(c.id)}
+                              />
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 10px",
+                                borderTop: "1px solid #e5e7eb",
+                              }}
+                            >
+                              {name}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 10px",
+                                borderTop: "1px solid #e5e7eb",
+                              }}
+                            >
+                              {c.email && <div>{c.email}</div>}
+                              {c.phone && <div style={{ fontSize: 12 }}>{c.phone}</div>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div
+              style={{
+                marginTop: 8,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                {selectedContactIds.length > 0
+                  ? `${selectedContactIds.length} contact(s) selected`
+                  : "Select contacts to invite with your paid referral link."}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setContactsOpen(false)}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleInviteFromContacts}
+                  disabled={contactsLoading || selectedContactIds.length === 0}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 6,
+                    border: "1px solid #16a34a",
+                    background: selectedContactIds.length === 0 ? "#dcfce7" : "#16a34a",
+                    color: selectedContactIds.length === 0 ? "#4b5563" : "#f9fafb",
+                    fontSize: 12,
+                    cursor:
+                      contactsLoading || selectedContactIds.length === 0 ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {contactsLoading ? "Inviting…" : "Invite selected"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </PageCard>
   );
 }

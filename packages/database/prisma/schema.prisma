@@ -91,6 +91,9 @@ model Company {
   timecardEditLogs   TimecardEditLog[]
   nttTickets         NttTicket[]
 
+  // Org-level invitations (Nexus System → new tenant owners)
+  orgInvites         OrgInvite[]
+
   // Locations & inventory
   locations          Location[]
   materialLots       MaterialLot[]
@@ -313,6 +316,10 @@ model User {
   referralsReceived         Referral[]             @relation("ReferralsReceived")
   nexNetCandidate           NexNetCandidate?
 
+  // Org-level invitations (Nexus System → new tenant owners)
+  orgInvitesCreated  OrgInvite[] @relation("OrgInviteCreatedBy")
+  orgInvitesAccepted OrgInvite[] @relation("OrgInviteAcceptedBy")
+
   // Physical/virtual locations this person is associated with
   personLocations           PersonLocation[]
 
@@ -354,6 +361,9 @@ model User {
 
   // Project scheduling change logs where this user is the actor.
   projectScheduleChangeLogs ProjectScheduleChangeLog[] @relation("ProjectScheduleChangeLogActor")
+
+  // Global, confidential personal contacts for this user (per-profile, not per-tenant)
+  personalContacts PersonalContact[]
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -767,6 +777,28 @@ model CompanyInvite {
   company        Company   @relation(fields: [companyId], references: [id])
 }
 
+/// One-time organization invitation used by Nexus System / SUPER_ADMIN to
+/// bootstrap new tenant organizations. When accepted, a new Company is created
+/// and the accepting user becomes its OWNER.
+model OrgInvite {
+  id              String          @id @default(cuid())
+  email           String
+  token           String          @unique
+  status          OrgInviteStatus @default(PENDING)
+  createdAt       DateTime        @default(now())
+  expiresAt       DateTime?
+  acceptedAt      DateTime?
+  createdByUserId String?
+  acceptedUserId  String?
+  companyId       String?
+
+  createdBy   User?   @relation("OrgInviteCreatedBy", fields: [createdByUserId], references: [id])
+  acceptedUser User?  @relation("OrgInviteAcceptedBy", fields: [acceptedUserId], references: [id])
+  company      Company? @relation(fields: [companyId], references: [id])
+
+  @@index([email, status], map: "OrgInvite_email_status_idx")
+}
+
 model CompanyOffice {
   id           String    @id @default(cuid())
   companyId    String
@@ -792,6 +824,13 @@ model CompanyOffice {
 }
 
 /// Feature / capability that can be secured via roles (e.g. project_management.daily_logs).
+enum OrgInviteStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  CANCELLED
+}
+
 model PermissionResource {
   id              String           @id @default(cuid())
   code            String           @unique
@@ -3632,9 +3671,15 @@ model Referral {
   incentiveRate              Float?
   createdAt                  DateTime         @default(now())
   updatedAt                  DateTime         @updatedAt
+
+  // Optional linkage back to a personal contact when the referral was
+  // initiated from the user's confidential address book.
+  personalContactId          String?
+
   referrer                   User             @relation("ReferralsSent", fields: [referrerUserId], references: [id])
   referee                    User?            @relation("ReferralsReceived", fields: [refereeUserId], references: [id])
   candidate                  NexNetCandidate? @relation("RefereeCandidate", fields: [candidateId], references: [id])
+  personalContact            PersonalContact? @relation(fields: [personalContactId], references: [id])
 }
 
 enum NexNetSource {
@@ -3669,6 +3714,59 @@ enum CandidateVisibilityScope {
   TENANT_ONLY
   GLOBAL_POOL
   PRIVATE_TEST
+}
+
+/// Source system for a personal contact record.
+enum PersonalContactSource {
+  UPLOAD
+  WINDOWS
+  MACOS
+  IOS
+  ANDROID
+}
+
+/// Domain entity a personal contact is linked to (e.g. candidate/worker card).
+enum PersonalContactSubjectType {
+  CANDIDATE
+  WORKER
+}
+
+/// Global, confidential contact belonging to a single user profile (not tenant-scoped).
+model PersonalContact {
+  id           String                @id @default(cuid())
+  ownerUserId  String
+  displayName  String?
+  firstName    String?
+  lastName     String?
+  email        String?
+  phone        String?
+  source       PersonalContactSource @default(UPLOAD)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  owner        User                  @relation(fields: [ownerUserId], references: [id])
+  links        PersonalContactLink[]
+  referrals    Referral[]
+
+  @@index([ownerUserId, email], map: "PersonalContact_owner_email_idx")
+  @@index([ownerUserId, phone], map: "PersonalContact_owner_phone_idx")
+}
+
+/// Link from a personal contact to a candidate/worker in the domain model so
+/// the owner can see "you know this person" on those cards.
+model PersonalContactLink {
+  id                String                     @id @default(cuid())
+  personalContactId String
+  subjectType       PersonalContactSubjectType
+  subjectId         String
+  tenantId          String?
+  note              String?
+  createdAt         DateTime                  @default(now())
+
+  personalContact   PersonalContact           @relation(fields: [personalContactId], references: [id])
+
+  @@index([personalContactId], map: "PersonalContactLink_contact_idx")
+  @@index([subjectType, subjectId], map: "PersonalContactLink_subject_idx")
 }
 
 /// Status of a candidate training assignment.

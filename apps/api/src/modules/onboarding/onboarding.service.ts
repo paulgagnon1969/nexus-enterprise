@@ -1678,6 +1678,11 @@ export class OnboardingService {
             where: {
               id: { in: candidateIds },
               isDeletedSoft: false,
+              // Only show unassigned candidates in cross-tenant views for
+              // customer tenants. Candidates with a non-null companyId are
+              // currently employed and should not be advertised to other
+              // tenants until they are released (companyId set to null).
+              companyId: null,
             },
             select: {
               id: true,
@@ -2098,91 +2103,149 @@ export class OnboardingService {
             status = NexNetStatus.UNDER_REVIEW;
           } else if (rawStatus === "APPROVED" || rawStatus === "HIRED") {
             status = NexNetStatus.HIRED;
-          } else if (rawStatus === "REJECTED") {
-            status = NexNetStatus.REJECTED;
-          } else if (rawStatus === "TEST") {
-            status = NexNetStatus.TEST;
-          } else if (rawStatus === "IN_PROGRESS") {
-            status = NexNetStatus.IN_PROGRESS;
           }
 
           candidate = await tx.nexNetCandidate.create({
             data: {
               userId: linkedUserId,
-              companyId,
               firstName: profile?.firstName ?? null,
               lastName: profile?.lastName ?? null,
-              email: normalizedEmail,
+              email: normalizedEmail || null,
               phone: profile?.phone ?? null,
-              source: NexNetSource.IMPORTED,
+              source: NexNetSource.PUBLIC_APPLY,
               status,
             },
           });
+        } else {
+          const profile = (session as any).profile as
+            | {
+                firstName?: string | null;
+                lastName?: string | null;
+                phone?: string | null;
+              }
+            | null
+            | undefined;
+
+          const updates: any = {};
+
+          if (!candidate.userId && session.userId) {
+            updates.userId = session.userId;
+          }
+          if (!candidate.email && normalizedEmail) {
+            updates.email = normalizedEmail;
+          }
+          if (!candidate.firstName && profile?.firstName) {
+            updates.firstName = profile.firstName;
+          }
+          if (!candidate.lastName && profile?.lastName) {
+            updates.lastName = profile.lastName;
+          }
+          if (!candidate.phone && profile?.phone) {
+            updates.phone = profile.phone;
+          }
+
+          if (Object.keys(updates).length > 0) {
+            candidate = await tx.nexNetCandidate.update({
+              where: { id: candidate.id },
+              data: updates,
+            });
+          }
+        }
+
+        // Prevent sharing of candidates who are currently employed by any
+        // tenant. A candidate is considered "assigned" if they have a
+        // non-null companyId or any active CompanyMembership. Such candidates
+        // should only appear in their owning tenant's views (and internal
+        // Nexus System planning), not be advertised to other tenants.
+        const candidateUserId =
+          (candidate as any).userId ?? (session.userId as string | null) ?? null;
+        if (candidate.companyId) {
+          throw new BadRequestException(
+            "Cannot share this candidate: they are currently assigned to a tenant. Mark them inactive/released before sharing.",
+          );
+        }
+        if (candidateUserId) {
+          const activeMembership = await tx.companyMembership.findFirst({
+            where: {
+              userId: candidateUserId,
+              isActive: true,
+            },
+          });
+          if (activeMembership) {
+            throw new BadRequestException(
+              "Cannot share this candidate: they are currently an active member of a tenant. Mark them inactive/released before sharing.",
+            );
+          }
         }
 
         seenCandidateIds.add(candidate.id);
 
-        for (const targetId of validTargetIds) {
-          if (targetId === companyId) continue;
-
-          const existing = await tx.candidatePoolVisibility.findFirst({
+        for (const targetCompanyId of validTargetIds) {
+          const existingVisibility = await tx.candidatePoolVisibility.findFirst({
             where: {
               candidateId: candidate.id,
-              visibleToCompanyId: targetId,
+              visibleToCompanyId: targetCompanyId,
             },
           });
 
-          if (existing) {
-            if (!existing.isAllowed) {
-              await tx.candidatePoolVisibility.update({
-                where: { id: existing.id },
-                data: { isAllowed: true },
-              });
-            }
-            continue;
+          if (!existingVisibility) {
+            await tx.candidatePoolVisibility.create({
+              data: {
+                candidateId: candidate.id,
+                visibleToCompanyId: targetCompanyId,
+                isAllowed: true,
+                createdByUserId: actor.userId,
+              },
+            });
+            visibilityRowsCreated += 1;
+          } else if (!existingVisibility.isAllowed) {
+            await tx.candidatePoolVisibility.update({
+              where: { id: existingVisibility.id },
+              data: { isAllowed: true },
+            });
           }
-
-          await tx.candidatePoolVisibility.create({
-            data: {
-              candidateId: candidate.id,
-              visibleToCompanyId: targetId,
-              isAllowed: true,
-              createdByUserId: actor.userId ?? "system-candidate-share",
-            },
-          });
-          visibilityRowsCreated += 1;
         }
       }
 
       return {
         candidateCount: seenCandidateIds.size,
         visibilityRowsCreated,
-        targetCompanyCount: validTargetIds.length,
       };
     });
 
     return result;
   }
 
-  // Candidate self-view: latest onboarding session for the current user in the
-  // active company context (typically the Nexus System recruiting pool for
-  // public applicants). Includes profile + basic checklist, but omits
-  // sensitive bank info.
+  // Mark an onboarding session (and any linked Nex-Net candidates) as TEST so
+  // they can be excluded from normal recruiting flows but still available when
+  // explicitly filtered by internal staff.
   async markSessionAsTest(id: string, actor: AuthenticatedUser) {
-    const session = await this.prisma.onboardingSession.findFirst({
-      where: { id, companyId: actor.companyId },
+    const session = await this.prisma.onboardingSession.findUnique({
+      where: { id },
     });
 
     if (!session) {
       throw new NotFoundException("Onboarding session not found");
     }
 
+    // Only OWNER / ADMIN / HIRING_MANAGER in the owning company (or SUPER_ADMIN)
+    // can mark a session as TEST.
+    const isSuperAdmin = (actor as any).globalRole === "SUPER_ADMIN";
+    const sameCompany = actor.companyId === session.companyId;
+
+    if (!isSuperAdmin && !sameCompany) {
+      throw new ForbiddenException("Not allowed to mark sessions for another company");
+    }
+
     if (
+      !isSuperAdmin &&
       actor.role !== "OWNER" &&
       actor.role !== "ADMIN" &&
       actor.profileCode !== "HIRING_MANAGER"
     ) {
-      throw new ForbiddenException("Not allowed to mark onboarding sessions as TEST for this company");
+      throw new ForbiddenException(
+        "Not allowed to mark onboarding sessions as TEST for this company",
+      );
     }
 
     const updated = await this.prisma.onboardingSession.update({

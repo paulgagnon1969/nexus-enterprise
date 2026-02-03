@@ -87,6 +87,15 @@ interface OnboardingSkillRow {
   level: number | null;
 }
 
+interface PersonalContactSummary {
+  id: string;
+  displayName: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
 export default function CandidateDetailPage() {
   const params = useParams<{ sessionId: string }>();
   const sessionId = params?.sessionId;
@@ -186,6 +195,14 @@ export default function CandidateDetailPage() {
   const [onboardingBankMessage, setOnboardingBankMessage] = useState<string | null>(null);
 
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
+
+  // Personal contacts context (viewer-only, confidential)
+  const [personalContactsForCandidate, setPersonalContactsForCandidate] = useState<{
+    linkedContacts: PersonalContactSummary[];
+    matchingContacts: PersonalContactSummary[];
+  } | null>(null);
+  const [personalContactsLoading, setPersonalContactsLoading] = useState(false);
+  const [personalContactsError, setPersonalContactsError] = useState<string | null>(null);
 
   const categoryGroups = useMemo(
     () => {
@@ -431,6 +448,60 @@ export default function CandidateDetailPage() {
 
     void loadSkills();
   }, [session?.token]);
+
+  // Load viewer's personal contact matches for this candidate (if linked into Nex-Net).
+  useEffect(() => {
+    const candidateId = session?.candidateId;
+    if (!candidateId) {
+      setPersonalContactsForCandidate(null);
+      setPersonalContactsError(null);
+      setPersonalContactsLoading(false);
+      return;
+    }
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    async function loadContacts() {
+      try {
+        setPersonalContactsLoading(true);
+        setPersonalContactsError(null);
+        const res = await fetch(`${API_BASE}/personal-contacts/for-candidate/${candidateId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(
+            text || `Failed to load your personal contact matches for this candidate (${res.status})`,
+          );
+        }
+        const json = await res.json();
+        if (cancelled) return;
+        setPersonalContactsForCandidate({
+          linkedContacts: Array.isArray(json?.linkedContacts) ? json.linkedContacts : [],
+          matchingContacts: Array.isArray(json?.matchingContacts) ? json.matchingContacts : [],
+        });
+      } catch (e: any) {
+        if (!cancelled) {
+          setPersonalContactsError(
+            e?.message ?? "Failed to load your personal contact matches for this candidate.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setPersonalContactsLoading(false);
+        }
+      }
+    }
+
+    void loadContacts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.candidateId]);
 
   // Determine if viewer can see HR/confidential info for this candidate
   useEffect(() => {
@@ -1175,6 +1246,53 @@ export default function CandidateDetailPage() {
                 );
               })()}
             </p>
+
+            {personalContactsLoading && (
+              <p style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                Checking your personal contact book…
+              </p>
+            )}
+            {personalContactsError && !personalContactsLoading && (
+              <p style={{ fontSize: 11, color: "#b91c1c", marginTop: 4 }}>{personalContactsError}</p>
+            )}
+            {personalContactsForCandidate && !personalContactsLoading && (
+              (() => {
+                const linked = personalContactsForCandidate.linkedContacts || [];
+                const matching = personalContactsForCandidate.matchingContacts || [];
+                const any = (linked?.length || 0) + (matching?.length || 0) > 0;
+                if (!any) return null;
+
+                const first = linked[0] || matching[0];
+                if (!first) return null;
+
+                const label =
+                  first.displayName ||
+                  [first.firstName, first.lastName].filter(Boolean).join(" ") ||
+                  first.email ||
+                  first.phone ||
+                  "this person";
+
+                return (
+                  <div
+                    style={{
+                      marginTop: 6,
+                      padding: 8,
+                      borderRadius: 8,
+                      border: "1px solid #bbf7d0",
+                      backgroundColor: "#ecfdf5",
+                      color: "#166534",
+                      fontSize: 11,
+                    }}
+                  >
+                    <div style={{ fontWeight: 600 }}>In your personal contacts</div>
+                    <div style={{ marginTop: 2 }}>
+                      It looks like you know <strong>{label}</strong> from your confidential personal
+                      contact book. Only you can see this match.
+                    </div>
+                  </div>
+                );
+              })()
+            )}
           </section>
 
           <section>

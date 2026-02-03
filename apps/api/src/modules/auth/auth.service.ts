@@ -5,7 +5,7 @@ import * as bcrypt from "bcryptjs";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { RedisService } from "../../infra/redis/redis.service";
 import { RegisterDto, LoginDto, ChangePasswordDto } from "./dto/auth.dto";
-import { Role, GlobalRole, UserType, CompanyTrialStatus } from "@prisma/client";
+import { Role, GlobalRole, UserType, CompanyTrialStatus, OrgInviteStatus } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { AuthenticatedUser } from "./jwt.strategy";
 import { EmailService } from "../../common/email.service";
@@ -764,6 +764,226 @@ export class AuthService {
     await redisClient.del(`pwdreset:${token}`);
 
     return { ok: true };
+  }
+
+  async createOrgInvite(actor: AuthenticatedUser, emailRaw: string, expiresInDays?: number) {
+    const email = this.normalizeEmail(emailRaw || "");
+    if (!email) {
+      throw new BadRequestException("Email is required");
+    }
+
+    if (actor.globalRole !== GlobalRole.SUPER_ADMIN) {
+      throw new UnauthorizedException("Only SUPER_ADMIN can create organization invites");
+    }
+
+    // Optional: enforce a single active invite per email.
+    await this.prisma.orgInvite.updateMany({
+      where: {
+        email,
+        status: OrgInviteStatus.PENDING,
+      },
+      data: { status: OrgInviteStatus.EXPIRED },
+    });
+
+    const token = randomUUID();
+    const now = new Date();
+    const expiresAt = expiresInDays && expiresInDays > 0
+      ? new Date(now.getTime() + expiresInDays * 24 * 60 * 60 * 1000)
+      : null;
+
+    const invite = await this.prisma.orgInvite.create({
+      data: {
+        email,
+        token,
+        status: OrgInviteStatus.PENDING,
+        createdAt: now,
+        expiresAt,
+        createdByUserId: actor.userId,
+      },
+    });
+
+    const webBase = process.env.WEB_BASE_URL || "https://ncc-nexus-contractor-connect.com";
+    const base = webBase.replace(/\/$/, "");
+    const url = `${base}/org-onboarding?token=${encodeURIComponent(invite.token)}`;
+
+    await this.email.sendMail({
+      to: invite.email,
+      subject: "You're invited to set up your organization in Nexus",
+      html: `
+        <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.4;">
+          <h2 style="margin: 0 0 12px;">You're invited to join Nexus</h2>
+          <p style="margin: 0 0 12px;">
+            You've been invited to create a new organization in Nexus Contractor-Connect.
+          </p>
+          <p style="margin: 0 0 18px;">
+            <a href="${url}" style="display: inline-block; background: #0f172a; color: #fff; padding: 10px 14px; border-radius: 6px; text-decoration: none;">
+              Set up your organization
+            </a>
+          </p>
+          <p style="margin: 0; color: #6b7280; font-size: 12px;">
+            If you weren't expecting this invitation, you can ignore this email.
+          </p>
+        </div>
+      `.trim(),
+      text: `You're invited to create your organization in Nexus: ${url}`,
+    });
+
+    return { id: invite.id, email: invite.email, token: invite.token, expiresAt };
+  }
+
+  async getOrgInvite(token: string) {
+    const trimmed = (token || "").trim();
+    if (!trimmed) {
+      throw new BadRequestException("Invite token is required");
+    }
+
+    const invite = await this.prisma.orgInvite.findFirst({
+      where: {
+        token: trimmed,
+      },
+    });
+
+    if (!invite || invite.status !== OrgInviteStatus.PENDING) {
+      throw new BadRequestException("Organization invite is invalid or expired");
+    }
+
+    if (invite.expiresAt && invite.expiresAt.getTime() < Date.now()) {
+      await this.prisma.orgInvite.update({
+        where: { id: invite.id },
+        data: { status: OrgInviteStatus.EXPIRED },
+      });
+      throw new BadRequestException("Organization invite has expired");
+    }
+
+    return {
+      email: invite.email,
+      createdAt: invite.createdAt,
+      expiresAt: invite.expiresAt,
+    };
+  }
+
+  async completeOrgOnboarding(input: {
+    token: string;
+    password: string;
+    companyName: string;
+    officeLabel?: string;
+    addressLine1: string;
+    addressLine2?: string | null;
+    city: string;
+    state: string;
+    postalCode: string;
+    country?: string | null;
+  }) {
+    const token = (input.token || "").trim();
+    if (!token) {
+      throw new BadRequestException("Invite token is required");
+    }
+    if (!input.password || input.password.length < 8) {
+      throw new BadRequestException("Password must be at least 8 characters");
+    }
+    const companyName = (input.companyName || "").trim();
+    if (!companyName) {
+      throw new BadRequestException("Company name is required");
+    }
+
+    const invite = await this.prisma.orgInvite.findFirst({
+      where: {
+        token,
+      },
+    });
+
+    if (!invite || invite.status !== OrgInviteStatus.PENDING) {
+      throw new BadRequestException("Organization invite is invalid or expired");
+    }
+    if (invite.expiresAt && invite.expiresAt.getTime() < Date.now()) {
+      await this.prisma.orgInvite.update({
+        where: { id: invite.id },
+        data: { status: OrgInviteStatus.EXPIRED },
+      });
+      throw new BadRequestException("Organization invite has expired");
+    }
+
+    const email = this.normalizeEmail(invite.email);
+    const passwordHash = await argon2.hash(input.password);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      let user = await tx.user.findFirst({
+        where: { email: { equals: email, mode: "insensitive" } },
+      });
+
+      if (!user) {
+        user = await tx.user.create({
+          data: {
+            email,
+            passwordHash,
+            userType: UserType.INTERNAL,
+          },
+        });
+      } else if (!user.passwordHash) {
+        user = await tx.user.update({
+          where: { id: user.id },
+          data: { passwordHash },
+        });
+      }
+
+      const company = await tx.company.create({
+        data: {
+          name: companyName,
+          workerInviteToken: randomUUID(),
+        },
+      });
+
+      const membership = await tx.companyMembership.create({
+        data: {
+          userId: user.id,
+          companyId: company.id,
+          role: Role.OWNER,
+        },
+      });
+
+      const office = await tx.companyOffice.create({
+        data: {
+          companyId: company.id,
+          label: input.officeLabel?.trim() || "Headquarters",
+          addressLine1: input.addressLine1.trim(),
+          addressLine2: (input.addressLine2 || null) || null,
+          city: input.city.trim(),
+          state: input.state.trim(),
+          postalCode: input.postalCode.trim(),
+          country: (input.country || "US").trim(),
+        },
+      });
+
+      await tx.orgInvite.update({
+        where: { id: invite.id },
+        data: {
+          status: OrgInviteStatus.ACCEPTED,
+          acceptedAt: new Date(),
+          acceptedUserId: user.id,
+          companyId: company.id,
+        },
+      });
+
+      return { user, company, membership, office };
+    });
+
+    const profileCode = this.getDefaultProfileCodeForRole(result.membership.role as Role);
+
+    const { accessToken, refreshToken } = await this.issueTokens(
+      result.user.id,
+      result.company.id,
+      result.membership.role as Role,
+      result.user.email,
+      result.user.globalRole as GlobalRole,
+      profileCode,
+    );
+
+    return {
+      user: { id: result.user.id, email: result.user.email },
+      company: { id: result.company.id, name: result.company.name },
+      accessToken,
+      refreshToken,
+    };
   }
 
   private async issueTokens(
