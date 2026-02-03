@@ -3957,8 +3957,12 @@ function ProspectiveCandidatesPanel({
         if (cancelled) return;
         const mapped: FortifiedCandidateRow[] = (json || []).map((c: any) => {
           const latestReferral = (c.referralsAsReferee || [])[0];
+          // Prefer candidateId from the API when present (current shape), but
+          // fall back to id for older responses. This ensures we always have a
+          // stable unique key for React rendering.
+          const candidateId = c.candidateId ?? c.id;
           return {
-            id: c.id,
+            id: candidateId,
             firstName: c.firstName ?? null,
             lastName: c.lastName ?? null,
             email: c.email ?? c.user?.email ?? null,

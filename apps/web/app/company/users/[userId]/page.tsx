@@ -262,6 +262,8 @@ export default function CompanyUserProfilePage() {
   // System-admin-only CSV import of personal contacts for this user
   const [adminCsvStatus, setAdminCsvStatus] = useState<string | null>(null);
   const [adminCsvError, setAdminCsvError] = useState<string | null>(null);
+  const [adminCsvSaving, setAdminCsvSaving] = useState(false);
+  const [adminCsvFile, setAdminCsvFile] = useState<File | null>(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -1256,9 +1258,16 @@ export default function CompanyUserProfilePage() {
   const totalSkills = profile.skills.length;
   const ratedSkills = profile.skills.filter(s => getSkillSort(s).rated).length;
 
-  const handleAdminImportContactsCsv = async (file: File) => {
+  const handleAdminImportContactsCsv = async (file: File | null) => {
     setAdminCsvStatus(null);
     setAdminCsvError(null);
+
+    if (!file) {
+      setAdminCsvError("Please choose a CSV file first.");
+      return;
+    }
+
+    setAdminCsvSaving(true);
 
     try {
       const text = await file.text();
@@ -1267,19 +1276,42 @@ export default function CompanyUserProfilePage() {
         throw new Error("CSV file is empty.");
       }
 
-      const header = lines[0].split(",").map(h => h.trim().toLowerCase());
-      const idxName = header.findIndex(h => h === "name" || h === "full name" || h === "fullname");
-      const idxFirst = header.findIndex(h => h === "firstname" || h === "first name");
-      const idxLast = header.findIndex(h => h === "lastname" || h === "last name");
-      const idxEmail = header.findIndex(h => h === "email" || h === "email address");
-      const idxPhone = header.findIndex(h => h === "phone" || h === "phone number" || h === "mobile");
+      // Normalize header cells: strip quotes, lowercase, trim.
+      const rawHeader = lines[0].split(",");
+      const header = rawHeader.map(h => h.replace(/"/g, "").trim().toLowerCase());
+
+      const findIndex = (predicate: (h: string) => boolean) =>
+        header.findIndex(h => predicate(h));
+
+      const idxName = findIndex(h => h === "name" || h === "full name" || h === "fullname");
+      const idxFirst = findIndex(h => h === "firstname" || h === "first name");
+      const idxLast = findIndex(h => h === "lastname" || h === "last name");
+      const idxEmail = findIndex(
+        h =>
+          h === "email" ||
+          h === "email address" ||
+          h === "e-mail" ||
+          h === "e mail" ||
+          h.includes("email"),
+      );
+      const idxPhone = findIndex(
+        h =>
+          h === "phone" ||
+          h === "phone number" ||
+          h === "mobile" ||
+          h === "mobile phone" ||
+          h.includes("phone") ||
+          h.includes("mobile"),
+      );
 
       if (idxEmail === -1 && idxPhone === -1) {
-        throw new Error("CSV must include at least an email or phone column.");
+        throw new Error(
+          `CSV must include at least an email or phone column. Found headers: ${header.join(", ") || "<none>"}`,
+        );
       }
 
       const contacts: any[] = [];
-      for (let i = 1; i < lines.length; i += 1) {
+      for (let i = 1; i < lines.length; i += 1; i += 1) {
         const row = lines[i];
         if (!row) continue;
         const cols = row.split(",");
@@ -1328,11 +1360,23 @@ export default function CompanyUserProfilePage() {
 
       const json: any = await res.json().catch(() => null);
       const count = typeof json?.count === "number" ? json.count : contacts.length;
+      const createdCount = typeof json?.createdCount === "number" ? json.createdCount : null;
+      const updatedCount = typeof json?.updatedCount === "number" ? json.updatedCount : null;
+
+      const parts: string[] = [];
+      parts.push(`Total touched: ${count}`);
+      if (createdCount != null) parts.push(`created: ${createdCount}`);
+      if (updatedCount != null) parts.push(`updated: ${updatedCount}`);
+
+      const timestamp = new Date().toLocaleString();
+
       setAdminCsvStatus(
-        `Imported or updated ${count} contact(s) into this user\'s confidential personal contact book.`,
+        `Last import (${timestamp}) – ${parts.join(" · ")} into this user's confidential personal contact book.`,
       );
     } catch (e: any) {
       setAdminCsvError(e?.message ?? "Failed to import contacts from CSV.");
+    } finally {
+      setAdminCsvSaving(false);
     }
   };
 
@@ -1667,21 +1711,43 @@ export default function CompanyUserProfilePage() {
                 <input
                   type="file"
                   accept=".csv,text/csv"
+                  disabled={adminCsvSaving}
                   onChange={e => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      void handleAdminImportContactsCsv(file);
-                      e.target.value = "";
-                    }
+                    const file = e.target.files?.[0] ?? null;
+                    setAdminCsvFile(file);
+                    setAdminCsvStatus(null);
+                    setAdminCsvError(null);
                   }}
                   style={{ fontSize: 12 }}
                 />
+                {adminCsvSaving && (
+                  <p style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>Importing contacts…</p>
+                )}
                 {adminCsvStatus && (
                   <p style={{ fontSize: 12, color: "#166534", marginTop: 4 }}>{adminCsvStatus}</p>
                 )}
                 {adminCsvError && (
                   <p style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>{adminCsvError}</p>
                 )}
+                <div style={{ marginTop: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => void handleAdminImportContactsCsv(adminCsvFile)}
+                    disabled={!adminCsvFile || adminCsvSaving}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #0f172a",
+                      backgroundColor:
+                        !adminCsvFile || adminCsvSaving ? "#e5e7eb" : "#0f172a",
+                      color: !adminCsvFile || adminCsvSaving ? "#4b5563" : "#f9fafb",
+                      fontSize: 12,
+                      cursor: !adminCsvFile || adminCsvSaving ? "default" : "pointer",
+                    }}
+                  >
+                    {adminCsvSaving ? "Importing…" : "Import contacts from CSV"}
+                  </button>
+                </div>
               </section>
             )}
 
