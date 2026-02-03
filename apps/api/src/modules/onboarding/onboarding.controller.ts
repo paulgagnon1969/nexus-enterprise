@@ -42,12 +42,16 @@ export class OnboardingController {
     // session and membership are attached to that company instead of the
     // global Nexus System recruiting pool.
     @Body("companyToken") companyToken?: string,
+    // Optional: per-person inviter token (people token). When present, we
+    // attribute this signup to the corresponding user for audit purposes.
+    @Body("inviterToken") inviterToken?: string,
   ) {
     const session = await this.onboarding.startPublicSession(
       email,
       password,
       referralToken,
       companyToken,
+      inviterToken,
     );
     return { id: session.id, token: session.token };
   }

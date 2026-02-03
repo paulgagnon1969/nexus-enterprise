@@ -4310,7 +4310,9 @@ export class ProjectService {
       include: { case: true },
     });
 
-    if (!entry || entry.projectId !== projectId || entry.case.projectId !== projectId) {
+    // Older/migrated data may have inconsistent case.projectId; rely on entry.projectId
+    // as the single source of truth for which project owns this entry.
+    if (!entry || entry.projectId !== projectId) {
       throw new NotFoundException("Reconciliation entry not found for this project");
     }
 

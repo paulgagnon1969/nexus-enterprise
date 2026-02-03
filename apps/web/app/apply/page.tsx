@@ -32,6 +32,9 @@ function ApplyPageInner() {
   // Nexus System pool signup.
   const companyToken =
     searchParams.get("companyToken") || searchParams.get("companyReferralToken") || "";
+  // Optional: per-person inviter token (People token). When present, we
+  // attribute this signup to that user for audit purposes.
+  const inviterToken = searchParams.get("inviterToken") || searchParams.get("peopleToken") || "";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -133,6 +136,7 @@ function ApplyPageInner() {
           password,
           referralToken: referralToken || undefined,
           companyToken: companyToken || undefined,
+          inviterToken: inviterToken || undefined,
         }),
       });
 

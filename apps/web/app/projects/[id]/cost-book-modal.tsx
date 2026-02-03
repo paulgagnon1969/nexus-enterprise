@@ -43,6 +43,7 @@ export function CostBookModal(props: {
   const [catDropdownOpen, setCatDropdownOpen] = useState(false);
   const [catDropdownQuery, setCatDropdownQuery] = useState<string>("");
   const catDropdownRef = useRef<HTMLDivElement | null>(null);
+  const catButtonRef = useRef<HTMLButtonElement | null>(null);
 
   // Uncontrolled search inputs (for smooth typing)
   const selInputRef = useRef<HTMLInputElement | null>(null);
@@ -58,6 +59,17 @@ export function CostBookModal(props: {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchSeq, setSearchSeq] = useState(0);
+
+  const handleSearchInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void runSearch("user");
+    }
+  };
+
+  const handleSearchInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    e.target.select();
+  };
 
   const baselineCat = useMemo(
     () => normalizeCatCode(baseline.cat).trim().toUpperCase(),
@@ -245,6 +257,13 @@ export function CostBookModal(props: {
 
     // Auto-load a large slice so the user can scroll and the baseline row can be highlighted.
     void runSearch("auto", initialCats);
+
+    // Focus CAT selector first so Tab flows CAT → SEL → Description → Qty.
+    window.setTimeout(() => {
+      if (catButtonRef.current) {
+        catButtonRef.current.focus();
+      }
+    }, 0);
   }, [open, baseline.qty, baselineCat, allCats.length, allCatsError, loadCats, runSearch]);
 
   const qty = useMemo(() => Number(qtyStr), [qtyStr]);
@@ -393,6 +412,7 @@ export function CostBookModal(props: {
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 <button
+                  ref={catButtonRef}
                   type="button"
                   onClick={(e) => {
                     e.preventDefault();
@@ -584,6 +604,8 @@ export function CostBookModal(props: {
                 ref={selInputRef}
                 placeholder="(any)"
                 list="costbook-sel-options"
+                onKeyDown={handleSearchInputKeyDown}
+                onFocus={handleSearchInputFocus}
                 style={{
                   width: "100%",
                   padding: "6px 8px",
@@ -601,6 +623,8 @@ export function CostBookModal(props: {
               <input
                 ref={descInputRef}
                 placeholder="Search description"
+                onKeyDown={handleSearchInputKeyDown}
+                onFocus={handleSearchInputFocus}
                 style={{
                   width: "100%",
                   padding: "6px 8px",
@@ -616,6 +640,8 @@ export function CostBookModal(props: {
               <input
                 value={qtyStr}
                 onChange={(e) => setQtyStr(e.target.value)}
+                onKeyDown={handleSearchInputKeyDown}
+                onFocus={handleSearchInputFocus}
                 style={{
                   width: "100%",
                   padding: "6px 8px",

@@ -72,6 +72,20 @@ export function CostBookPickerModal({
   const [qtyById, setQtyById] = useState<Record<string, string>>({});
 
   const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const catButtonRef = useRef<HTMLButtonElement | null>(null);
+  const descInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleSearchInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void runSearch();
+    }
+  };
+
+  const handleSearchInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    // Select entire field on focus for quick overwrite
+    e.target.select();
+  };
 
   const filteredCats = useMemo(() => {
     const q = catDropdownQuery.trim().toUpperCase();
@@ -239,6 +253,14 @@ export function CostBookPickerModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Focus Description search input first so Tab flows Description -> CAT -> SEL -> Activity.
+  useEffect(() => {
+    if (descInputRef.current) {
+      descInputRef.current.focus();
+      descInputRef.current.select();
+    }
+  }, []);
+
   const confirm = async () => {
     if (!onConfirm) {
       onClose();
@@ -314,7 +336,7 @@ export function CostBookPickerModal({
             }}
             aria-label="Close cost book modal"
           >
-            ×
+            X
           </button>
         </div>
 
@@ -331,14 +353,35 @@ export function CostBookPickerModal({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "260px 160px 240px 1fr 140px",
+              gridTemplateColumns: "1fr 260px 160px 240px 180px",
               gap: 8,
               alignItems: "end",
             }}
           >
+            {/* Description first for natural left-to-right flow */}
+            <div>
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Description</div>
+              <input
+                ref={descInputRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search description"
+                onKeyDown={handleSearchInputKeyDown}
+                onFocus={handleSearchInputFocus}
+                style={{
+                  width: "100%",
+                  padding: "6px 8px",
+                  borderRadius: 8,
+                  border: "1px solid #d1d5db",
+                  fontSize: 12,
+                }}
+              />
+            </div>
+
             <div ref={dropdownRef} style={{ position: "relative" }}>
               <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>CAT (multi)</div>
               <button
+                ref={catButtonRef}
                 type="button"
                 onClick={() => setCatDropdownOpen((p) => !p)}
                 style={{
@@ -459,6 +502,8 @@ export function CostBookPickerModal({
               <input
                 value={sel}
                 onChange={(e) => setSel(e.target.value)}
+                onKeyDown={handleSearchInputKeyDown}
+                onFocus={handleSearchInputFocus}
                 placeholder="(any)"
                 style={{
                   width: "100%",
@@ -475,6 +520,8 @@ export function CostBookPickerModal({
               <input
                 value={activity}
                 onChange={(e) => setActivity(e.target.value)}
+                onKeyDown={handleSearchInputKeyDown}
+                onFocus={handleSearchInputFocus}
                 placeholder="(any)"
                 list="costbook-activity-options"
                 style={{
@@ -492,29 +539,18 @@ export function CostBookPickerModal({
               </datalist>
             </div>
 
-            <div>
-              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Description</div>
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search description"
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 8,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                }}
-              />
-            </div>
-
-            <div style={{ display: "flex", gap: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                justifyContent: "flex-end",
+              }}
+            >
               <button
                 type="button"
                 onClick={() => void runSearch()}
                 disabled={searching}
                 style={{
-                  flex: 1,
                   padding: "6px 10px",
                   borderRadius: 8,
                   border: "1px solid #d1d5db",
@@ -569,7 +605,7 @@ export function CostBookPickerModal({
               Results: <strong>{results.length}</strong>
               {selectedCount > 0 ? (
                 <>
-                  {" "}· Selected: <strong>{selectedCount}</strong>
+                  {" "}- Selected: <strong>{selectedCount}</strong>
                 </>
               ) : null}
             </div>
