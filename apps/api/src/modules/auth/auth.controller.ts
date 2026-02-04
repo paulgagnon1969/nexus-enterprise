@@ -89,6 +89,32 @@ export class AuthController {
     return this.auth.acceptInvite(dto.token, dto.password);
   }
 
+  // For logged-in users following a company invite link, preview whether
+  // accepting the invite would switch organizations.
+  @UseGuards(JwtAuthGuard)
+  @Post("company-invites/preview")
+  previewCompanyInvite(@Req() req: any, @Body("token") token: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.auth.previewCompanyInviteForCurrentUser(actor, token);
+  }
+
+  // For logged-in users, confirm whether to stay with their current org or
+  // switch to the invited org. On "switch", this will update memberships and
+  // return fresh tokens for the new company context.
+  @UseGuards(JwtAuthGuard)
+  @Post("company-invites/confirm")
+  confirmCompanyInviteChoice(
+    @Req() req: any,
+    @Body()
+    body: {
+      token: string;
+      choice: "stay" | "switch";
+    },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.auth.confirmCompanyInviteOrgChoice(actor, body.token, body.choice);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post("change-password")
   changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
