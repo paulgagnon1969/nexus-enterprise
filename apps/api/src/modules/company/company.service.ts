@@ -132,7 +132,8 @@ export class CompanyService {
         email,
         role,
         token,
-        expiresAt
+        expiresAt,
+        createdByUserId: actor.userId ?? null,
       }
     });
 

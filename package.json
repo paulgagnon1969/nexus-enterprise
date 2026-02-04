@@ -7,6 +7,9 @@
   "scripts": {
     "dev": "turbo dev",
     "dev:api": "turbo dev --filter=api",
+    "dev:web": "turbo dev --filter=web",
+    "dev:contact-sync": "npm --prefix apps/contact-sync run tauri:dev",
+    "build:contact-sync": "npm --prefix apps/contact-sync run tauri:build",
     "dev:all": "turbo dev --parallel",
     "dev:clean": "bash ./scripts/dev-clean.sh",
     "build": "turbo build",

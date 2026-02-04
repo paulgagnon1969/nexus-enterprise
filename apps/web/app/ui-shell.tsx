@@ -1123,6 +1123,23 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
           </button>
           <button
             type="button"
+            onClick={() => {
+              window.location.href = "/settings/personal-contacts";
+            }}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              fontSize: 13,
+              textAlign: "left",
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+            }}
+          >
+            Personal contacts
+          </button>
+          <button
+            type="button"
             onClick={onLogout}
             style={{
               width: "100%",

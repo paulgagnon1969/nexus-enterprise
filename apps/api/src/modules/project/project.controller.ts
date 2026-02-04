@@ -1027,6 +1027,23 @@ export class ProjectController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post(":id/petl-reconciliation/entries/:entryId/attachments")
+  attachPetlReconciliationEntryFile(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("entryId") entryId: string,
+    @Body() body: { projectFileId: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.attachPetlReconciliationEntryFile(
+      projectId,
+      entryId,
+      body,
+      user,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Delete(":id/petl-reconciliation/entries/:entryId")
   deletePetlReconciliationEntry(
     @Req() req: any,

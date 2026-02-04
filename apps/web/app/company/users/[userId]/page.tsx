@@ -1287,6 +1287,8 @@ export default function CompanyUserProfilePage() {
       const idxLast = findIndex("last name");
       const idxEmail = findIndex("email");
       const idxPhone = findIndex("phone");
+      const idxCompany = findIndex("company");
+      const idxJobTitle = findIndex("job title");
 
       if (idxEmail === -1) {
         throw new Error(
@@ -1306,14 +1308,24 @@ export default function CompanyUserProfilePage() {
         const lastName = idxLast >= 0 ? get(idxLast) : "";
         const email = get(idxEmail);
         const phone = idxPhone >= 0 ? get(idxPhone) : "";
+        const company = idxCompany >= 0 ? get(idxCompany) : "";
+        const jobTitle = idxJobTitle >= 0 ? get(idxJobTitle) : "";
 
         // Require at least an email; phone is optional.
         if (!email) {
           continue;
         }
 
+        // Build a richer display name that includes company and/or job title when present.
+        const baseName = `${firstName} ${lastName}`.trim();
+        const nameParts: string[] = [];
+        if (baseName) nameParts.push(baseName);
+        if (company) nameParts.push(company);
+        if (jobTitle) nameParts.push(jobTitle);
+        const displayName = nameParts.length > 0 ? nameParts.join(" – ") : undefined;
+
         contacts.push({
-          displayName: undefined,
+          displayName,
           firstName: firstName || undefined,
           lastName: lastName || undefined,
           email: email || undefined,
@@ -1365,6 +1377,20 @@ export default function CompanyUserProfilePage() {
     }
   };
 
+  // Build a friendly CSV download filename like 20260204_Gagnon_NCC-addressbook.csv
+  const csvDownloadName = (() => {
+    const today = new Date();
+    const yyyy = today.getFullYear().toString().padStart(4, "0");
+    const mm = (today.getMonth() + 1).toString().padStart(2, "0");
+    const dd = today.getDate().toString().padStart(2, "0");
+    const datePrefix = `${yyyy}${mm}${dd}`;
+
+    const rawLastName = (profile.lastName || "contacts").toString();
+    const safeLastName = rawLastName.replace(/[^A-Za-z0-9_-]/g, "").trim() || "contacts";
+
+    return `${datePrefix}_${safeLastName}_NCC-addressbook.csv`;
+  })();
+
   return (
     <div
       className="app-card"
@@ -1404,84 +1430,6 @@ export default function CompanyUserProfilePage() {
             : ""}
         </p>
 
-        {canUseAdminContactImport && (
-          <section
-            style={{
-              marginTop: 8,
-              display: "flex",
-              justifyContent: "flex-end",
-            }}
-          >
-            <div
-              style={{
-                maxWidth: 360,
-                padding: 10,
-                borderRadius: 8,
-                border: "1px solid #e5e7eb",
-                backgroundColor: "#f9fafb",
-                fontSize: 12,
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                <h2 style={{ fontSize: 14, marginTop: 0, marginBottom: 4 }}>
-                  Personal contacts (system admin)
-                </h2>
-                <a
-                  href="/templates/personal-contacts-template.csv"
-                  download
-                  style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}
-                >
-                  Download CSV template
-                </a>
-              </div>
-              <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 4 }}>
-                Import this worker&apos;s personal contacts from a CSV file. Use the CSV template format:
-                First Name, Last Name, Email, Phone (optional). Contacts are attached to their global
-                profile and remain confidential to them; tenants and admins cannot browse these contacts.
-              </p>
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                disabled={adminCsvSaving}
-                onChange={e => {
-                  const file = e.target.files?.[0] ?? null;
-                  setAdminCsvFile(file);
-                  setAdminCsvStatus(null);
-                  setAdminCsvError(null);
-                }}
-                style={{ fontSize: 12 }}
-              />
-              {adminCsvSaving && (
-                <p style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>Importing contacts…</p>
-              )}
-              {adminCsvStatus && (
-                <p style={{ fontSize: 12, color: "#166534", marginTop: 4 }}>{adminCsvStatus}</p>
-              )}
-              {adminCsvError && (
-                <p style={{ fontSize: 12, color: "#b91c1c", marginTop: 4 }}>{adminCsvError}</p>
-              )}
-              <div style={{ marginTop: 6 }}>
-                <button
-                  type="button"
-                  onClick={() => void handleAdminImportContactsCsv(adminCsvFile)}
-                  disabled={!adminCsvFile || adminCsvSaving}
-                  style={{
-                    padding: "4px 10px",
-                    borderRadius: 4,
-                    border: "1px solid #0f172a",
-                    backgroundColor:
-                      !adminCsvFile || adminCsvSaving ? "#e5e7eb" : "#0f172a",
-                    color: !adminCsvFile || adminCsvSaving ? "#4b5563" : "#f9fafb",
-                    fontSize: 12,
-                    cursor: !adminCsvFile || adminCsvSaving ? "default" : "pointer",
-                  }}
-                >
-                  {adminCsvSaving ? "Importing…" : "Import contacts from CSV"}
-                </button>
-              </div>
-            </div>
-          </section>
-        )}
 
         <div
           style={{

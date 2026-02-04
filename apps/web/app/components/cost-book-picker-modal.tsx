@@ -35,6 +35,7 @@ type CostBookPickerModalProps = {
   confirmDisabled?: boolean;
   onConfirm?: (selection: CostBookSelection[]) => void | Promise<void>;
   onClose: () => void;
+  autoFocusDescription?: boolean;
 };
 
 export function CostBookPickerModal({
@@ -49,6 +50,7 @@ export function CostBookPickerModal({
   confirmDisabled,
   onConfirm,
   onClose,
+  autoFocusDescription,
 }: CostBookPickerModalProps) {
   const [cats, setCats] = useState<string[]>([]);
   const [catsError, setCatsError] = useState<string | null>(null);
@@ -72,6 +74,7 @@ export function CostBookPickerModal({
   const [qtyById, setQtyById] = useState<Record<string, string>>({});
 
   const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const descriptionInputRef = useRef<HTMLInputElement | null>(null);
 
   const filteredCats = useMemo(() => {
     const q = catDropdownQuery.trim().toUpperCase();
@@ -238,6 +241,23 @@ export function CostBookPickerModal({
     void runSearch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!autoFocusDescription) return;
+    const el = descriptionInputRef.current;
+    if (!el) return;
+    el.focus();
+    if (typeof el.select === "function") {
+      el.select();
+    }
+  }, [autoFocusDescription]);
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void runSearch();
+    }
+  };
 
   const confirm = async () => {
     if (!onConfirm) {
@@ -459,6 +479,7 @@ export function CostBookPickerModal({
               <input
                 value={sel}
                 onChange={(e) => setSel(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
                 placeholder="(any)"
                 style={{
                   width: "100%",
@@ -475,6 +496,7 @@ export function CostBookPickerModal({
               <input
                 value={activity}
                 onChange={(e) => setActivity(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
                 placeholder="(any)"
                 list="costbook-activity-options"
                 style={{
@@ -495,14 +517,17 @@ export function CostBookPickerModal({
             <div>
               <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Description</div>
               <input
+                ref={descriptionInputRef}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
                 placeholder="Search description"
                 style={{
                   width: "100%",
                   padding: "6px 8px",
                   borderRadius: 8,
-                  border: "1px solid #d1d5db",
+                  border: autoFocusDescription ? "1px solid #2563eb" : "1px solid #d1d5db",
+                  background: autoFocusDescription ? "#eff6ff" : "#ffffff",
                   fontSize: 12,
                 }}
               />
@@ -712,6 +737,18 @@ export function CostBookPickerModal({
                           <input
                             value={qtyStr}
                             onChange={(e) => setQtyById((prev) => ({ ...prev, [row.id]: e.target.value }))}
+                            onFocus={(e) => {
+                              // When the user tabs or clicks into the Qty field, select the
+                              // entire value so overwrite is frictionless.
+                              e.target.select();
+                            }}
+                            onClick={(e) => {
+                              // If there is no active selection yet (simple click), select all.
+                              const input = e.currentTarget;
+                              if (input.selectionStart === input.selectionEnd) {
+                                input.select();
+                              }
+                            }}
                             style={{
                               width: 70,
                               padding: "4px 6px",

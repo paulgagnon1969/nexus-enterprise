@@ -17,6 +17,7 @@ import {
   CostBookPickerModal,
   type CostBookSelection,
 } from "../../components/cost-book-picker-modal";
+import ProjectFilePicker, { type ProjectFileSummary } from "../../messaging/project-file-picker";
 import { AdminPetlTools } from "./admin-petl-tools";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -2869,6 +2870,13 @@ ${htmlBody}
   const [reconEntryTag, setReconEntryTag] = useState<ReconEntryTag>("");
 
   const [reconPlaceholderKind, setReconPlaceholderKind] = useState<string>("NOTE_ONLY");
+  const [reconTagShake, setReconTagShake] = useState(false);
+
+  useEffect(() => {
+    if (!reconTagShake) return;
+    const id = window.setTimeout(() => setReconTagShake(false), 200);
+    return () => window.clearTimeout(id);
+  }, [reconTagShake]);
 
   // Derived reconciliation entries + numbering for the drawer table
   const reconEntries = (petlReconPanel.data?.reconciliationCase?.entries || []) as any[];
@@ -2904,6 +2912,10 @@ ${htmlBody}
         error: string | null;
       }
   >(null);
+
+  const [reconEditCostBookOpen, setReconEditCostBookOpen] = useState(false);
+  const [reconFilePickerOpen, setReconFilePickerOpen] = useState(false);
+  const [reconPhotoViewerIndex, setReconPhotoViewerIndex] = useState<number | null>(null);
 
   const [costBookModalOpen, setCostBookModalOpen] = useState(false);
   const [petlCostBookPickerBusy, setPetlCostBookPickerBusy] = useState(false);
@@ -7807,6 +7819,11 @@ ${htmlBody}
 
   const saveReconEntryEdit = async () => {
     if (!reconEntryEdit) return;
+
+    if (!reconEntryEdit.draft.tag) {
+      setReconTagShake(true);
+      return;
+    }
 
     const token = localStorage.getItem("accessToken");
     if (!token) {
@@ -18446,9 +18463,9 @@ ${htmlBody}
                       >
                         Open Cost Book
                       </button>
-                      <div style={{ fontSize: 11, color: "#6b7280" }}>
-                        Pre-filtered to current CAT; current CAT/SEL line is highlighted.
-                      </div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>
+                      Reference line is shown in the header; search or filter as needed.
+                    </div>
                     </div>
                     {costBookModalOpen && (
                       <CostBookPickerModal
@@ -18459,10 +18476,6 @@ ${htmlBody}
                           const desc = String(petlReconPanel.data?.sowItem?.description ?? "").trim();
                           const head = cat || sel ? `Baseline: ${cat}${sel ? `/${sel}` : ""}` : "Baseline";
                           return desc ? `${head} — ${desc}` : head;
-                        })()}
-                        initialCats={(() => {
-                          const cat = String(petlReconPanel.data?.sowItem?.categoryCode ?? "").trim();
-                          return cat ? [cat] : [];
                         })()}
                         defaultQty={(() => {
                           const q = petlReconPanel.data?.rcvBreakdown?.qty;
@@ -18910,7 +18923,35 @@ ${htmlBody}
             </div>
 
             <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-              <div>
+              <div style={{ marginBottom: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setReconEditCostBookOpen(true)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid #2563eb",
+                    background: "#eff6ff",
+                    cursor: "pointer",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    fontVariant: "small-caps",
+                    letterSpacing: 0.5,
+                    textAlign: "center",
+                    color: "#1d4ed8",
+                  }}
+                >
+                  Use Cost Book Fields
+                </button>
+              </div>
+
+              <div
+                style={{
+                  transform: reconTagShake ? "translateX(-4px)" : "translateX(0)",
+                  transition: "transform 0.12s ease-in-out",
+                }}
+              >
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Tag</div>
                 <select
                   value={reconEntryEdit.draft.tag}
@@ -18934,6 +18975,19 @@ ${htmlBody}
                   <option value="OTHER">Other</option>
                   <option value="WARRANTY">Warranty</option>
                 </select>
+                {!reconEntryEdit.draft.tag && (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      fontSize: 16,
+                      color: "#b91c1c",
+                      textAlign: "center",
+                      fontVariant: "small-caps",
+                    }}
+                  >
+                    (mandatory field to save)
+                  </div>
+                )}
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -19059,6 +19113,11 @@ ${htmlBody}
                 </div>
               </div>
 
+              <div style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
+                Tax and O&P are already reflected in the RCV amount. Only add additional cost items here
+                under O&P / Other.
+              </div>
+
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>RCV</div>
                 <input
@@ -19124,6 +19183,124 @@ ${htmlBody}
                 />
               </div>
 
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                  Verification attachments
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {(() => {
+                      const all = Array.isArray((reconEntryEdit.entry as any).attachments)
+                        ? (reconEntryEdit.entry as any).attachments
+                        : [];
+                      const images = all.filter((att: any) => {
+                        const mime = String(att?.mimeType || "");
+                        return mime.startsWith("image/");
+                      });
+
+                      if (all.length === 0) {
+                        return (
+                          <span style={{ fontSize: 11, color: "#9ca3af" }}>
+                            No attachments yet.
+                          </span>
+                        );
+                      }
+
+                      return all.map((att: any, idx: number) => {
+                        const url = String(att.fileUrl || "");
+                        const name = String(att.fileName || "Attachment");
+                        const mime = String(att.mimeType || "");
+                        const isImage = mime.startsWith("image/");
+
+                        if (!url) return null;
+
+                        if (isImage) {
+                          // Index among images only, for viewer navigation.
+                          const imageIndex = images.findIndex((img: any) => img.id === att.id);
+                          return (
+                            <button
+                              key={att.id}
+                              type="button"
+                              onClick={() => {
+                                if (imageIndex >= 0) setReconPhotoViewerIndex(imageIndex);
+                              }}
+                              style={{
+                                display: "inline-flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                textDecoration: "none",
+                                border: "none",
+                                background: "transparent",
+                                padding: 0,
+                                cursor: "pointer",
+                              }}
+                            >
+                              <img
+                                src={url}
+                                alt={name}
+                                style={{
+                                  width: 56,
+                                  height: 56,
+                                  objectFit: "cover",
+                                  borderRadius: 4,
+                                  border: "1px solid #e5e7eb",
+                                }}
+                              />
+                              <span
+                                style={{
+                                  marginTop: 2,
+                                  maxWidth: 80,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  fontSize: 10,
+                                  color: "#4b5563",
+                                }}
+                              >
+                                {name}
+                              </span>
+                            </button>
+                          );
+                        }
+
+                        return (
+                          <a
+                            key={att.id}
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              fontSize: 11,
+                              color: "#2563eb",
+                              textDecoration: "none",
+                              padding: "2px 4px",
+                            }}
+                          >
+                            {name}
+                          </a>
+                        );
+                      });
+                    })()}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setReconFilePickerOpen(true)}
+                    style={{
+                      alignSelf: "flex-start",
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #d1d5db",
+                      background: "#ffffff",
+                      cursor: "pointer",
+                      fontSize: 11,
+                    }}
+                  >
+                    Attach from project Files
+                  </button>
+                </div>
+              </div>
+
               {reconEntryEdit.error && (
                 <div style={{ fontSize: 12, color: "#b91c1c" }}>{reconEntryEdit.error}</div>
               )}
@@ -19173,9 +19350,12 @@ ${htmlBody}
                       padding: "6px 10px",
                       borderRadius: 8,
                       border: "1px solid #0f172a",
-                      background: reconEntryEdit.saving ? "#e5e7eb" : "#0f172a",
-                      color: reconEntryEdit.saving ? "#4b5563" : "#f9fafb",
-                      cursor: reconEntryEdit.saving ? "default" : "pointer",
+                      background:
+                        reconEntryEdit.saving || !reconEntryEdit.draft.tag ? "#e5e7eb" : "#0f172a",
+                      color:
+                        reconEntryEdit.saving || !reconEntryEdit.draft.tag ? "#4b5563" : "#f9fafb",
+                      cursor:
+                        reconEntryEdit.saving || !reconEntryEdit.draft.tag ? "default" : "pointer",
                       fontSize: 12,
                     }}
                   >
@@ -19187,6 +19367,344 @@ ${htmlBody}
           </div>
         </div>
       )}
+
+      {reconEntryEdit && reconEditCostBookOpen && (
+        <CostBookPickerModal
+          title="Cost Book"
+          autoFocusDescription
+          subtitle={(() => {
+            const cat = String(
+              reconEntryEdit.entry?.categoryCode ?? petlReconPanel.data?.sowItem?.categoryCode ?? "",
+            ).trim();
+            const sel = String(
+              reconEntryEdit.entry?.selectionCode ?? petlReconPanel.data?.sowItem?.selectionCode ?? "",
+            ).trim();
+            const desc = String(
+              reconEntryEdit.entry?.description ?? petlReconPanel.data?.sowItem?.description ?? "",
+            ).trim();
+            const head = cat || sel ? `Baseline: ${cat}${sel ? `/${sel}` : ""}` : "Baseline";
+            return desc ? `${head} — ${desc}` : head;
+          })()}
+          defaultQty={(() => {
+            const raw = reconEntryEdit.draft.qty.trim();
+            const n = Number(raw.replace(/,/g, ""));
+            if (Number.isFinite(n) && n > 0) return n;
+            const q = petlReconPanel.data?.rcvBreakdown?.qty;
+            return typeof q === "number" && Number.isFinite(q) && q > 0 ? q : 1;
+          })()}
+          confirmLabel="Use selected"
+          onConfirm={async (selection) => {
+            if (!selection || selection.length === 0) {
+              alert("Select a cost book line item first.");
+              return;
+            }
+            if (selection.length > 1) {
+              alert("Please select exactly one cost book line item.");
+              return;
+            }
+
+            const first = selection[0];
+            const item = first.item;
+            const qty = first.qty ?? 1;
+
+            const unitPrice =
+              typeof item.unitPrice === "number"
+                ? item.unitPrice
+                : typeof item.lastKnownUnitPrice === "number"
+                  ? item.lastKnownUnitPrice
+                  : null;
+
+            setReconEntryEdit((prev) => {
+              if (!prev) return prev;
+              const nextDraft = { ...prev.draft };
+
+              nextDraft.qty = String(qty);
+
+              if (item.unit != null) {
+                nextDraft.unit = String(item.unit ?? "").trim();
+              }
+
+              if (typeof unitPrice === "number") {
+                nextDraft.unitCost = String(unitPrice);
+                const qtyNum = Number(String(nextDraft.qty).replace(/,/g, ""));
+                if (Number.isFinite(qtyNum) && qtyNum > 0) {
+                  nextDraft.itemAmount = String(qtyNum * unitPrice);
+                }
+              }
+
+              if (item.description != null) {
+                nextDraft.description = String(item.description ?? "").trim();
+              }
+
+              return { ...prev, draft: nextDraft };
+            });
+
+            setReconEditCostBookOpen(false);
+          }}
+          onClose={() => setReconEditCostBookOpen(false)}
+        />
+      )}
+
+      {reconEntryEdit && reconFilePickerOpen && project && (
+        <div
+          style={{
+            position: "fixed",
+            top: 80,
+            right: 40,
+            zIndex: 80,
+          }}
+        >
+          <ProjectFilePicker
+            projectId={project.id}
+            mode="new"
+            onClose={() => setReconFilePickerOpen(false)}
+            onSelect={async (file: ProjectFileSummary) => {
+              const token = localStorage.getItem("accessToken");
+              if (!token) {
+                alert("Missing access token; please log in again.");
+                return;
+              }
+
+              const entryId = reconEntryEdit.entry.id as string;
+
+              try {
+                const res = await fetch(
+                  `${API_BASE}/projects/${project.id}/petl-reconciliation/entries/${entryId}/attachments`,
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ projectFileId: file.id }),
+                  },
+                );
+
+                if (!res.ok) {
+                  const text = await res.text().catch(() => "");
+                  alert(`Failed to attach file (${res.status}) ${text}`);
+                  return;
+                }
+
+                const attachment: any = await res.json();
+
+                // Update local editor state
+                setReconEntryEdit((prev) => {
+                  if (!prev) return prev;
+                  const existing = Array.isArray((prev.entry as any).attachments)
+                    ? (prev.entry as any).attachments
+                    : [];
+                  return {
+                    ...prev,
+                    entry: {
+                      ...prev.entry,
+                      attachments: [...existing, attachment],
+                    },
+                  };
+                });
+
+                // Update attachments inside the reconciliation drawer state
+                setPetlReconPanel((prev) => {
+                  if (!prev.data?.reconciliationCase) return prev;
+                  const currentCase = prev.data.reconciliationCase;
+                  const entries = (currentCase.entries || []).map((e: any) =>
+                    e.id === entryId
+                      ? {
+                          ...e,
+                          attachments: [
+                            ...(Array.isArray(e.attachments) ? e.attachments : []),
+                            attachment,
+                          ],
+                        }
+                      : e,
+                  );
+
+                  return {
+                    ...prev,
+                    data: {
+                      ...prev.data,
+                      reconciliationCase: {
+                        ...currentCase,
+                        entries,
+                      },
+                    },
+                  };
+                });
+
+                setReconFilePickerOpen(false);
+              } catch (err: any) {
+                alert(err?.message ?? "Failed to attach file");
+              }
+            }}
+          />
+        </div>
+      )}
+
+      {reconEntryEdit && reconPhotoViewerIndex !== null && (() => {
+        const all = Array.isArray((reconEntryEdit.entry as any).attachments)
+          ? (reconEntryEdit.entry as any).attachments
+          : [];
+        const images = all.filter((att: any) => {
+          const mime = String(att?.mimeType || "");
+          return mime.startsWith("image/");
+        });
+
+        if (images.length === 0 || reconPhotoViewerIndex == null) return null;
+
+        const safeIndex = Math.min(Math.max(reconPhotoViewerIndex, 0), images.length - 1);
+        const current = images[safeIndex];
+
+        const goPrev = () => {
+          setReconPhotoViewerIndex((prev) => {
+            if (prev == null || images.length === 0) return prev;
+            return (prev - 1 + images.length) % images.length;
+          });
+        };
+
+        const goNext = () => {
+          setReconPhotoViewerIndex((prev) => {
+            if (prev == null || images.length === 0) return prev;
+            return (prev + 1) % images.length;
+          });
+        };
+
+        const close = () => setReconPhotoViewerIndex(null);
+
+        const url = String(current?.fileUrl || "");
+        const name = String(current?.fileName || "Attachment");
+
+        if (!url) return null;
+
+        return (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 90,
+              background: "rgba(15,23,42,0.80)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 16,
+            }}
+            onClick={close}
+          >
+            <div
+              style={{
+                position: "relative",
+                maxWidth: "90vw",
+                maxHeight: "90vh",
+                background: "#020617",
+                borderRadius: 10,
+                padding: 12,
+                boxShadow: "0 25px 60px rgba(0,0,0,0.65)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 8,
+                  color: "#e5e7eb",
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <span style={{ fontWeight: 600 }}>{name}</span>
+                  <span style={{ fontSize: 11, color: "#9ca3af" }}>
+                    Photo {safeIndex + 1} of {images.length}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={close}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    color: "#e5e7eb",
+                    fontSize: 18,
+                    lineHeight: 1,
+                  }}
+                  aria-label="Close photo viewer"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div
+                style={{
+                  position: "relative",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  maxWidth: "100%",
+                  maxHeight: "calc(90vh - 80px)",
+                  overflow: "hidden",
+                  background: "#020617",
+                }}
+              >
+                <img
+                  src={url}
+                  alt={name}
+                  style={{
+                    maxWidth: "100%",
+                    maxHeight: "100%",
+                    objectFit: "contain",
+                    borderRadius: 6,
+                    border: "1px solid #1f2937",
+                  }}
+                />
+
+                {images.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={goPrev}
+                      style={{
+                        position: "absolute",
+                        left: 8,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        borderRadius: 999,
+                        border: "1px solid #4b5563",
+                        background: "rgba(15,23,42,0.85)",
+                        color: "#e5e7eb",
+                        padding: "4px 8px",
+                        cursor: "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      ‹ Prev
+                    </button>
+                    <button
+                      type="button"
+                      onClick={goNext}
+                      style={{
+                        position: "absolute",
+                        right: 8,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        borderRadius: 999,
+                        border: "1px solid #4b5563",
+                        background: "rgba(15,23,42,0.85)",
+                        color: "#e5e7eb",
+                        padding: "4px 8px",
+                        cursor: "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      Next ›
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
             </>
           )}
