@@ -5,7 +5,7 @@ import * as bcrypt from "bcryptjs";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { RedisService } from "../../infra/redis/redis.service";
 import { RegisterDto, LoginDto, ChangePasswordDto } from "./dto/auth.dto";
-import { Role, GlobalRole, UserType, CompanyTrialStatus, OrgInviteStatus } from "@prisma/client";
+import { Role, GlobalRole, UserType, CompanyTrialStatus, OrgInviteStatus, ReferralRelationshipType } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { AuthenticatedUser } from "./jwt.strategy";
 import { EmailService } from "../../common/email.service";
@@ -380,6 +380,183 @@ export class AuthService {
     return { success: true };
   }
 
+  // --- Company invite preview/confirm for already-logged-in users ---
+
+  async previewCompanyInviteForCurrentUser(actor: AuthenticatedUser, token: string) {
+    if (!actor.userId) {
+      throw new UnauthorizedException("Missing user id for invite preview");
+    }
+
+    const invite = await this.prisma.companyInvite.findFirst({
+      where: {
+        token,
+        acceptedAt: null,
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+      include: {
+        company: {
+          select: { id: true, name: true },
+        },
+      },
+    });
+
+    if (!invite) {
+      throw new BadRequestException("Invite is invalid or expired");
+    }
+
+    const memberships = await this.prisma.companyMembership.findMany({
+      where: {
+        userId: actor.userId,
+        isActive: true,
+      },
+      include: {
+        company: {
+          select: { id: true, name: true },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const currentMembership = memberships[0] ?? null;
+
+    type PreviewMode = "NO_ACTIVE_MEMBERSHIP" | "ALREADY_IN_COMPANY" | "DIFFERENT_COMPANY";
+    let mode: PreviewMode;
+
+    if (!currentMembership) {
+      mode = "NO_ACTIVE_MEMBERSHIP";
+    } else if (currentMembership.companyId === invite.companyId) {
+      mode = "ALREADY_IN_COMPANY";
+    } else {
+      mode = "DIFFERENT_COMPANY";
+    }
+
+    return {
+      mode,
+      currentCompany: currentMembership
+        ? {
+            id: currentMembership.company.id,
+            name: currentMembership.company.name,
+          }
+        : null,
+      invitedCompany: {
+        id: invite.company.id,
+        name: invite.company.name,
+      },
+      invite: {
+        id: invite.id,
+        email: invite.email,
+        role: invite.role,
+      },
+    };
+  }
+
+  async confirmCompanyInviteOrgChoice(
+    actor: AuthenticatedUser,
+    token: string,
+    choice: "stay" | "switch",
+  ) {
+    if (!actor.userId) {
+      throw new UnauthorizedException("Missing user id for invite confirmation");
+    }
+
+    if (choice !== "stay" && choice !== "switch") {
+      throw new BadRequestException("choice must be 'stay' or 'switch'");
+    }
+
+    const invite = await this.prisma.companyInvite.findFirst({
+      where: {
+        token,
+        acceptedAt: null,
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+      include: {
+        company: true,
+      },
+    });
+
+    if (!invite) {
+      throw new BadRequestException("Invite is invalid or expired");
+    }
+
+    if (choice === "stay") {
+      // No membership changes; simply report back so the UI can stop prompting.
+      return {
+        outcome: "STAY" as const,
+        currentCompanyId: actor.companyId ?? null,
+        invitedCompanyId: invite.companyId,
+      };
+    }
+
+    const userId = actor.userId;
+
+    await this.prisma.$transaction(async (tx) => {
+      // Deactivate all other active memberships for this user, except the
+      // invited company. This keeps one active "assigned" org.
+      await tx.companyMembership.updateMany({
+        where: {
+          userId,
+          companyId: { not: invite.companyId },
+          isActive: true,
+        },
+        data: {
+          isActive: false,
+        },
+      });
+
+      await tx.companyMembership.upsert({
+        where: {
+          userId_companyId: {
+            userId,
+            companyId: invite.companyId,
+          },
+        },
+        update: {
+          role: invite.role,
+          isActive: true,
+        },
+        create: {
+          userId,
+          companyId: invite.companyId,
+          role: invite.role,
+        },
+      });
+
+      await tx.companyInvite.update({
+        where: { id: invite.id },
+        data: {
+          acceptedAt: new Date(),
+          acceptedUserId: userId,
+        },
+      });
+
+      // Best-effort: record a COMPANY referral relationship between the inviter
+      // and the accepting user if we know who created this invite.
+      if (invite.createdByUserId && invite.createdByUserId !== userId) {
+        try {
+          await tx.referralRelationship.create({
+            data: {
+              referrerUserId: invite.createdByUserId,
+              refereeUserId: userId,
+              companyId: invite.companyId,
+              type: ReferralRelationshipType.COMPANY,
+              companyInviteId: invite.id,
+            },
+          });
+        } catch {
+          // Do not fail invite acceptance if relationship logging fails.
+        }
+      }
+    });
+
+    // After switching orgs and accepting the invite, issue fresh tokens in the
+    // context of the invited company.
+    return this.switchCompany(actor.userId, invite.companyId);
+  }
+
   async acceptInvite(token: string, password: string) {
     const invite = await this.prisma.companyInvite.findFirst({
       where: {
@@ -452,6 +629,24 @@ export class AuthService {
         acceptedUserId: user.id
       }
     });
+
+    // Best-effort: record a COMPANY referral relationship between the inviter
+    // and the accepting user if we know who created this invite.
+    if (invite.createdByUserId && invite.createdByUserId !== user.id) {
+      try {
+        await this.prisma.referralRelationship.create({
+          data: {
+            referrerUserId: invite.createdByUserId,
+            refereeUserId: user.id,
+            companyId: invite.companyId,
+            type: ReferralRelationshipType.COMPANY,
+            companyInviteId: invite.id,
+          },
+        });
+      } catch {
+        // Do not fail invite acceptance if relationship logging fails.
+      }
+    }
 
     const profileCode =
       (membership as any).profile?.code ?? this.getDefaultProfileCodeForRole(membership.role);

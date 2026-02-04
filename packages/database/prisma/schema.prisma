@@ -81,6 +81,7 @@ model Company {
   payrollWeekRecords PayrollWeekRecord[]
   projectGroups      ProjectGroup[]
   notifications      Notification[]
+  referralRelationships ReferralRelationship[]
   messageThreads     MessageThread[]
   recipientGroups    MessageRecipientGroup[]
   projectFileFolders ProjectFileFolder[]
@@ -91,7 +92,7 @@ model Company {
   timecardEditLogs   TimecardEditLog[]
   nttTickets         NttTicket[]
 
-  // Org-level invitations (Nexus System → new tenant owners)
+  // Org-level invitations (Nexus System  new tenant owners)
   orgInvites         OrgInvite[]
 
   // Locations & inventory
@@ -280,7 +281,7 @@ model User {
   firstName                 String?
   lastName                  String?
 
-  /// Percent of this user's profile that is complete (0–100). Starts at 10%
+  /// Percent of this user's profile that is complete (07100). Starts at 10%
   /// once we have at least name + email, then increases as additional fields
   /// (contact info, onboarding profile, skills, etc.) are filled in.
   profileCompletionPercent   Int       @default(10)
@@ -315,8 +316,10 @@ model User {
   referralsSent             Referral[]             @relation("ReferralsSent")
   referralsReceived         Referral[]             @relation("ReferralsReceived")
   nexNetCandidate           NexNetCandidate?
+  referralRelationshipsAsReferrer ReferralRelationship[] @relation("ReferralRelationshipReferrer")
+  referralRelationshipsAsReferee  ReferralRelationship[] @relation("ReferralRelationshipReferee")
 
-  // Org-level invitations (Nexus System → new tenant owners)
+  // Org-level invitations (Nexus System  new tenant owners)
   orgInvitesCreated  OrgInvite[] @relation("OrgInviteCreatedBy")
   orgInvitesAccepted OrgInvite[] @relation("OrgInviteAcceptedBy")
 
@@ -773,6 +776,8 @@ model CompanyInvite {
   acceptedAt     DateTime?
   acceptedUserId String?
   createdAt      DateTime  @default(now())
+  createdByUserId String?
+
   acceptedUser   User?     @relation(fields: [acceptedUserId], references: [id])
   company        Company   @relation(fields: [companyId], references: [id])
 }
@@ -1078,6 +1083,7 @@ model ProjectFile {
   dailyLogAttachments DailyLogAttachment[]
   billAttachments ProjectBillAttachment[]
   petlArchives ProjectPetlArchive[]
+  petlReconciliationAttachments PetlReconciliationAttachment[]
 
   @@index([companyId, projectId], map: "ProjectFile_company_project_idx")
 }
@@ -2237,11 +2243,30 @@ model PetlReconciliationEntry {
   createdBy       User?                 @relation("PetlReconEntryCreatedBy", fields: [createdByUserId], references: [id])
   approvedBy      User?                 @relation("PetlReconEntryApprovedBy", fields: [approvedByUserId], references: [id])
   petlPercentUpdates PetlPercentUpdate[]
+  attachments     PetlReconciliationAttachment[]
   events          PetlReconciliationEvent[]
 
   @@index([projectId, estimateVersionId], map: "PetlReconEntry_project_estimate_idx")
   @@index([caseId], map: "PetlReconEntry_case_idx")
   @@index([projectParticleId], map: "PetlReconEntry_particle_idx")
+}
+
+model PetlReconciliationAttachment {
+  id           String   @id @default(cuid())
+  entryId      String
+  projectFileId String?
+
+  fileUrl      String
+  fileName     String?
+  mimeType     String?
+  sizeBytes    Int?
+  createdAt    DateTime @default(now())
+
+  entry        PetlReconciliationEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  projectFile  ProjectFile?            @relation(fields: [projectFileId], references: [id], onDelete: SetNull)
+
+  @@index([entryId], map: "PetlReconAttachment_entry_idx")
+  @@index([projectFileId], map: "PetlReconAttachment_project_file_idx")
 }
 
 model PetlReconciliationEvent {
@@ -3707,6 +3732,30 @@ enum ReferralStatus {
   APPLIED
   HIRED
   EXPIRED
+}
+
+enum ReferralRelationshipType {
+  PERSONAL
+  COMPANY
+}
+
+model ReferralRelationship {
+  id              String                   @id @default(cuid())
+  referrerUserId  String
+  refereeUserId   String
+  companyId       String?
+  type            ReferralRelationshipType
+  referralId      String?
+  companyInviteId String?
+  createdAt       DateTime                @default(now())
+
+  referrer User    @relation("ReferralRelationshipReferrer", fields: [referrerUserId], references: [id])
+  referee User     @relation("ReferralRelationshipReferee", fields: [refereeUserId], references: [id])
+  company Company? @relation(fields: [companyId], references: [id])
+
+  @@index([referrerUserId], map: "ReferralRel_referrer_idx")
+  @@index([refereeUserId], map: "ReferralRel_referee_idx")
+  @@index([companyId], map: "ReferralRel_company_idx")
 }
 
 /// Visibility scope for candidates in the Nex-Net / Prospective Candidates pool.

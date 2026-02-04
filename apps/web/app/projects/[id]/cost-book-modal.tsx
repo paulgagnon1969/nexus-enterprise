@@ -216,6 +216,13 @@ export function CostBookModal(props: {
     [busyOverlay],
   );
 
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void runSearch("user");
+    }
+  };
+
   // Initialize state when modal opens.
   useEffect(() => {
     if (!open) return;
@@ -582,6 +589,7 @@ export function CostBookModal(props: {
               <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>SEL</div>
               <input
                 ref={selInputRef}
+                onKeyDown={handleSearchKeyDown}
                 placeholder="(any)"
                 list="costbook-sel-options"
                 style={{
@@ -600,6 +608,7 @@ export function CostBookModal(props: {
               </div>
               <input
                 ref={descInputRef}
+                onKeyDown={handleSearchKeyDown}
                 placeholder="Search description"
                 style={{
                   width: "100%",
