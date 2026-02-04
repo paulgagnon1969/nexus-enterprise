@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Xactimate Market Pricing Methodology | NEXUS Learning Center</title>
+    <style>
+        :root {
+            --nexus-primary: #1a365d;
+            --nexus-secondary: #2b6cb0;
+            --nexus-accent: #4299e1;
+            --nexus-light: #ebf8ff;
+            --text-dark: #1a202c;
+            --text-muted: #4a5568;
+            --border-color: #e2e8f0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.7;
+            color: var(--text-dark);
+            background: #f7fafc;
+        }
+
+        .document-container {
+            max-width: 850px;
+            margin: 40px auto;
+            background: white;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        /* Letterhead Header */
+        .letterhead {
+            background: linear-gradient(135deg, var(--nexus-primary) 0%, var(--nexus-secondary) 100%);
+            color: white;
+            padding: 30px 50px;
+            position: relative;
+        }
+
+        .letterhead::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--nexus-accent), #63b3ed, var(--nexus-accent));
+        }
+
+        .letterhead-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo-section h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            letter-spacing: 3px;
+            margin-bottom: 4px;
+        }
+
+        .logo-section .tagline {
+            font-size: 0.85rem;
+            opacity: 0.9;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .company-info {
+            text-align: right;
+            font-size: 0.8rem;
+            opacity: 0.9;
+        }
+
+        .company-info p {
+            margin: 2px 0;
+        }
+
+        /* Document Classification Badge */
+        .doc-badge {
+            display: inline-block;
+            background: var(--nexus-light);
+            color: var(--nexus-primary);
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 25px 50px 0;
+        }
+
+        /* Main Content */
+        .content {
+            padding: 30px 50px 50px;
+        }
+
+        .document-title {
+            font-size: 1.5rem;
+            color: var(--nexus-primary);
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .document-subtitle {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .intro-text {
+            font-size: 1.05rem;
+            color: var(--text-dark);
+            margin-bottom: 30px;
+            padding: 20px;
+            background: var(--nexus-light);
+            border-left: 4px solid var(--nexus-secondary);
+            border-radius: 0 8px 8px 0;
+        }
+
+        .section-heading {
+            color: var(--nexus-primary);
+            font-size: 1.15rem;
+            font-weight: 600;
+            margin: 35px 0 20px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid var(--nexus-accent);
+        }
+
+        .justification-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .justification-item {
+            margin-bottom: 20px;
+            padding: 20px;
+            background: #fafafa;
+            border-radius: 8px;
+            border-left: 3px solid var(--nexus-secondary);
+        }
+
+        .justification-item h4 {
+            color: var(--nexus-primary);
+            font-size: 1rem;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+        }
+
+        .justification-item h4::before {
+            content: '✓';
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            background: var(--nexus-secondary);
+            color: white;
+            border-radius: 50%;
+            font-size: 0.75rem;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+
+        .justification-item p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            margin-left: 36px;
+        }
+
+        .verification-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .verification-list li {
+            padding: 12px 15px;
+            margin-bottom: 10px;
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            position: relative;
+            padding-left: 35px;
+        }
+
+        .verification-list li::before {
+            content: '📋';
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .conclusion-box {
+            margin-top: 35px;
+            padding: 25px;
+            background: linear-gradient(135deg, var(--nexus-light) 0%, #bee3f8 100%);
+            border-radius: 8px;
+            border: 1px solid var(--nexus-accent);
+        }
+
+        .conclusion-box p {
+            font-size: 0.95rem;
+            color: var(--text-dark);
+        }
+
+        .conclusion-box .note {
+            margin-top: 15px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        /* Footer */
+        .document-footer {
+            background: #f8fafc;
+            padding: 20px 50px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .footer-meta {
+            display: flex;
+            gap: 25px;
+        }
+
+        .footer-meta span {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .confidential-notice {
+            font-size: 0.75rem;
+            color: var(--nexus-secondary);
+            font-weight: 500;
+        }
+
+        /* Print Styles */
+        @media print {
+            body {
+                background: white;
+            }
+            .document-container {
+                box-shadow: none;
+                margin: 0;
+                max-width: 100%;
+            }
+            .letterhead {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .document-container {
+                margin: 20px;
+            }
+            .letterhead {
+                padding: 20px 25px;
+            }
+            .letterhead-content {
+                flex-direction: column;
+                text-align: center;
+                gap: 15px;
+            }
+            .company-info {
+                text-align: center;
+            }
+            .content {
+                padding: 20px 25px 40px;
+            }
+            .doc-badge {
+                margin: 20px 25px 0;
+            }
+            .document-footer {
+                flex-direction: column;
+                gap: 10px;
+                padding: 15px 25px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="document-container">
+        <!-- Letterhead -->
+        <header class="letterhead">
+            <div class="letterhead-content">
+                <div class="logo-section">
+                    <h1>NEXUS</h1>
+                    <p class="tagline">Property Restoration Intelligence</p>
+                </div>
+                <div class="company-info">
+                    <p>NEXUS Connect Center</p>
+                    <p>Learning Center Documentation</p>
+                    <p>ncc.nexusrestoration.com</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Document Badge -->
+        <span class="doc-badge">📚 Reference Document • SOP Series</span>
+
+        <!-- Main Content -->
+        <main class="content">
+            <h2 class="document-title">Xactimate Market Pricing Methodology</h2>
+            <p class="document-subtitle">Understanding Verisk's Data-Driven Approach to Fair Market Value Estimation</p>
+
+            <div class="intro-text">
+                Verisk's Xactimate is widely regarded in the property insurance and restoration industries as a reliable tool for generating estimates that reflect fair market value (often termed "market price"). This stems from its data-driven methodology, which aggregates real-world pricing information to produce localized, representative costs for materials, labor, and equipment.
+            </div>
+
+            <h3 class="section-heading">Key Justifications</h3>
+
+            <ul class="justification-list">
+                <li class="justification-item">
+                    <h4>Market-Based Data Aggregation</h4>
+                    <p>Xactimate pricing is derived from millions of data points collected monthly, including surveys of contractors/suppliers, direct supplier feeds, industry participants, and anonymized completed estimates/bids submitted by users. Verisk analyzes these to identify market consensus via proprietary cluster analysis (developed by economists), filtering anomalies to report a representative "most common" or median-like price within observed ranges. This approach aims to capture genuine market conditions rather than arbitrary or biased inputs.</p>
+                </li>
+                <li class="justification-item">
+                    <h4>Transparent and Defensible Pricing</h4>
+                    <p>Verisk explicitly describes its role as reporting a market price based on recent transactions and surveys, providing a baseline for estimators to start from and adjust as needed for specific jobs. Primary sources encompass diverse stakeholders (contractors, subcontractors, material providers, and Xactimate users) to avoid undue influence from any single party. Published prices reflect historical and current market realities across 460+ localized regions in the US and Canada.</p>
+                </li>
+                <li class="justification-item">
+                    <h4>Industry Recognition as a Fair Reference</h4>
+                    <p>Xactimate is the dominant standard for property claims estimating, used by insurers, adjusters, and contractors to promote consistency and defensibility in settlements. While not a rigid "ceiling" or contractual mandate (Verisk clarifies it's a reference tool, not the definitive standard), it serves as strong evidence of fair market value when supported by the data methodology.</p>
+                </li>
+            </ul>
+
+            <h3 class="section-heading">Third-Party Verifications and Citations</h3>
+
+            <ul class="verification-list">
+                <li>Verisk's official <strong>Pricing Research Methodology</strong> document outlines the process: surveys, estimate transactions, and analysis to report market prices reflecting the most common recently submitted costs.</li>
+                <li>Summaries from industry sources (e.g., <strong>Property Insurance Coverage Law Blog</strong> and restoration publications) confirm Xactimate reports a "market price" from real submissions and surveys, serving as a valuable, transparent baseline for fair estimates.</li>
+                <li>Articles and expert discussions (e.g., from <strong>R&R Magazine</strong> and adjuster groups) note that pricing draws from real data (including anonymous contractor surveys and claims), positioning it as an average/median reflecting broader market rates—about half higher and half lower—making it a justifiable proxy for fair market value.</li>
+            </ul>
+
+            <div class="conclusion-box">
+                <p><strong>In Practice:</strong> Xactimate estimates are frequently upheld as reasonable and market-aligned in claims negotiations and disputes, provided adjustments are made for unique job conditions (e.g., via user overrides).</p>
+                <p class="note">For the most current details, refer directly to Verisk's resources on their official website at verisk.com.</p>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="document-footer">
+            <div class="footer-meta">
+                <span>📅 Published: February 2026</span>
+                <span>🔄 Version: 1.0</span>
+                <span>📂 Category: SOPs &amp; Reference</span>
+            </div>
+            <p class="confidential-notice">NEXUS INTERNAL &amp; PARTNER REFERENCE</p>
+        </footer>
+    </div>
+</body>
+</html>

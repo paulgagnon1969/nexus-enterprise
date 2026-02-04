@@ -3142,19 +3142,48 @@ export class ProjectService {
       return null;
     }
 
-    return this.prisma.petlReconciliationCase.findFirst({
-      where: {
-        projectId,
-        OR: [
-          { sowItemId },
-          { logicalItemId: sowItem.logicalItemId },
-        ],
-      },
-      include: {
-        entries: { orderBy: { createdAt: "asc" } },
-        events: { orderBy: { createdAt: "asc" } },
-      },
-    });
+    try {
+      // Preferred path: include attachments when the table exists.
+      return await this.prisma.petlReconciliationCase.findFirst({
+        where: {
+          projectId,
+          OR: [
+            { sowItemId },
+            { logicalItemId: sowItem.logicalItemId },
+          ],
+        },
+        include: {
+          entries: {
+            orderBy: { createdAt: "asc" },
+            include: {
+              attachments: { orderBy: { createdAt: "asc" } },
+            },
+          },
+          events: { orderBy: { createdAt: "asc" } },
+        },
+      });
+    } catch (err: any) {
+      // Backwards-compatible: in environments where the PetlReconciliationAttachment
+      // table/migration is missing, fall back to loading the case without
+      // attachments instead of 500-ing the project page.
+      if (!this.isMissingPrismaTableError(err, "PetlReconciliationAttachment")) {
+        throw err;
+      }
+
+      return this.prisma.petlReconciliationCase.findFirst({
+        where: {
+          projectId,
+          OR: [
+            { sowItemId },
+            { logicalItemId: sowItem.logicalItemId },
+          ],
+        },
+        include: {
+          entries: { orderBy: { createdAt: "asc" } },
+          events: { orderBy: { createdAt: "asc" } },
+        },
+      });
+    }
   }
 
   private async getOrCreatePetlReconciliationCaseForSowItem(options: {
@@ -3370,7 +3399,12 @@ export class ProjectService {
       include: {
         case: {
           include: {
-            entries: { orderBy: { createdAt: "asc" } },
+            entries: {
+              orderBy: { createdAt: "asc" },
+              include: {
+                attachments: { orderBy: { createdAt: "asc" } },
+              },
+            },
             events: { orderBy: { createdAt: "asc" } },
           },
         },
@@ -4055,7 +4089,12 @@ export class ProjectService {
       include: {
         case: {
           include: {
-            entries: { orderBy: { createdAt: "asc" } },
+            entries: {
+              orderBy: { createdAt: "asc" },
+              include: {
+                attachments: { orderBy: { createdAt: "asc" } },
+              },
+            },
             events: { orderBy: { createdAt: "asc" } },
           },
         },
@@ -4184,7 +4223,12 @@ export class ProjectService {
       include: {
         case: {
           include: {
-            entries: { orderBy: { createdAt: "asc" } },
+            entries: {
+              orderBy: { createdAt: "asc" },
+              include: {
+                attachments: { orderBy: { createdAt: "asc" } },
+              },
+            },
             events: { orderBy: { createdAt: "asc" } },
           },
         },
@@ -4556,7 +4600,12 @@ export class ProjectService {
       include: {
         case: {
           include: {
-            entries: { orderBy: { createdAt: "asc" } },
+            entries: {
+              orderBy: { createdAt: "asc" },
+              include: {
+                attachments: { orderBy: { createdAt: "asc" } },
+              },
+            },
             events: { orderBy: { createdAt: "asc" } },
           },
         },
@@ -4567,6 +4616,74 @@ export class ProjectService {
     await this.maybeSyncLivingDraftInvoiceFromPetl(projectId, companyId, actor);
 
     return { entry: updated, reconciliationCase: updated.case };
+  }
+
+  async attachPetlReconciliationEntryFile(
+    projectId: string,
+    entryId: string,
+    dto: { projectFileId: string },
+    actor: AuthenticatedUser,
+  ) {
+    const project = await this.getProjectByIdForUser(projectId, actor);
+
+    const entry = await this.prisma.petlReconciliationEntry.findFirst({
+      where: {
+        id: entryId,
+        projectId: project.id,
+      },
+      select: {
+        id: true,
+        projectId: true,
+        estimateVersionId: true,
+        caseId: true,
+      },
+    });
+
+    if (!entry) {
+      throw new NotFoundException("Reconciliation entry not found for this project");
+    }
+
+    const projectFile = await this.prisma.projectFile.findFirst({
+      where: {
+        id: dto.projectFileId,
+        projectId: project.id,
+        companyId: project.companyId,
+      },
+      select: {
+        id: true,
+        storageUrl: true,
+        fileName: true,
+        mimeType: true,
+        sizeBytes: true,
+      },
+    });
+
+    if (!projectFile) {
+      throw new NotFoundException("Project file not found for this project");
+    }
+
+    const attachment = await this.prisma.petlReconciliationAttachment.create({
+      data: {
+        entryId: entry.id,
+        projectFileId: projectFile.id,
+        fileUrl: projectFile.storageUrl,
+        fileName: projectFile.fileName ?? null,
+        mimeType: projectFile.mimeType ?? null,
+        sizeBytes: projectFile.sizeBytes ?? null,
+      },
+    });
+
+    await this.audit.log(actor, "PETL_RECON_ATTACHMENT_ADDED", {
+      companyId: project.companyId,
+      projectId: project.id,
+      metadata: {
+        entryId: entry.id,
+        attachmentId: attachment.id,
+        projectFileId: projectFile.id,
+      },
+    });
+
+    return attachment;
   }
 
   async applySinglePetlPercentEdit(
