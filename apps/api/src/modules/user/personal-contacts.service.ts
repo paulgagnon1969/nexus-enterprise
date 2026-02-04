@@ -39,51 +39,65 @@ export class PersonalContactsService {
       throw new BadRequestException("No contacts provided for import.");
     }
 
-    return inputs.map(input => {
-      const email = this.normalizeEmail(input.email);
-      const phone = this.normalizePhone(input.phone);
-      const source = input.source ?? PersonalContactSource.UPLOAD;
+    // Normalize and filter out any rows that are missing both email and phone so
+    // that downstream Prisma queries never receive an empty OR [] clause.
+    const contacts = inputs
+      .map(input => {
+        const email = this.normalizeEmail(input.email);
+        const phone = this.normalizePhone(input.phone);
+        const source = input.source ?? PersonalContactSource.UPLOAD;
 
-      const displayName =
-        input.displayName ||
-        [input.firstName, input.lastName].filter(Boolean).join(" ") ||
-        email ||
-        phone ||
-        null;
+        const displayName =
+          input.displayName ||
+          [input.firstName, input.lastName].filter(Boolean).join(" ") ||
+          email ||
+          phone ||
+          null;
 
-      return {
-        ownerUserId,
-        displayName,
-        firstName: input.firstName ?? null,
-        lastName: input.lastName ?? null,
-        email,
-        phone,
-        source,
-      };
-    });
+        return {
+          ownerUserId,
+          displayName,
+          firstName: input.firstName ?? null,
+          lastName: input.lastName ?? null,
+          email,
+          phone,
+          source,
+        };
+      })
+      .filter(c => c.email || c.phone);
+
+    if (!contacts.length) {
+      throw new BadRequestException("No contacts with email or phone were provided for import.");
+    }
+
+    return contacts;
   }
 
   private async upsertContactsForOwner(ownerUserId: string, inputs: ImportContactInput[]) {
     const contacts = this.buildContactsForOwner(ownerUserId, inputs);
 
-    const { rows, createdCount, updatedCount } = await this.prisma.$transaction(async tx => {
+    try {
       const results = [] as any[];
       let created = 0;
       let updated = 0;
 
+      // Perform per-contact upserts without wrapping the entire import in a
+      // long-lived interactive transaction. This avoids hitting Prisma's
+      // 5-second interactive transaction timeout when importing large CSVs.
       for (const c of contacts) {
-        const existing = await tx.personalContact.findFirst({
+        const orClauses: any[] = [];
+        if (c.email) orClauses.push({ email: c.email });
+        if (c.phone) orClauses.push({ phone: c.phone });
+
+        const existing = await this.prisma.personalContact.findFirst({
           where: {
             ownerUserId,
-            OR: [
-              c.email ? { email: c.email } : undefined,
-              c.phone ? { phone: c.phone } : undefined,
-            ].filter(Boolean) as any[],
+            OR: orClauses,
           },
         });
 
         if (existing) {
-          const updatedRow = await tx.personalContact.update({
+          const updatedRow = await this.prisma.personalContact.update({
             where: { id: existing.id },
             data: {
               displayName: c.displayName ?? existing.displayName,
@@ -97,16 +111,20 @@ export class PersonalContactsService {
           updated += 1;
           results.push(updatedRow);
         } else {
-          const createdRow = await tx.personalContact.create({ data: c });
+          const createdRow = await this.prisma.personalContact.create({ data: c });
           created += 1;
           results.push(createdRow);
         }
       }
 
       return { rows: results, createdCount: created, updatedCount: updated };
-    });
-
-    return { rows, createdCount, updatedCount };
+    } catch (err: any) {
+      // Surface a clear, client-visible error rather than a generic 500 when
+      // something goes wrong during import (e.g. unexpected DB constraint).
+      throw new BadRequestException(
+        `Failed to import personal contacts. ${err?.message ?? "Please verify the CSV format and try again."}`,
+      );
+    }
   }
 
   async importContacts(actor: AuthenticatedUser, inputs: ImportContactInput[]) {
