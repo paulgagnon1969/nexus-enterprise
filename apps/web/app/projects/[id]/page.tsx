@@ -19942,6 +19942,9 @@ ${htmlBody}
             const head = cat || sel ? `Baseline: ${cat}${sel ? `/${sel}` : ""}` : "Baseline";
             return desc ? `${head} — ${desc}` : head;
           })()}
+          noteText={String(
+            reconEntryEdit.draft.note ?? reconEntryEdit.entry?.note ?? "",
+          ).trim()}
           defaultQty={(() => {
             const raw = reconEntryEdit.draft.qty.trim();
             const n = Number(raw.replace(/,/g, ""));

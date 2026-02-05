@@ -12,7 +12,6 @@ COPY package.json ./
 
 # Copy workspace package manifests that affect dependency graph
 COPY apps/api/package.json apps/api/package.json
-COPY apps/web/package.json apps/web/package.json
 COPY packages/database/package.json packages/database/package.json
 
 # Install dependencies for the whole monorepo

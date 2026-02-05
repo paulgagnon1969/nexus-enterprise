@@ -3824,8 +3824,10 @@ model PersonalContact {
   displayName  String?
   firstName    String?
   lastName     String?
-  email        String?
-  phone        String?
+  email        String?               // Primary email (used for invites)
+  phone        String?               // Primary phone (used for invites)
+  allEmails    Json?                 // Array of all email addresses from device
+  allPhones    Json?                 // Array of all phone numbers from device
   source       PersonalContactSource @default(UPLOAD)
   createdAt    DateTime              @default(now())
   updatedAt    DateTime              @updatedAt
