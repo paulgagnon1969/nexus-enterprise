@@ -109,6 +109,7 @@ export function ContactCard({
         </p>
         <div className="flex items-center gap-1 text-sm text-slate-500">
           <span className="truncate">
+            {contact.displayName ? `Name: ${contact.displayName} | ` : ""}
             {contact.email && contact.phone
               ? `${contact.email} • ${contact.phone}`
               : contact.email || contact.phone || "No contact info"}
