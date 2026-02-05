@@ -5,8 +5,10 @@ export interface PersonalContact {
   displayName: string | null;
   firstName: string | null;
   lastName: string | null;
-  email: string | null;
-  phone: string | null;
+  email: string | null;       // Primary email (for invites)
+  phone: string | null;       // Primary phone (for invites)
+  allEmails: string[] | null; // All emails from device
+  allPhones: string[] | null; // All phones from device
   source: string;
 }
 
@@ -16,6 +18,8 @@ export interface ImportContactInput {
   lastName?: string | null;
   email?: string | null;
   phone?: string | null;
+  allEmails?: string[] | null;
+  allPhones?: string[] | null;
   source: "MACOS" | "WINDOWS" | "IOS" | "ANDROID" | "UPLOAD";
 }
 
@@ -88,4 +92,15 @@ export async function listContacts(
   if (search) params.set("search", search);
   params.set("limit", String(limit));
   return apiFetch(`/personal-contacts?${params.toString()}`);
+}
+
+export async function updatePrimaryContact(
+  contactId: string,
+  primaryEmail?: string | null,
+  primaryPhone?: string | null
+): Promise<PersonalContact> {
+  return apiFetch(`/personal-contacts/${contactId}/primary`, {
+    method: "PATCH",
+    body: JSON.stringify({ email: primaryEmail, phone: primaryPhone }),
+  });
 }

@@ -120,6 +120,12 @@ model Company {
 
   // Project expenses (bills)
   projectBills ProjectBill[]
+
+  // Invoice-to-invoice credit applications
+  projectInvoiceApplications ProjectInvoiceApplication[]
+
+  // PnP (Policy & Procedure) library documents
+  tenantPnpDocuments TenantPnpDocument[]
 }
 
 model OrganizationTemplate {
@@ -306,6 +312,9 @@ model User {
 
   // Project bills (expenses) created-by audit
   projectBillsCreated ProjectBill[] @relation("ProjectBillCreatedBy")
+
+  // Invoice-to-invoice application audit
+  projectInvoiceApplicationsCreated ProjectInvoiceApplication[] @relation("ProjectInvoiceApplicationCreatedBy")
   onboardingSessions        OnboardingSession[]
   projectMemberships        ProjectMembership[]
   assignedTasks             Task[]                 @relation("TaskAssignee")
@@ -952,6 +961,7 @@ model Project {
   invoices             ProjectInvoice[]
   payments             ProjectPayment[]
   paymentApplications  ProjectPaymentApplication[]
+  invoiceApplications  ProjectInvoiceApplication[]
 
   // Project expenses (bills)
   bills ProjectBill[]
@@ -1332,6 +1342,8 @@ model ProjectInvoice {
   petlLines            ProjectInvoicePetlLine[]
   payments             ProjectPayment[]
   paymentApplications  ProjectPaymentApplication[]
+  invoiceApplicationsAsSource ProjectInvoiceApplication[] @relation("InvoiceApplicationsSource")
+  invoiceApplicationsAsTarget ProjectInvoiceApplication[] @relation("InvoiceApplicationsTarget")
 
   @@index([companyId, projectId, status], map: "ProjectInvoice_company_project_status_idx")
   @@unique([companyId, invoiceSequenceNo], name: "ProjectInvoice_company_invoice_seq_key")
@@ -1521,6 +1533,31 @@ model ProjectPaymentApplication {
   @@index([companyId, projectId, appliedAt], map: "ProjectPaymentApplication_company_project_applied_idx")
   @@index([paymentId], map: "ProjectPaymentApplication_payment_idx")
   @@index([invoiceId], map: "ProjectPaymentApplication_invoice_idx")
+}
+
+model ProjectInvoiceApplication {
+  id          String   @id @default(cuid())
+  companyId   String
+  projectId   String
+
+  sourceInvoiceId String
+  targetInvoiceId String
+
+  amount      Float
+  appliedAt   DateTime @default(now())
+
+  createdByUserId String?
+  createdAt   DateTime @default(now())
+
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceInvoice ProjectInvoice @relation("InvoiceApplicationsSource", fields: [sourceInvoiceId], references: [id], onDelete: Cascade)
+  targetInvoice ProjectInvoice @relation("InvoiceApplicationsTarget", fields: [targetInvoiceId], references: [id], onDelete: Cascade)
+  createdBy   User?          @relation("ProjectInvoiceApplicationCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([companyId, projectId, appliedAt], map: "ProjectInvoiceApplication_company_project_applied_idx")
+  @@index([sourceInvoiceId], map: "ProjectInvoiceApplication_source_invoice_idx")
+  @@index([targetInvoiceId], map: "ProjectInvoiceApplication_target_invoice_idx")
 }
 
 model ProjectBill {
@@ -3787,8 +3824,10 @@ model PersonalContact {
   displayName  String?
   firstName    String?
   lastName     String?
-  email        String?
-  phone        String?
+  email        String?               // Primary email (used for invites)
+  phone        String?               // Primary phone (used for invites)
+  allEmails    Json?                 // Array of all email addresses from device
+  allPhones    Json?                 // Array of all phone numbers from device
   source       PersonalContactSource @default(UPLOAD)
   createdAt    DateTime              @default(now())
   updatedAt    DateTime              @updatedAt
@@ -4037,4 +4076,130 @@ model CandidateInterest {
 
   @@index([candidateId], map: "CandidateInterest_candidate_idx")
   @@index([requestingCompanyId], map: "CandidateInterest_requesting_company_idx")
+}
+
+// =============================================================================
+// PnP (Policy & Procedure) Library
+// =============================================================================
+
+/// Category for PnP documents
+enum PnpCategory {
+  SAFETY
+  HR
+  OPERATIONS
+  COMPLIANCE
+  QUALITY
+  INSURANCE
+  GENERAL
+}
+
+/// Review status for tenant PnP documents
+enum PnpReviewStatus {
+  PENDING_REVIEW     // Seeded, not yet reviewed by tenant admin
+  APPROVED           // Tenant admin approved as-is
+  MODIFIED_APPROVED  // Tenant modified and approved their version
+  REJECTED           // Tenant rejected (won't use this policy)
+}
+
+/// System-level PnP library document (NEXUS-owned master copy)
+model PnpDocument {
+  id               String              @id @default(cuid())
+  code             String              @unique // e.g. "SAFETY-001", "HR-ONBOARD-001"
+  title            String
+  category         PnpCategory
+  description      String?
+  active           Boolean             @default(true)
+  sortOrder        Int                 @default(0)
+  currentVersionId String?             @unique
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  currentVersion PnpDocumentVersion?   @relation("PnpDocCurrentVersion", fields: [currentVersionId], references: [id])
+  versions       PnpDocumentVersion[]
+  tenantCopies   TenantPnpDocument[]
+}
+
+/// Version of a system-level PnP document
+model PnpDocumentVersion {
+  id              String       @id @default(cuid())
+  documentId      String
+  versionNo       Int
+  versionLabel    String?      // e.g. "2024-Q1 Update"
+  releaseNotes    String?
+  htmlContent     String
+  contentHash     String?
+  effectiveDate   DateTime?
+  createdByUserId String?
+  createdAt       DateTime     @default(now())
+
+  document     PnpDocument        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  currentFor   PnpDocument?       @relation("PnpDocCurrentVersion")
+  tenantCopies TenantPnpDocument[] @relation("TenantPnpSourceVersion")
+
+  @@unique([documentId, versionNo], name: "PnpDocVersion_doc_version_key")
+  @@index([documentId], map: "PnpDocVersion_doc_idx")
+}
+
+/// Tenant-level PnP document (seeded from system library or custom-created)
+model TenantPnpDocument {
+  id               String        @id @default(cuid())
+  companyId        String
+  code             String
+  title            String
+  category         PnpCategory
+  description      String?
+  active           Boolean       @default(true)
+  currentVersionId String?       @unique
+
+  // Source tracking (null if tenant-created from scratch)
+  sourcePnpDocumentId String?
+  sourceVersionId     String?
+
+  // Fork status – becomes true when tenant modifies seeded content
+  isFork           Boolean       @default(false)
+  forkedAt         DateTime?
+  forkedByUserId   String?
+
+  // Approval workflow
+  reviewStatus     PnpReviewStatus @default(PENDING_REVIEW)
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  reviewNotes      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company           Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sourcePnpDocument PnpDocument?         @relation(fields: [sourcePnpDocumentId], references: [id], onDelete: SetNull)
+  sourceVersion     PnpDocumentVersion?  @relation("TenantPnpSourceVersion", fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  currentVersion    TenantPnpDocumentVersion? @relation("TenantPnpDocCurrentVersion", fields: [currentVersionId], references: [id])
+  versions          TenantPnpDocumentVersion[]
+
+  @@unique([companyId, code], name: "TenantPnpDocument_company_code_key")
+  @@index([companyId, category], map: "TenantPnpDocument_company_category_idx")
+  @@index([companyId, reviewStatus], map: "TenantPnpDocument_company_status_idx")
+  @@index([sourcePnpDocumentId], map: "TenantPnpDocument_source_idx")
+}
+
+/// Version of a tenant-level PnP document
+model TenantPnpDocumentVersion {
+  id              String   @id @default(cuid())
+  documentId      String
+  versionNo       Int
+  versionLabel    String?
+  notes           String?
+  htmlContent     String
+  contentHash     String?
+
+  // Disclaimer is auto-generated based on reviewStatus when rendering
+  disclaimerHtml  String?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  document   TenantPnpDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  currentFor TenantPnpDocument? @relation("TenantPnpDocCurrentVersion")
+
+  @@unique([documentId, versionNo], name: "TenantPnpDocVersion_doc_version_key")
+  @@index([documentId], map: "TenantPnpDocVersion_doc_idx")
 }

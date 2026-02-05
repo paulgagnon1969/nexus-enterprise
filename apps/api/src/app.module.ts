@@ -33,6 +33,7 @@ import { TimecardModule } from "./modules/timecard/timecard.module";
 import { NttModule } from "./modules/ntt/ntt.module";
 import { UploadsModule } from "./modules/uploads/uploads.module";
 import { XactScheduleModule } from "./modules/xact-schedule/xact-schedule.module";
+import { PnpModule } from "./modules/pnp/pnp.module";
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { XactScheduleModule } from "./modules/xact-schedule/xact-schedule.module
     TimecardModule,
     NttModule,
     UploadsModule,
+    PnpModule,
   ],
   controllers: [DevController]
 })

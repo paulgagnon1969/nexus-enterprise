@@ -13,10 +13,10 @@
     "windows": [
       {
         "title": "Nexus Contact Sync",
-        "width": 480,
-        "height": 720,
+        "width": 960,
+        "height": 800,
         "resizable": true,
-        "minWidth": 400,
+        "minWidth": 480,
         "minHeight": 600,
         "center": true
       }

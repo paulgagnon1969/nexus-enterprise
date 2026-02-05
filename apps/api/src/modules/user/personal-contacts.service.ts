@@ -2,14 +2,16 @@ import { Injectable, ForbiddenException, BadRequestException } from "@nestjs/com
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { GlobalRole } from "../auth/auth.guards";
-import { PersonalContactSource, PersonalContactSubjectType } from "@prisma/client";
+import { PersonalContactSource, PersonalContactSubjectType, Prisma } from "@prisma/client";
 
 interface ImportContactInput {
   displayName?: string | null;
   firstName?: string | null;
   lastName?: string | null;
-  email?: string | null;
-  phone?: string | null;
+  email?: string | null;        // Primary email for invites
+  phone?: string | null;        // Primary phone for invites
+  allEmails?: string[] | null;  // All emails from device
+  allPhones?: string[] | null;  // All phones from device
   source?: PersonalContactSource | null;
 }
 
@@ -54,6 +56,10 @@ export class PersonalContactsService {
           phone ||
           null;
 
+        // Store all emails/phones as JSON arrays
+        const allEmails = input.allEmails?.length ? input.allEmails : (email ? [email] : null);
+        const allPhones = input.allPhones?.length ? input.allPhones : (phone ? [phone] : null);
+
         return {
           ownerUserId,
           displayName,
@@ -61,6 +67,8 @@ export class PersonalContactsService {
           lastName: input.lastName ?? null,
           email,
           phone,
+          allEmails,
+          allPhones,
           source,
         };
       })
@@ -97,6 +105,11 @@ export class PersonalContactsService {
         });
 
         if (existing) {
+          // Merge allEmails/allPhones arrays if both exist
+          // Use Prisma.JsonNull for explicit null in JSON columns
+          const mergedEmails = c.allEmails ?? existing.allEmails;
+          const mergedPhones = c.allPhones ?? existing.allPhones;
+
           const updatedRow = await this.prisma.personalContact.update({
             where: { id: existing.id },
             data: {
@@ -105,13 +118,21 @@ export class PersonalContactsService {
               lastName: c.lastName ?? existing.lastName,
               email: c.email ?? existing.email,
               phone: c.phone ?? existing.phone,
+              allEmails: mergedEmails ?? Prisma.JsonNull,
+              allPhones: mergedPhones ?? Prisma.JsonNull,
               source: c.source ?? existing.source,
             },
           });
           updated += 1;
           results.push(updatedRow);
         } else {
-          const createdRow = await this.prisma.personalContact.create({ data: c });
+          const createdRow = await this.prisma.personalContact.create({
+            data: {
+              ...c,
+              allEmails: c.allEmails ?? Prisma.JsonNull,
+              allPhones: c.allPhones ?? Prisma.JsonNull,
+            },
+          });
           created += 1;
           results.push(createdRow);
         }
@@ -195,8 +216,61 @@ export class PersonalContactsService {
       lastName: c.lastName,
       email: c.email,
       phone: c.phone,
+      allEmails: (c.allEmails as string[] | null) ?? null,
+      allPhones: (c.allPhones as string[] | null) ?? null,
       source: c.source,
     }));
+  }
+
+  /**
+   * Update the primary email or phone for a contact (for invite purposes).
+   * The email/phone must exist in allEmails/allPhones.
+   */
+  async updatePrimaryContact(
+    actor: AuthenticatedUser,
+    contactId: string,
+    primaryEmail?: string | null,
+    primaryPhone?: string | null,
+  ) {
+    const ownerUserId = this.ensureUserId(actor);
+
+    const contact = await this.prisma.personalContact.findFirst({
+      where: { id: contactId, ownerUserId },
+    });
+
+    if (!contact) {
+      throw new ForbiddenException("Personal contact not found or not owned by current user.");
+    }
+
+    const allEmails = (contact.allEmails as string[] | null) ?? [];
+    const allPhones = (contact.allPhones as string[] | null) ?? [];
+
+    // Validate the email is in allEmails (if provided)
+    if (primaryEmail && !allEmails.includes(primaryEmail)) {
+      throw new BadRequestException(`Email "${primaryEmail}" is not in the contact's email list.`);
+    }
+
+    // Validate the phone is in allPhones (if provided)
+    if (primaryPhone && !allPhones.includes(primaryPhone)) {
+      throw new BadRequestException(`Phone "${primaryPhone}" is not in the contact's phone list.`);
+    }
+
+    const updated = await this.prisma.personalContact.update({
+      where: { id: contactId },
+      data: {
+        ...(primaryEmail !== undefined ? { email: primaryEmail } : {}),
+        ...(primaryPhone !== undefined ? { phone: primaryPhone } : {}),
+      },
+    });
+
+    return {
+      id: updated.id,
+      displayName: updated.displayName,
+      email: updated.email,
+      phone: updated.phone,
+      allEmails: (updated.allEmails as string[] | null) ?? null,
+      allPhones: (updated.allPhones as string[] | null) ?? null,
+    };
   }
 
   async linkToSubject(
