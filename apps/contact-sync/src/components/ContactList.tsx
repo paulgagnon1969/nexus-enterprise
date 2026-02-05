@@ -74,36 +74,45 @@ export function ContactList() {
 
   // Load device contacts
   useEffect(() => {
+    console.log("[ContactList] Mounted, loading contacts...");
     loadContacts();
     loadSyncedContacts();
   }, []);
 
   const loadContacts = async () => {
+    console.log("[ContactList] loadContacts() starting...");
     setSyncState("loading");
     setError(null);
     try {
+      console.log("[ContactList] Invoking get_contacts...");
       const result = await invoke<DeviceContact[]>("get_contacts");
-      setContacts(result);
+      console.log("[ContactList] Got contacts:", result?.length ?? 0);
+      setContacts(result || []);
       setSyncState("idle");
     } catch (err) {
-      setError(err as string);
+      console.error("[ContactList] loadContacts error:", err);
+      const errorMsg = typeof err === "string" ? err : (err as Error)?.message || "Failed to load contacts";
+      setError(errorMsg);
       setSyncState("error");
     }
   };
 
   const loadSyncedContacts = async () => {
+    console.log("[ContactList] loadSyncedContacts() starting...");
     try {
       const synced = await listContacts(undefined, 200);
+      console.log("[ContactList] Got synced contacts:", synced?.length ?? 0);
       const emails = new Set<string>();
       const phones = new Set<string>();
-      synced.forEach((c) => {
+      (synced || []).forEach((c) => {
         if (c.email) emails.add(c.email.toLowerCase());
         if (c.phone) phones.add(c.phone);
       });
       setSyncedEmails(emails);
       setSyncedPhones(phones);
     } catch (err) {
-      console.error("Failed to load synced contacts:", err);
+      console.error("[ContactList] Failed to load synced contacts:", err);
+      // Don't block UI for this - just log it
     }
   };
 

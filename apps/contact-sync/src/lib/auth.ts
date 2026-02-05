@@ -14,7 +14,28 @@ export function clearToken(): void {
 }
 
 export function getApiUrl(): string {
-  return localStorage.getItem(API_URL_KEY) || "https://api.nexus-enterprise.com";
+  return localStorage.getItem(API_URL_KEY) || "https://nexus-api-979156454944.us-central1.run.app";
+}
+
+export function getStoredApiUrls(): string[] {
+  const stored = localStorage.getItem("nexus_api_urls_history");
+  if (stored) {
+    try {
+      return JSON.parse(stored);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+export function addApiUrlToHistory(url: string): void {
+  const history = getStoredApiUrls();
+  // Remove if exists, add to front
+  const filtered = history.filter(u => u !== url);
+  filtered.unshift(url);
+  // Keep max 5
+  localStorage.setItem("nexus_api_urls_history", JSON.stringify(filtered.slice(0, 5)));
 }
 
 export function setApiUrl(url: string): void {

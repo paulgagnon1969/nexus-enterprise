@@ -63,6 +63,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
           </label>
           <input
             id="email"
+            name="email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -70,6 +71,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
             placeholder="you@company.com"
             required
             autoFocus
+            autoComplete="email"
           />
         </div>
 
@@ -82,12 +84,14 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
           </label>
           <input
             id="password"
+            name="password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-nexus-500 focus:border-transparent"
             placeholder="••••••••"
             required
+            autoComplete="current-password"
           />
         </div>
 

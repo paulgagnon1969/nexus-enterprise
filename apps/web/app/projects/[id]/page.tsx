@@ -2915,7 +2915,9 @@ ${htmlBody}
 
   const [reconEditCostBookOpen, setReconEditCostBookOpen] = useState(false);
   const [reconFilePickerOpen, setReconFilePickerOpen] = useState(false);
+  const [reconAttachmentUploading, setReconAttachmentUploading] = useState(false);
   const [reconPhotoViewerIndex, setReconPhotoViewerIndex] = useState<number | null>(null);
+  const reconFileUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const [costBookModalOpen, setCostBookModalOpen] = useState(false);
   const [petlCostBookPickerBusy, setPetlCostBookPickerBusy] = useState(false);
@@ -16557,8 +16559,8 @@ ${htmlBody}
               selectedValues={categoryCodeFilters}
               onChangeSelectedValues={setCategoryCodeFilters}
               minWidth={110}
-              // Slightly taller list for CAT so longer lists feel less cramped.
-              minListHeight={264}
+              // Taller list for CAT so longer lists feel less cramped in reconciliation workflows.
+              minListHeight={320}
             />
           </div>
 
@@ -18548,7 +18550,7 @@ ${htmlBody}
                               <th style={{ textAlign: "left", padding: "6px 8px" }}>Tag</th>
                               <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>Status</th>
                               <th style={{ textAlign: "right", padding: "6px 8px" }}>RCV</th>
-                              <th style={{ textAlign: "right", padding: "6px 8px" }}>%</th>
+                              <th style={{ textAlign: "right", padding: "6px 8px" }}>% complete</th>
                               <th style={{ textAlign: "left", padding: "6px 8px" }}>Note</th>
                               <th style={{ textAlign: "right", padding: "6px 8px" }}>Actions</th>
                             </tr>
@@ -18873,7 +18875,6 @@ ${htmlBody}
             justifyContent: "center",
             padding: 12,
           }}
-          onClick={closeReconEntryEdit}
         >
           <div
             style={{
@@ -18944,6 +18945,38 @@ ${htmlBody}
                 >
                   Use Cost Book Fields
                 </button>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Status &amp; progress</div>
+                {(() => {
+                  const rawStatus = String(reconEntryEdit.entry?.status ?? "")
+                    .trim()
+                    .toUpperCase();
+                  const statusLabel =
+                    rawStatus === "APPROVED"
+                      ? "Approved"
+                      : rawStatus === "REJECTED"
+                        ? "Rejected"
+                        : "Needs approval";
+                  const pct =
+                    typeof reconEntryEdit.entry?.percentComplete === "number"
+                      ? reconEntryEdit.entry.percentComplete
+                      : 0;
+                  const pctLabel = reconEntryEdit.entry?.isPercentCompleteLocked
+                    ? `${pct}% (locked to PETL line %)`
+                    : `${pct}%`;
+                  return (
+                    <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 6 }}>
+                      <span>
+                        Status: <strong>{statusLabel}</strong>
+                      </span>
+                      <span style={{ marginLeft: 12 }}>
+                        % complete: <strong>{pctLabel}</strong>
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div
@@ -19187,6 +19220,168 @@ ${htmlBody}
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
                   Verification attachments
                 </div>
+                <input
+                  ref={reconFileUploadInputRef}
+                  type="file"
+                  style={{ display: "none" }}
+                  onChange={async (e) => {
+                    if (!project || !reconEntryEdit) return;
+                    const files = e.target.files;
+                    if (!files || files.length === 0) return;
+                    const file = files[0];
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) {
+                      alert("Missing access token; please log in again.");
+                      e.target.value = "";
+                      return;
+                    }
+
+                    try {
+                      setReconAttachmentUploading(true);
+
+                      // Step 1: get signed upload URL for this project file
+                      const metaRes = await fetch(
+                        `${API_BASE}/projects/${project.id}/files/upload-url`,
+                        {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({
+                            contentType: file.type || "application/octet-stream",
+                            fileName: file.name || "attachment",
+                          }),
+                        },
+                      );
+
+                      if (!metaRes.ok) {
+                        const text = await metaRes.text().catch(() => "");
+                        alert(`Failed to prepare upload (${metaRes.status}) ${text}`);
+                        return;
+                      }
+
+                      const meta: any = await metaRes.json().catch(() => ({}));
+                      const uploadUrl = meta?.uploadUrl as string | undefined;
+                      const fileUri = meta?.fileUri as string | undefined;
+                      if (!uploadUrl || !fileUri) {
+                        alert("Upload metadata was incomplete.");
+                        return;
+                      }
+
+                      // Step 2: upload binary to storage
+                      const putRes = await fetch(uploadUrl, {
+                        method: "PUT",
+                        headers: {
+                          "Content-Type": file.type || "application/octet-stream",
+                        },
+                        body: file,
+                      });
+
+                      if (!putRes.ok) {
+                        const text = await putRes.text().catch(() => "");
+                        alert(`Failed to upload file (${putRes.status}) ${text}`);
+                        return;
+                      }
+
+                      // Step 3: register as ProjectFile
+                      const registerRes = await fetch(
+                        `${API_BASE}/projects/${project.id}/files`,
+                        {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({
+                            fileUri,
+                            fileName: file.name || "attachment",
+                            mimeType: file.type || undefined,
+                            sizeBytes: typeof file.size === "number" ? file.size : undefined,
+                          }),
+                        },
+                      );
+
+                      if (!registerRes.ok) {
+                        const text = await registerRes.text().catch(() => "");
+                        alert(`Failed to register project file (${registerRes.status}) ${text}`);
+                        return;
+                      }
+
+                      const projectFile: any = await registerRes.json();
+
+                      // Step 4: attach to reconciliation entry
+                      const entryId = reconEntryEdit.entry.id as string;
+                      const attachRes = await fetch(
+                        `${API_BASE}/projects/${project.id}/petl-reconciliation/entries/${entryId}/attachments`,
+                        {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({ projectFileId: projectFile.id }),
+                        },
+                      );
+
+                      if (!attachRes.ok) {
+                        const text = await attachRes.text().catch(() => "");
+                        alert(`Failed to attach file (${attachRes.status}) ${text}`);
+                        return;
+                      }
+
+                      const attachment: any = await attachRes.json();
+
+                      // Update local editor state
+                      setReconEntryEdit((prev) => {
+                        if (!prev) return prev;
+                        const existing = Array.isArray((prev.entry as any).attachments)
+                          ? (prev.entry as any).attachments
+                          : [];
+                        return {
+                          ...prev,
+                          entry: {
+                            ...prev.entry,
+                            attachments: [...existing, attachment],
+                          },
+                        };
+                      });
+
+                      // Update attachments inside the reconciliation drawer state
+                      setPetlReconPanel((prev) => {
+                        if (!prev.data?.reconciliationCase) return prev;
+                        const currentCase = prev.data.reconciliationCase;
+                        const entries = (currentCase.entries || []).map((e: any) =>
+                          e.id === entryId
+                            ? {
+                                ...e,
+                                attachments: [
+                                  ...(Array.isArray(e.attachments) ? e.attachments : []),
+                                  attachment,
+                                ],
+                              }
+                            : e,
+                        );
+
+                        return {
+                          ...prev,
+                          data: {
+                            ...prev.data,
+                            reconciliationCase: {
+                              ...currentCase,
+                              entries,
+                            },
+                          },
+                        };
+                      });
+                    } catch (err: any) {
+                      alert(err?.message ?? "Failed to upload attachment");
+                    } finally {
+                      setReconAttachmentUploading(false);
+                      e.target.value = "";
+                    }
+                  }}
+                />
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                     {(() => {
@@ -19283,21 +19478,43 @@ ${htmlBody}
                     })()}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setReconFilePickerOpen(true)}
-                    style={{
-                      alignSelf: "flex-start",
-                      padding: "4px 8px",
-                      borderRadius: 6,
-                      border: "1px solid #d1d5db",
-                      background: "#ffffff",
-                      cursor: "pointer",
-                      fontSize: 11,
-                    }}
-                  >
-                    Attach from project Files
-                  </button>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setReconFilePickerOpen(true)}
+                      disabled={reconAttachmentUploading}
+                      style={{
+                        alignSelf: "flex-start",
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #d1d5db",
+                        background: reconAttachmentUploading ? "#f3f4f6" : "#ffffff",
+                        cursor: reconAttachmentUploading ? "default" : "pointer",
+                        fontSize: 11,
+                      }}
+                    >
+                      Attach from project Files
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (reconAttachmentUploading) return;
+                        reconFileUploadInputRef.current?.click();
+                      }}
+                      disabled={reconAttachmentUploading}
+                      style={{
+                        alignSelf: "flex-start",
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #d1d5db",
+                        background: reconAttachmentUploading ? "#f3f4f6" : "#ffffff",
+                        cursor: reconAttachmentUploading ? "default" : "pointer",
+                        fontSize: 11,
+                      }}
+                    >
+                      {reconAttachmentUploading ? "Uploading…" : "Upload from computer"}
+                    </button>
+                  </div>
                 </div>
               </div>
 
