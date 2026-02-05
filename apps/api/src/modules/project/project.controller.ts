@@ -20,6 +20,7 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateProjectDto, AddProjectMemberDto, ImportXactDto, ImportXactComponentsDto, UpdateProjectDto } from "./dto/project.dto";
 import {
   AddInvoiceLineItemDto,
+  ApplyInvoiceToInvoiceDto,
   ApplyPaymentToInvoiceDto,
   CreateOrGetDraftInvoiceDto,
   IssueInvoiceDto,
@@ -1251,6 +1252,41 @@ export class ProjectController {
   ) {
     const user = req.user as AuthenticatedUser;
     return this.projects.recordInvoicePayment(projectId, invoiceId, dto, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/invoices/:invoiceId/applications/sources")
+  listInvoiceApplicationSources(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.listInvoiceApplicationSources(projectId, invoiceId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/invoices/:invoiceId/applications")
+  applyInvoiceToInvoice(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() dto: ApplyInvoiceToInvoiceDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.applyInvoiceToInvoice(projectId, invoiceId, dto, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/invoices/:invoiceId/move-petl-lines")
+  moveInvoicePetlLinesToNewInvoice(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() dto: { lineIds: string[] },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.moveInvoicePetlLinesToNewInvoice(projectId, invoiceId, dto, user);
   }
 
   // Project payments (cash receipts) - can exist without being tied to an invoice.

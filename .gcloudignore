@@ -1,0 +1,40 @@
+# Explicit Cloud Build context ignore (supersedes implicit .gitignore rules)
+
+# Git metadata
+.git
+
+# Node / build artifacts
+node_modules
+.turbo/
+build/
+**/dist/
+**/.next/
+logs/
+*.log
+
+# Env and local config
+.env
+.env.*
+.env*.local
+.DS_Store
+
+# App-specific noisy artifacts (only API is needed for the Cloud Run image)
+apps/web/
+apps/contact-sync/
+apps/mobile/
+apps/ncc/
+apps/mobile-legacy/
+apps/web/tmp_uploads/
+.vercel
+
+# Docs and large local-only data that API image does not need
+docs/
+promotion/
+
+# Data promotion artifacts (never ship real data snapshots to Cloud Build)
+scripts/data-promotion/*.json
+scripts/data-promotion/*.csv
+
+# Office/RTF exports, media, etc.
+*.rtf
+*.mov

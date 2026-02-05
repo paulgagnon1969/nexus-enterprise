@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ContactCard } from "./ContactCard";
+import { ContactReviewModal } from "./ContactReviewModal";
 import { SyncStatus } from "./SyncStatus";
 import { SettingsPanel } from "./SettingsPanel";
 import { EnvironmentSelector } from "./EnvironmentSelector";
@@ -10,11 +11,13 @@ import { importContacts, listContacts, type ImportContactInput } from "../lib/ap
 
 interface DeviceContact {
   id: string;
-  display_name: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-  phone: string | null;
+  displayName: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;       // Primary email
+  phone: string | null;       // Primary phone
+  allEmails: string[];        // All emails from device
+  allPhones: string[];        // All phones from device
 }
 
 type SyncState = "idle" | "loading" | "syncing" | "success" | "error";
@@ -28,6 +31,8 @@ export function ContactList() {
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [syncResult, setSyncResult] = useState<{ created: number; updated: number } | null>(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [primaryOverrides, setPrimaryOverrides] = useState<Map<string, { email: string | null; phone: string | null }>>(new Map());
 
   // Settings management
   const {
@@ -87,6 +92,14 @@ export function ContactList() {
       console.log("[ContactList] Invoking get_contacts...");
       const result = await invoke<DeviceContact[]>("get_contacts");
       console.log("[ContactList] Got contacts:", result?.length ?? 0);
+      // Debug: log first few contacts to verify data structure
+      if (result?.length) {
+        const sample = result[0];
+        const keys = Object.keys(sample);
+        const debugInfo = `Keys: ${keys.join(", ")}\n\nFirst contact:\ndisplayName: ${sample.displayName}\nemail: ${sample.email}\nphone: ${sample.phone}\n\nRaw JSON: ${JSON.stringify(sample, null, 2).slice(0, 500)}`;
+        console.log("[ContactList] DEBUG:", debugInfo);
+        alert(debugInfo);
+      }
       setContacts(result || []);
       setSyncState("idle");
     } catch (err) {
@@ -122,7 +135,7 @@ export function ContactList() {
     const term = search.toLowerCase();
     return contacts.filter(
       (c) =>
-        c.display_name?.toLowerCase().includes(term) ||
+        c.displayName?.toLowerCase().includes(term) ||
         c.email?.toLowerCase().includes(term) ||
         c.phone?.includes(term)
     );
@@ -132,7 +145,7 @@ export function ContactList() {
   const groupedContacts = useMemo(() => {
     const groups: Record<string, DeviceContact[]> = {};
     filteredContacts.forEach((contact) => {
-      const firstChar = (contact.display_name || contact.email || "#")
+      const firstChar = (contact.displayName || contact.email || "#")
         .charAt(0)
         .toUpperCase();
       const key = /[A-Z]/.test(firstChar) ? firstChar : "#";
@@ -180,7 +193,35 @@ export function ContactList() {
     }
   };
 
+  // Check if any selected contacts have multiple emails/phones
+  const selectedContactsWithMultiple = useMemo(() => {
+    return contacts.filter(
+      (c) =>
+        selectedIds.has(c.id) &&
+        (c.allEmails?.length > 1 || c.allPhones?.length > 1)
+    );
+  }, [contacts, selectedIds]);
+
+  const handleReviewConfirm = (updates: Map<string, { email: string | null; phone: string | null }>) => {
+    setPrimaryOverrides(updates);
+    // Proceed with sync after review
+    performSync(updates);
+  };
+
   const handleSync = async () => {
+    if (selectedIds.size === 0) return;
+
+    // If there are contacts with multiple emails/phones, show review modal
+    if (selectedContactsWithMultiple.length > 0) {
+      setShowReviewModal(true);
+      return;
+    }
+
+    // Otherwise sync directly
+    performSync(primaryOverrides);
+  };
+
+  const performSync = async (overrides: Map<string, { email: string | null; phone: string | null }>) => {
     if (selectedIds.size === 0) return;
 
     setSyncState("syncing");
@@ -193,18 +234,27 @@ export function ContactList() {
         ? "MACOS"
         : "WINDOWS";
 
-      const payload: ImportContactInput[] = toSync.map((c) => ({
-        displayName: c.display_name,
-        firstName: c.first_name,
-        lastName: c.last_name,
-        email: c.email,
-        phone: c.phone,
-        source: platform as "MACOS" | "WINDOWS",
-      }));
+      const payload: ImportContactInput[] = toSync.map((c) => {
+        // Use overridden primary email/phone if available
+        const override = overrides.get(c.id);
+        return {
+          displayName: c.displayName,
+          firstName: c.firstName,
+          lastName: c.lastName,
+          email: override?.email ?? c.email,
+          phone: override?.phone ?? c.phone,
+          allEmails: c.allEmails?.length ? c.allEmails : null,
+          allPhones: c.allPhones?.length ? c.allPhones : null,
+          source: platform as "MACOS" | "WINDOWS",
+        };
+      });
 
       const result = await importContacts(payload);
       setSyncResult({ created: result.createdCount, updated: result.updatedCount });
       setSyncState("success");
+      
+      // Clear overrides after successful sync
+      setPrimaryOverrides(new Map());
       
       // Save selection for auto-sync before clearing (if auto-sync enabled)
       if (settings.autoSyncEnabled) {
@@ -227,8 +277,21 @@ export function ContactList() {
 
   const unsyncedCount = filteredContacts.filter((c) => !isSynced(c)).length;
 
+  // Debug: show first contact's raw data
+  const debugContact = contacts[0];
+  const debugKeys = debugContact ? Object.keys(debugContact).join(", ") : "no contacts";
+
   return (
-    <div className="space-y-4">
+    <div className="h-full flex flex-col space-y-4">
+      {/* DEBUG INFO - REMOVE LATER */}
+      {debugContact && (
+        <div className="bg-yellow-100 border border-yellow-400 p-2 text-xs font-mono">
+          <div><strong>Keys:</strong> {debugKeys}</div>
+          <div><strong>displayName:</strong> {String(debugContact.displayName)}</div>
+          <div><strong>email:</strong> {String(debugContact.email)}</div>
+          <div><strong>phone:</strong> {String(debugContact.phone)}</div>
+        </div>
+      )}
       {/* Environment Selector */}
       <EnvironmentSelector />
 
@@ -252,7 +315,11 @@ export function ContactList() {
             className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-nexus-500 focus:border-transparent"
           />
           <button
-            onClick={loadContacts}
+            type="button"
+            onClick={() => {
+              console.log("[ContactList] Refresh clicked");
+              loadContacts();
+            }}
             className="px-3 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg"
             title="Refresh"
           >
@@ -278,6 +345,7 @@ export function ContactList() {
           </span>
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={selectAll}
               className="text-nexus-600 hover:text-nexus-700"
             >
@@ -285,6 +353,7 @@ export function ContactList() {
             </button>
             <span className="text-slate-300">|</span>
             <button
+              type="button"
               onClick={deselectAll}
               className="text-slate-500 hover:text-slate-700"
             >
@@ -321,10 +390,17 @@ export function ContactList() {
         <SyncStatus created={syncResult.created} updated={syncResult.updated} />
       )}
 
+      {/* Demo mode notice */}
+      {syncState === "idle" && contacts.length > 0 && contacts[0]?.id?.startsWith("demo") && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-800">
+          <strong>Demo Mode:</strong> Showing sample contacts. Real macOS contacts integration coming soon.
+        </div>
+      )}
+
       {/* Contact list */}
       {syncState !== "loading" && contacts.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="max-h-[400px] overflow-y-auto">
+        <div className="flex-1 min-h-0 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+          <div className="flex-1 overflow-y-auto">
             {groupedContacts.map(([letter, group]) => (
               <div key={letter}>
                 <div className="sticky top-0 bg-slate-50 px-4 py-1 text-xs font-semibold text-slate-500 border-b border-slate-100">
@@ -335,13 +411,20 @@ export function ContactList() {
                     key={contact.id}
                     contact={{
                       id: contact.id,
-                      displayName: contact.display_name,
+                      displayName: contact.displayName,
                       email: contact.email,
                       phone: contact.phone,
+                      allEmails: contact.allEmails,
+                      allPhones: contact.allPhones,
                     }}
                     isSelected={selectedIds.has(contact.id)}
                     isSynced={isSynced(contact)}
                     onToggle={() => toggleSelect(contact.id)}
+                    onReview={
+                      contact.allEmails?.length > 1 || contact.allPhones?.length > 1
+                        ? () => setShowReviewModal(true)
+                        : undefined
+                    }
                   />
                 ))}
               </div>
@@ -352,7 +435,12 @@ export function ContactList() {
 
       {/* Sync button */}
       {selectedIds.size > 0 && (
-        <div className="sticky bottom-4">
+        <div className="sticky bottom-4 space-y-2">
+          {selectedContactsWithMultiple.length > 0 && (
+            <p className="text-center text-xs text-slate-500">
+              {selectedContactsWithMultiple.length} contact{selectedContactsWithMultiple.length === 1 ? " has" : "s have"} multiple emails/phones
+            </p>
+          )}
           <button
             onClick={handleSync}
             disabled={syncState === "syncing"}
@@ -363,11 +451,22 @@ export function ContactList() {
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                 Syncing...
               </span>
+            ) : selectedContactsWithMultiple.length > 0 ? (
+              `Review & Sync ${selectedIds.size} contact${selectedIds.size === 1 ? "" : "s"}`
             ) : (
               `Sync ${selectedIds.size} contact${selectedIds.size === 1 ? "" : "s"}`
             )}
           </button>
         </div>
+      )}
+
+      {/* Review Modal */}
+      {showReviewModal && (
+        <ContactReviewModal
+          contacts={contacts.filter((c) => selectedIds.has(c.id))}
+          onClose={() => setShowReviewModal(false)}
+          onConfirm={handleReviewConfirm}
+        />
       )}
     </div>
   );

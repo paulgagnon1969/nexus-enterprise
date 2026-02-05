@@ -30,6 +30,7 @@ import {
 import { CreateProjectDto, UpdateProjectDto } from "./dto/project.dto";
 import {
   AddInvoiceLineItemDto,
+  ApplyInvoiceToInvoiceDto,
   ApplyPaymentToInvoiceDto,
   CreateOrGetDraftInvoiceDto,
   IssueInvoiceDto,
@@ -4648,7 +4649,19 @@ export class ProjectService {
     });
 
     // Best effort: regenerate the current living invoice draft from PETL.
-    await this.maybeSyncLivingDraftInvoiceFromPetl(projectId, companyId, actor);
+    // If billing tables or invoice PETL detail are not present or sync fails for any
+    // reason, we still want the reconciliation edit to succeed and avoid a 500.
+    try {
+      await this.maybeSyncLivingDraftInvoiceFromPetl(projectId, companyId, actor);
+    } catch (err) {
+      // Swallow non-fatal sync errors; the next invoice touch can recompute totals.
+      // We intentionally do not rethrow here to keep reconciliation edits robust
+      // even when billing tables or invoice PETL detail are mid-migration.
+      this.logger.error(
+        `Failed to sync living draft invoice from PETL after reconciliation update for project ${projectId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+    }
 
     return { entry: updated, reconciliationCase: updated.case };
   }
@@ -7125,6 +7138,23 @@ export class ProjectService {
     return this.isMissingPrismaTableError(err, "ProjectPaymentApplication");
   }
 
+  private invoiceApplicationModelsAvailable() {
+    const p: any = this.prisma as any;
+    return typeof p?.projectInvoiceApplication?.findMany === "function";
+  }
+
+  private ensureInvoiceApplicationModelsAvailable() {
+    if (this.invoiceApplicationModelsAvailable()) return;
+
+    throw new BadRequestException(
+      "Project invoice applications are not initialized on this API instance. Run `npm -w packages/database run prisma:generate` and restart the API; if it still fails, run `npm -w packages/database run prisma:migrate`.",
+    );
+  }
+
+  private isInvoiceApplicationTableMissingError(err: any) {
+    return this.isMissingPrismaTableError(err, "ProjectInvoiceApplication");
+  }
+
   private invoicePetlModelsAvailable() {
     const p: any = this.prisma as any;
     return (
@@ -9169,31 +9199,307 @@ export class ProjectService {
         },
       });
 
-      // Update invoice paid status for issued invoices.
-      // (Draft invoices can have prepayments applied but should remain DRAFT.)
-      if (invoice.status !== ProjectInvoiceStatus.DRAFT) {
-        const paidTotal = await this.computeInvoicePaymentTotal(invoice.id);
+      const paidTotal = await this.computeInvoicePaymentTotal(invoice.id);
+      let nextStatus: ProjectInvoiceStatus = invoice.status;
+      if (paidTotal >= (invoice.totalAmount ?? 0) && (invoice.totalAmount ?? 0) > 0) {
+        nextStatus = ProjectInvoiceStatus.PAID;
+      } else if (paidTotal > 0) {
+        nextStatus = ProjectInvoiceStatus.PARTIALLY_PAID;
+      } else {
+        nextStatus = ProjectInvoiceStatus.ISSUED;
+      }
 
-        let nextStatus: ProjectInvoiceStatus = invoice.status;
-        if (paidTotal >= (invoice.totalAmount ?? 0) && (invoice.totalAmount ?? 0) > 0) {
-          nextStatus = ProjectInvoiceStatus.PAID;
-        } else if (paidTotal > 0) {
-          nextStatus = ProjectInvoiceStatus.PARTIALLY_PAID;
-        } else {
-          nextStatus = ProjectInvoiceStatus.ISSUED;
-        }
+      if (nextStatus !== invoice.status) {
+        await this.prisma.projectInvoice.update({
+          where: { id: invoice.id },
+          data: { status: nextStatus },
+        });
+      }
 
-        if (nextStatus !== invoice.status) {
-          await this.prisma.projectInvoice.update({
-            where: { id: invoice.id },
-            data: { status: nextStatus },
-          });
+      return this.getProjectInvoice(projectId, invoice.id, actor);
+    } catch (err: any) {
+      if (
+        this.isBillingTableMissingError(err) ||
+        this.isPaymentApplicationTableMissingError(err) ||
+        this.isMissingPrismaTableError(err, "ProjectPaymentApplication")
+      ) {
+        this.throwBillingTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
+  async listInvoiceApplicationSources(
+    projectId: string,
+    targetInvoiceId: string,
+    actor: AuthenticatedUser,
+  ) {
+    this.ensureBillingModelsAvailable();
+    this.ensureInvoiceApplicationModelsAvailable();
+
+    try {
+      const project = await this.getProjectByIdForUser(projectId, actor);
+
+      const target = await this.prisma.projectInvoice.findFirst({
+        where: { id: targetInvoiceId, projectId: project.id, companyId: project.companyId },
+        select: { id: true, status: true, totalAmount: true },
+      });
+
+      if (!target) {
+        throw new NotFoundException("Invoice not found for this project");
+      }
+
+      if (target.status !== ProjectInvoiceStatus.DRAFT) {
+        throw new BadRequestException("Can only apply credits to a draft (living) invoice");
+      }
+
+      const invoices = await this.prisma.projectInvoice.findMany({
+        where: {
+          projectId: project.id,
+          companyId: project.companyId,
+          status: { in: [ProjectInvoiceStatus.ISSUED, ProjectInvoiceStatus.PARTIALLY_PAID, ProjectInvoiceStatus.PAID] },
+        },
+        select: {
+          id: true,
+          invoiceNo: true,
+          status: true,
+          totalAmount: true,
+          issuedAt: true,
+        },
+        orderBy: [{ issuedAt: "desc" }, { createdAt: "desc" }],
+      });
+
+      if (invoices.length === 0) {
+        return [];
+      }
+
+      const pAny: any = this.prisma as any;
+      const appTotals = await pAny.projectInvoiceApplication.groupBy({
+        by: ["sourceInvoiceId"],
+        where: {
+          projectId: project.id,
+          companyId: project.companyId,
+        },
+        _sum: { amount: true },
+      });
+
+      const appliedBySource = new Map<string, number>();
+      for (const row of appTotals) {
+        if (row.sourceInvoiceId) {
+          appliedBySource.set(row.sourceInvoiceId, row._sum.amount ?? 0);
         }
       }
 
-      return { status: "applied" };
+      return invoices
+        .map((inv) => {
+          const applied = appliedBySource.get(inv.id) ?? 0;
+          const remaining = Math.max(0, (inv.totalAmount ?? 0) - applied);
+          return {
+            id: inv.id,
+            invoiceNo: inv.invoiceNo,
+            status: inv.status,
+            totalAmount: inv.totalAmount ?? 0,
+            appliedAmount: applied,
+            remainingAmount: remaining,
+            issuedAt: inv.issuedAt,
+          };
+        })
+        .filter((row) => row.remainingAmount > 0);
     } catch (err: any) {
-      if (this.isBillingTableMissingError(err) || this.isPaymentApplicationTableMissingError(err)) {
+      if (this.isBillingTableMissingError(err) || this.isInvoiceApplicationTableMissingError(err)) {
+        this.throwBillingTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
+  async applyInvoiceToInvoice(
+    projectId: string,
+    targetInvoiceId: string,
+    dto: ApplyInvoiceToInvoiceDto,
+    actor: AuthenticatedUser,
+  ) {
+    this.ensureBillingModelsAvailable();
+    this.ensureInvoiceApplicationModelsAvailable();
+
+    try {
+      const project = await this.getProjectByIdForUser(projectId, actor);
+
+      const target = await this.prisma.projectInvoice.findFirst({
+        where: { id: targetInvoiceId, projectId: project.id, companyId: project.companyId },
+      });
+
+      if (!target) {
+        throw new NotFoundException("Target invoice not found for this project");
+      }
+
+      if (target.status !== ProjectInvoiceStatus.DRAFT) {
+        throw new BadRequestException("Can only apply credits to a draft (living) invoice");
+      }
+
+      const source = await this.prisma.projectInvoice.findFirst({
+        where: { id: dto.sourceInvoiceId, projectId: project.id, companyId: project.companyId },
+      });
+
+      if (!source) {
+        throw new NotFoundException("Source invoice not found for this project");
+      }
+
+      if (source.status === ProjectInvoiceStatus.DRAFT || source.status === ProjectInvoiceStatus.VOID) {
+        throw new BadRequestException("Source invoice must be an issued, partially paid, or paid invoice");
+      }
+
+      const pAny: any = this.prisma as any;
+      const existingApps = await pAny.projectInvoiceApplication.groupBy({
+        by: ["sourceInvoiceId"],
+        where: {
+          projectId: project.id,
+          companyId: project.companyId,
+          sourceInvoiceId: source.id,
+        },
+        _sum: { amount: true },
+      });
+
+      const alreadyApplied = existingApps.length > 0 ? existingApps[0]._sum.amount ?? 0 : 0;
+      const remaining = Math.max(0, (source.totalAmount ?? 0) - alreadyApplied);
+
+      if (dto.amount > remaining) {
+        throw new BadRequestException(
+          `Apply amount exceeds remaining credit from source invoice. Remaining: ${remaining.toFixed(2)}`,
+        );
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        const maxSort = await tx.projectInvoiceLineItem.aggregate({
+          where: { invoiceId: target.id },
+          _max: { sortOrder: true },
+        });
+        const nextSortOrder = (maxSort._max.sortOrder ?? 0) + 1;
+
+        const descriptionBase = source.invoiceNo ?? "source invoice";
+
+        await tx.projectInvoiceLineItem.create({
+          data: {
+            invoiceId: target.id,
+            kind: ProjectInvoiceLineItemKind.MANUAL,
+            billingTag: ProjectInvoicePetlLineBillingTag.NONE,
+            description: `Credit from ${descriptionBase}`,
+            qty: null,
+            unitPrice: null,
+            amount: -dto.amount,
+            sortOrder: nextSortOrder,
+          },
+        });
+
+        await tx.projectInvoiceApplication.create({
+          data: {
+            companyId: project.companyId,
+            projectId: project.id,
+            sourceInvoiceId: source.id,
+            targetInvoiceId: target.id,
+            amount: dto.amount,
+            appliedAt: new Date(),
+            createdByUserId: actor.userId,
+          },
+        });
+      });
+
+      await this.recomputeInvoiceTotal(target.id);
+      return this.getProjectInvoice(projectId, target.id, actor);
+    } catch (err: any) {
+      if (this.isBillingTableMissingError(err) || this.isInvoiceApplicationTableMissingError(err)) {
+        this.throwBillingTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
+  async moveInvoicePetlLinesToNewInvoice(
+    projectId: string,
+    sourceInvoiceId: string,
+    payload: { lineIds: string[] },
+    actor: AuthenticatedUser,
+  ) {
+    this.ensureBillingModelsAvailable();
+    this.ensureInvoicePetlModelsAvailable();
+
+    const lineIds = Array.isArray(payload?.lineIds) ? payload.lineIds.map(String).filter(Boolean) : [];
+    if (lineIds.length === 0) {
+      throw new BadRequestException("At least one PETL line id is required");
+    }
+
+    try {
+      const { project, invoice } = await this.getInvoiceOrThrow(projectId, sourceInvoiceId, actor);
+      this.assertInvoiceEditable(invoice);
+
+      const pAny: any = this.prisma as any;
+      const lines: any[] = await pAny.projectInvoicePetlLine.findMany({
+        where: {
+          id: { in: lineIds },
+          invoiceId: invoice.id,
+        },
+      });
+
+      if (lines.length === 0) {
+        throw new BadRequestException("No matching PETL lines found on this invoice");
+      }
+      if (lines.length !== lineIds.length) {
+        throw new BadRequestException("Some selected PETL lines were not found on this invoice");
+      }
+
+      const lockedLines = lines.filter((li) => {
+        const kind = String(li.kind ?? "").trim().toUpperCase();
+        const tag = String(li.billingTag ?? "").trim().toUpperCase();
+        const hasParent = !!li.parentLineId;
+        // Guardrail: baseline SUPPLEMENT lines (BASE, SUPPLEMENT, top-level) stay in POL living invoice.
+        return kind === "BASE" && tag === "SUPPLEMENT" && !hasParent;
+      });
+
+      if (lockedLines.length > 0) {
+        throw new BadRequestException(
+          "One or more selected PETL lines are locked to the POL baseline (SUPPLEMENT) and cannot be moved to another invoice.",
+        );
+      }
+
+      const newInvoice = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.projectInvoice.create({
+          data: {
+            companyId: project.companyId,
+            projectId: project.id,
+            status: ProjectInvoiceStatus.DRAFT,
+            billToName: invoice.billToName ?? null,
+            billToEmail: invoice.billToEmail ?? null,
+            memo: invoice.memo ?? null,
+            createdByUserId: actor.userId,
+          },
+        });
+
+        const ids = lines.map((li) => String(li.id));
+        await (tx as any).projectInvoicePetlLine.updateMany({
+          where: {
+            id: { in: ids },
+            invoiceId: invoice.id,
+          },
+          data: {
+            invoiceId: created.id,
+          },
+        });
+
+        return created;
+      });
+
+      await this.recomputeInvoiceTotal(invoice.id);
+      await this.recomputeInvoiceTotal(newInvoice.id);
+
+      const updatedSource = await this.getProjectInvoice(projectId, invoice.id, actor);
+      const updatedNew = await this.getProjectInvoice(projectId, newInvoice.id, actor);
+
+      return { sourceInvoice: updatedSource, newInvoice: updatedNew };
+    } catch (err: any) {
+      if (
+        this.isBillingTableMissingError(err) ||
+        this.isMissingPrismaTableError(err, "ProjectInvoicePetlLine")
+      ) {
         this.throwBillingTablesNotMigrated();
       }
       throw err;

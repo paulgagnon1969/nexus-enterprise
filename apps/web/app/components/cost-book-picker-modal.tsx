@@ -26,6 +26,7 @@ export type CostBookSelection = {
 type CostBookPickerModalProps = {
   title?: string;
   subtitle?: string;
+  noteText?: string;
   initialCats?: string[];
   initialSel?: string;
   initialActivity?: string;
@@ -41,6 +42,7 @@ type CostBookPickerModalProps = {
 export function CostBookPickerModal({
   title = "Tenant Cost Book",
   subtitle,
+  noteText,
   initialCats,
   initialSel,
   initialActivity,
@@ -348,6 +350,19 @@ export function CostBookPickerModal({
             flex: 1,
           }}
         >
+          {noteText && noteText.trim() && (
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: "#0f172a",
+                marginBottom: 4,
+              }}
+            >
+              {noteText}
+            </div>
+          )}
+
           <div
             style={{
               display: "grid",

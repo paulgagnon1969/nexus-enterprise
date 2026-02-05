@@ -1245,6 +1245,15 @@ export default function ProjectDetailPage({
   const [invoicePetlTagDraft, setInvoicePetlTagDraft] = useState<string>("NONE");
   const [invoicePetlTagSaving, setInvoicePetlTagSaving] = useState(false);
 
+  // Invoice-to-invoice credit application (Apply deposit/credit)
+  const [invoiceApplyModalOpen, setInvoiceApplyModalOpen] = useState(false);
+  const [invoiceApplySources, setInvoiceApplySources] = useState<any[] | null>(null);
+  const [invoiceApplySourcesLoading, setInvoiceApplySourcesLoading] = useState(false);
+  const [invoiceApplySourcesError, setInvoiceApplySourcesError] = useState<string | null>(null);
+  const [invoiceApplySelectedSourceId, setInvoiceApplySelectedSourceId] = useState<string>("");
+  const [invoiceApplyAmount, setInvoiceApplyAmount] = useState<string>("");
+  const [invoiceApplySaving, setInvoiceApplySaving] = useState(false);
+
   const activeInvoicePetlLines = useMemo(() => {
     const lines = activeInvoice?.petlLines;
     return Array.isArray(lines) ? lines : [];
@@ -12419,6 +12428,62 @@ ${htmlBody}
                             Print / Save PDF
                           </button>
 
+                          {activeInvoice.status === "DRAFT" && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!project || !activeInvoice?.id) return;
+                                const token = localStorage.getItem("accessToken");
+                                if (!token) {
+                                  setInvoiceMessage("Missing access token.");
+                                  return;
+                                }
+
+                                setInvoiceApplyModalOpen(true);
+                                setInvoiceApplySources(null);
+                                setInvoiceApplySourcesLoading(true);
+                                setInvoiceApplySourcesError(null);
+                                setInvoiceApplySelectedSourceId("");
+                                setInvoiceApplyAmount("");
+
+                                try {
+                                  const res = await fetch(
+                                    `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/applications/sources`,
+                                    {
+                                      headers: {
+                                        Authorization: `Bearer ${token}`,
+                                      },
+                                    },
+                                  );
+                                  if (!res.ok) {
+                                    const text = await res.text().catch(() => "");
+                                    setInvoiceApplySourcesError(
+                                      `Failed to load deposit/credit invoices (${res.status}) ${text}`,
+                                    );
+                                    return;
+                                  }
+                                  const json: any = await res.json().catch(() => []);
+                                  setInvoiceApplySources(Array.isArray(json) ? json : []);
+                                } catch (err: any) {
+                                  setInvoiceApplySourcesError(err?.message ?? "Failed to load deposit/credit invoices.");
+                                } finally {
+                                  setInvoiceApplySourcesLoading(false);
+                                }
+                              }}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 6,
+                                border: "1px solid #d1d5db",
+                                background: "#ffffff",
+                                color: "#111827",
+                                fontSize: 12,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Apply deposit/credit
+                            </button>
+                          )}
+
                           <div style={{ fontSize: 11, color: "#6b7280", alignSelf: "center" }}>
                             Tip: choose “Save as PDF” in the print dialog.
                           </div>
@@ -12435,7 +12500,272 @@ ${htmlBody}
                     </div>
                   </div>
 
-                  {invoicePrintDialogOpen && (
+      {invoiceApplyModalOpen && activeInvoice && (
+        <div
+          className="no-print"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 80,
+            background: "rgba(15,23,42,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 12,
+          }}
+          onClick={() => {
+            if (invoiceApplySaving) return;
+            setInvoiceApplyModalOpen(false);
+          }}
+        >
+          <div
+            style={{
+              width: 560,
+              maxWidth: "96vw",
+              maxHeight: "90vh",
+              overflow: "auto",
+              background: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: "10px 12px",
+                borderBottom: "1px solid #e5e7eb",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
+              }}
+            >
+              <div>
+                Apply deposit / credit
+                <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>
+                  Create a credit line on this invoice from another issued invoice (e.g., a deposit or
+                  prior credit).
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (invoiceApplySaving) return;
+                  setInvoiceApplyModalOpen(false);
+                }}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: invoiceApplySaving ? "default" : "pointer",
+                  fontSize: 18,
+                  lineHeight: 1,
+                }}
+                aria-label="Close apply deposit/credit dialog"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 12, color: "#374151" }}>
+                Target invoice: <strong>{activeInvoice.invoiceNo ?? "Draft invoice"}</strong>
+              </div>
+
+              {invoiceApplySourcesLoading && (
+                <div style={{ fontSize: 12, color: "#6b7280" }}>Loading deposit/credit invoices…</div>
+              )}
+
+              {invoiceApplySourcesError && !invoiceApplySourcesLoading && (
+                <div style={{ fontSize: 12, color: "#b91c1c" }}>{invoiceApplySourcesError}</div>
+              )}
+
+              {!invoiceApplySourcesLoading && !invoiceApplySourcesError && (
+                <>
+                  {(!invoiceApplySources || invoiceApplySources.length === 0) && (
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>
+                      No eligible invoices found. Create or issue a deposit/credit invoice first.
+                    </div>
+                  )}
+
+                  {invoiceApplySources && invoiceApplySources.length > 0 && (
+                    <div style={{ maxHeight: 240, overflow: "auto", border: "1px solid #e5e7eb", borderRadius: 8 }}>
+                      <table
+                        style={{
+                          width: "100%",
+                          borderCollapse: "collapse",
+                          fontSize: 12,
+                        }}
+                      >
+                        <thead>
+                          <tr style={{ backgroundColor: "#f9fafb" }}>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Source invoice</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Total</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Applied</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Remaining</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {invoiceApplySources.map((src: any) => {
+                            const id = String(src?.id ?? "");
+                            const remaining = Number(src?.remainingAmount ?? 0) || 0;
+                            const applied = Number(src?.appliedAmount ?? 0) || 0;
+                            const total = Number(src?.totalAmount ?? 0) || 0;
+                            const selected = invoiceApplySelectedSourceId === id;
+                            const label = src?.invoiceNo ?? "(unissued)";
+                            return (
+                              <tr
+                                key={id}
+                                style={{ cursor: "pointer", background: selected ? "#eff6ff" : "transparent" }}
+                                onClick={() => setInvoiceApplySelectedSourceId(id)}
+                              >
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                  }}
+                                >
+                                  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                                    <input
+                                      type="radio"
+                                      name="invoiceApplySource"
+                                      checked={selected}
+                                      onChange={() => setInvoiceApplySelectedSourceId(id)}
+                                    />
+                                    <span>
+                                      {label} · {src?.status ?? ""}
+                                    </span>
+                                  </label>
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {total.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {applied.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {remaining.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <input
+                      placeholder="Amount to apply"
+                      value={invoiceApplyAmount}
+                      onChange={(e) => setInvoiceApplyAmount(e.target.value)}
+                      style={{
+                        flex: "1 1 160px",
+                        padding: "6px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={invoiceApplySaving}
+                      onClick={async () => {
+                        if (!project || !activeInvoice?.id) return;
+                        const token = localStorage.getItem("accessToken");
+                        if (!token) {
+                          setInvoiceMessage("Missing access token.");
+                          return;
+                        }
+
+                        const sourceId = invoiceApplySelectedSourceId.trim();
+                        if (!sourceId) {
+                          setInvoiceMessage("Select a source invoice to apply from.");
+                          return;
+                        }
+
+                        const raw = invoiceApplyAmount.trim();
+                        const normalized = raw.replace(/[$,\s]/g, "");
+                        const amount = Number(normalized);
+                        if (!Number.isFinite(amount) || amount <= 0) {
+                          setInvoiceMessage("Apply amount must be a positive number.");
+                          return;
+                        }
+
+                        setInvoiceApplySaving(true);
+                        setInvoiceMessage(null);
+                        try {
+                          const res = await fetch(
+                            `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/applications`,
+                            {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${token}`,
+                              },
+                              body: JSON.stringify({ sourceInvoiceId: sourceId, amount }),
+                            },
+                          );
+                          if (!res.ok) {
+                            const text = await res.text().catch(() => "");
+                            setInvoiceMessage(`Apply failed (${res.status}) ${text}`);
+                            return;
+                          }
+                          const json: any = await res.json().catch(() => null);
+                          if (json) {
+                            setActiveInvoice(json);
+                            setProjectInvoices(null);
+                            setFinancialSummary(null);
+                          }
+                          setInvoiceApplyModalOpen(false);
+                          setInvoiceMessage("Credit applied to invoice.");
+                        } catch (err: any) {
+                          setInvoiceMessage(err?.message ?? "Apply failed.");
+                        } finally {
+                          setInvoiceApplySaving(false);
+                        }
+                      }}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 8,
+                        border: "1px solid #0f172a",
+                        background: invoiceApplySaving ? "#e5e7eb" : "#0f172a",
+                        color: invoiceApplySaving ? "#4b5563" : "#f9fafb",
+                        fontSize: 12,
+                        cursor: invoiceApplySaving ? "default" : "pointer",
+                      }}
+                    >
+                      {invoiceApplySaving ? "Applying…" : "Apply credit"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {invoicePrintDialogOpen && (
                     <div
                       className="no-print"
                       style={{
@@ -18714,6 +19044,16 @@ ${htmlBody}
                                     style={{
                                       padding: "6px 8px",
                                       borderTop: "1px solid #e5e7eb",
+                                      color: statusColor,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {statusLabel}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "6px 8px",
+                                      borderTop: "1px solid #e5e7eb",
                                       textAlign: "right",
                                     }}
                                   >
@@ -19602,6 +19942,9 @@ ${htmlBody}
             const head = cat || sel ? `Baseline: ${cat}${sel ? `/${sel}` : ""}` : "Baseline";
             return desc ? `${head} — ${desc}` : head;
           })()}
+          noteText={String(
+            reconEntryEdit.draft.note ?? reconEntryEdit.entry?.note ?? "",
+          ).trim()}
           defaultQty={(() => {
             const raw = reconEntryEdit.draft.qty.trim();
             const n = Number(raw.replace(/,/g, ""));
