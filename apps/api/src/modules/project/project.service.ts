@@ -4649,7 +4649,19 @@ export class ProjectService {
     });
 
     // Best effort: regenerate the current living invoice draft from PETL.
-    await this.maybeSyncLivingDraftInvoiceFromPetl(projectId, companyId, actor);
+    // If billing tables or invoice PETL detail are not present or sync fails for any
+    // reason, we still want the reconciliation edit to succeed and avoid a 500.
+    try {
+      await this.maybeSyncLivingDraftInvoiceFromPetl(projectId, companyId, actor);
+    } catch (err) {
+      // Swallow non-fatal sync errors; the next invoice touch can recompute totals.
+      // We intentionally do not rethrow here to keep reconciliation edits robust
+      // even when billing tables or invoice PETL detail are mid-migration.
+      this.logger.error(
+        `Failed to sync living draft invoice from PETL after reconciliation update for project ${projectId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+    }
 
     return { entry: updated, reconciliationCase: updated.case };
   }

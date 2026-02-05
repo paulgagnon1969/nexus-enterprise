@@ -77,33 +77,38 @@ export function useSettings() {
   }, []);
 
   const setAutoSync = useCallback(
-    async (enabled: boolean) => {
+    (enabled: boolean) => {
+      console.log("[useSettings] setAutoSync:", enabled);
       const newSettings = { ...settings, autoSyncEnabled: enabled };
-      await saveSettings(newSettings);
+      setSettings(newSettings); // Update UI immediately
+      saveSettings(newSettings); // Save in background
     },
     [settings, saveSettings]
   );
 
   const setSyncInterval = useCallback(
-    async (minutes: number) => {
+    (minutes: number) => {
       const newSettings = { ...settings, syncIntervalMinutes: minutes };
-      await saveSettings(newSettings);
+      setSettings(newSettings);
+      saveSettings(newSettings);
     },
     [settings, saveSettings]
   );
 
   const setSelectedContacts = useCallback(
-    async (ids: string[]) => {
+    (ids: string[]) => {
       const newSettings = { ...settings, selectedContactIds: ids };
-      await saveSettings(newSettings);
+      setSettings(newSettings);
+      saveSettings(newSettings);
     },
     [settings, saveSettings]
   );
 
   const setLaunchAtStartup = useCallback(
-    async (enabled: boolean) => {
+    (enabled: boolean) => {
       const newSettings = { ...settings, launchAtStartup: enabled };
-      await saveSettings(newSettings);
+      setSettings(newSettings);
+      saveSettings(newSettings);
     },
     [settings, saveSettings]
   );

@@ -4,10 +4,13 @@ interface ContactCardProps {
     displayName: string | null;
     email: string | null;
     phone: string | null;
+    allEmails?: string[];
+    allPhones?: string[];
   };
   isSelected: boolean;
   isSynced: boolean;
   onToggle: () => void;
+  onReview?: () => void;
 }
 
 export function ContactCard({
@@ -15,6 +18,7 @@ export function ContactCard({
   isSelected,
   isSynced,
   onToggle,
+  onReview,
 }: ContactCardProps) {
   const initials = (contact.displayName || contact.email || "?")
     .split(" ")
@@ -22,6 +26,10 @@ export function ContactCard({
     .join("")
     .slice(0, 2)
     .toUpperCase();
+
+  const emailCount = contact.allEmails?.length || (contact.email ? 1 : 0);
+  const phoneCount = contact.allPhones?.length || (contact.phone ? 1 : 0);
+  const hasMultiple = emailCount > 1 || phoneCount > 1;
 
   return (
     <div
@@ -99,12 +107,33 @@ export function ContactCard({
         >
           {contact.displayName || contact.email || contact.phone || "Unknown"}
         </p>
-        <p className="text-sm text-slate-500 truncate">
-          {contact.email && contact.phone
-            ? `${contact.email} • ${contact.phone}`
-            : contact.email || contact.phone || "No contact info"}
-        </p>
+        <div className="flex items-center gap-1 text-sm text-slate-500">
+          <span className="truncate">
+            {contact.email && contact.phone
+              ? `${contact.email} • ${contact.phone}`
+              : contact.email || contact.phone || "No contact info"}
+          </span>
+          {hasMultiple && (
+            <span className="flex-shrink-0 text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+              +{(emailCount > 1 ? emailCount - 1 : 0) + (phoneCount > 1 ? phoneCount - 1 : 0)} more
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* Review button for contacts with multiple emails/phones */}
+      {isSelected && hasMultiple && onReview && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onReview();
+          }}
+          className="flex-shrink-0 text-xs text-nexus-600 hover:text-nexus-700 bg-nexus-50 hover:bg-nexus-100 px-2 py-1 rounded transition-colors"
+        >
+          Review
+        </button>
+      )}
 
       {/* Synced badge */}
       {isSynced && (

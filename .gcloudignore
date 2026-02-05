@@ -18,10 +18,14 @@ logs/
 .env*.local
 .DS_Store
 
-# App-specific noisy artifacts
+# App-specific noisy artifacts (only API is needed for the Cloud Run image)
+apps/web/
+apps/contact-sync/
+apps/mobile/
+apps/ncc/
+apps/mobile-legacy/
 apps/web/tmp_uploads/
 .vercel
-apps/mobile/
 
 # Docs and large local-only data that API image does not need
 docs/

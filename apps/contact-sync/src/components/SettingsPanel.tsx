@@ -41,7 +41,11 @@ export function SettingsPanel({
           </p>
         </div>
         <button
-          onClick={() => onAutoSyncChange(!settings.autoSyncEnabled)}
+          type="button"
+          onClick={() => {
+            console.log("[SettingsPanel] Toggle auto-sync:", !settings.autoSyncEnabled);
+            onAutoSyncChange(!settings.autoSyncEnabled);
+          }}
           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
             settings.autoSyncEnabled ? "bg-nexus-600" : "bg-slate-200"
           }`}
@@ -79,6 +83,7 @@ export function SettingsPanel({
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-700">Launch at startup</p>
             <button
+              type="button"
               onClick={() => onLaunchAtStartupChange(!settings.launchAtStartup)}
               className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
                 settings.launchAtStartup ? "bg-nexus-600" : "bg-slate-200"

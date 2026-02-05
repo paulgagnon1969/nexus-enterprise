@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Query, Req, UseGuards, Param } from "@nestjs/common";
+import { Controller, Post, Get, Patch, Body, Query, Req, UseGuards, Param } from "@nestjs/common";
 import { JwtAuthGuard, GlobalRoles, GlobalRole } from "../auth/auth.guards";
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { PersonalContactsService } from "./personal-contacts.service";
@@ -20,12 +20,25 @@ export class PersonalContactsController {
         lastName?: string | null;
         email?: string | null;
         phone?: string | null;
+        allEmails?: string[] | null;
+        allPhones?: string[] | null;
         source?: PersonalContactSource | null;
       }>;
     },
   ) {
     const actor = req.user as AuthenticatedUser;
     return this.contacts.importContacts(actor, body?.contacts ?? []);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(":contactId/primary")
+  async updatePrimary(
+    @Req() req: any,
+    @Param("contactId") contactId: string,
+    @Body() body: { email?: string | null; phone?: string | null },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.contacts.updatePrimaryContact(actor, contactId, body.email, body.phone);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -98,6 +111,8 @@ export class PersonalContactsController {
         lastName?: string | null;
         email?: string | null;
         phone?: string | null;
+        allEmails?: string[] | null;
+        allPhones?: string[] | null;
         source?: PersonalContactSource | null;
       }>;
     },
