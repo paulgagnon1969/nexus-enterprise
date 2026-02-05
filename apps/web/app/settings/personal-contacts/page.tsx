@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { PageCard } from "../../ui-shell";
+import ContactPickerModal from "../../components/contact-picker-modal";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -25,6 +26,7 @@ interface PersonalContactSummary {
 export default function PersonalContactsSettingsPage() {
   const [me, setMe] = useState<MeDto | null>(null);
   const [contacts, setContacts] = useState<PersonalContactSummary[]>([]);
+  const [contactsOpen, setContactsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -366,6 +368,29 @@ export default function PersonalContactsSettingsPage() {
         </div>
       </section>
 
+      <section style={{ marginTop: 16 }}>
+        <h2 style={{ fontSize: 14, marginTop: 0, marginBottom: 6 }}>Use contacts to invite people</h2>
+        <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
+          Open the same invite picker used by Refer a Friend. Your personal contact book remains confidential; invitations
+          are only sent when you explicitly choose contacts and confirm.
+        </p>
+        <button
+          type="button"
+          onClick={() => setContactsOpen(true)}
+          style={{
+            padding: "6px 12px",
+            borderRadius: 6,
+            border: "1px dashed #16a34a",
+            backgroundColor: "#f0fdf4",
+            color: "#166534",
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+        >
+          Invite from my contacts
+        </button>
+      </section>
+
       <section style={{ marginTop: 18 }}>
         <div
           style={{
@@ -456,6 +481,7 @@ export default function PersonalContactsSettingsPage() {
           </div>
         )}
       </section>
+      <ContactPickerModal open={contactsOpen} onClose={() => setContactsOpen(false)} />
     </PageCard>
   );
 }

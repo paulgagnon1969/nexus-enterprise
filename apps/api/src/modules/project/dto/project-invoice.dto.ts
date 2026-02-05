@@ -166,6 +166,17 @@ export class ApplyPaymentToInvoiceDto {
   amount!: number;
 }
 
+// Apply some or all of a deposit/credit invoice to another invoice (invoice-to-invoice credit).
+export class ApplyInvoiceToInvoiceDto {
+  @IsString()
+  @IsNotEmpty()
+  sourceInvoiceId!: string;
+
+  @IsNumber()
+  @Min(0.01)
+  amount!: number;
+}
+
 export class UpdateInvoicePetlLineDto {
   @IsEnum(ProjectInvoicePetlLineBillingTag)
   billingTag!: ProjectInvoicePetlLineBillingTag;
