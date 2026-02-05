@@ -3514,6 +3514,17 @@ ${htmlBody}
     return map;
   }, [petlReconciliationEntries]);
 
+  // Orphan reconciliation entries (carried forward but not attached to a
+  // specific PETL line in the latest estimate version).
+  const orphanReconEntries = useMemo(() => {
+    return petlReconciliationEntries.filter((entry: any) => {
+      const hasParent = String(entry?.parentSowItemId ?? "").trim().length > 0;
+      const hasOriginLine =
+        typeof entry?.originLineNo === "number" && Number.isFinite(entry.originLineNo);
+      return !hasParent && hasOriginLine;
+    });
+  }, [petlReconciliationEntries]);
+
   // UI: expand/collapse reconciliation sub-lines per PETL line item.
   const [petlReconExpandedIds, setPetlReconExpandedIds] = useState<Set<string>>(
     () => new Set(),
@@ -6542,6 +6553,33 @@ ${htmlBody}
           error: null,
           data: json,
         }));
+
+        // Load cross-version case history ("time machine") if a case exists.
+        const caseId = json?.reconciliationCase?.id as string | undefined;
+        if (caseId) {
+          try {
+            const histRes = await fetch(
+              `${API_BASE}/projects/${id}/petl-reconciliation/cases/${caseId}/history`,
+              {
+                headers: { Authorization: `Bearer ${token}` },
+              },
+            );
+            if (histRes.ok) {
+              const historyJson: any = await histRes.json().catch(() => null);
+              if (historyJson) {
+                setPetlReconPanel(prev => ({
+                  ...prev,
+                  data: {
+                    ...(prev.data ?? json),
+                    history: historyJson,
+                  },
+                }));
+              }
+            }
+          } catch {
+            // Non-fatal: keep the main reconciliation UI working even if history fails.
+          }
+        }
       });
 
     } catch (err: any) {
@@ -6599,6 +6637,86 @@ ${htmlBody}
             ? "Estimate items (Reconciliation activity only)"
             : "Estimate items"}
         </h2>
+
+        {orphanReconEntries.length > 0 && (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: 10,
+              borderRadius: 8,
+              border: "1px dashed #e5e7eb",
+              background: "#fffbeb",
+              fontSize: 11,
+            }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Orphaned reconciliation entries</div>
+            <div style={{ color: "#92400e", marginBottom: 6 }}>
+              These entries were carried forward from a prior estimate version but do not
+              currently match a PETL line. Review and re-attach them to the correct line item.
+            </div>
+            <div style={{ maxHeight: 140, overflowY: "auto" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  minWidth: 420,
+                }}
+              >
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left", padding: "4px 6px", width: 110 }}>Origin line</th>
+                    <th style={{ textAlign: "left", padding: "4px 6px", width: 70 }}>Kind</th>
+                    <th style={{ textAlign: "left", padding: "4px 6px", width: 80 }}>Tag</th>
+                    <th style={{ textAlign: "right", padding: "4px 6px", width: 80 }}>RCV</th>
+                    <th style={{ textAlign: "left", padding: "4px 6px" }}>Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orphanReconEntries.map((e: any) => {
+                    const originLine = e.originLineNo as number;
+                    const tagRaw = String(e?.tag ?? "").trim();
+                    const tagLabel =
+                      tagRaw === "SUPPLEMENT"
+                        ? "Supplement"
+                        : tagRaw === "CHANGE_ORDER"
+                          ? "Change order"
+                          : tagRaw === "OTHER"
+                            ? "Other"
+                            : tagRaw === "WARRANTY"
+                              ? "Warranty"
+                              : "";
+                    return (
+                      <tr key={e.id} style={{ borderTop: "1px solid #fef3c7" }}>
+                        <td style={{ padding: "4px 6px", whiteSpace: "nowrap" }}>
+                          Line {originLine}
+                        </td>
+                        <td style={{ padding: "4px 6px", whiteSpace: "nowrap" }}>{e.kind}</td>
+                        <td style={{ padding: "4px 6px", whiteSpace: "nowrap" }}>{tagLabel || "—"}</td>
+                        <td style={{ padding: "4px 6px", textAlign: "right" }}>
+                          {(e.rcvAmount ?? 0).toLocaleString(undefined, {
+                            maximumFractionDigits: 2,
+                          })}
+                        </td>
+                        <td
+                          style={{
+                            padding: "4px 6px",
+                            maxWidth: 260,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {e.note ?? ""}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {isPmOrAbove && !isAdminOrAbove && (
           <div
             style={{
@@ -18862,8 +18980,9 @@ ${htmlBody}
                         style={{
                           border: "1px solid #e5e7eb",
                           borderRadius: 8,
-                          overflowX: "auto",
-                          overflowY: "hidden",
+                          overflow: "hidden",
+                          maxHeight: 260,
+                          overflowY: "auto",
                         }}
                       >
                         <table
@@ -19196,6 +19315,131 @@ ${htmlBody}
                       </div>
                     )}
                   </div>
+
+                  {/* Cross-version case history (Time Machine) */}
+                  {(() => {
+                    const history: any | null = petlReconPanel.data?.history ?? null;
+                    if (!history || !Array.isArray(history.entries) || history.entries.length === 0) {
+                      return null;
+                    }
+
+                    return (
+                      <div>
+                        <div style={{ fontWeight: 600, marginBottom: 6 }}>Case history across estimate versions</div>
+                        <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>
+                          Each row shows where a reconciliation entry started and where it lives now
+                          (estimate version and line number).
+                        </div>
+                        <div
+                          style={{
+                            border: "1px solid #e5e7eb",
+                            borderRadius: 8,
+                            maxHeight: 220,
+                            overflowY: "auto",
+                            fontSize: 11,
+                          }}
+                        >
+                          <table
+                            style={{
+                              width: "100%",
+                              borderCollapse: "collapse",
+                              minWidth: 620,
+                            }}
+                          >
+                            <thead>
+                              <tr style={{ background: "#f9fafb" }}>
+                                <th style={{ textAlign: "left", padding: "6px 8px", width: 140 }}>When</th>
+                                <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>Kind</th>
+                                <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>Tag</th>
+                                <th style={{ textAlign: "left", padding: "6px 8px" }}>From → To</th>
+                                <th style={{ textAlign: "right", padding: "6px 8px", width: 90 }}>RCV</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {history.entries.map((e: any) => {
+                                const createdAt = e.createdAt ? new Date(e.createdAt) : null;
+                                const whenLabel = createdAt
+                                  ? createdAt.toLocaleString(undefined, {
+                                      month: "short",
+                                      day: "2-digit",
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })
+                                  : "";
+
+                                const originVer = e.origin?.estimateVersion ?? null;
+                                const currentVer = e.current?.estimateVersion ?? null;
+
+                                const originVerLabel = originVer
+                                  ? `v${originVer.sequenceNo ?? "?"}`
+                                  : "—";
+                                const currentVerLabel = currentVer
+                                  ? `v${currentVer.sequenceNo ?? "?"}`
+                                  : originVerLabel;
+
+                                const originLine = e.origin?.lineNo ?? null;
+                                const currentLine = e.current?.lineNo ?? null;
+
+                                const fromLabel =
+                                  originLine != null
+                                    ? `${originVerLabel} · line ${originLine}`
+                                    : originVerLabel;
+                                const toLabel =
+                                  currentLine != null
+                                    ? `${currentVerLabel} · line ${currentLine}`
+                                    : currentVerLabel;
+
+                                const tagRaw = String(e.tag ?? "").trim();
+                                const tagLabel =
+                                  tagRaw === "SUPPLEMENT"
+                                    ? "Supplement"
+                                    : tagRaw === "CHANGE_ORDER"
+                                      ? "Change order"
+                                      : tagRaw === "OTHER"
+                                        ? "Other"
+                                        : tagRaw === "WARRANTY"
+                                          ? "Warranty"
+                                          : "";
+
+                                return (
+                                  <tr key={e.id} style={{ borderTop: "1px solid #e5e7eb" }}>
+                                    <td style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>{whenLabel}</td>
+                                    <td style={{ padding: "4px 8px" }}>{e.kind}</td>
+                                    <td style={{ padding: "4px 8px" }}>{tagLabel || "—"}</td>
+                                    <td style={{ padding: "4px 8px" }}>
+                                      <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                        <span style={{ color: "#6b7280" }}>{fromLabel}</span>
+                                        <span style={{ margin: "0 4px" }}>→</span>
+                                        <span>{toLabel}</span>
+                                      </div>
+                                      {e.note && (
+                                        <div
+                                          style={{
+                                            marginTop: 2,
+                                            color: "#6b7280",
+                                            whiteSpace: "nowrap",
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis",
+                                          }}
+                                        >
+                                          {e.note}
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td style={{ padding: "4px 8px", textAlign: "right" }}>
+                                      {(e.rcvAmount ?? 0).toLocaleString(undefined, {
+                                        maximumFractionDigits: 2,
+                                      })}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -19362,6 +19606,36 @@ ${htmlBody}
                   </div>
                 )}
               </div>
+
+            <div
+              style={{
+                padding: "8px 12px",
+                borderTop: "1px solid #e5e7eb",
+                display: "flex",
+                justifyContent: "flex-end",
+                backgroundColor: "#f9fafb",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() =>
+                  setPetlReconPanel(prev => ({
+                    ...prev,
+                    open: false,
+                  }))
+                }
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  border: "1px solid #d1d5db",
+                  background: "#ffffff",
+                  cursor: "pointer",
+                  fontSize: 12,
+                }}
+              >
+                Done
+              </button>
+            </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>

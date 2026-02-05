@@ -975,6 +975,22 @@ export class ProjectController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get(":id/petl-reconciliation/cases/:caseId/history")
+  getPetlReconciliationCaseHistory(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("caseId") caseId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getPetlReconciliationCaseHistory(
+      projectId,
+      user.companyId,
+      user,
+      caseId,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post(":id/petl-reconciliation/entries/:entryId/percent")
   updatePetlReconciliationEntryPercent(
     @Req() req: any,
