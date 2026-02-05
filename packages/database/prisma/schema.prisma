@@ -2262,6 +2262,13 @@ model PetlReconciliationEntry {
   companyPriceListItemId String?
   sourceSnapshotJson     Json?
 
+  // Cross-version origin / carry-forward metadata
+  originEstimateVersionId   String?
+  originSowItemId           String?
+  originLineNo              Int?
+  carriedForwardFromEntryId String?
+  carryForwardCount         Int      @default(0)
+
   // Notes / placeholder semantics (rcvAmount null excludes from rollups)
   note             String?
 
@@ -2286,6 +2293,7 @@ model PetlReconciliationEntry {
   @@index([projectId, estimateVersionId], map: "PetlReconEntry_project_estimate_idx")
   @@index([caseId], map: "PetlReconEntry_case_idx")
   @@index([projectParticleId], map: "PetlReconEntry_particle_idx")
+  @@index([originEstimateVersionId], map: "PetlReconEntry_origin_estimate_idx")
 }
 
 model PetlReconciliationAttachment {

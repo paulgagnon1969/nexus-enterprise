@@ -857,11 +857,41 @@ export class ProjectService {
         throw new NotFoundException("Project not found in this company");
       }
 
+      // Capture the currently active PETL-backed estimate version (if any) so we
+      // can attempt to carry forward reconciliation entries after the new
+      // Xactimate import completes.
+      const previousVersion = await this.getLatestEstimateVersionForPetl(projectId);
+
       const result = await importXactCsvForProject({
         projectId,
         csvPath,
         importedByUserId: actor.userId
       });
+
+      // Best effort: carry forward reconciliation entries from the previous
+      // estimate version (if one existed) onto the newly imported version.
+      if (previousVersion && previousVersion.id !== result.estimateVersionId) {
+        try {
+          await this.carryForwardPetlReconciliationForNewEstimateVersion({
+            projectId,
+            previousEstimateVersionId: previousVersion.id,
+            newEstimateVersionId: result.estimateVersionId,
+            actor,
+          });
+        } catch (err: any) {
+          // If reconciliation tables are missing in this environment, treat as
+          // non-fatal and allow the import to succeed.
+          if (
+            !this.isMissingPrismaTableError(err, "PetlReconciliationEntry") &&
+            !this.isMissingPrismaTableError(err, "PetlReconciliationCase")
+          ) {
+            this.logger.error(
+              `Failed to carry forward PETL reconciliation for project ${projectId}`,
+              err instanceof Error ? err.stack : String(err),
+            );
+          }
+        }
+      }
 
       await this.audit.log(actor, "ESTIMATE_IMPORTED", {
         companyId,
@@ -971,6 +1001,176 @@ export class ProjectService {
         `Components import failed: ${err?.message ?? String(err)}`,
       );
     }
+  }
+
+  private async carryForwardPetlReconciliationForNewEstimateVersion(options: {
+    projectId: string;
+    previousEstimateVersionId: string;
+    newEstimateVersionId: string;
+    actor: AuthenticatedUser;
+  }) {
+    const { projectId, previousEstimateVersionId, newEstimateVersionId, actor } = options;
+
+    // If reconciliation tables are not present in this environment, treat
+    // carry-forward as a no-op.
+    try {
+      const anyCase = await this.prisma.petlReconciliationCase.findFirst({
+        where: { projectId },
+        select: { id: true },
+      });
+      if (!anyCase) {
+        return { carried: 0, orphans: 0 };
+      }
+    } catch (err: any) {
+      if (
+        this.isMissingPrismaTableError(err, "PetlReconciliationCase") ||
+        this.isMissingPrismaTableError(err, "PetlReconciliationEntry")
+      ) {
+        return { carried: 0, orphans: 0 };
+      }
+      throw err;
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // Load all reconciliation entries tied to the previous estimate version.
+      const previousEntries = await tx.petlReconciliationEntry.findMany({
+        where: {
+          projectId,
+          estimateVersionId: previousEstimateVersionId,
+        },
+      });
+
+      if (!previousEntries.length) {
+        return { carried: 0, orphans: 0 };
+      }
+
+      // Map SowItems from previous -> new estimate version by logicalItemId so we
+      // can attach carried-forward entries to the appropriate line when
+      // possible.
+      const previousSowItems = await tx.sowItem.findMany({
+        where: { estimateVersionId: previousEstimateVersionId },
+        select: {
+          id: true,
+          logicalItemId: true,
+          lineNo: true,
+          projectParticleId: true,
+          rawRow: {
+            select: { lineNo: true },
+          },
+        },
+      });
+
+      const newSowItems = await tx.sowItem.findMany({
+        where: { estimateVersionId: newEstimateVersionId },
+        select: {
+          id: true,
+          logicalItemId: true,
+          lineNo: true,
+          projectParticleId: true,
+        },
+      });
+
+      const prevSowById = new Map<string, (typeof previousSowItems)[number]>(
+        previousSowItems.map((s) => [s.id, s]),
+      );
+
+      const newByLogical = new Map<
+        string,
+        { id: string; lineNo: number | null; projectParticleId: string | null }[]
+      >();
+      for (const s of newSowItems) {
+        const logicalId = s.logicalItemId;
+        if (!logicalId) continue;
+        const arr = newByLogical.get(logicalId);
+        const payload = {
+          id: s.id,
+          lineNo: s.lineNo ?? null,
+          projectParticleId: s.projectParticleId ?? null,
+        };
+        if (arr) arr.push(payload);
+        else newByLogical.set(logicalId, [payload]);
+      }
+
+      const createData: any[] = [];
+      let carried = 0;
+      let orphans = 0;
+
+      for (const entry of previousEntries) {
+        const prevSow = entry.parentSowItemId ? prevSowById.get(entry.parentSowItemId) : null;
+        const logicalId = prevSow?.logicalItemId ?? null;
+
+        const candidates = logicalId ? newByLogical.get(logicalId) ?? [] : [];
+        let target: { id: string; lineNo: number | null; projectParticleId: string | null } | null =
+          null;
+        let isOrphan = false;
+
+        if (candidates.length === 1) {
+          target = candidates[0];
+        } else {
+          // Zero or multiple matches = ambiguous; treat as orphan that requires
+          // manual reassignment in the latest PETL.
+          isOrphan = true;
+        }
+
+        const originEstimateVersionId =
+          entry.originEstimateVersionId ?? entry.estimateVersionId ?? previousEstimateVersionId;
+        const originSowItemId = entry.originSowItemId ?? entry.parentSowItemId ?? null;
+
+        let originLineNo = entry.originLineNo ?? null;
+        if (originLineNo == null && originSowItemId) {
+          const originSow = prevSowById.get(originSowItemId);
+          originLineNo = originSow?.rawRow?.lineNo ?? originSow?.lineNo ?? null;
+        }
+
+        const parentSowItemId = isOrphan ? null : target?.id ?? null;
+        const projectParticleId =
+          (!isOrphan && target?.projectParticleId) || entry.projectParticleId;
+
+        createData.push({
+          projectId,
+          estimateVersionId: newEstimateVersionId,
+          caseId: entry.caseId,
+          parentSowItemId,
+          projectParticleId,
+          kind: entry.kind,
+          tag: entry.tag,
+          status: entry.status,
+          description: entry.description,
+          categoryCode: entry.categoryCode,
+          selectionCode: entry.selectionCode,
+          unit: entry.unit,
+          qty: entry.qty,
+          unitCost: entry.unitCost,
+          itemAmount: entry.itemAmount,
+          salesTaxAmount: entry.salesTaxAmount,
+          opAmount: entry.opAmount,
+          rcvAmount: entry.rcvAmount,
+          rcvComponentsJson: entry.rcvComponentsJson,
+          percentComplete: entry.percentComplete,
+          isPercentCompleteLocked: entry.isPercentCompleteLocked,
+          companyPriceListItemId: entry.companyPriceListItemId,
+          sourceSnapshotJson: entry.sourceSnapshotJson,
+          note: entry.note,
+          createdByUserId: actor.userId,
+          originEstimateVersionId,
+          originSowItemId,
+          originLineNo,
+          carriedForwardFromEntryId: entry.id,
+          carryForwardCount: (entry.carryForwardCount ?? 0) + 1,
+        });
+
+        if (isOrphan) orphans += 1;
+        else carried += 1;
+      }
+
+      if (!createData.length) {
+        return { carried: 0, orphans: 0 };
+      }
+
+      await tx.petlReconciliationEntry.createMany({ data: createData });
+
+      return { carried, orphans };
+    });
   }
 
   async deleteProject(
@@ -3329,6 +3529,223 @@ export class ProjectService {
     };
   }
 
+  async getPetlReconciliationCaseHistory(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    caseId: string,
+  ) {
+    // Reuse standard project access rules
+    await this.getProjectByIdForUser(projectId, actor);
+
+    // Load the case scoped to this project.
+    const reconCase = await this.prisma.petlReconciliationCase.findFirst({
+      where: { id: caseId, projectId },
+      select: {
+        id: true,
+        projectId: true,
+        estimateVersionId: true,
+        sowItemId: true,
+        logicalItemId: true,
+        status: true,
+        createdByUserId: true,
+        createdAt: true,
+      },
+    });
+
+    if (!reconCase) {
+      throw new NotFoundException("Reconciliation case not found for this project");
+    }
+
+    // Load all entries for this case (across estimate versions).
+    const entries = await this.prisma.petlReconciliationEntry.findMany({
+      where: { caseId: reconCase.id },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        projectId: true,
+        estimateVersionId: true,
+        caseId: true,
+        parentSowItemId: true,
+        projectParticleId: true,
+        kind: true,
+        tag: true,
+        status: true,
+        description: true,
+        categoryCode: true,
+        selectionCode: true,
+        unit: true,
+        qty: true,
+        unitCost: true,
+        itemAmount: true,
+        salesTaxAmount: true,
+        opAmount: true,
+        rcvAmount: true,
+        rcvComponentsJson: true,
+        percentComplete: true,
+        isPercentCompleteLocked: true,
+        companyPriceListItemId: true,
+        sourceSnapshotJson: true,
+        originEstimateVersionId: true,
+        originSowItemId: true,
+        originLineNo: true,
+        carriedForwardFromEntryId: true,
+        carryForwardCount: true,
+        note: true,
+        createdByUserId: true,
+        approvedByUserId: true,
+        approvedAt: true,
+        createdAt: true,
+      },
+    });
+
+    // Collect estimate versions referenced by the case + entries (current + origin).
+    const estimateVersionIds = new Set<string>();
+    if (reconCase.estimateVersionId) estimateVersionIds.add(reconCase.estimateVersionId);
+    for (const e of entries) {
+      if (e.estimateVersionId) estimateVersionIds.add(e.estimateVersionId);
+      if (e.originEstimateVersionId) estimateVersionIds.add(e.originEstimateVersionId);
+    }
+
+    const estimateVersions = estimateVersionIds.size
+      ? await this.prisma.estimateVersion.findMany({
+          where: { id: { in: Array.from(estimateVersionIds) }, projectId },
+          select: {
+            id: true,
+            sequenceNo: true,
+            fileName: true,
+            sourceType: true,
+            importedAt: true,
+            createdAt: true,
+          },
+        })
+      : [];
+
+    const versionById = new Map<string, any>();
+    for (const v of estimateVersions) {
+      versionById.set(v.id, v);
+    }
+
+    // Collect SOW items referenced by the case + entries (current + origin).
+    const sowItemIds = new Set<string>();
+    if (reconCase.sowItemId) sowItemIds.add(reconCase.sowItemId);
+    for (const e of entries) {
+      if (e.parentSowItemId) sowItemIds.add(e.parentSowItemId);
+      if (e.originSowItemId) sowItemIds.add(e.originSowItemId);
+    }
+
+    const sowItems = sowItemIds.size
+      ? await this.prisma.sowItem.findMany({
+          where: { id: { in: Array.from(sowItemIds) } },
+          select: {
+            id: true,
+            estimateVersionId: true,
+            projectParticleId: true,
+            lineNo: true,
+            description: true,
+            rawRow: {
+              select: {
+                lineNo: true,
+              },
+            },
+          },
+        })
+      : [];
+
+    const sowById = new Map<string, any>();
+    for (const s of sowItems) {
+      sowById.set(s.id, s);
+    }
+
+    // Resolve particles used by current/origin lines and entry-level particles.
+    const particleIds = new Set<string>();
+    for (const s of sowItems) {
+      if (s.projectParticleId) particleIds.add(s.projectParticleId);
+    }
+    for (const e of entries) {
+      if (e.projectParticleId) particleIds.add(e.projectParticleId);
+    }
+
+    const particleById = await this.resolveProjectParticlesForProject({
+      projectId,
+      particleIds: Array.from(particleIds),
+    });
+
+    const caseSow = reconCase.sowItemId ? sowById.get(reconCase.sowItemId) : null;
+    const caseCurrentLineNo = caseSow?.rawRow?.lineNo ?? caseSow?.lineNo ?? null;
+    const caseVersionMeta = versionById.get(reconCase.estimateVersionId) ?? null;
+
+    const historyEntries = entries.map((e) => {
+      const currentSow = e.parentSowItemId ? sowById.get(e.parentSowItemId) : null;
+      const originSow = e.originSowItemId ? sowById.get(e.originSowItemId) : null;
+
+      const currentVersion = versionById.get(e.estimateVersionId) ?? null;
+      const originVersion = e.originEstimateVersionId
+        ? versionById.get(e.originEstimateVersionId) ?? null
+        : null;
+
+      const currentLineNo = currentSow?.rawRow?.lineNo ?? currentSow?.lineNo ?? null;
+      const originLineNo =
+        e.originLineNo ?? originSow?.rawRow?.lineNo ?? originSow?.lineNo ?? null;
+
+      const particle = particleById.get(e.projectParticleId) ?? null;
+
+      return {
+        ...e,
+        current: {
+          estimateVersion: currentVersion,
+          sowItemId: currentSow?.id ?? null,
+          lineNo: currentLineNo,
+          description: currentSow?.description ?? null,
+          projectParticle: particle,
+        },
+        origin: {
+          estimateVersion: originVersion,
+          sowItemId: originSow?.id ?? null,
+          lineNo: originLineNo,
+        },
+      };
+    });
+
+    // Events are useful for audit, but optional for the initial UI.
+    let events: any[] = [];
+    try {
+      events = await this.prisma.petlReconciliationEvent.findMany({
+        where: { caseId: reconCase.id },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          projectId: true,
+          estimateVersionId: true,
+          caseId: true,
+          entryId: true,
+          eventType: true,
+          payloadJson: true,
+          createdByUserId: true,
+          createdAt: true,
+        },
+      });
+    } catch (err: any) {
+      if (!this.isMissingPrismaTableError(err, "PetlReconciliationEvent")) {
+        throw err;
+      }
+      events = [];
+    }
+
+    return {
+      projectId,
+      caseId: reconCase.id,
+      case: {
+        ...reconCase,
+        estimateVersion: caseVersionMeta,
+        currentLineNo: caseCurrentLineNo,
+      },
+      entries: historyEntries,
+      estimateVersions,
+      events,
+    };
+  }
+
   async createPetlReconciliationPlaceholder(
     projectId: string,
     companyId: string,
@@ -3348,6 +3765,7 @@ export class ProjectService {
       select: {
         estimateVersionId: true,
         projectParticleId: true,
+        lineNo: true,
       },
     });
 
@@ -3386,6 +3804,9 @@ export class ProjectService {
         percentComplete: 0,
         isPercentCompleteLocked: true,
         createdByUserId: actor.userId,
+        originEstimateVersionId: sowItem.estimateVersionId,
+        originSowItemId: sowItemId,
+        originLineNo: sowItem.lineNo ?? null,
         events: {
           create: {
             projectId,
@@ -3780,6 +4201,9 @@ export class ProjectService {
             percentComplete: 0,
             isPercentCompleteLocked: true,
             createdByUserId: actor.userId,
+            originEstimateVersionId: sowItem.estimateVersionId,
+            originSowItemId: sowItem.id,
+            originLineNo: sowItem.rawRow?.lineNo ?? sowItem.lineNo ?? null,
             sourceSnapshotJson: {
               source: "PWC Reconcile2 - Xactimate POL - Summary Detail",
               fileName,
@@ -3903,6 +4327,12 @@ export class ProjectService {
         itemAmount: true,
         salesTaxAmount: true,
         rcvAmount: true,
+        lineNo: true,
+        rawRow: {
+          select: {
+            lineNo: true,
+          },
+        },
       },
     });
 
@@ -3962,6 +4392,9 @@ export class ProjectService {
         percentComplete: 0,
         isPercentCompleteLocked: true,
         createdByUserId: actor.userId,
+        originEstimateVersionId: sowItem.estimateVersionId,
+        originSowItemId: sowItemId,
+        originLineNo: sowItem.rawRow?.lineNo ?? sowItem.lineNo ?? null,
         events: {
           create: {
             projectId,
@@ -4019,6 +4452,7 @@ export class ProjectService {
         estimateVersionId: true,
         projectParticleId: true,
         description: true,
+        lineNo: true,
       },
     });
 
@@ -4076,6 +4510,9 @@ export class ProjectService {
         percentComplete: 0,
         isPercentCompleteLocked: false,
         createdByUserId: actor.userId,
+        originEstimateVersionId: sowItem.estimateVersionId,
+        originSowItemId: sowItemId,
+        originLineNo: sowItem.lineNo ?? null,
         events: {
           create: {
             projectId,
@@ -4131,6 +4568,7 @@ export class ProjectService {
         estimateVersionId: true,
         projectParticleId: true,
         qty: true,
+        lineNo: true,
       },
     });
 
@@ -4206,6 +4644,9 @@ export class ProjectService {
         percentComplete: 0,
         isPercentCompleteLocked: false,
         createdByUserId: actor.userId,
+        originEstimateVersionId: sowItem.estimateVersionId,
+        originSowItemId: sowItemId,
+        originLineNo: sowItem.lineNo ?? null,
         events: {
           create: {
             projectId,
@@ -5894,6 +6335,12 @@ export class ProjectService {
           projectParticleId: true,
           qtyFlaggedIncorrect: true,
           qtyFieldReported: true,
+          lineNo: true,
+          rawRow: {
+            select: {
+              lineNo: true,
+            },
+          },
         },
       });
 
@@ -5964,6 +6411,9 @@ export class ProjectService {
             isPercentCompleteLocked: true,
             note: `${notePrefix} Field reported qty ${reportedQty} differs from estimate qty ${currentQty}. Review required.`,
             createdByUserId: actor.userId,
+            originEstimateVersionId: sowItem.estimateVersionId,
+            originSowItemId: sowItem.id,
+            originLineNo: sowItem.rawRow?.lineNo ?? sowItem.lineNo ?? null,
             events: {
               create: {
                 projectId,
