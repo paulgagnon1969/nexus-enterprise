@@ -32,22 +32,33 @@ async function apiFetch<T>(
 ): Promise<T> {
   const token = getStoredToken();
   const apiUrl = getApiUrl();
+  const url = `${apiUrl}${endpoint}`;
 
-  const response = await fetch(`${apiUrl}${endpoint}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
+  console.log(`[API] ${options.method || 'GET'} ${url}`);
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Request failed" }));
-    throw new Error(error.message || `HTTP ${response.status}`);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: "Request failed" }));
+      console.error(`[API] Error ${response.status}:`, error);
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log(`[API] Response:`, data);
+    return data;
+  } catch (err) {
+    console.error(`[API] Fetch error:`, err);
+    throw err;
   }
-
-  return response.json();
 }
 
 export async function login(

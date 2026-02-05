@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getApiUrl, setApiUrl } from "../lib/auth";
+import { getApiUrl, setApiUrl, getStoredApiUrls, addApiUrlToHistory } from "../lib/auth";
 
 interface Environment {
   id: string;
@@ -8,11 +8,11 @@ interface Environment {
   color: string;
 }
 
-const ENVIRONMENTS: Environment[] = [
+const DEFAULT_ENVIRONMENTS: Environment[] = [
   {
     id: "prod",
     name: "Production",
-    url: "https://api.nexus-enterprise.com",
+    url: "https://nexus-api-979156454944.us-central1.run.app",
     color: "bg-green-500",
   },
   {
@@ -20,12 +20,6 @@ const ENVIRONMENTS: Environment[] = [
     name: "Development",
     url: "http://localhost:3001",
     color: "bg-amber-500",
-  },
-  {
-    id: "custom",
-    name: "Custom",
-    url: "",
-    color: "bg-purple-500",
   },
 ];
 
@@ -37,10 +31,20 @@ export function EnvironmentSelector({ onEnvironmentChange }: EnvironmentSelector
   const [currentUrl, setCurrentUrl] = useState(getApiUrl());
   const [isExpanded, setIsExpanded] = useState(false);
   const [customUrl, setCustomUrl] = useState("");
+  const [urlHistory, setUrlHistory] = useState<string[]>([]);
 
-  const currentEnv =
-    ENVIRONMENTS.find((e) => e.url === currentUrl && e.id !== "custom") ||
-    ENVIRONMENTS.find((e) => e.id === "custom")!;
+  // Load URL history on mount
+  useEffect(() => {
+    setUrlHistory(getStoredApiUrls());
+  }, []);
+
+  // Find matching environment or mark as custom
+  const currentEnv = DEFAULT_ENVIRONMENTS.find((e) => e.url === currentUrl) || {
+    id: "custom",
+    name: "Custom",
+    url: currentUrl,
+    color: "bg-purple-500",
+  };
 
   useEffect(() => {
     if (currentEnv.id === "custom") {
@@ -49,22 +53,23 @@ export function EnvironmentSelector({ onEnvironmentChange }: EnvironmentSelector
   }, [currentEnv, currentUrl]);
 
   const selectEnvironment = (env: Environment) => {
-    if (env.id === "custom") {
-      // Don't close, let them enter URL
-      return;
-    }
     setApiUrl(env.url);
+    addApiUrlToHistory(env.url);
     setCurrentUrl(env.url);
+    setUrlHistory(getStoredApiUrls());
     setIsExpanded(false);
     onEnvironmentChange?.(env);
   };
 
   const saveCustomUrl = () => {
     if (customUrl.trim()) {
-      setApiUrl(customUrl.trim());
-      setCurrentUrl(customUrl.trim());
+      const url = customUrl.trim();
+      setApiUrl(url);
+      addApiUrlToHistory(url);
+      setCurrentUrl(url);
+      setUrlHistory(getStoredApiUrls());
       setIsExpanded(false);
-      onEnvironmentChange?.(ENVIRONMENTS.find((e) => e.id === "custom")!);
+      onEnvironmentChange?.({ id: "custom", name: "Custom", url, color: "bg-purple-500" });
     }
   };
 
@@ -106,7 +111,7 @@ export function EnvironmentSelector({ onEnvironmentChange }: EnvironmentSelector
         <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
           <p className="text-xs text-slate-500 mb-2">Sync contacts to:</p>
           
-          {ENVIRONMENTS.filter((e) => e.id !== "custom").map((env) => (
+          {DEFAULT_ENVIRONMENTS.map((env) => (
             <button
               key={env.id}
               onClick={() => selectEnvironment(env)}
@@ -136,6 +141,30 @@ export function EnvironmentSelector({ onEnvironmentChange }: EnvironmentSelector
               )}
             </button>
           ))}
+
+          {/* Recent URLs */}
+          {urlHistory.length > 0 && (
+            <div className="pt-2 border-t border-slate-100">
+              <p className="text-xs text-slate-500 mb-2">Recent:</p>
+              {urlHistory
+                .filter(url => !DEFAULT_ENVIRONMENTS.some(e => e.url === url))
+                .slice(0, 3)
+                .map((url) => (
+                  <button
+                    key={url}
+                    onClick={() => selectEnvironment({ id: "history", name: "Custom", url, color: "bg-purple-500" })}
+                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-sm transition-colors ${
+                      currentUrl === url
+                        ? "bg-nexus-50 text-nexus-700"
+                        : "hover:bg-slate-50 text-slate-700"
+                    }`}
+                  >
+                    <div className="w-2 h-2 rounded-full bg-purple-500" />
+                    <span className="text-xs truncate flex-1">{url}</span>
+                  </button>
+                ))}
+            </div>
+          )}
 
           {/* Custom URL */}
           <div className="pt-2 border-t border-slate-100">

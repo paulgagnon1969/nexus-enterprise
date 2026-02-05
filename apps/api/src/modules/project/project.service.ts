@@ -4506,8 +4506,43 @@ export class ProjectService {
       }
     }
 
-    // Normalize sign based on kind when possible.
-    const nextKindForSign = kind === undefined ? entry.kind : kind ?? entry.kind;
+    // Auto-infer kind for financial entries when the client doesn't explicitly set it.
+    // Let tag + presence of dollars drive kind so invoice math stays correct even if
+    // the UI only edits tag/amounts.
+    const autoKind = (() => {
+      // If client explicitly set kind, respect it.
+      if (kind !== undefined && kind !== null) return kind;
+
+      const hasMoney =
+        (nextItemAmount ?? 0) !== 0 ||
+        (nextSalesTaxAmount ?? 0) !== 0 ||
+        (nextOpAmount ?? 0) !== 0 ||
+        (nextRcvAmount ?? 0) !== 0;
+
+      if (!hasMoney) {
+        // Pure note-only entry regardless of tag.
+        return PetlReconciliationEntryKind.NOTE_ONLY;
+      }
+
+      const effectiveTag =
+        tag === undefined || tag === null ? (entry.tag as PetlReconciliationEntryTag | null) : tag;
+
+      const base =
+        (nextItemAmount ?? 0) +
+        (nextSalesTaxAmount ?? 0) +
+        (nextOpAmount ?? 0);
+
+      if (effectiveTag === "SUPPLEMENT" || effectiveTag === "CHANGE_ORDER") {
+        if (base > 0) return PetlReconciliationEntryKind.ADD;
+        if (base < 0) return PetlReconciliationEntryKind.CREDIT;
+      }
+
+      // Fallback: keep existing kind so we don't surprise older entries.
+      return entry.kind;
+    })();
+
+    // Normalize sign based on inferred kind when possible.
+    const nextKindForSign = autoKind;
     if (nextRcvAmount != null) {
       if (nextKindForSign === PetlReconciliationEntryKind.CREDIT) {
         nextRcvAmount = -Math.abs(nextRcvAmount);
@@ -4522,7 +4557,7 @@ export class ProjectService {
         : !!body.isPercentCompleteLocked;
 
     const data: Prisma.PetlReconciliationEntryUpdateInput = {
-      kind: kind === undefined ? undefined : kind ?? undefined,
+      kind: kind === undefined ? autoKind : kind ?? undefined,
       tag: tag === undefined ? undefined : tag,
       status: status === undefined ? undefined : status,
       description:
