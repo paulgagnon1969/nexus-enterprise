@@ -428,12 +428,14 @@ export default function PersonalContactsSettingsPage() {
         ) : (
           <div
             style={{
-              marginTop: 4,
-              maxHeight: 260,
+              marginTop: 5,
+              maxHeight: "calc(100vh - 320px)",
               overflowY: "auto",
               borderRadius: 6,
               border: "1px solid #e5e7eb",
               backgroundColor: "#ffffff",
+              padding: "0 5px 5px 5px",
+              boxSizing: "border-box",
             }}
           >
             <table
