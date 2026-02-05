@@ -19444,6 +19444,59 @@ ${htmlBody}
               )}
             </div>
           </div>
+
+          <div
+            style={{
+              padding: "8px 12px",
+              borderTop: "1px solid #e5e7eb",
+              display: "flex",
+              justifyContent: "space-between",
+              backgroundColor: "#f9fafb",
+            }}
+          >
+            <div />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() =>
+                  setPetlReconPanel(prev => ({
+                    ...prev,
+                    open: false,
+                  }))
+                }
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  border: "1px solid #d1d5db",
+                  background: "#ffffff",
+                  cursor: "pointer",
+                  fontSize: 12,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setPetlReconPanel(prev => ({
+                    ...prev,
+                    open: false,
+                  }))
+                }
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  border: "1px solid #0f172a",
+                  background: "#0f172a",
+                  color: "#f9fafb",
+                  cursor: "pointer",
+                  fontSize: 12,
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -19606,36 +19659,6 @@ ${htmlBody}
                   </div>
                 )}
               </div>
-
-            <div
-              style={{
-                padding: "8px 12px",
-                borderTop: "1px solid #e5e7eb",
-                display: "flex",
-                justifyContent: "flex-end",
-                backgroundColor: "#f9fafb",
-              }}
-            >
-              <button
-                type="button"
-                onClick={() =>
-                  setPetlReconPanel(prev => ({
-                    ...prev,
-                    open: false,
-                  }))
-                }
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  border: "1px solid #d1d5db",
-                  background: "#ffffff",
-                  cursor: "pointer",
-                  fontSize: 12,
-                }}
-              >
-                Done
-              </button>
-            </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
