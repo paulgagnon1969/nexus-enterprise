@@ -1,10 +1,160 @@
 "use client";
 
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { PageCard } from "../ui-shell";
 
+// Searchable content index - includes BKMs and other learning resources
+interface SearchableItem {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  categoryLabel: string;
+  path: string;
+  keywords: string[];
+  status: "published" | "coming-soon";
+}
+
+const SEARCHABLE_CONTENT: SearchableItem[] = [
+  // BKMs
+  {
+    id: "BKM-NCC-001",
+    title: "CSV Import and Line Item Reconciliation",
+    description: "Standard operating procedure for importing Xactimate estimates and reconciling line items.",
+    category: "bkm",
+    categoryLabel: "BKM",
+    path: "/learning/bkm/csv-import-reconciliation",
+    keywords: ["csv", "import", "xactimate", "reconciliation", "petl", "estimate"],
+    status: "published",
+  },
+  {
+    id: "BKM-NCC-002",
+    title: "Dev Stack & Environment Guide",
+    description: "How to start and manage local development environments: Docker, Cloud SQL, and startup scripts.",
+    category: "bkm",
+    categoryLabel: "BKM",
+    path: "/learning/bkm/dev-stack",
+    keywords: ["docker", "postgres", "redis", "dev", "environment", "cloud sql", "local"],
+    status: "published",
+  },
+  {
+    id: "BKM-INV-001",
+    title: "Inventory and Forecasting SOP",
+    description: "Complete guide to asset tracking, inventory positions, material forecasting, and PETL-driven consumption.",
+    category: "bkm",
+    categoryLabel: "BKM",
+    path: "/learning/bkm/inventory-forecasting",
+    keywords: ["inventory", "forecasting", "materials", "assets", "petl", "consumption", "warehouse"],
+    status: "published",
+  },
+  {
+    id: "BKM-TEC-001",
+    title: "UI Performance Standards",
+    description: "Performance guidelines for React/Next.js development: memoization, lazy loading, and profiling.",
+    category: "bkm",
+    categoryLabel: "BKM",
+    path: "/learning/bkm/ui-performance",
+    keywords: ["performance", "react", "nextjs", "memoization", "lazy", "profiling", "ui"],
+    status: "published",
+  },
+  {
+    id: "BKM-INT-001",
+    title: "CSV Import Architecture",
+    description: "Technical standard for building CSV-based imports: PETL pattern, job-based processing, parallel chunking.",
+    category: "bkm",
+    categoryLabel: "BKM",
+    path: "/learning/bkm/csv-import-architecture",
+    keywords: ["csv", "import", "petl", "worker", "bullmq", "chunking", "architecture"],
+    status: "published",
+  },
+  {
+    id: "BKM-INT-002",
+    title: "Xactimate Integration Guide",
+    description: "Working with Xactimate exports: RAW vs Components CSVs, field mappings, and troubleshooting.",
+    category: "bkm",
+    categoryLabel: "BKM",
+    path: "/learning/bkm/xactimate-integration",
+    keywords: ["xactimate", "xact", "csv", "raw", "components", "import", "estimate"],
+    status: "published",
+  },
+  // Learning Tracks (as navigable items)
+  {
+    id: "TRACK-101",
+    title: "NEXUS 101",
+    description: "Start here to understand the NEXUS Connect Group and the Nexus Marketplace.",
+    category: "track",
+    categoryLabel: "Track",
+    path: "/learning#learning-tracks",
+    keywords: ["nexus", "101", "onboarding", "start", "introduction", "marketplace"],
+    status: "coming-soon",
+  },
+  {
+    id: "TRACK-TOOLS",
+    title: "Tools & Systems",
+    description: "Get productive in the tools you'll use every day: NEXUS Connect, time tracking, documentation.",
+    category: "track",
+    categoryLabel: "Track",
+    path: "/learning#learning-tracks",
+    keywords: ["tools", "systems", "time tracking", "documentation", "access"],
+    status: "coming-soon",
+  },
+  {
+    id: "TRACK-CULTURE",
+    title: "Culture & Ways of Working",
+    description: "Understand how we show up for each other and for clients: communication, collaboration, feedback.",
+    category: "track",
+    categoryLabel: "Track",
+    path: "/learning#learning-tracks",
+    keywords: ["culture", "collaboration", "communication", "feedback", "teams"],
+    status: "coming-soon",
+  },
+  // Reference Documents
+  {
+    id: "REF-MANUAL",
+    title: "NEXUS Operating Manual",
+    description: "Always-current reference for how we run projects, make decisions, and deliver work.",
+    category: "reference",
+    categoryLabel: "Reference",
+    path: "/operating-manual",
+    keywords: ["manual", "operating", "governance", "policies", "lifecycle", "roles"],
+    status: "published",
+  },
+  {
+    id: "REF-FAQ",
+    title: "Marketplace FAQs",
+    description: "Frequently asked questions about the Nexus Marketplace and how it works.",
+    category: "reference",
+    categoryLabel: "Reference",
+    path: "/marketplace-faqs",
+    keywords: ["faq", "questions", "marketplace", "help"],
+    status: "published",
+  },
+];
+
 export default function LearningPage() {
   const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showResults, setShowResults] = useState(false);
+
+  const searchResults = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return [];
+
+    return SEARCHABLE_CONTENT.filter((item) => {
+      const searchableText = [
+        item.id,
+        item.title,
+        item.description,
+        item.categoryLabel,
+        ...item.keywords,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return searchableText.includes(query);
+    }).slice(0, 8); // Limit to 8 results
+  }, [searchQuery]);
 
   const scrollToId = (id: string) => {
     if (typeof document === "undefined") return;
@@ -12,6 +162,12 @@ export default function LearningPage() {
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
+  };
+
+  const handleResultClick = (item: SearchableItem) => {
+    setSearchQuery("");
+    setShowResults(false);
+    router.push(item.path);
   };
 
   return (
@@ -24,6 +180,199 @@ export default function LearningPage() {
             Nexus Marketplace and on NEXUS projects.
           </p>
         </header>
+
+        {/* Global Search */}
+        <div style={{ position: "relative" }}>
+          <div style={{ position: "relative" }}>
+            <input
+              type="text"
+              placeholder="Search all learning content, BKMs, guides..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setShowResults(true);
+              }}
+              onFocus={() => setShowResults(true)}
+              style={{
+                width: "100%",
+                padding: "12px 14px 12px 40px",
+                fontSize: 15,
+                border: "1px solid #d1d5db",
+                borderRadius: 10,
+                outline: "none",
+                backgroundColor: "#ffffff",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setShowResults(false);
+                  setSearchQuery("");
+                }
+                if (e.key === "Enter" && searchResults.length > 0) {
+                  handleResultClick(searchResults[0]);
+                }
+              }}
+            />
+            <span
+              style={{
+                position: "absolute",
+                left: 14,
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "#9ca3af",
+                fontSize: 18,
+                pointerEvents: "none",
+              }}
+            >
+              🔍
+            </span>
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setShowResults(false);
+                }}
+                style={{
+                  position: "absolute",
+                  right: 12,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "none",
+                  border: "none",
+                  color: "#9ca3af",
+                  cursor: "pointer",
+                  fontSize: 16,
+                  padding: 4,
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Search Results Dropdown */}
+          {showResults && searchQuery.trim() !== "" && (
+            <div
+              style={{
+                position: "absolute",
+                top: "100%",
+                left: 0,
+                right: 0,
+                marginTop: 4,
+                backgroundColor: "#ffffff",
+                border: "1px solid #e5e7eb",
+                borderRadius: 10,
+                boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
+                zIndex: 50,
+                maxHeight: 400,
+                overflowY: "auto",
+              }}
+            >
+              {searchResults.length > 0 ? (
+                <>
+                  <div
+                    style={{
+                      padding: "8px 12px",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: "#6b7280",
+                      backgroundColor: "#f9fafb",
+                      borderBottom: "1px solid #e5e7eb",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
+                    }}
+                  >
+                    {searchResults.length} result{searchResults.length !== 1 ? "s" : ""} for "{searchQuery}"
+                  </div>
+                  {searchResults.map((item) => (
+                    <SearchResultItem
+                      key={item.id}
+                      item={item}
+                      query={searchQuery}
+                      onClick={() => handleResultClick(item)}
+                    />
+                  ))}
+                  <div
+                    style={{
+                      padding: "10px 12px",
+                      fontSize: 12,
+                      color: "#6b7280",
+                      backgroundColor: "#f9fafb",
+                      borderTop: "1px solid #e5e7eb",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <span>Press Enter to open first result</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowResults(false);
+                        router.push(`/learning/bkm?q=${encodeURIComponent(searchQuery)}`);
+                      }}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#2563eb",
+                        cursor: "pointer",
+                        fontSize: 12,
+                        fontWeight: 500,
+                      }}
+                    >
+                      Search all BKMs →
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div
+                  style={{
+                    padding: 20,
+                    textAlign: "center",
+                    color: "#6b7280",
+                  }}
+                >
+                  <div style={{ fontSize: 24, marginBottom: 8 }}>🔍</div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>No results found</div>
+                  <div style={{ fontSize: 13, marginTop: 4 }}>
+                    Try different keywords or{" "}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowResults(false);
+                        router.push("/learning/bkm");
+                      }}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#2563eb",
+                        cursor: "pointer",
+                        fontSize: 13,
+                        textDecoration: "underline",
+                        padding: 0,
+                      }}
+                    >
+                      browse all BKMs
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Click outside to close */}
+          {showResults && searchQuery && (
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 40,
+              }}
+              onClick={() => setShowResults(false)}
+            />
+          )}
+        </div>
 
         {/* Hero / welcome panel */}
         <section
@@ -356,5 +705,126 @@ function TrackCard({ id, title, tagline, bullets, cta, onClick }: TrackCardProps
         </button>
       </div>
     </div>
+  );
+}
+
+// Search result item component
+interface SearchResultItemProps {
+  item: SearchableItem;
+  query: string;
+  onClick: () => void;
+}
+
+function SearchResultItem({ item, query, onClick }: SearchResultItemProps) {
+  const categoryColors: Record<string, { bg: string; text: string; border: string }> = {
+    bkm: { bg: "#f0fdf4", text: "#166534", border: "#bbf7d0" },
+    track: { bg: "#eff6ff", text: "#1e40af", border: "#bfdbfe" },
+    reference: { bg: "#faf5ff", text: "#7c3aed", border: "#e9d5ff" },
+  };
+  const colors = categoryColors[item.category] || categoryColors.reference;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 10,
+        padding: "10px 12px",
+        width: "100%",
+        textAlign: "left",
+        background: "none",
+        border: "none",
+        borderBottom: "1px solid #f3f4f6",
+        cursor: "pointer",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#f9fafb")}
+      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+    >
+      <span
+        style={{
+          fontSize: 10,
+          fontWeight: 600,
+          color: colors.text,
+          backgroundColor: colors.bg,
+          border: `1px solid ${colors.border}`,
+          padding: "2px 6px",
+          borderRadius: 4,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {item.categoryLabel}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 500, color: "#111827" }}>
+          <HighlightText text={item.title} query={query} />
+        </div>
+        <div
+          style={{
+            fontSize: 12,
+            color: "#6b7280",
+            marginTop: 2,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <HighlightText text={item.description} query={query} />
+        </div>
+        {item.status === "coming-soon" && (
+          <span
+            style={{
+              fontSize: 10,
+              color: "#9333ea",
+              backgroundColor: "#f3e8ff",
+              padding: "1px 4px",
+              borderRadius: 3,
+              marginTop: 4,
+              display: "inline-block",
+            }}
+          >
+            Coming Soon
+          </span>
+        )}
+      </div>
+      <span style={{ color: "#9ca3af", fontSize: 14 }}>→</span>
+    </button>
+  );
+}
+
+// Highlight matching text
+function HighlightText({ text, query }: { text: string; query: string }) {
+  if (!query || query.trim() === "") {
+    return <>{text}</>;
+  }
+
+  const queryLower = query.toLowerCase().trim();
+  const textLower = text.toLowerCase();
+  const index = textLower.indexOf(queryLower);
+
+  if (index === -1) {
+    return <>{text}</>;
+  }
+
+  const before = text.slice(0, index);
+  const match = text.slice(index, index + query.length);
+  const after = text.slice(index + query.length);
+
+  return (
+    <>
+      {before}
+      <mark
+        style={{
+          backgroundColor: "#fef08a",
+          color: "inherit",
+          padding: "0 1px",
+          borderRadius: 2,
+        }}
+      >
+        {match}
+      </mark>
+      {after}
+    </>
   );
 }

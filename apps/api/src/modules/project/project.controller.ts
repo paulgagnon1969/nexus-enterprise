@@ -1031,6 +1031,7 @@ export class ProjectController {
       rcvAmount?: number | null;
       note?: string | null;
       isPercentCompleteLocked?: boolean | null;
+      percentComplete?: number | null;
     },
   ) {
     const user = req.user as AuthenticatedUser;
