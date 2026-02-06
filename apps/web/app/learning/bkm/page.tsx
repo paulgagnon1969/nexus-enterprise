@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { PageCard } from "../../ui-shell";
 
@@ -185,9 +186,54 @@ const BKM_DOCUMENTS: BkmDocument[] = [
 
 export default function BkmListPage() {
   const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   const publishedCount = BKM_DOCUMENTS.filter((d) => d.status === "published").length;
   const totalCount = BKM_DOCUMENTS.length;
+
+  // Filter documents based on search and category
+  const filteredDocuments = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+    
+    return BKM_DOCUMENTS.filter((doc) => {
+      // Category filter
+      if (selectedCategory && doc.category !== selectedCategory) {
+        return false;
+      }
+      
+      // Search filter
+      if (query) {
+        const searchableText = [
+          doc.id,
+          doc.title,
+          doc.description,
+          BKM_CATEGORIES.find((c) => c.id === doc.category)?.name || "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        
+        return searchableText.includes(query);
+      }
+      
+      return true;
+    });
+  }, [searchQuery, selectedCategory]);
+
+  // Group filtered documents by category
+  const groupedDocuments = useMemo(() => {
+    const groups: Record<string, BkmDocument[]> = {};
+    for (const doc of filteredDocuments) {
+      if (!groups[doc.category]) {
+        groups[doc.category] = [];
+      }
+      groups[doc.category].push(doc);
+    }
+    return groups;
+  }, [filteredDocuments]);
+
+  const hasResults = filteredDocuments.length > 0;
+  const isFiltering = searchQuery.trim() !== "" || selectedCategory !== null;
 
   return (
     <PageCard>
@@ -228,41 +274,168 @@ export default function BkmListPage() {
           </div>
         </header>
 
-        {/* Quick Jump */}
-        <nav
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 8,
-            padding: "10px 0",
-            borderBottom: "1px solid #e5e7eb",
-          }}
-        >
-          {BKM_CATEGORIES.map((cat) => (
-            <button
-              key={cat.id}
-              type="button"
-              onClick={() => {
-                const el = document.getElementById(`cat-${cat.id}`);
-                el?.scrollIntoView({ behavior: "smooth", block: "start" });
+        {/* Search Bar */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ position: "relative" }}>
+            <input
+              type="text"
+              placeholder="Search BKMs by title, description, or keyword..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "10px 12px 10px 36px",
+                fontSize: 14,
+                border: "1px solid #d1d5db",
+                borderRadius: 8,
+                outline: "none",
+                backgroundColor: "#ffffff",
               }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "#2563eb")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "#d1d5db")}
+            />
+            <span
+              style={{
+                position: "absolute",
+                left: 12,
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "#9ca3af",
+                fontSize: 16,
+                pointerEvents: "none",
+              }}
+            >
+              🔍
+            </span>
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                style={{
+                  position: "absolute",
+                  right: 10,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "none",
+                  border: "none",
+                  color: "#9ca3af",
+                  cursor: "pointer",
+                  fontSize: 14,
+                  padding: 4,
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Category Filter + Quick Jump */}
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              alignItems: "center",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setSelectedCategory(null)}
               style={{
                 padding: "4px 10px",
                 fontSize: 12,
                 borderRadius: 999,
-                border: "1px solid #d1d5db",
-                backgroundColor: "#ffffff",
+                border: selectedCategory === null ? "1px solid #2563eb" : "1px solid #d1d5db",
+                backgroundColor: selectedCategory === null ? "#eff6ff" : "#ffffff",
+                color: selectedCategory === null ? "#2563eb" : "#374151",
                 cursor: "pointer",
+                fontWeight: selectedCategory === null ? 600 : 400,
               }}
             >
-              {cat.name}
+              All Categories
             </button>
-          ))}
-        </nav>
+            {BKM_CATEGORIES.map((cat) => {
+              const count = BKM_DOCUMENTS.filter((d) => d.category === cat.id).length;
+              const isSelected = selectedCategory === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => {
+                    if (isSelected) {
+                      setSelectedCategory(null);
+                    } else {
+                      setSelectedCategory(cat.id);
+                      // Also scroll to category if not searching
+                      if (!searchQuery) {
+                        const el = document.getElementById(`cat-${cat.id}`);
+                        el?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }
+                    }
+                  }}
+                  style={{
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    borderRadius: 999,
+                    border: isSelected ? "1px solid #2563eb" : "1px solid #d1d5db",
+                    backgroundColor: isSelected ? "#eff6ff" : "#ffffff",
+                    color: isSelected ? "#2563eb" : "#374151",
+                    cursor: "pointer",
+                    fontWeight: isSelected ? 600 : 400,
+                  }}
+                >
+                  {cat.name.split(" — ")[0]} ({count})
+                </button>
+              );
+            })}
+          </div>
 
-        {/* Categories */}
+          {/* Search Results Info */}
+          {isFiltering && (
+            <div
+              style={{
+                padding: "8px 12px",
+                backgroundColor: hasResults ? "#eff6ff" : "#fef3c7",
+                border: `1px solid ${hasResults ? "#bfdbfe" : "#fcd34d"}`,
+                borderRadius: 6,
+                fontSize: 13,
+                color: hasResults ? "#1e40af" : "#92400e",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span>
+                {hasResults
+                  ? `Found ${filteredDocuments.length} document${filteredDocuments.length !== 1 ? "s" : ""}`
+                  : "No documents match your search"}
+                {searchQuery && ` for "${searchQuery}"`}
+                {selectedCategory && ` in ${BKM_CATEGORIES.find((c) => c.id === selectedCategory)?.name.split(" — ")[0]}`}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setSelectedCategory(null);
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: hasResults ? "#2563eb" : "#92400e",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  textDecoration: "underline",
+                }}
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Categories with filtered documents */}
         {BKM_CATEGORIES.map((cat) => {
-          const docs = BKM_DOCUMENTS.filter((d) => d.category === cat.id);
+          const docs = groupedDocuments[cat.id] || [];
           if (docs.length === 0) return null;
 
           return (
@@ -278,6 +451,7 @@ export default function BkmListPage() {
                   <BkmCard
                     key={doc.id}
                     document={doc}
+                    searchQuery={searchQuery}
                     onClick={
                       doc.status === "published" ? () => router.push(doc.path) : undefined
                     }
@@ -287,6 +461,25 @@ export default function BkmListPage() {
             </section>
           );
         })}
+
+        {/* No results fallback */}
+        {!hasResults && isFiltering && (
+          <div
+            style={{
+              textAlign: "center",
+              padding: 40,
+              color: "#6b7280",
+            }}
+          >
+            <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
+            <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 4 }}>
+              No BKMs found
+            </div>
+            <div style={{ fontSize: 14 }}>
+              Try adjusting your search or category filter
+            </div>
+          </div>
+        )}
       </div>
     </PageCard>
   );
@@ -294,10 +487,11 @@ export default function BkmListPage() {
 
 interface BkmCardProps {
   document: BkmDocument;
+  searchQuery?: string;
   onClick?: () => void;
 }
 
-function BkmCard({ document, onClick }: BkmCardProps) {
+function BkmCard({ document, searchQuery, onClick }: BkmCardProps) {
   const isComingSoon = document.status === "coming-soon";
 
   return (
@@ -354,10 +548,10 @@ function BkmCard({ document, onClick }: BkmCardProps) {
             )}
           </div>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: isComingSoon ? "#6b7280" : "#111827" }}>
-            {document.title}
+            <HighlightText text={document.title} query={searchQuery} />
           </h3>
           <p style={{ margin: "6px 0 0", fontSize: 13, color: "#4b5563", lineHeight: 1.5 }}>
-            {document.description}
+            <HighlightText text={document.description} query={searchQuery} />
           </p>
         </div>
         {!isComingSoon && (
@@ -365,5 +559,41 @@ function BkmCard({ document, onClick }: BkmCardProps) {
         )}
       </div>
     </div>
+  );
+}
+
+// Highlight matching text in search results
+function HighlightText({ text, query }: { text: string; query?: string }) {
+  if (!query || query.trim() === "") {
+    return <>{text}</>;
+  }
+
+  const queryLower = query.toLowerCase().trim();
+  const textLower = text.toLowerCase();
+  const index = textLower.indexOf(queryLower);
+
+  if (index === -1) {
+    return <>{text}</>;
+  }
+
+  const before = text.slice(0, index);
+  const match = text.slice(index, index + query.length);
+  const after = text.slice(index + query.length);
+
+  return (
+    <>
+      {before}
+      <mark
+        style={{
+          backgroundColor: "#fef08a",
+          color: "inherit",
+          padding: "0 2px",
+          borderRadius: 2,
+        }}
+      >
+        {match}
+      </mark>
+      <HighlightText text={after} query={query} />
+    </>
   );
 }

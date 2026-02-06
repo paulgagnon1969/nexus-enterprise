@@ -904,6 +904,20 @@ export class ProjectService {
         }
       });
 
+      // Auto-create a living draft invoice and sync it from PETL (50% deposit ready).
+      // Best effort - don't fail the import if billing tables aren't ready yet.
+      try {
+        if (this.billingModelsAvailable()) {
+          this.logger.log(`[Import] Auto-creating draft invoice for project ${projectId}`);
+          await this.createOrGetDraftInvoice(projectId, {}, actor);
+        }
+      } catch (invoiceErr: any) {
+        this.logger.warn(
+          `[Import] Failed to auto-create draft invoice for project ${projectId}: ${invoiceErr?.message ?? invoiceErr}`,
+        );
+        // Non-fatal: import succeeded, invoice can be created manually later.
+      }
+
       return result;
     } catch (err: any) {
       console.error("Error in importXactForProject", {
@@ -5218,6 +5232,7 @@ export class ProjectService {
       }[];
     }
   ) {
+    this.logger.log(`[PETL bulk apply] projectId=${projectId}, body=${JSON.stringify(body)}`);
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, companyId }
     });
@@ -5506,7 +5521,7 @@ export class ProjectService {
     // Best effort: regenerate the current living invoice draft from PETL.
     await this.maybeSyncLivingDraftInvoiceFromPetl(projectId, companyId, actor);
 
-    return { status: "ok" };
+    return { status: "ok", updatedCount: computedChanges.length };
   }
 
   async getPetlGroupsForProject(
@@ -9083,8 +9098,15 @@ export class ProjectService {
   }
 
   private async maybeSyncLivingDraftInvoiceFromPetl(projectId: string, companyId: string, actor: AuthenticatedUser) {
-    if (!this.billingModelsAvailable()) return;
-    if (!this.invoicePetlModelsAvailable()) return;
+    this.logger.log(`[Invoice sync] Starting for project ${projectId}`);
+    if (!this.billingModelsAvailable()) {
+      this.logger.log(`[Invoice sync] Billing models not available, skipping`);
+      return;
+    }
+    if (!this.invoicePetlModelsAvailable()) {
+      this.logger.log(`[Invoice sync] Invoice PETL models not available, skipping`);
+      return;
+    }
 
     const draft = await this.prisma.projectInvoice.findFirst({
       where: {
@@ -9096,11 +9118,17 @@ export class ProjectService {
       select: { id: true },
     });
 
-    if (!draft) return;
+    if (!draft) {
+      this.logger.log(`[Invoice sync] No draft invoice found for project ${projectId}`);
+      return;
+    }
 
+    this.logger.log(`[Invoice sync] Found draft invoice ${draft.id}, syncing...`);
     try {
-      await this.syncDraftInvoiceFromPetl(projectId, draft.id, actor);
+      const result = await this.syncDraftInvoiceFromPetl(projectId, draft.id, actor);
+      this.logger.log(`[Invoice sync] Sync result: ${JSON.stringify(result)}`);
     } catch (err: any) {
+      this.logger.error(`[Invoice sync] Error: ${err?.message ?? err}`);
       if (!this.isMissingPrismaTableError(err, "ProjectInvoicePetlLine")) {
         throw err;
       }
