@@ -19402,54 +19402,6 @@ ${htmlBody}
                     <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
                       Reference line is shown in the header; search or filter as needed.
                     </div>
-                    {costBookModalOpen && (
-                      <CostBookPickerModal
-                        title="Cost Book"
-                        subtitle={(() => {
-                          const cat = String(petlReconPanel.data?.sowItem?.categoryCode ?? "").trim();
-                          const sel = String(petlReconPanel.data?.sowItem?.selectionCode ?? "").trim();
-                          const desc = String(petlReconPanel.data?.sowItem?.description ?? "").trim();
-                          const head = cat || sel ? `Baseline: ${cat}${sel ? `/${sel}` : ""}` : "Baseline";
-                          return desc ? `${head} — ${desc}` : head;
-                        })()}
-                        defaultQty={(() => {
-                          const q = petlReconPanel.data?.rcvBreakdown?.qty;
-                          return typeof q === "number" && Number.isFinite(q) && q > 0 ? q : 1;
-                        })()}
-                        confirmLabel={petlCostBookPickerBusy ? "Adding…" : "Add selected"}
-                        confirmDisabled={petlCostBookPickerBusy}
-                        onConfirm={async (selection) => {
-                          if (petlCostBookPickerBusy) return;
-                          if (selection.length === 0) {
-                            alert("Select a cost book line item first.");
-                            return;
-                          }
-                          if (selection.length > 1) {
-                            alert("For PETL reconciliation, please select exactly one line item.");
-                            return;
-                          }
-
-                          const first = selection[0];
-                          setPetlCostBookPickerBusy(true);
-                          try {
-                            const ok = await submitAddFromCostBook(first.item.id, first.qty);
-                            if (ok) {
-                              petlTransitionOverlayLabelRef.current = "Closing cost book…";
-                              busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
-                              startPetlTransition(() => setCostBookModalOpen(false));
-                            }
-                          } finally {
-                            setPetlCostBookPickerBusy(false);
-                          }
-                        }}
-                        onClose={() => {
-                          if (petlCostBookPickerBusy) return;
-                          petlTransitionOverlayLabelRef.current = "Closing cost book…";
-                          busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
-                          startPetlTransition(() => setCostBookModalOpen(false));
-                        }}
-                      />
-                    )}
                   </div>
 
                   <div>
@@ -20670,6 +20622,56 @@ ${htmlBody}
             </div>
           </div>
         </div>
+      )}
+
+      {/* PETL reconciliation cost book modal - rendered outside draggable panel to fix positioning */}
+      {costBookModalOpen && petlReconPanel.data && (
+        <CostBookPickerModal
+          title="Cost Book"
+          subtitle={(() => {
+            const cat = String(petlReconPanel.data?.sowItem?.categoryCode ?? "").trim();
+            const sel = String(petlReconPanel.data?.sowItem?.selectionCode ?? "").trim();
+            const desc = String(petlReconPanel.data?.sowItem?.description ?? "").trim();
+            const head = cat || sel ? `Baseline: ${cat}${sel ? `/${sel}` : ""}` : "Baseline";
+            return desc ? `${head} — ${desc}` : head;
+          })()}
+          defaultQty={(() => {
+            const q = petlReconPanel.data?.rcvBreakdown?.qty;
+            return typeof q === "number" && Number.isFinite(q) && q > 0 ? q : 1;
+          })()}
+          confirmLabel={petlCostBookPickerBusy ? "Adding…" : "Add selected"}
+          confirmDisabled={petlCostBookPickerBusy}
+          onConfirm={async (selection) => {
+            if (petlCostBookPickerBusy) return;
+            if (selection.length === 0) {
+              alert("Select a cost book line item first.");
+              return;
+            }
+            if (selection.length > 1) {
+              alert("For PETL reconciliation, please select exactly one line item.");
+              return;
+            }
+
+            const first = selection[0];
+            setPetlCostBookPickerBusy(true);
+            try {
+              const ok = await submitAddFromCostBook(first.item.id, first.qty);
+              if (ok) {
+                petlTransitionOverlayLabelRef.current = "Closing cost book…";
+                busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+                startPetlTransition(() => setCostBookModalOpen(false));
+              }
+            } finally {
+              setPetlCostBookPickerBusy(false);
+            }
+          }}
+          onClose={() => {
+            if (petlCostBookPickerBusy) return;
+            petlTransitionOverlayLabelRef.current = "Closing cost book…";
+            busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+            startPetlTransition(() => setCostBookModalOpen(false));
+          }}
+        />
       )}
 
       {reconEntryEdit && reconEditCostBookOpen && (
