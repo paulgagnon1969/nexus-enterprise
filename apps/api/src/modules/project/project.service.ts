@@ -4648,13 +4648,7 @@ export class ProjectService {
       note?: string | null;
     },
   ) {
-    const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
-      projectId,
-      companyId,
-      actor,
-      sowItemId,
-    });
-
+    // Ensure the SOW item exists and belongs to this project first.
     const sowItem = await this.prisma.sowItem.findUnique({
       where: { id: sowItemId },
       select: {
@@ -4662,11 +4656,12 @@ export class ProjectService {
         projectParticleId: true,
         qty: true,
         lineNo: true,
+        sow: { select: { projectId: true } },
       },
     });
 
-    if (!sowItem) {
-      throw new NotFoundException("SOW item not found");
+    if (!sowItem || sowItem.sow.projectId !== projectId) {
+      throw new NotFoundException("SOW item not found for this project");
     }
 
     const costBookItem = await this.prisma.companyPriceListItem.findFirst({
@@ -4696,81 +4691,109 @@ export class ProjectService {
       throw new BadRequestException("Invalid reconciliation entry tag");
     })();
 
-    const entry = await this.prisma.petlReconciliationEntry.create({
-      data: {
+    try {
+      const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
         projectId,
-        estimateVersionId: sowItem.estimateVersionId,
-        caseId: theCase.id,
-        parentSowItemId: sowItemId,
-        projectParticleId: sowItem.projectParticleId,
-        kind: PetlReconciliationEntryKind.ADD,
-        tag,
-        status: PetlReconciliationEntryStatus.APPROVED,
-        description: costBookItem.description,
-        categoryCode: costBookItem.cat,
-        selectionCode: costBookItem.sel,
-        unit: costBookItem.unit,
-        qty,
-        unitCost,
-        itemAmount,
-        salesTaxAmount: 0,
-        opAmount: 0,
-        rcvAmount: itemAmount,
-        rcvComponentsJson: {
-          itemAmount: true,
-          salesTaxAmount: false,
-          opAmount: false,
-        },
-        companyPriceListItemId: costBookItem.id,
-        sourceSnapshotJson: {
-          id: costBookItem.id,
-          cat: costBookItem.cat,
-          sel: costBookItem.sel,
-          description: costBookItem.description,
-          unit: costBookItem.unit,
-          unitPrice: costBookItem.unitPrice,
-          rawJson: costBookItem.rawJson,
-          companyPriceListId: costBookItem.companyPriceListId,
-          lastPriceChangedAt: costBookItem.lastPriceChangedAt,
-        },
-        note: body.note ?? null,
-        percentComplete: 0,
-        isPercentCompleteLocked: false,
-        createdByUserId: actor.userId,
-        originEstimateVersionId: sowItem.estimateVersionId,
-        originSowItemId: sowItemId,
-        originLineNo: sowItem.lineNo ?? null,
-        events: {
-          create: {
-            projectId,
-            estimateVersionId: sowItem.estimateVersionId,
-            caseId: theCase.id,
-            eventType: "ENTRY_CREATED",
-            payloadJson: {
-              kind: "ADD_FROM_COST_BOOK",
-              companyPriceListItemId: costBookItem.id,
-              amount: itemAmount,
-            },
-            createdByUserId: actor.userId,
-          },
-        },
-      },
-      include: {
-        case: {
-          include: {
-            entries: {
-              orderBy: { createdAt: "asc" },
-              include: {
-                attachments: { orderBy: { createdAt: "asc" } },
-              },
-            },
-            events: { orderBy: { createdAt: "asc" } },
-          },
-        },
-      },
-    });
+        companyId,
+        actor,
+        sowItemId,
+      });
 
-    return { entry, reconciliationCase: entry.case };
+      const entry = await this.prisma.petlReconciliationEntry.create({
+        data: {
+          projectId,
+          estimateVersionId: sowItem.estimateVersionId,
+          caseId: theCase.id,
+          parentSowItemId: sowItemId,
+          projectParticleId: sowItem.projectParticleId,
+          kind: PetlReconciliationEntryKind.ADD,
+          tag,
+          status: PetlReconciliationEntryStatus.APPROVED,
+          description: costBookItem.description,
+          categoryCode: costBookItem.cat,
+          selectionCode: costBookItem.sel,
+          unit: costBookItem.unit,
+          qty,
+          unitCost,
+          itemAmount,
+          salesTaxAmount: 0,
+          opAmount: 0,
+          rcvAmount: itemAmount,
+          rcvComponentsJson: {
+            itemAmount: true,
+            salesTaxAmount: false,
+            opAmount: false,
+          },
+          companyPriceListItemId: costBookItem.id,
+          sourceSnapshotJson: {
+            id: costBookItem.id,
+            cat: costBookItem.cat,
+            sel: costBookItem.sel,
+            description: costBookItem.description,
+            unit: costBookItem.unit,
+            unitPrice: costBookItem.unitPrice,
+            rawJson: costBookItem.rawJson,
+            companyPriceListId: costBookItem.companyPriceListId,
+            lastPriceChangedAt: costBookItem.lastPriceChangedAt,
+          },
+          note: body.note ?? null,
+          percentComplete: 0,
+          isPercentCompleteLocked: false,
+          createdByUserId: actor.userId,
+          originEstimateVersionId: sowItem.estimateVersionId,
+          originSowItemId: sowItemId,
+          originLineNo: sowItem.lineNo ?? null,
+          events: {
+            create: {
+              projectId,
+              estimateVersionId: sowItem.estimateVersionId,
+              caseId: theCase.id,
+              eventType: "ENTRY_CREATED",
+              payloadJson: {
+                kind: "ADD_FROM_COST_BOOK",
+                companyPriceListItemId: costBookItem.id,
+                amount: itemAmount,
+              },
+              createdByUserId: actor.userId,
+            },
+          },
+        },
+        include: {
+          case: {
+            include: {
+              entries: {
+                orderBy: { createdAt: "asc" },
+                include: {
+                  attachments: { orderBy: { createdAt: "asc" } },
+                },
+              },
+              events: { orderBy: { createdAt: "asc" } },
+            },
+          },
+        },
+      });
+
+      return { entry, reconciliationCase: entry.case };
+    } catch (err: any) {
+      if (
+        this.isMissingPrismaTableError(err, "PetlReconciliationCase") ||
+        this.isMissingPrismaTableError(err, "PetlReconciliationEntry") ||
+        this.isMissingPrismaTableError(err, "PetlReconciliationEvent") ||
+        this.isMissingPrismaTableError(err, "PetlReconciliationAttachment")
+      ) {
+        this.logger.error(
+          `createPetlReconciliationAddFromCostBook skipped because reconciliation tables are not fully migrated for project ${projectId}`,
+          err instanceof Error ? err.stack : String(err),
+        );
+
+        return {
+          entry: null,
+          reconciliationCase: null,
+        };
+      }
+
+      throw err;
+    }
   }
 
   async replacePetlLineItemFromCostBook(
