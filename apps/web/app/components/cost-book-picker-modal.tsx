@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useDraggable } from "../hooks/use-draggable";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -77,6 +78,7 @@ export function CostBookPickerModal({
 
   const dropdownRef = useRef<HTMLDivElement | null>(null);
   const descriptionInputRef = useRef<HTMLInputElement | null>(null);
+  const draggable = useDraggable();
 
   const filteredCats = useMemo(() => {
     const q = catDropdownQuery.trim().toUpperCase();
@@ -304,10 +306,12 @@ export function CostBookPickerModal({
           boxShadow: "0 12px 32px rgba(15,23,42,0.25)",
           display: "flex",
           flexDirection: "column",
+          ...draggable.style,
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div
+          {...draggable.handleProps}
           style={{
             padding: "10px 12px",
             borderBottom: "1px solid #e5e7eb",
@@ -316,6 +320,8 @@ export function CostBookPickerModal({
             alignItems: "center",
             justifyContent: "space-between",
             gap: 12,
+            borderRadius: "12px 12px 0 0",
+            ...draggable.handleProps.style,
           }}
         >
           <div>
