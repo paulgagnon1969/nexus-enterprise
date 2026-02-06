@@ -17533,6 +17533,7 @@ ${htmlBody}
                 // Yield to let the loading state paint before the network request
                 await new Promise(resolve => requestAnimationFrame(resolve));
 
+                console.log("[PETL bulk apply] Sending request:", { filters, operation, percent: pct, acvOnly: isAcv });
                 const res = await fetch(`${API_BASE}/projects/${id}/petl/percentage-edits`, {
                   method: "POST",
                   headers: {
@@ -17547,6 +17548,7 @@ ${htmlBody}
                   }),
                 });
                 const json = await res.json().catch(() => null);
+                console.log("[PETL bulk apply] Response:", json);
 
                 if (!res.ok) {
                   setBulkMessage(
@@ -17606,6 +17608,7 @@ ${htmlBody}
 
                 if (json?.status === "noop") {
                   setBulkMessage("No matching items found for the current filters.");
+                  return;
                 }
 
                 // Refresh groups
@@ -17622,6 +17625,7 @@ ${htmlBody}
                   setGroupLoading(false);
                 }
 
+                showPetlToast(`Updated ${json?.updatedCount ?? 'filtered'} line items`);
                 setBulkMessage("Updated selection.");
               } catch (err: any) {
                 setBulkMessage(err.message ?? "Bulk update failed.");
