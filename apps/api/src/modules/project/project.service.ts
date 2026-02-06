@@ -3371,9 +3371,20 @@ export class ProjectService {
         },
       });
     } catch (err: any) {
-      // Backwards-compatible: in environments where the PetlReconciliationAttachment
-      // table/migration is missing, fall back to loading the case without
-      // attachments instead of 500-ing the project page.
+      // If reconciliation tables themselves are missing, treat as "no case yet"
+      // so PETL still works in partially migrated environments.
+      if (
+        this.isMissingPrismaTableError(err, "PetlReconciliationCase") ||
+        this.isMissingPrismaTableError(err, "PetlReconciliationEntry") ||
+        this.isMissingPrismaTableError(err, "PetlReconciliationEvent")
+      ) {
+        return null;
+      }
+
+      // Backwards-compatible: in environments where only the
+      // PetlReconciliationAttachment table/migration is missing, fall back to
+      // loading the case without attachments instead of 500-ing the project
+      // page.
       if (!this.isMissingPrismaTableError(err, "PetlReconciliationAttachment")) {
         throw err;
       }
