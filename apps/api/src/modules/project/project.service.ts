@@ -3502,49 +3502,97 @@ export class ProjectService {
   ) {
     await this.getProjectByIdForUser(projectId, actor);
 
-    const sowItem = await this.prisma.sowItem.findUnique({
-      where: { id: sowItemId },
-      include: {
-        estimateVersion: { select: { projectId: true } },
-      },
-    });
+    try {
+      const sowItem = await this.prisma.sowItem.findUnique({
+        where: { id: sowItemId },
+        include: {
+          estimateVersion: { select: { projectId: true } },
+        },
+      });
 
-    if (!sowItem || sowItem.estimateVersion.projectId !== projectId) {
-      throw new NotFoundException("SOW item not found for this project");
+      if (!sowItem || sowItem.estimateVersion.projectId !== projectId) {
+        throw new NotFoundException("SOW item not found for this project");
+      }
+
+      const particleById = await this.resolveProjectParticlesForProject({
+        projectId,
+        particleIds: [sowItem.projectParticleId],
+      });
+
+      const sowItemWithParticle = {
+        ...sowItem,
+        projectParticle: particleById.get(sowItem.projectParticleId) ?? null,
+      };
+
+      const breakdown = this.buildRcvBreakdownForSowItem({
+        qty: sowItemWithParticle.qty ?? null,
+        unitCost: sowItemWithParticle.unitCost ?? null,
+        itemAmount: sowItemWithParticle.itemAmount ?? null,
+        salesTaxAmount: sowItemWithParticle.salesTaxAmount ?? null,
+        rcvAmount: sowItemWithParticle.rcvAmount ?? null,
+      });
+
+      const existingCase = await this.findPetlReconciliationCaseForSowItem({
+        projectId,
+        sowItemId,
+      });
+
+      return {
+        projectId,
+        sowItemId: sowItemWithParticle.id,
+        estimateVersionId: sowItemWithParticle.estimateVersionId,
+        projectParticleId: sowItemWithParticle.projectParticleId,
+        sowItem: sowItemWithParticle,
+        rcvBreakdown: breakdown,
+        reconciliationCase: existingCase,
+      };
+    } catch (err: any) {
+      // Preserve explicit HTTP errors (e.g., 404 for missing SOW item).
+      if (err instanceof HttpException) {
+        throw err;
+      }
+
+      this.logger.error(
+        `getPetlReconciliationForSowItem failed for project ${projectId}, sowItem ${sowItemId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+
+      // Conservative fallback: load a minimal SOW item without relations so
+      // legacy/partial data doesn't break the reconciliation drawer.
+      try {
+        const basic = await this.prisma.sowItem.findUnique({
+          where: { id: sowItemId },
+        });
+        if (!basic) {
+          throw new NotFoundException("SOW item not found for this project");
+        }
+
+        const breakdown = this.buildRcvBreakdownForSowItem({
+          qty: basic.qty ?? null,
+          unitCost: basic.unitCost ?? null,
+          itemAmount: basic.itemAmount ?? null,
+          salesTaxAmount: basic.salesTaxAmount ?? null,
+          rcvAmount: basic.rcvAmount ?? null,
+        });
+
+        return {
+          projectId,
+          sowItemId: basic.id,
+          estimateVersionId: basic.estimateVersionId,
+          projectParticleId: basic.projectParticleId,
+          sowItem: basic,
+          rcvBreakdown: breakdown,
+          reconciliationCase: null,
+        };
+      } catch (fallbackErr: any) {
+        this.logger.error(
+          `Fallback getPetlReconciliationForSowItem also failed for project ${projectId}, sowItem ${sowItemId}`,
+          fallbackErr instanceof Error ? fallbackErr.stack : String(fallbackErr),
+        );
+        // Rethrow the original error so observability still sees the root cause.
+        throw err;
+      }
     }
-
-    const particleById = await this.resolveProjectParticlesForProject({
-      projectId,
-      particleIds: [sowItem.projectParticleId],
-    });
-
-    const sowItemWithParticle = {
-      ...sowItem,
-      projectParticle: particleById.get(sowItem.projectParticleId) ?? null,
-    };
-
-    const breakdown = this.buildRcvBreakdownForSowItem({
-      qty: sowItemWithParticle.qty ?? null,
-      unitCost: sowItemWithParticle.unitCost ?? null,
-      itemAmount: sowItemWithParticle.itemAmount ?? null,
-      salesTaxAmount: sowItemWithParticle.salesTaxAmount ?? null,
-      rcvAmount: sowItemWithParticle.rcvAmount ?? null,
-    });
-
-    const existingCase = await this.findPetlReconciliationCaseForSowItem({
-      projectId,
-      sowItemId,
-    });
-
-    return {
-      projectId,
-      sowItemId: sowItemWithParticle.id,
-      estimateVersionId: sowItemWithParticle.estimateVersionId,
-      projectParticleId: sowItemWithParticle.projectParticleId,
-      sowItem: sowItemWithParticle,
-      rcvBreakdown: breakdown,
-      reconciliationCase: existingCase,
-    };
   }
 
   async getPetlReconciliationCaseHistory(
