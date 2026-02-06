@@ -19,6 +19,7 @@ import {
 } from "../../components/cost-book-picker-modal";
 import ProjectFilePicker, { type ProjectFileSummary } from "../../messaging/project-file-picker";
 import { AdminPetlTools } from "./admin-petl-tools";
+import { PetlVirtualizedTable } from "./petl-virtualized-table";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -928,45 +929,53 @@ export default function ProjectDetailPage({
     setPetlReconcileNotesImportError(null);
   }, []);
 
-  const downloadPetlPercentCsv = useCallback(() => {
-    const header = ["#", "% Complete"];
-    const rows = [...petlItems]
-      .sort((a, b) => a.lineNo - b.lineNo)
-      .map((i: PetlItem) => {
-        const lineNo = String(i.lineNo).trim();
-        // If a line is marked ACV-only, leave % blank so uploading the template
-        // won't accidentally flip it to non-ACV-only.
-        const pct = i.isAcvOnly ? "" : String(i.percentComplete ?? "");
-        // Values are numeric/blank; no escaping needed.
-        return `${lineNo},${pct}`;
-      });
+  // Async CSV generation with chunked processing to avoid blocking main thread
+  const downloadPetlPercentCsv = useCallback(async () => {
+    busyOverlay.setMessage("Generating CSV…");
+    const done = busyOverlay.begin("Generating CSV…");
 
-    const csv = [header.join(","), ...rows].join("\n");
-    const fileName = `petl-percent-import-${id}.csv`;
+    try {
+      // Yield to let the overlay render
+      await new Promise((resolve) => requestAnimationFrame(resolve));
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }, [id, petlItems]);
+      const header = ["#", "% Complete"];
+      const sortedItems = [...petlItems].sort((a, b) => a.lineNo - b.lineNo);
 
-  const setPetlDisplayModePersisted = (mode: PetlDisplayMode) => {
-    setPetlDisplayMode(mode);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem(petlDisplayModeKey, mode);
-        // Best effort: clear legacy key so we don't flip back after refresh.
-        localStorage.removeItem(`petlDisplayMode:${id}`);
-      } catch {
-        // ignore storage errors
+      // Process in chunks to avoid blocking
+      const CHUNK_SIZE = 500;
+      const rows: string[] = [];
+
+      for (let i = 0; i < sortedItems.length; i += CHUNK_SIZE) {
+        const chunk = sortedItems.slice(i, i + CHUNK_SIZE);
+        for (const item of chunk) {
+          const lineNo = String(item.lineNo).trim();
+          // If a line is marked ACV-only, leave % blank so uploading the template
+          // won't accidentally flip it to non-ACV-only.
+          const pct = item.isAcvOnly ? "" : String(item.percentComplete ?? "");
+          rows.push(`${lineNo},${pct}`);
+        }
+        // Yield to main thread between chunks
+        if (i + CHUNK_SIZE < sortedItems.length) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
       }
+
+      const csv = [header.join(","), ...rows].join("\n");
+      const fileName = `petl-percent-import-${id}.csv`;
+
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      done();
     }
-  };
+  }, [id, petlItems, busyOverlay]);
 
   useEffect(() => {
     if (!petlPercentJobId) return;
@@ -1961,8 +1970,16 @@ ${htmlBody}
     }, 120);
   };
 
-  const printActiveInvoiceAsHtml = (opts: { layout: "KEEP" | "GROUPED" | "FLAT"; groups: "KEEP" | "COLLAPSE_ALL" | "EXPAND_ALL"; }) => {
+  // Async print function that yields to main thread to avoid blocking
+  const printActiveInvoiceAsHtml = async (opts: { layout: "KEEP" | "GROUPED" | "FLAT"; groups: "KEEP" | "COLLAPSE_ALL" | "EXPAND_ALL"; }) => {
     if (!activeInvoice) return;
+
+    busyOverlay.setMessage("Preparing invoice for print…");
+    const done = busyOverlay.begin("Preparing invoice for print…");
+
+    try {
+      // Yield to let overlay render
+      await new Promise((resolve) => requestAnimationFrame(resolve));
 
     const resolvedLayout: "GROUPED" | "FLAT" =
       opts.layout === "KEEP" ? (invoiceGroupEnabled ? "GROUPED" : "FLAT") : opts.layout;
@@ -2239,8 +2256,14 @@ ${htmlBody}
       `;
     })();
 
+    // Yield before final print
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
     const body = `${headerHtml}\n${invoiceLinesHtml}\n${petlHtml}`;
     printHtmlDocument(title, body);
+    } finally {
+      done();
+    }
   };
 
   const extractUnitGroupCode = (label: any) => {
@@ -2917,6 +2940,7 @@ ${htmlBody}
           opAmount: string;
           rcvAmount: string;
         };
+        rcvManuallyEdited: boolean;
         saving: boolean;
         error: string | null;
       }
@@ -3400,7 +3424,42 @@ ${htmlBody}
     }
   }, [isPetlTransitionPending, busyOverlay.begin]);
 
-  // SOP: when PETL is doing real work (network + heavy table renders), show the
+  // Wrap filter setters in transitions to avoid blocking UI on large datasets
+  const setRoomParticleIdFiltersTransition = useCallback((next: string[]) => {
+    startPetlTransition(() => setRoomParticleIdFilters(next));
+  }, [startPetlTransition]);
+
+  const setCategoryCodeFiltersTransition = useCallback((next: string[]) => {
+    startPetlTransition(() => setCategoryCodeFilters(next));
+  }, [startPetlTransition]);
+
+  const setSelectionCodeFiltersTransition = useCallback((next: string[]) => {
+    startPetlTransition(() => setSelectionCodeFilters(next));
+  }, [startPetlTransition]);
+
+  const setPetlOrgGroupFiltersTransition = useCallback((next: string[]) => {
+    startPetlTransition(() => setPetlOrgGroupFilters(next));
+  }, [startPetlTransition]);
+
+  // Use transition for display mode changes to avoid blocking
+  const setPetlDisplayModePersisted = useCallback((mode: PetlDisplayMode) => {
+    petlTransitionOverlayLabelRef.current = "Switching view…";
+    busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+    startPetlTransition(() => {
+      setPetlDisplayMode(mode);
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(petlDisplayModeKey, mode);
+          // Best effort: clear legacy key so we don't flip back after refresh.
+          localStorage.removeItem(`petlDisplayMode:${id}`);
+        } catch {
+          // ignore storage errors
+        }
+      }
+    });
+  }, [id, petlDisplayModeKey, busyOverlay, startPetlTransition]);
+
+  // SOP: when PETL is doing real work
   // delayed overlay automatically based on the existing loading flags.
   const petlLoadingOverlayDoneRef = useRef<null | (() => void)>(null);
   useEffect(() => {
@@ -6645,6 +6704,35 @@ ${htmlBody}
 
   // The line-sequence PETL table can be very large. Memoize its JSX so opening the
   // reconciliation drawer doesn't force React to rebuild thousands of rows.
+  const VIRTUALIZATION_THRESHOLD = 100;
+  const useVirtualizedTable = petlFlatItems.length > VIRTUALIZATION_THRESHOLD;
+
+  // Callbacks for virtualized table
+  const handleVirtualToggleExpand = useCallback((itemId: string) => {
+    setPetlReconExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }, []);
+
+  const handleVirtualToggleFlag = useCallback((itemId: string) => {
+    petlTransitionOverlayLabelRef.current = petlReconFlagIds.has(itemId)
+      ? "Removing flag…"
+      : "Flagging for review…";
+    busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+    startPetlTransition(() => togglePetlReconFlag(itemId));
+  }, [petlReconFlagIds, busyOverlay, startPetlTransition, togglePetlReconFlag]);
+
+  const handleVirtualOpenReconciliation = useCallback((itemId: string) => {
+    void openPetlReconciliation(itemId);
+  }, [openPetlReconciliation]);
+
+  const handleVirtualDeleteItem = useCallback((item: PetlItem) => {
+    void deletePetlLineItem(item);
+  }, [deletePetlLineItem]);
+
   const petlLineSequenceTable = useMemo(() => {
     // Critical: don't even *build* the large JSX tree unless the PETL tab content is mounted.
     // (PETL data may load while on SUMMARY for the progress summary.)
@@ -6755,6 +6843,30 @@ ${htmlBody}
             Some PETL actions and fields are available only to Admin/Owner/Super Admin.
           </div>
         )}
+
+        {useVirtualizedTable ? (
+          <PetlVirtualizedTable
+            items={petlFlatItems}
+            reconEntriesBySowItemId={reconEntriesBySowItemId}
+            expandedIds={petlReconExpandedIds}
+            flaggedIds={petlReconFlagIds}
+            reconActivityIds={petlReconActivityIds}
+            isPmOrAbove={isPmOrAbove}
+            isAdminOrAbove={isAdminOrAbove}
+            editingCell={petlEditingCell}
+            editDraft={petlEditDraft}
+            editSaving={petlEditSaving}
+            containerHeight={Math.max(400, typeof window !== 'undefined' && window.innerHeight ? window.innerHeight - 320 : 600)}
+            onToggleExpand={handleVirtualToggleExpand}
+            onToggleFlag={handleVirtualToggleFlag}
+            onOpenReconciliation={handleVirtualOpenReconciliation}
+            onDeleteItem={handleVirtualDeleteItem}
+            onOpenCellEditor={openPetlCellEditor}
+            onEditDraftChange={setPetlEditDraft}
+            onSaveEdit={savePetlInlineEdit}
+            onCancelEdit={cancelPetlCellEditor}
+          />
+        ) : (
         <div
           ref={petlFlatListRef}
           style={{
@@ -7694,6 +7806,7 @@ ${htmlBody}
             </tbody>
           </table>
         </div>
+        )}
       </div>
     );
   }, [
@@ -7709,6 +7822,17 @@ ${htmlBody}
     petlReconFlagIds,
     petlItems.length,
     reconEntriesBySowItemId,
+    useVirtualizedTable,
+    petlEditingCell,
+    petlEditDraft,
+    petlEditSaving,
+    handleVirtualToggleExpand,
+    handleVirtualToggleFlag,
+    handleVirtualOpenReconciliation,
+    handleVirtualDeleteItem,
+    openPetlCellEditor,
+    savePetlInlineEdit,
+    cancelPetlCellEditor,
   ]);
 
   const submitReconCredit = async () => {
@@ -7953,6 +8077,10 @@ ${htmlBody}
         ? (tag as ReconEntryTag)
         : "";
 
+    // If entry already has RCV, consider it manually set (don't auto-overwrite)
+    const hasExistingRcv =
+      typeof entry?.rcvAmount === "number" && Number.isFinite(entry.rcvAmount);
+
     setReconEntryEdit({
       entry,
       draft: {
@@ -7985,12 +8113,60 @@ ${htmlBody}
             ? String(entry.rcvAmount)
             : "",
       },
+      rcvManuallyEdited: hasExistingRcv,
       saving: false,
       error: null,
     });
   };
 
   const closeReconEntryEdit = () => setReconEntryEdit(null);
+
+  // Helper: parse a string to number, treating blank as 0
+  const parseReconNumber = (raw: string): number => {
+    const s = raw.trim().replace(/,/g, "");
+    if (!s) return 0;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  // Helper: compute RCV from draft fields (itemAmount + tax + opAmount)
+  // Also derives itemAmount from qty * unitCost if itemAmount is blank
+  const computeReconRcv = (draft: typeof reconEntryEdit extends null ? never : NonNullable<typeof reconEntryEdit>["draft"]): string => {
+    const qty = parseReconNumber(draft.qty);
+    const unitCost = parseReconNumber(draft.unitCost);
+    const itemAmountRaw = draft.itemAmount.trim();
+    
+    // If itemAmount is blank but qty and unitCost exist, derive it
+    let itemAmount = parseReconNumber(draft.itemAmount);
+    if (!itemAmountRaw && qty !== 0 && unitCost !== 0) {
+      itemAmount = qty * unitCost;
+    }
+    
+    const tax = parseReconNumber(draft.salesTaxAmount);
+    const op = parseReconNumber(draft.opAmount);
+    
+    const rcv = itemAmount + tax + op;
+    // Return empty string if result is 0 to keep placeholder behavior
+    return rcv === 0 ? "" : String(rcv);
+  };
+
+  // Update a financial field and auto-compute RCV if not manually edited
+  const updateReconFinancialField = (
+    field: "qty" | "unitCost" | "itemAmount" | "salesTaxAmount" | "opAmount",
+    value: string
+  ) => {
+    setReconEntryEdit((prev) => {
+      if (!prev) return prev;
+      const newDraft = { ...prev.draft, [field]: value };
+      
+      // Auto-compute RCV if user hasn't manually edited it
+      if (!prev.rcvManuallyEdited) {
+        newDraft.rcvAmount = computeReconRcv(newDraft);
+      }
+      
+      return { ...prev, draft: newDraft };
+    });
+  };
 
   const deleteReconEntryFromEditor = async () => {
     if (!reconEntryEdit) return;
@@ -17080,7 +17256,7 @@ ${htmlBody}
               placeholder="All rooms"
               options={roomOptions}
               selectedValues={roomParticleIdFilters}
-              onChangeSelectedValues={setRoomParticleIdFilters}
+              onChangeSelectedValues={setRoomParticleIdFiltersTransition}
               minWidth={180}
               minListHeight={220}
             />
@@ -17092,7 +17268,7 @@ ${htmlBody}
               placeholder="All"
               options={categoryOptions.map((cat) => ({ value: cat, label: cat }))}
               selectedValues={categoryCodeFilters}
-              onChangeSelectedValues={setCategoryCodeFilters}
+              onChangeSelectedValues={setCategoryCodeFiltersTransition}
               minWidth={110}
               // Taller list for CAT so longer lists feel less cramped in reconciliation workflows.
               minListHeight={320}
@@ -17105,7 +17281,7 @@ ${htmlBody}
               placeholder="All"
               options={selectionOptions.map((sel) => ({ value: sel, label: sel }))}
               selectedValues={selectionCodeFilters}
-              onChangeSelectedValues={setSelectionCodeFilters}
+              onChangeSelectedValues={setSelectionCodeFiltersTransition}
               minWidth={110}
               minListHeight={220}
             />
@@ -17117,7 +17293,7 @@ ${htmlBody}
               placeholder="All"
               options={petlOrgGroupCodes.map(code => ({ value: code, label: code }))}
               selectedValues={petlOrgGroupFilters}
-              onChangeSelectedValues={setPetlOrgGroupFilters}
+              onChangeSelectedValues={setPetlOrgGroupFiltersTransition}
               minWidth={140}
               minListHeight={240}
             />
@@ -17179,8 +17355,16 @@ ${htmlBody}
                 filters.orgGroupCodes = petlOrgGroupFilters;
               }
 
+              // Show overlay early so the click feels responsive
+              petlTransitionOverlayLabelRef.current = "Applying % update…";
+              busyOverlay.setMessage(petlTransitionOverlayLabelRef.current);
+
               try {
                 setBulkSaving(true);
+
+                // Yield to let the loading state paint before the network request
+                await new Promise(resolve => requestAnimationFrame(resolve));
+
                 const res = await fetch(`${API_BASE}/projects/${id}/petl/percentage-edits`, {
                   method: "POST",
                   headers: {
@@ -17211,27 +17395,32 @@ ${htmlBody}
                   return;
                 }
 
-                // Optimistically update local items that match filters
-                setPetlItems(prev =>
-                  prev.map(it => {
-                    if (!matchesFilters(it)) return it;
+                // Optimistically update local items that match filters.
+                // Wrap in a transition so React can yield to the main thread and
+                // avoid blocking UI for 1+ seconds on large datasets (INP fix).
+                startPetlTransition(() => {
+                  setPetlItems(prev =>
+                    prev.map(it => {
+                      if (!matchesFilters(it)) return it;
 
-                    // For ACV-only bulk set, flag as ACV and zero out percent.
-                    if (isAcv && operation === "set") {
-                      return { ...it, percentComplete: 0, isAcvOnly: true };
-                    }
+                      // For ACV-only bulk set, flag as ACV and zero out percent.
+                      if (isAcv && operation === "set") {
+                        return { ...it, percentComplete: 0, isAcvOnly: true };
+                      }
 
-                    const current = it.percentComplete ?? 0;
-                    let next = current;
-                    if (operation === "set") next = pct;
-                    else if (operation === "increment") next = current + pct;
-                    else if (operation === "decrement") next = current - pct;
-                    next = Math.max(0, Math.min(100, next));
-                    return { ...it, percentComplete: next, isAcvOnly: false };
-                  }),
-                );
+                      const current = it.percentComplete ?? 0;
+                      let next = current;
+                      if (operation === "set") next = pct;
+                      else if (operation === "increment") next = current + pct;
+                      else if (operation === "decrement") next = current - pct;
+                      next = Math.max(0, Math.min(100, next));
+                      return { ...it, percentComplete: next, isAcvOnly: false };
+                    }),
+                  );
+                });
 
-                // Refresh PETL from server so the UI always reflects persisted values
+                // Refresh PETL from server so the UI always reflects persisted values.
+                // Also wrap in transition to avoid blocking.
                 try {
                   const petlRes = await fetch(`${API_BASE}/projects/${id}/petl`, {
                     headers: { Authorization: `Bearer ${token}` },
@@ -17239,7 +17428,9 @@ ${htmlBody}
                   if (petlRes.ok) {
                     const petl: any = await petlRes.json();
                     const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
-                    setPetlItems(items);
+                    startPetlTransition(() => {
+                      setPetlItems(items);
+                    });
                   }
                 } catch {
                   // ignore
@@ -18978,7 +19169,7 @@ ${htmlBody}
                   <div>
                     <div style={{ fontWeight: 600, marginBottom: 6 }}>Add from Cost Book</div>
 
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                       <button
                         type="button"
                         onClick={() => {
@@ -18998,9 +19189,44 @@ ${htmlBody}
                       >
                         Open Cost Book
                       </button>
-                    <div style={{ fontSize: 11, color: "#6b7280" }}>
-                      Reference line is shown in the header; search or filter as needed.
+                      <div style={{ flex: 1 }} />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPetlReconPanel(prev => ({
+                            ...prev,
+                            open: false,
+                          }))
+                        }
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 8,
+                          border: "1px solid #d1d5db",
+                          background: "#ffffff",
+                          cursor: "pointer",
+                          fontSize: 12,
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveReconPanel}
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 8,
+                          border: "1px solid #0f172a",
+                          background: "#0f172a",
+                          color: "#f9fafb",
+                          cursor: "pointer",
+                          fontSize: 12,
+                        }}
+                      >
+                        Save
+                      </button>
                     </div>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                      Reference line is shown in the header; search or filter as needed.
                     </div>
                     {costBookModalOpen && (
                       <CostBookPickerModal
@@ -19529,54 +19755,6 @@ ${htmlBody}
               )}
             </div>
           </div>
-
-          <div
-            style={{
-              padding: "8px 12px",
-              borderTop: "1px solid #e5e7eb",
-              display: "flex",
-              justifyContent: "space-between",
-              backgroundColor: "#f9fafb",
-            }}
-          >
-            <div />
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                onClick={() =>
-                  setPetlReconPanel(prev => ({
-                    ...prev,
-                    open: false,
-                  }))
-                }
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  border: "1px solid #d1d5db",
-                  background: "#ffffff",
-                  cursor: "pointer",
-                  fontSize: 12,
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={saveReconPanel}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  border: "1px solid #0f172a",
-                  background: "#0f172a",
-                  color: "#f9fafb",
-                  cursor: "pointer",
-                  fontSize: 12,
-                }}
-              >
-                Save
-              </button>
-            </div>
-          </div>
         </div>
       ) : null}
 
@@ -19745,12 +19923,7 @@ ${htmlBody}
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Qty</div>
                   <input
                     value={reconEntryEdit.draft.qty}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setReconEntryEdit((prev) =>
-                        prev ? { ...prev, draft: { ...prev.draft, qty: v } } : prev,
-                      );
-                    }}
+                    onChange={(e) => updateReconFinancialField("qty", e.target.value)}
                     style={{
                       padding: "6px 8px",
                       borderRadius: 8,
@@ -19786,12 +19959,7 @@ ${htmlBody}
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Unit cost</div>
                   <input
                     value={reconEntryEdit.draft.unitCost}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setReconEntryEdit((prev) =>
-                        prev ? { ...prev, draft: { ...prev.draft, unitCost: v } } : prev,
-                      );
-                    }}
+                    onChange={(e) => updateReconFinancialField("unitCost", e.target.value)}
                     style={{
                       padding: "6px 8px",
                       borderRadius: 8,
@@ -19805,12 +19973,7 @@ ${htmlBody}
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Item amount</div>
                   <input
                     value={reconEntryEdit.draft.itemAmount}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setReconEntryEdit((prev) =>
-                        prev ? { ...prev, draft: { ...prev.draft, itemAmount: v } } : prev,
-                      );
-                    }}
+                    onChange={(e) => updateReconFinancialField("itemAmount", e.target.value)}
                     style={{
                       padding: "6px 8px",
                       borderRadius: 8,
@@ -19827,12 +19990,7 @@ ${htmlBody}
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Tax</div>
                   <input
                     value={reconEntryEdit.draft.salesTaxAmount}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setReconEntryEdit((prev) =>
-                        prev ? { ...prev, draft: { ...prev.draft, salesTaxAmount: v } } : prev,
-                      );
-                    }}
+                    onChange={(e) => updateReconFinancialField("salesTaxAmount", e.target.value)}
                     style={{
                       padding: "6px 8px",
                       borderRadius: 8,
@@ -19846,12 +20004,7 @@ ${htmlBody}
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>O&P / Other</div>
                   <input
                     value={reconEntryEdit.draft.opAmount}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setReconEntryEdit((prev) =>
-                        prev ? { ...prev, draft: { ...prev.draft, opAmount: v } } : prev,
-                      );
-                    }}
+                    onChange={(e) => updateReconFinancialField("opAmount", e.target.value)}
                     style={{
                       padding: "6px 8px",
                       borderRadius: 8,
@@ -19869,26 +20022,44 @@ ${htmlBody}
               </div>
 
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>RCV</div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                  RCV
+                  {!reconEntryEdit.rcvManuallyEdited && reconEntryEdit.draft.rcvAmount && (
+                    <span style={{ fontWeight: 400, marginLeft: 6, color: "#6b7280", fontStyle: "italic" }}>
+                      (calculated)
+                    </span>
+                  )}
+                </div>
                 <input
                   value={reconEntryEdit.draft.rcvAmount}
                   onChange={(e) => {
                     const v = e.target.value;
+                    // If user clears RCV, re-enable auto-calc; otherwise mark as manually edited
+                    const nowManual = v.trim() !== "";
                     setReconEntryEdit((prev) =>
-                      prev ? { ...prev, draft: { ...prev.draft, rcvAmount: v } } : prev,
+                      prev
+                        ? {
+                            ...prev,
+                            draft: { ...prev.draft, rcvAmount: v },
+                            rcvManuallyEdited: nowManual,
+                          }
+                        : prev,
                     );
                   }}
                   placeholder="(blank for note-only)"
                   style={{
                     padding: "6px 8px",
                     borderRadius: 8,
-                    border: "1px solid #d1d5db",
+                    border: reconEntryEdit.rcvManuallyEdited ? "1px solid #d1d5db" : "1px solid #93c5fd",
                     fontSize: 12,
                     width: "100%",
+                    backgroundColor: reconEntryEdit.rcvManuallyEdited ? "#ffffff" : "#eff6ff",
                   }}
                 />
                 <div style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
-                  For CREDIT entries, we’ll keep this negative; for ADD entries, we’ll keep it positive.
+                  {reconEntryEdit.rcvManuallyEdited
+                    ? "For CREDIT entries, keep this negative; for ADD entries, keep it positive."
+                    : "Auto-calculated from Item + Tax + O\u0026P. Type a value to override."}
                 </div>
               </div>
 
