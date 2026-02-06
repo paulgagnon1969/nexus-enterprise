@@ -2940,6 +2940,7 @@ ${htmlBody}
           salesTaxAmount: string;
           opAmount: string;
           rcvAmount: string;
+          percentComplete: string;
         };
         rcvManuallyEdited: boolean;
         saving: boolean;
@@ -8216,6 +8217,10 @@ ${htmlBody}
           typeof entry?.rcvAmount === "number" && Number.isFinite(entry.rcvAmount)
             ? String(entry.rcvAmount)
             : "",
+        percentComplete:
+          typeof entry?.percentComplete === "number" && Number.isFinite(entry.percentComplete)
+            ? String(entry.percentComplete)
+            : "100",
       },
       rcvManuallyEdited: false,
       saving: false,
@@ -8483,6 +8488,16 @@ ${htmlBody}
     if (nextTax !== prevTax) patch.salesTaxAmount = nextTax;
     if (nextOp !== prevOp) patch.opAmount = nextOp;
     if (nextRcv !== prevRcv) patch.rcvAmount = nextRcv;
+
+    // Percent complete
+    const pctRaw = d.percentComplete.trim();
+    const pctVal = pctRaw === "" ? 100 : Number(pctRaw);
+    if (!Number.isFinite(pctVal) || pctVal < 0 || pctVal > 100) {
+      alert("Percent complete must be 0-100.");
+      return;
+    }
+    const prevPct = typeof entry?.percentComplete === "number" ? entry.percentComplete : 0;
+    if (pctVal !== prevPct) patch.percentComplete = pctVal;
 
     if (Object.keys(patch).length === 0) {
       closeReconEntryEdit();
@@ -19976,36 +19991,76 @@ ${htmlBody}
                 </button>
               </div>
 
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Status &amp; progress</div>
-                {(() => {
-                  const rawStatus = String(reconEntryEdit.entry?.status ?? "")
-                    .trim()
-                    .toUpperCase();
-                  const statusLabel =
-                    rawStatus === "APPROVED"
-                      ? "Approved"
-                      : rawStatus === "REJECTED"
-                        ? "Rejected"
-                        : "Needs approval";
-                  const pct =
-                    typeof reconEntryEdit.entry?.percentComplete === "number"
-                      ? reconEntryEdit.entry.percentComplete
-                      : 0;
-                  const pctLabel = reconEntryEdit.entry?.isPercentCompleteLocked
-                    ? `${pct}% (locked to PETL line %)`
-                    : `${pct}%`;
-                  return (
-                    <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 6 }}>
-                      <span>
-                        Status: <strong>{statusLabel}</strong>
-                      </span>
-                      <span style={{ marginLeft: 12 }}>
-                        % complete: <strong>{pctLabel}</strong>
-                      </span>
-                    </div>
-                  );
-                })()}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Status</div>
+                  {(() => {
+                    const rawStatus = String(reconEntryEdit.entry?.status ?? "")
+                      .trim()
+                      .toUpperCase();
+                    const statusLabel =
+                      rawStatus === "APPROVED"
+                        ? "Approved"
+                        : rawStatus === "REJECTED"
+                          ? "Rejected"
+                          : "Needs approval";
+                    const statusColor =
+                      rawStatus === "APPROVED"
+                        ? "#059669"
+                        : rawStatus === "REJECTED"
+                          ? "#dc2626"
+                          : "#d97706";
+                    return (
+                      <div
+                        style={{
+                          padding: "6px 8px",
+                          borderRadius: 8,
+                          border: "1px solid #d1d5db",
+                          fontSize: 12,
+                          background: "#f9fafb",
+                          color: statusColor,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {statusLabel}
+                      </div>
+                    );
+                  })()}
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>% Complete</div>
+                  <select
+                    value={reconEntryEdit.draft.percentComplete}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setReconEntryEdit((prev) =>
+                        prev ? { ...prev, draft: { ...prev.draft, percentComplete: v } } : prev,
+                      );
+                    }}
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 8,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                      width: "100%",
+                    }}
+                  >
+                    <option value="0">0%</option>
+                    <option value="10">10%</option>
+                    <option value="20">20%</option>
+                    <option value="30">30%</option>
+                    <option value="40">40%</option>
+                    <option value="50">50%</option>
+                    <option value="60">60%</option>
+                    <option value="70">70%</option>
+                    <option value="80">80%</option>
+                    <option value="90">90%</option>
+                    <option value="100">100%</option>
+                  </select>
+                  <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>
+                    Supplements &amp; COs default to 100% (paid in advance)
+                  </div>
+                </div>
               </div>
 
               <div

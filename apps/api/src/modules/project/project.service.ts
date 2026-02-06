@@ -4842,6 +4842,7 @@ export class ProjectService {
       rcvAmount?: number | null;
       note?: string | null;
       isPercentCompleteLocked?: boolean | null;
+      percentComplete?: number | null;
     },
   ) {
     await this.getProjectByIdForUser(projectId, actor);
@@ -5012,6 +5013,14 @@ export class ProjectService {
         ? undefined
         : !!body.isPercentCompleteLocked;
 
+    // Percent complete (0-100)
+    const nextPercentComplete = (() => {
+      if (body.percentComplete === undefined) return undefined;
+      const pct = Number(body.percentComplete);
+      if (!Number.isFinite(pct)) return undefined;
+      return Math.max(0, Math.min(100, pct));
+    })();
+
     const data: Prisma.PetlReconciliationEntryUpdateInput = {
       kind: kind === undefined ? autoKind : kind ?? undefined,
       tag: tag === undefined ? undefined : tag,
@@ -5057,6 +5066,7 @@ export class ProjectService {
             },
       note: body.note === undefined ? undefined : cleanText(body.note, 5000),
       isPercentCompleteLocked: nextIsLocked === undefined ? undefined : nextIsLocked,
+      percentComplete: nextPercentComplete,
       events: {
         create: {
           projectId,
@@ -5079,6 +5089,7 @@ export class ProjectService {
             rcvAmount: body.rcvAmount ?? undefined,
             note: body.note ?? undefined,
             isPercentCompleteLocked: body.isPercentCompleteLocked ?? undefined,
+            percentComplete: body.percentComplete ?? undefined,
           },
           createdByUserId: actor.userId,
         },
