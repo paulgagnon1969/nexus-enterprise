@@ -6880,6 +6880,86 @@ ${htmlBody}
             onEditDraftChange={setPetlEditDraft}
             onSaveEdit={savePetlInlineEdit}
             onCancelEdit={cancelPetlCellEditor}
+            onPercentChange={async (sowItemId, displayLineNo, newPercent, isAcvOnly) => {
+              const token = localStorage.getItem("accessToken");
+              if (!token) {
+                alert("Missing access token; please log in again.");
+                return;
+              }
+
+              await busyOverlay.run(`Updating line #${displayLineNo}…`, async () => {
+                try {
+                  // Optimistic update
+                  setPetlItems((prev) =>
+                    prev.map((it) =>
+                      it.id === sowItemId
+                        ? { ...it, percentComplete: newPercent, isAcvOnly }
+                        : it,
+                    ),
+                  );
+
+                  const res = await fetch(
+                    `${API_BASE}/projects/${id}/petl/${sowItemId}/percent`,
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                      },
+                      body: JSON.stringify({
+                        newPercent,
+                        acvOnly: isAcvOnly,
+                      }),
+                    },
+                  );
+
+                  if (!res.ok) {
+                    console.error("Per-line update failed", res.status);
+                    showPetlToast(`Failed to save line #${displayLineNo}`);
+                    return;
+                  }
+
+                  showPetlToast(
+                    isAcvOnly
+                      ? `Line #${displayLineNo} set to ACV only`
+                      : `Line #${displayLineNo} set to ${newPercent}%`
+                  );
+
+                  // Refresh PETL from server
+                  try {
+                    const petlRes = await fetch(`${API_BASE}/projects/${id}/petl`, {
+                      headers: { Authorization: `Bearer ${token}` },
+                    });
+                    if (petlRes.ok) {
+                      const petl: any = await petlRes.json();
+                      const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
+                      setPetlItems(items);
+                    }
+                  } catch {
+                    // non-fatal
+                  }
+
+                  // Refresh groups
+                  try {
+                    setGroupLoading(true);
+                    const groupsRes = await fetch(`${API_BASE}/projects/${id}/petl-groups`, {
+                      headers: { Authorization: `Bearer ${token}` },
+                    });
+                    if (groupsRes.ok) {
+                      const json: any = await groupsRes.json();
+                      setGroups(Array.isArray(json.groups) ? json.groups : []);
+                      setUnitGroups(Array.isArray(json.unitGroups) ? json.unitGroups : []);
+                    }
+                  } catch {
+                    // non-fatal
+                  } finally {
+                    setGroupLoading(false);
+                  }
+                } catch (err) {
+                  console.error(err);
+                }
+              });
+            }}
           />
         ) : (
         <div
