@@ -3093,8 +3093,36 @@ ${htmlBody}
     return map;
   }, [hierarchy]);
 
+  // Reconciliation entries grouped by parent PETL sowItemId.
+  // NOTE: This is defined early so petlItemsByRoomParticleId can use it.
+  const reconEntriesBySowItemId = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const entry of petlReconciliationEntries) {
+      const parentId = String(entry?.parentSowItemId ?? "").trim();
+      if (!parentId) continue;
+      const arr = map.get(parentId);
+      if (arr) arr.push(entry);
+      else map.set(parentId, [entry]);
+    }
+
+    // Keep deterministic order for rendering and numbering.
+    for (const [k, arr] of map.entries()) {
+      arr.sort((a, b) => {
+        const ta = new Date(a?.createdAt ?? 0).getTime();
+        const tb = new Date(b?.createdAt ?? 0).getTime();
+        if (ta !== tb) return ta - tb;
+        return String(a?.id ?? "").localeCompare(String(b?.id ?? ""));
+      });
+      map.set(k, arr);
+    }
+
+    return map;
+  }, [petlReconciliationEntries]);
+
   // Avoid O(rooms * items) filtering during render of the Rooms/Zones table.
   // Build a lookup map once per PETL/filter change.
+  // NOTE: This includes the full filter logic (including reconciliation entries)
+  // so we don't need to call matchesFilters() again during render.
   const petlItemsByRoomParticleId = useMemo(() => {
     const map = new Map<string, PetlItem[]>();
 
@@ -3102,18 +3130,42 @@ ${htmlBody}
       const particleId = item.projectParticle?.id;
       if (!particleId) continue;
 
-      if (roomParticleIdFilterSet.size > 0 && !roomParticleIdFilterSet.has(particleId)) {
-        continue;
+      // Apply room filter
+      if (roomParticleIdFilterSet.size > 0) {
+        // Check item's particle and reconciliation entries' particles
+        const recon = reconEntriesBySowItemId.get(item.id) ?? [];
+        const candidateParticleIds = new Set<string>();
+        candidateParticleIds.add(particleId);
+        for (const e of recon) {
+          const pid = String(e?.projectParticleId ?? "").trim();
+          if (pid) candidateParticleIds.add(pid);
+        }
+        const roomOk = Array.from(candidateParticleIds).some((pid) => roomParticleIdFilterSet.has(pid));
+        if (!roomOk) continue;
       }
 
+      // Apply category filter (including reconciliation entries)
       if (categoryCodeFilterSet.size > 0) {
-        const code = item.categoryCode ?? "";
-        if (!code || !categoryCodeFilterSet.has(code)) continue;
+        const itemCode = String(item.categoryCode ?? "").trim();
+        const recon = reconEntriesBySowItemId.get(item.id) ?? [];
+        const reconCodes = recon.map((e) => String(e?.categoryCode ?? "").trim()).filter(Boolean);
+        if (!itemCode && reconCodes.length === 0) continue;
+        const catOk =
+          (itemCode && categoryCodeFilterSet.has(itemCode)) ||
+          reconCodes.some((c) => categoryCodeFilterSet.has(c));
+        if (!catOk) continue;
       }
 
+      // Apply selection filter (including reconciliation entries)
       if (selectionCodeFilterSet.size > 0) {
-        const code = item.selectionCode ?? "";
-        if (!code || !selectionCodeFilterSet.has(code)) continue;
+        const itemCode = String(item.selectionCode ?? "").trim();
+        const recon = reconEntriesBySowItemId.get(item.id) ?? [];
+        const reconCodes = recon.map((e) => String(e?.selectionCode ?? "").trim()).filter(Boolean);
+        if (!itemCode && reconCodes.length === 0) continue;
+        const selOk =
+          (itemCode && selectionCodeFilterSet.has(itemCode)) ||
+          reconCodes.some((c) => selectionCodeFilterSet.has(c));
+        if (!selOk) continue;
       }
 
       const existing = map.get(particleId);
@@ -3127,7 +3179,7 @@ ${htmlBody}
     }
 
     return map;
-  }, [petlItems, roomParticleIdFilterSet, categoryCodeFilterSet, selectionCodeFilterSet]);
+  }, [petlItems, roomParticleIdFilterSet, categoryCodeFilterSet, selectionCodeFilterSet, reconEntriesBySowItemId]);
 
   // Derived list of known project participants for use in the Daily Log
   // "Person/s onsite" multi-select. We include both myOrganization and
@@ -3488,31 +3540,6 @@ ${htmlBody}
     }
     return opts.sort((a, b) => a.label.localeCompare(b.label));
   }, [groups]);
-
-  // Reconciliation entries grouped by parent PETL sowItemId.
-  const reconEntriesBySowItemId = useMemo(() => {
-    const map = new Map<string, any[]>();
-    for (const entry of petlReconciliationEntries) {
-      const parentId = String(entry?.parentSowItemId ?? "").trim();
-      if (!parentId) continue;
-      const arr = map.get(parentId);
-      if (arr) arr.push(entry);
-      else map.set(parentId, [entry]);
-    }
-
-    // Keep deterministic order for rendering and numbering.
-    for (const [k, arr] of map.entries()) {
-      arr.sort((a, b) => {
-        const ta = new Date(a?.createdAt ?? 0).getTime();
-        const tb = new Date(b?.createdAt ?? 0).getTime();
-        if (ta !== tb) return ta - tb;
-        return String(a?.id ?? "").localeCompare(String(b?.id ?? ""));
-      });
-      map.set(k, arr);
-    }
-
-    return map;
-  }, [petlReconciliationEntries]);
 
   // Orphan reconciliation entries (carried forward but not attached to a
   // specific PETL line in the latest estimate version).
@@ -7767,6 +7794,66 @@ ${htmlBody}
 
     } catch (err: any) {
       alert(err?.message ?? "Failed to create placeholder");
+    }
+  };
+
+  // Save button in the main PETL reconciliation drawer: if the user has entered
+  // a note and/or tag, persist it as a NOTE_ONLY reconciliation entry; otherwise
+  // just close the drawer.
+  const saveReconPanel = async () => {
+    if (!project || !petlReconPanel.sowItemId) {
+      setPetlReconPanel(prev => ({ ...prev, open: false }));
+      return;
+    }
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token; please log in again.");
+      return;
+    }
+
+    const note = (reconNote || "").trim();
+    const tag = (reconEntryTag || "") as ReconEntryTag;
+
+    // If nothing has been entered, treat Save as a simple close.
+    if (!note && !tag) {
+      setPetlReconPanel(prev => ({ ...prev, open: false }));
+      return;
+    }
+
+    const sowItemId = petlReconPanel.sowItemId;
+
+    try {
+      await busyOverlay.run("Saving reconciliation note…", async () => {
+        const res = await fetch(
+          `${API_BASE}/projects/${project.id}/petl/${sowItemId}/reconciliation/placeholder`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              kind: "NOTE_ONLY",
+              tag: tag || null,
+              note: note || null,
+            }),
+          },
+        );
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          alert(`Failed to save reconciliation note (${res.status}) ${text}`);
+          return;
+        }
+
+        setPetlReloadTick(t => t + 1);
+        await loadPetlReconciliation(sowItemId);
+      });
+
+      setPetlReconPanel(prev => ({ ...prev, open: false }));
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to save reconciliation note");
     }
   };
 
@@ -18068,9 +18155,8 @@ ${htmlBody}
                                           </tr>
                                         </thead>
                                         <tbody>
-                                          {itemsForRoom
-                                            .filter((it: PetlItem) => matchesFilters(it))
-                                            .map((item: PetlItem) => {
+                                          {/* Items are pre-filtered in petlItemsByRoomParticleId memo */}
+                                          {itemsForRoom.map((item: PetlItem) => {
                                               const flagged = isPetlReconFlagged(item.id);
                                               const hasRecon = hasReconciliationActivity(item.id);
                                               const bg = flagged
@@ -18448,9 +18534,8 @@ ${htmlBody}
                                 </tr>
                               </thead>
                               <tbody>
-                                {itemsForRoom
-                                  .filter((it: PetlItem) => matchesFilters(it))
-                                  .map((item: PetlItem) => (
+                                {/* Items are pre-filtered in petlItemsByRoomParticleId memo */}
+                                {itemsForRoom.map((item: PetlItem) => (
                                     <tr key={item.id}>
                                       <td style={{ padding: "3px 8px", borderTop: "1px solid #e5e7eb" }}>
                                         {item.sourceLineNo && item.sourceLineNo > 0 ? item.sourceLineNo : item.lineNo}
@@ -19477,12 +19562,7 @@ ${htmlBody}
               </button>
               <button
                 type="button"
-                onClick={() =>
-                  setPetlReconPanel(prev => ({
-                    ...prev,
-                    open: false,
-                  }))
-                }
+                onClick={saveReconPanel}
                 style={{
                   padding: "6px 10px",
                   borderRadius: 8,

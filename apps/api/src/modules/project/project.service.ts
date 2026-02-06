@@ -1940,15 +1940,6 @@ export class ProjectService {
     return msg.includes(tableOrModel);
   }
 
-  /**
-   * Returns true if the error is a Prisma schema mismatch error (missing table or column).
-   * P2021 = table doesn't exist, P2022 = column doesn't exist.
-   */
-  private isPrismaSchemaMismatchError(err: any) {
-    const code = String(err?.code ?? "");
-    return code === "P2021" || code === "P2022";
-  }
-
   async getPetlForProject(
     projectId: string,
     companyId: string,
@@ -2028,15 +2019,8 @@ export class ProjectService {
         .filter((v: any): v is string => typeof v === "string" && v.length > 0);
     } catch (err: any) {
       if (!this.isMissingPrismaTableError(err, "PetlReconciliationEntry")) {
-        // In prod, reconciliation data should never prevent the PETL grid from
-        // loading. Log the error and continue with no reconciliation entries.
-        this.logger.error(
-          `getPetlForProject reconciliation query failed for project ${projectId}`,
-          err instanceof Error ? err.stack : String(err),
-        );
+        throw err;
       }
-      reconciliationEntriesRaw = [];
-      reconciliationActivitySowItemIds = [];
     }
 
     const particleById = await this.resolveProjectParticlesForProject({
@@ -3380,15 +3364,26 @@ export class ProjectService {
         },
       });
     } catch (err: any) {
-      // If reconciliation tables/columns are missing, treat as "no case yet"
-      // so PETL still works in partially migrated environments.
-      // P2021 = table missing, P2022 = column missing.
-      if (this.isPrismaSchemaMismatchError(err)) {
-        return null;
+      // Backwards-compatible: in environments where the PetlReconciliationAttachment
+      // table/migration is missing, fall back to loading the case without
+      // attachments instead of 500-ing the project page.
+      if (!this.isMissingPrismaTableError(err, "PetlReconciliationAttachment")) {
+        throw err;
       }
 
-      // Unknown error - log and re-throw.
-      throw err;
+      return this.prisma.petlReconciliationCase.findFirst({
+        where: {
+          projectId,
+          OR: [
+            { sowItemId },
+            { logicalItemId: sowItem.logicalItemId },
+          ],
+        },
+        include: {
+          entries: { orderBy: { createdAt: "asc" } },
+          events: { orderBy: { createdAt: "asc" } },
+        },
+      });
     }
   }
 
@@ -3489,97 +3484,49 @@ export class ProjectService {
   ) {
     await this.getProjectByIdForUser(projectId, actor);
 
-    try {
-      const sowItem = await this.prisma.sowItem.findUnique({
-        where: { id: sowItemId },
-        include: {
-          estimateVersion: { select: { projectId: true } },
-        },
-      });
+    const sowItem = await this.prisma.sowItem.findUnique({
+      where: { id: sowItemId },
+      include: {
+        estimateVersion: { select: { projectId: true } },
+      },
+    });
 
-      if (!sowItem || sowItem.estimateVersion.projectId !== projectId) {
-        throw new NotFoundException("SOW item not found for this project");
-      }
-
-      const particleById = await this.resolveProjectParticlesForProject({
-        projectId,
-        particleIds: [sowItem.projectParticleId],
-      });
-
-      const sowItemWithParticle = {
-        ...sowItem,
-        projectParticle: particleById.get(sowItem.projectParticleId) ?? null,
-      };
-
-      const breakdown = this.buildRcvBreakdownForSowItem({
-        qty: sowItemWithParticle.qty ?? null,
-        unitCost: sowItemWithParticle.unitCost ?? null,
-        itemAmount: sowItemWithParticle.itemAmount ?? null,
-        salesTaxAmount: sowItemWithParticle.salesTaxAmount ?? null,
-        rcvAmount: sowItemWithParticle.rcvAmount ?? null,
-      });
-
-      const existingCase = await this.findPetlReconciliationCaseForSowItem({
-        projectId,
-        sowItemId,
-      });
-
-      return {
-        projectId,
-        sowItemId: sowItemWithParticle.id,
-        estimateVersionId: sowItemWithParticle.estimateVersionId,
-        projectParticleId: sowItemWithParticle.projectParticleId,
-        sowItem: sowItemWithParticle,
-        rcvBreakdown: breakdown,
-        reconciliationCase: existingCase,
-      };
-    } catch (err: any) {
-      // Preserve explicit HTTP errors (e.g., 404 for missing SOW item).
-      if (err instanceof HttpException) {
-        throw err;
-      }
-
-      this.logger.error(
-        `getPetlReconciliationForSowItem failed for project ${projectId}, sowItem ${sowItemId}`,
-        err instanceof Error ? err.stack : String(err),
-      );
-
-      // Conservative fallback: load a minimal SOW item without relations so
-      // legacy/partial data doesn't break the reconciliation drawer.
-      try {
-        const basic = await this.prisma.sowItem.findUnique({
-          where: { id: sowItemId },
-        });
-        if (!basic) {
-          throw new NotFoundException("SOW item not found for this project");
-        }
-
-        const breakdown = this.buildRcvBreakdownForSowItem({
-          qty: basic.qty ?? null,
-          unitCost: basic.unitCost ?? null,
-          itemAmount: basic.itemAmount ?? null,
-          salesTaxAmount: basic.salesTaxAmount ?? null,
-          rcvAmount: basic.rcvAmount ?? null,
-        });
-
-        return {
-          projectId,
-          sowItemId: basic.id,
-          estimateVersionId: basic.estimateVersionId,
-          projectParticleId: basic.projectParticleId,
-          sowItem: basic,
-          rcvBreakdown: breakdown,
-          reconciliationCase: null,
-        };
-      } catch (fallbackErr: any) {
-        this.logger.error(
-          `Fallback getPetlReconciliationForSowItem also failed for project ${projectId}, sowItem ${sowItemId}`,
-          fallbackErr instanceof Error ? fallbackErr.stack : String(fallbackErr),
-        );
-        // Rethrow the original error so observability still sees the root cause.
-        throw err;
-      }
+    if (!sowItem || sowItem.estimateVersion.projectId !== projectId) {
+      throw new NotFoundException("SOW item not found for this project");
     }
+
+    const particleById = await this.resolveProjectParticlesForProject({
+      projectId,
+      particleIds: [sowItem.projectParticleId],
+    });
+
+    const sowItemWithParticle = {
+      ...sowItem,
+      projectParticle: particleById.get(sowItem.projectParticleId) ?? null,
+    };
+
+    const breakdown = this.buildRcvBreakdownForSowItem({
+      qty: sowItemWithParticle.qty ?? null,
+      unitCost: sowItemWithParticle.unitCost ?? null,
+      itemAmount: sowItemWithParticle.itemAmount ?? null,
+      salesTaxAmount: sowItemWithParticle.salesTaxAmount ?? null,
+      rcvAmount: sowItemWithParticle.rcvAmount ?? null,
+    });
+
+    const existingCase = await this.findPetlReconciliationCaseForSowItem({
+      projectId,
+      sowItemId,
+    });
+
+    return {
+      projectId,
+      sowItemId: sowItemWithParticle.id,
+      estimateVersionId: sowItemWithParticle.estimateVersionId,
+      projectParticleId: sowItemWithParticle.projectParticleId,
+      sowItem: sowItemWithParticle,
+      rcvBreakdown: breakdown,
+      reconciliationCase: existingCase,
+    };
   }
 
   async getPetlReconciliationCaseHistory(
@@ -3806,21 +3753,24 @@ export class ProjectService {
     sowItemId: string,
     body: { kind?: string; tag?: string | null; note?: string | null },
   ) {
-    // Ensure the SOW item exists and belongs to this project first.
+    const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
+      projectId,
+      companyId,
+      actor,
+      sowItemId,
+    });
+
     const sowItem = await this.prisma.sowItem.findUnique({
       where: { id: sowItemId },
       select: {
         estimateVersionId: true,
         projectParticleId: true,
         lineNo: true,
-        sow: {
-          select: { projectId: true },
-        },
       },
     });
 
-    if (!sowItem || sowItem.sow.projectId !== projectId) {
-      throw new NotFoundException("SOW item not found for this project");
+    if (!sowItem) {
+      throw new NotFoundException("SOW item not found");
     }
 
     const kind =
@@ -3839,77 +3789,51 @@ export class ProjectService {
       throw new BadRequestException("Invalid reconciliation entry tag");
     })();
 
-    try {
-      const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
+    const entry = await this.prisma.petlReconciliationEntry.create({
+      data: {
         projectId,
-        companyId,
-        actor,
-        sowItemId,
-      });
-
-      const entry = await this.prisma.petlReconciliationEntry.create({
-        data: {
-          projectId,
-          estimateVersionId: sowItem.estimateVersionId,
-          caseId: theCase.id,
-          parentSowItemId: sowItemId,
-          projectParticleId: sowItem.projectParticleId,
-          kind,
-          tag,
-          status: PetlReconciliationEntryStatus.APPROVED,
-          note: body.note ?? null,
-          rcvAmount: null,
-          percentComplete: 0,
-          isPercentCompleteLocked: true,
-          createdByUserId: actor.userId,
-          originEstimateVersionId: sowItem.estimateVersionId,
-          originSowItemId: sowItemId,
-          originLineNo: sowItem.lineNo ?? null,
-          events: {
-            create: {
-              projectId,
-              estimateVersionId: sowItem.estimateVersionId,
-              caseId: theCase.id,
-              eventType: "ENTRY_CREATED",
-              payloadJson: { kind, note: body.note ?? null },
-              createdByUserId: actor.userId,
-            },
+        estimateVersionId: sowItem.estimateVersionId,
+        caseId: theCase.id,
+        parentSowItemId: sowItemId,
+        projectParticleId: sowItem.projectParticleId,
+        kind,
+        tag,
+        status: PetlReconciliationEntryStatus.APPROVED,
+        note: body.note ?? null,
+        rcvAmount: null,
+        percentComplete: 0,
+        isPercentCompleteLocked: true,
+        createdByUserId: actor.userId,
+        originEstimateVersionId: sowItem.estimateVersionId,
+        originSowItemId: sowItemId,
+        originLineNo: sowItem.lineNo ?? null,
+        events: {
+          create: {
+            projectId,
+            estimateVersionId: sowItem.estimateVersionId,
+            caseId: theCase.id,
+            eventType: "ENTRY_CREATED",
+            payloadJson: { kind, note: body.note ?? null },
+            createdByUserId: actor.userId,
           },
         },
-        include: {
-          case: {
-            include: {
-              entries: {
-                orderBy: { createdAt: "asc" },
-                include: {
-                  attachments: { orderBy: { createdAt: "asc" } },
-                },
+      },
+      include: {
+        case: {
+          include: {
+            entries: {
+              orderBy: { createdAt: "asc" },
+              include: {
+                attachments: { orderBy: { createdAt: "asc" } },
               },
-              events: { orderBy: { createdAt: "asc" } },
             },
+            events: { orderBy: { createdAt: "asc" } },
           },
         },
-      });
+      },
+    });
 
-      return { entry, reconciliationCase: entry.case };
-    } catch (err: any) {
-      // If reconciliation tables/columns are missing in this environment, log and
-      // gracefully degrade instead of 500-ing the project UI.
-      // P2021 = table missing, P2022 = column missing.
-      if (this.isPrismaSchemaMismatchError(err)) {
-        this.logger.error(
-          `createPetlReconciliationPlaceholder skipped because reconciliation schema is not fully migrated for project ${projectId}`,
-          err instanceof Error ? err.stack : String(err),
-        );
-
-        return {
-          entry: null,
-          reconciliationCase: null,
-        };
-      }
-
-      throw err;
-    }
+    return { entry, reconciliationCase: entry.case };
   }
 
   async importPetlReconcileNotesFromCsv(args: {
@@ -4631,7 +4555,13 @@ export class ProjectService {
       note?: string | null;
     },
   ) {
-    // Ensure the SOW item exists and belongs to this project first.
+    const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
+      projectId,
+      companyId,
+      actor,
+      sowItemId,
+    });
+
     const sowItem = await this.prisma.sowItem.findUnique({
       where: { id: sowItemId },
       select: {
@@ -4639,12 +4569,11 @@ export class ProjectService {
         projectParticleId: true,
         qty: true,
         lineNo: true,
-        sow: { select: { projectId: true } },
       },
     });
 
-    if (!sowItem || sowItem.sow.projectId !== projectId) {
-      throw new NotFoundException("SOW item not found for this project");
+    if (!sowItem) {
+      throw new NotFoundException("SOW item not found");
     }
 
     const costBookItem = await this.prisma.companyPriceListItem.findFirst({
@@ -4674,107 +4603,81 @@ export class ProjectService {
       throw new BadRequestException("Invalid reconciliation entry tag");
     })();
 
-    try {
-      const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
+    const entry = await this.prisma.petlReconciliationEntry.create({
+      data: {
         projectId,
-        companyId,
-        actor,
-        sowItemId,
-      });
-
-      const entry = await this.prisma.petlReconciliationEntry.create({
-        data: {
-          projectId,
-          estimateVersionId: sowItem.estimateVersionId,
-          caseId: theCase.id,
-          parentSowItemId: sowItemId,
-          projectParticleId: sowItem.projectParticleId,
-          kind: PetlReconciliationEntryKind.ADD,
-          tag,
-          status: PetlReconciliationEntryStatus.APPROVED,
+        estimateVersionId: sowItem.estimateVersionId,
+        caseId: theCase.id,
+        parentSowItemId: sowItemId,
+        projectParticleId: sowItem.projectParticleId,
+        kind: PetlReconciliationEntryKind.ADD,
+        tag,
+        status: PetlReconciliationEntryStatus.APPROVED,
+        description: costBookItem.description,
+        categoryCode: costBookItem.cat,
+        selectionCode: costBookItem.sel,
+        unit: costBookItem.unit,
+        qty,
+        unitCost,
+        itemAmount,
+        salesTaxAmount: 0,
+        opAmount: 0,
+        rcvAmount: itemAmount,
+        rcvComponentsJson: {
+          itemAmount: true,
+          salesTaxAmount: false,
+          opAmount: false,
+        },
+        companyPriceListItemId: costBookItem.id,
+        sourceSnapshotJson: {
+          id: costBookItem.id,
+          cat: costBookItem.cat,
+          sel: costBookItem.sel,
           description: costBookItem.description,
-          categoryCode: costBookItem.cat,
-          selectionCode: costBookItem.sel,
           unit: costBookItem.unit,
-          qty,
-          unitCost,
-          itemAmount,
-          salesTaxAmount: 0,
-          opAmount: 0,
-          rcvAmount: itemAmount,
-          rcvComponentsJson: {
-            itemAmount: true,
-            salesTaxAmount: false,
-            opAmount: false,
-          },
-          companyPriceListItemId: costBookItem.id,
-          sourceSnapshotJson: {
-            id: costBookItem.id,
-            cat: costBookItem.cat,
-            sel: costBookItem.sel,
-            description: costBookItem.description,
-            unit: costBookItem.unit,
-            unitPrice: costBookItem.unitPrice,
-            rawJson: costBookItem.rawJson,
-            companyPriceListId: costBookItem.companyPriceListId,
-            lastPriceChangedAt: costBookItem.lastPriceChangedAt,
-          },
-          note: body.note ?? null,
-          percentComplete: 0,
-          isPercentCompleteLocked: false,
-          createdByUserId: actor.userId,
-          originEstimateVersionId: sowItem.estimateVersionId,
-          originSowItemId: sowItemId,
-          originLineNo: sowItem.lineNo ?? null,
-          events: {
-            create: {
-              projectId,
-              estimateVersionId: sowItem.estimateVersionId,
-              caseId: theCase.id,
-              eventType: "ENTRY_CREATED",
-              payloadJson: {
-                kind: "ADD_FROM_COST_BOOK",
-                companyPriceListItemId: costBookItem.id,
-                amount: itemAmount,
-              },
-              createdByUserId: actor.userId,
+          unitPrice: costBookItem.unitPrice,
+          rawJson: costBookItem.rawJson,
+          companyPriceListId: costBookItem.companyPriceListId,
+          lastPriceChangedAt: costBookItem.lastPriceChangedAt,
+        },
+        note: body.note ?? null,
+        percentComplete: 0,
+        isPercentCompleteLocked: false,
+        createdByUserId: actor.userId,
+        originEstimateVersionId: sowItem.estimateVersionId,
+        originSowItemId: sowItemId,
+        originLineNo: sowItem.lineNo ?? null,
+        events: {
+          create: {
+            projectId,
+            estimateVersionId: sowItem.estimateVersionId,
+            caseId: theCase.id,
+            eventType: "ENTRY_CREATED",
+            payloadJson: {
+              kind: "ADD_FROM_COST_BOOK",
+              companyPriceListItemId: costBookItem.id,
+              amount: itemAmount,
             },
+            createdByUserId: actor.userId,
           },
         },
-        include: {
-          case: {
-            include: {
-              entries: {
-                orderBy: { createdAt: "asc" },
-                include: {
-                  attachments: { orderBy: { createdAt: "asc" } },
-                },
+      },
+      include: {
+        case: {
+          include: {
+            entries: {
+              orderBy: { createdAt: "asc" },
+              include: {
+                attachments: { orderBy: { createdAt: "asc" } },
               },
-              events: { orderBy: { createdAt: "asc" } },
             },
+            events: { orderBy: { createdAt: "asc" } },
           },
         },
-      });
+      },
+    });
 
-      return { entry, reconciliationCase: entry.case };
-    } catch (err: any) {
-      // If reconciliation tables/columns are missing in this environment, log and
-      // gracefully degrade instead of 500-ing the project UI.
-      // P2021 = table missing, P2022 = column missing.
-      if (this.isPrismaSchemaMismatchError(err)) {
-        this.logger.error(
-          `createPetlReconciliationAddFromCostBook skipped because reconciliation schema is not fully migrated for project ${projectId}`,
-          err instanceof Error ? err.stack : String(err),
-        );
-
-        return {
-          entry: null,
-          reconciliationCase: null,
-        };
-      }
-
-      throw err;
-    }
+    return { entry, reconciliationCase: entry.case };
   }
 
   async replacePetlLineItemFromCostBook(
@@ -5681,25 +5584,10 @@ export class ProjectService {
           estimateVersionId: latestVersion.id,
           rcvAmount: { not: null },
         },
-        // Explicit select to avoid failures if new columns haven't been migrated yet
-        select: {
-          id: true,
-          projectId: true,
-          estimateVersionId: true,
-          projectParticleId: true,
-          rcvAmount: true,
-          percentComplete: true,
-          isPercentCompleteLocked: true,
-        },
       });
     } catch (err: any) {
-      // Gracefully degrade if the table or columns don't exist in this environment.
-      // P2021 = table missing, P2022 = column missing.
-      if (!this.isPrismaSchemaMismatchError(err)) {
-        this.logger.error(
-          `getPetlGroupsForProject reconciliation query failed for project ${projectId}`,
-          err instanceof Error ? err.stack : String(err),
-        );
+      if (!this.isMissingPrismaTableError(err, "PetlReconciliationEntry")) {
+        throw err;
       }
       reconEntries = [];
     }
@@ -5917,7 +5805,7 @@ export class ProjectService {
     },
   ) {
     const project = await this.prisma.project.findFirst({
-      where: { id: projectId, companyId },
+      where: { id: projectId, companyId }
     });
 
     if (!project) {
@@ -5930,168 +5818,141 @@ export class ProjectService {
         where: {
           userId_projectId: {
             userId: actor.userId,
-            projectId,
-          },
-        },
+            projectId
+          }
+        }
       });
       if (!membership) {
         throw new ForbiddenException("You do not have access to this project's PETL");
       }
     }
 
-    try {
-      // Prefer the same estimate version that backs the PETL grid so selection
-      // summaries stay aligned with what the user sees in the PETL tab.
-      let latestVersion = await this.prisma.estimateVersion.findFirst({
-        where: {
-          projectId,
-          sows: {
-            some: {
-              items: {
-                some: {},
-              },
+    // Prefer the same estimate version that backs the PETL grid so selection
+    // summaries stay aligned with what the user sees in the PETL tab.
+    let latestVersion = await this.prisma.estimateVersion.findFirst({
+      where: {
+        projectId,
+        sows: {
+          some: {
+            items: {
+              some: {},
             },
           },
         },
+      },
+      orderBy: [
+        { sequenceNo: "desc" },
+        { importedAt: "desc" },
+        { createdAt: "desc" },
+      ],
+    });
+
+    if (!latestVersion) {
+      latestVersion = await this.prisma.estimateVersion.findFirst({
+        where: { projectId },
         orderBy: [
           { sequenceNo: "desc" },
           { importedAt: "desc" },
           { createdAt: "desc" },
         ],
       });
+    }
 
-      if (!latestVersion) {
-        latestVersion = await this.prisma.estimateVersion.findFirst({
-          where: { projectId },
-          orderBy: [
-            { sequenceNo: "desc" },
-            { importedAt: "desc" },
-            { createdAt: "desc" },
-          ],
-        });
-      }
-
-      if (!latestVersion) {
-        return {
-          projectId,
-          estimateVersionId: null,
-          itemCount: 0,
-          totalAmount: 0,
-          completedAmount: 0,
-          percentComplete: 0,
-        };
-      }
-
-      const where: any = {
-        estimateVersionId: latestVersion.id,
-      };
-
-      if (filters.roomParticleIds?.length) {
-        where.projectParticleId = { in: filters.roomParticleIds };
-      }
-      if (filters.categoryCodes?.length) {
-        where.categoryCode = { in: filters.categoryCodes };
-      }
-      if (filters.selectionCodes?.length) {
-        where.selectionCode = { in: filters.selectionCodes };
-      }
-
-      const items = await this.prisma.sowItem.findMany({ where });
-
-      let reconEntries: any[] = [];
-      try {
-        reconEntries = await this.prisma.petlReconciliationEntry.findMany({
-          where: {
-            projectId,
-            estimateVersionId: latestVersion.id,
-            status: PetlReconciliationEntryStatus.APPROVED,
-            rcvAmount: { not: null },
-            ...(filters.roomParticleIds?.length
-              ? { projectParticleId: { in: filters.roomParticleIds } }
-              : {}),
-            ...(filters.categoryCodes?.length ? { categoryCode: { in: filters.categoryCodes } } : {}),
-            ...(filters.selectionCodes?.length
-              ? { selectionCode: { in: filters.selectionCodes } }
-              : {}),
-          },
-          // Explicit select to avoid failures if new columns haven't been migrated yet
-          select: {
-            id: true,
-            rcvAmount: true,
-            percentComplete: true,
-            isPercentCompleteLocked: true,
-          },
-        });
-      } catch (err: any) {
-        // Gracefully degrade if the table or columns don't exist in this environment.
-        if (!this.isPrismaSchemaMismatchError(err)) {
-          this.logger.error(
-            `getPetlSelectionSummaryForProject reconciliation query failed for project ${projectId}`,
-            err instanceof Error ? err.stack : String(err),
-          );
-        }
-        reconEntries = [];
-      }
-
-      if (items.length === 0 && reconEntries.length === 0) {
-        return {
-          projectId,
-          estimateVersionId: latestVersion.id,
-          itemCount: 0,
-          totalAmount: 0,
-          completedAmount: 0,
-          percentComplete: 0,
-        };
-      }
-
-      let itemCount = 0;
-      let totalAmount = 0;
-      let completedAmount = 0;
-
-      for (const item of items) {
-        // Baseline selection summaries on RCV; fall back to Item Amount if RCV is missing.
-        const lineTotal = item.rcvAmount ?? item.itemAmount ?? 0;
-        const basePct = item.percentComplete ?? 0;
-        const pct = item.isAcvOnly ? 0 : basePct;
-        itemCount += 1;
-        totalAmount += lineTotal;
-        completedAmount += lineTotal * (pct / 100);
-      }
-
-      for (const entry of reconEntries) {
-        const lineTotal = entry.rcvAmount ?? 0;
-        const pct = entry.isPercentCompleteLocked ? 0 : (entry.percentComplete ?? 0);
-        itemCount += 1;
-        totalAmount += lineTotal;
-        completedAmount += lineTotal * (pct / 100);
-      }
-
-      const percentComplete = totalAmount > 0 ? (completedAmount / totalAmount) * 100 : 0;
-
-      return {
-        projectId,
-        estimateVersionId: latestVersion.id,
-        itemCount,
-        totalAmount,
-        completedAmount,
-        percentComplete,
-      };
-    } catch (err: any) {
-      this.logger.error(
-        `getPetlSelectionSummaryForProject failed for project ${projectId}`,
-        err instanceof Error ? err.stack : String(err),
-      );
-
-      // Fall back to an empty-but-successful summary so PETL UI can still load.
+    if (!latestVersion) {
       return {
         projectId,
         estimateVersionId: null,
         itemCount: 0,
         totalAmount: 0,
         completedAmount: 0,
-        percentComplete: 0,
+        percentComplete: 0
       };
     }
+
+    const where: any = {
+      estimateVersionId: latestVersion.id
+    };
+
+    if (filters.roomParticleIds?.length) {
+      where.projectParticleId = { in: filters.roomParticleIds };
+    }
+    if (filters.categoryCodes?.length) {
+      where.categoryCode = { in: filters.categoryCodes };
+    }
+    if (filters.selectionCodes?.length) {
+      where.selectionCode = { in: filters.selectionCodes };
+    }
+
+    const items = await this.prisma.sowItem.findMany({ where });
+
+    let reconEntries: any[] = [];
+    try {
+      reconEntries = await this.prisma.petlReconciliationEntry.findMany({
+        where: {
+          projectId,
+          estimateVersionId: latestVersion.id,
+          status: PetlReconciliationEntryStatus.APPROVED,
+          rcvAmount: { not: null },
+          ...(filters.roomParticleIds?.length
+            ? { projectParticleId: { in: filters.roomParticleIds } }
+            : {}),
+          ...(filters.categoryCodes?.length ? { categoryCode: { in: filters.categoryCodes } } : {}),
+          ...(filters.selectionCodes?.length
+            ? { selectionCode: { in: filters.selectionCodes } }
+            : {}),
+        },
+      });
+    } catch (err: any) {
+      if (!this.isMissingPrismaTableError(err, "PetlReconciliationEntry")) {
+        throw err;
+      }
+      reconEntries = [];
+    }
+
+    if (items.length === 0 && reconEntries.length === 0) {
+      return {
+        projectId,
+        estimateVersionId: latestVersion.id,
+        itemCount: 0,
+        totalAmount: 0,
+        completedAmount: 0,
+        percentComplete: 0
+      };
+    }
+
+    let itemCount = 0;
+    let totalAmount = 0;
+    let completedAmount = 0;
+
+    for (const item of items) {
+      // Baseline selection summaries on RCV; fall back to Item Amount if RCV is missing.
+      const lineTotal = item.rcvAmount ?? item.itemAmount ?? 0;
+      const basePct = item.percentComplete ?? 0;
+      const pct = item.isAcvOnly ? 0 : basePct;
+      itemCount += 1;
+      totalAmount += lineTotal;
+      completedAmount += lineTotal * (pct / 100);
+    }
+
+    for (const entry of reconEntries) {
+      const lineTotal = entry.rcvAmount ?? 0;
+      const pct = entry.isPercentCompleteLocked ? 0 : (entry.percentComplete ?? 0);
+      itemCount += 1;
+      totalAmount += lineTotal;
+      completedAmount += lineTotal * (pct / 100);
+    }
+
+    const percentComplete =
+      totalAmount > 0 ? (completedAmount / totalAmount) * 100 : 0;
+
+    return {
+      projectId,
+      estimateVersionId: latestVersion.id,
+      itemCount,
+      totalAmount,
+      completedAmount,
+      percentComplete
+    };
   }
 
   async updatePetlLineItemForProject(
