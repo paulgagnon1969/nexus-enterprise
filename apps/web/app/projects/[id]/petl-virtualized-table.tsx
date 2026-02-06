@@ -492,6 +492,7 @@ export interface PetlVirtualizedTableProps {
   onEditDraftChange: (value: string) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
+  onPercentChange: (sowItemId: string, displayLineNo: number, newPercent: number, isAcvOnly: boolean) => void;
 }
 
 const ROW_HEIGHT = 36;
@@ -517,6 +518,7 @@ interface VirtualizedRowProps {
   onEditDraftChange: (value: string) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
+  onPercentChange: (sowItemId: string, displayLineNo: number, newPercent: number, isAcvOnly: boolean) => void;
 }
 
 // react-window v2 row component - must be a plain function component for rowComponent prop
@@ -541,6 +543,7 @@ function VirtualizedRow({
   onEditDraftChange,
   onSaveEdit,
   onCancelEdit,
+  onPercentChange,
 }: RowComponentProps<VirtualizedRowProps>): React.ReactElement | null {
   const row = flatRows[index];
   if (!row) return null;
@@ -665,8 +668,31 @@ function VirtualizedRow({
                 </button>
               )}
             </td>
-            <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 60, textAlign: "right" }}>
-              {item.isAcvOnly ? <span style={{ color: "#9ca3af" }}>ACV</span> : `${item.percentComplete}%`}
+            <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>
+              <select
+                value={item.isAcvOnly ? "ACV" : String(item.percentComplete)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const isAcv = val === "ACV";
+                  const pct = isAcv ? 0 : Number(val);
+                  if (!isAcv && (Number.isNaN(pct) || pct < 0 || pct > 100)) return;
+                  onPercentChange(item.id, displayLineNo, pct, isAcv);
+                }}
+                style={{ width: 70, padding: "2px 4px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 11 }}
+              >
+                <option value="0">0%</option>
+                <option value="10">10%</option>
+                <option value="20">20%</option>
+                <option value="30">30%</option>
+                <option value="40">40%</option>
+                <option value="50">50%</option>
+                <option value="60">60%</option>
+                <option value="70">70%</option>
+                <option value="80">80%</option>
+                <option value="90">90%</option>
+                <option value="100">100%</option>
+                <option value="ACV">ACV only</option>
+              </select>
             </td>
             <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80 }}>
               {isPmOrAbove && isEditingCat ? (
@@ -728,6 +754,7 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
   onEditDraftChange,
   onSaveEdit,
   onCancelEdit,
+  onPercentChange,
 }: PetlVirtualizedTableProps) {
 
   // Build flat row list for virtualization
@@ -784,8 +811,9 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
       onEditDraftChange,
       onSaveEdit,
       onCancelEdit,
+      onPercentChange,
     }),
-    [flatRows, reconEntriesBySowItemId, expandedIds, flaggedIds, reconActivityIds, isPmOrAbove, isAdminOrAbove, editingCell, editDraft, editSaving, onToggleExpand, onToggleFlag, onOpenReconciliation, onDeleteItem, onOpenCellEditor, onEditDraftChange, onSaveEdit, onCancelEdit]
+    [flatRows, reconEntriesBySowItemId, expandedIds, flaggedIds, reconActivityIds, isPmOrAbove, isAdminOrAbove, editingCell, editDraft, editSaving, onToggleExpand, onToggleFlag, onOpenReconciliation, onDeleteItem, onOpenCellEditor, onEditDraftChange, onSaveEdit, onCancelEdit, onPercentChange]
   );
 
   return (
@@ -802,7 +830,7 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
               <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>Unit</th>
               <th style={{ textAlign: "right", padding: "6px 8px", width: 100 }}>Total</th>
               <th style={{ textAlign: "right", padding: "6px 8px", width: 100 }}>RCV</th>
-              <th style={{ textAlign: "right", padding: "6px 8px", width: 60 }}>%</th>
+              <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>%</th>
               <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>Cat</th>
               <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>Sel</th>
               <th style={{ textAlign: "left", padding: "6px 8px", width: 180 }}>Recon</th>
