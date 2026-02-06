@@ -1450,7 +1450,7 @@ export async function importXactCsvForProject(options: {
       performed: false,
       eligibleForAcvRefund: false,
       acvRefundAmount: null,
-      percentComplete: 0
+      percentComplete: 50
     });
   }
 
