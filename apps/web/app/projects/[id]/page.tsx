@@ -20,6 +20,7 @@ import {
 import ProjectFilePicker, { type ProjectFileSummary } from "../../messaging/project-file-picker";
 import { AdminPetlTools } from "./admin-petl-tools";
 import { PetlVirtualizedTable } from "./petl-virtualized-table";
+import { useDraggable } from "../../hooks/use-draggable";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -2947,10 +2948,15 @@ ${htmlBody}
   >(null);
 
   const [reconEditCostBookOpen, setReconEditCostBookOpen] = useState(false);
+  const reconTagSelectRef = useRef<HTMLSelectElement | null>(null);
   const [reconFilePickerOpen, setReconFilePickerOpen] = useState(false);
   const [reconAttachmentUploading, setReconAttachmentUploading] = useState(false);
   const [reconPhotoViewerIndex, setReconPhotoViewerIndex] = useState<number | null>(null);
   const reconFileUploadInputRef = useRef<HTMLInputElement | null>(null);
+  
+  // Draggable modal support
+  const reconEditDraggable = useDraggable();
+  const reconPanelDraggable = useDraggable();
 
   const [costBookModalOpen, setCostBookModalOpen] = useState(false);
   const [petlCostBookPickerBusy, setPetlCostBookPickerBusy] = useState(false);
@@ -8077,10 +8083,8 @@ ${htmlBody}
         ? (tag as ReconEntryTag)
         : "";
 
-    // If entry already has RCV, consider it manually set (don't auto-overwrite)
-    const hasExistingRcv =
-      typeof entry?.rcvAmount === "number" && Number.isFinite(entry.rcvAmount);
-
+    // Always start with rcvManuallyEdited: false so auto-calc works.
+    // Only set to true when user directly types in the RCV field.
     setReconEntryEdit({
       entry,
       draft: {
@@ -8113,13 +8117,16 @@ ${htmlBody}
             ? String(entry.rcvAmount)
             : "",
       },
-      rcvManuallyEdited: hasExistingRcv,
+      rcvManuallyEdited: false,
       saving: false,
       error: null,
     });
   };
 
-  const closeReconEntryEdit = () => setReconEntryEdit(null);
+  const closeReconEntryEdit = () => {
+    setReconEntryEdit(null);
+    reconEditDraggable.reset();
+  };
 
   // Helper: parse a string to number, treating blank as 0
   const parseReconNumber = (raw: string): number => {
@@ -8150,7 +8157,11 @@ ${htmlBody}
     return rcv === 0 ? "" : String(rcv);
   };
 
-  // Update a financial field and auto-compute RCV if not manually edited
+  // Update a financial field with bidirectional calculation:
+  // - Editing unitCost with valid Qty → recalculates itemAmount
+  // - Editing itemAmount with valid Qty → recalculates unitCost
+  // - Editing qty → recalculates itemAmount (if unitCost present) or unitCost (if itemAmount present)
+  // - Always recalculates RCV unless user has manually edited it
   const updateReconFinancialField = (
     field: "qty" | "unitCost" | "itemAmount" | "salesTaxAmount" | "opAmount",
     value: string
@@ -8159,9 +8170,44 @@ ${htmlBody}
       if (!prev) return prev;
       const newDraft = { ...prev.draft, [field]: value };
       
+      const qty = parseReconNumber(newDraft.qty);
+      const unitCost = parseReconNumber(newDraft.unitCost);
+      const itemAmount = parseReconNumber(newDraft.itemAmount);
+      
+      // Bidirectional calculation between unitCost and itemAmount
+      if (field === "unitCost" && qty !== 0) {
+        // User is editing unitCost → recalculate itemAmount
+        const newUnitCost = parseReconNumber(value);
+        if (newUnitCost !== 0) {
+          newDraft.itemAmount = String(qty * newUnitCost);
+        }
+      } else if (field === "itemAmount" && qty !== 0) {
+        // User is editing itemAmount → recalculate unitCost
+        const newItemAmount = parseReconNumber(value);
+        if (newItemAmount !== 0) {
+          newDraft.unitCost = String(newItemAmount / qty);
+        }
+      } else if (field === "qty") {
+        // User is editing qty → recalculate based on what's available
+        const newQty = parseReconNumber(value);
+        if (newQty !== 0) {
+          if (unitCost !== 0) {
+            // Prefer deriving itemAmount from unitCost
+            newDraft.itemAmount = String(newQty * unitCost);
+          } else if (itemAmount !== 0) {
+            // Fall back to deriving unitCost from itemAmount
+            newDraft.unitCost = String(itemAmount / newQty);
+          }
+        }
+      }
+      
       // Auto-compute RCV if user hasn't manually edited it
       if (!prev.rcvManuallyEdited) {
-        newDraft.rcvAmount = computeReconRcv(newDraft);
+        const finalItemAmount = parseReconNumber(newDraft.itemAmount);
+        const tax = parseReconNumber(newDraft.salesTaxAmount);
+        const op = parseReconNumber(newDraft.opAmount);
+        const rcv = finalItemAmount + tax + op;
+        newDraft.rcvAmount = rcv === 0 ? "" : String(rcv);
       }
       
       return { ...prev, draft: newDraft };
@@ -18948,12 +18994,13 @@ ${htmlBody}
             justifyContent: "center",
             backgroundColor: "rgba(15,23,42,0.35)",
           }}
-          onClick={() =>
+          onClick={() => {
             setPetlReconPanel(prev => ({
               ...prev,
               open: false,
-            }))
-          }
+            }));
+            reconPanelDraggable.reset();
+          }}
         >
           <div
             style={{
@@ -18967,10 +19014,12 @@ ${htmlBody}
               boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
               display: "flex",
               flexDirection: "column",
+              ...reconPanelDraggable.style,
             }}
             onClick={e => e.stopPropagation()}
           >
             <div
+              {...reconPanelDraggable.handleProps}
               style={{
                 padding: "10px 12px",
                 borderBottom: "1px solid #e5e7eb",
@@ -18980,6 +19029,8 @@ ${htmlBody}
                 fontSize: 13,
                 fontWeight: 600,
                 backgroundColor: "#f3f4f6",
+                borderRadius: "10px 10px 0 0",
+                ...reconPanelDraggable.handleProps.style,
               }}
             >
               <div>
@@ -18990,12 +19041,13 @@ ${htmlBody}
               </div>
               <button
                 type="button"
-                onClick={() =>
+                onClick={() => {
                   setPetlReconPanel(prev => ({
                     ...prev,
                     open: false,
-                  }))
-                }
+                  }));
+                  reconPanelDraggable.reset();
+                }}
                 style={{
                   border: "none",
                   background: "transparent",
@@ -19781,10 +19833,12 @@ ${htmlBody}
               borderRadius: 10,
               border: "1px solid #e5e7eb",
               boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
+              ...reconEditDraggable.style,
             }}
             onClick={(e) => e.stopPropagation()}
           >
             <div
+              {...reconEditDraggable.handleProps}
               style={{
                 padding: "10px 12px",
                 borderBottom: "1px solid #e5e7eb",
@@ -19794,6 +19848,8 @@ ${htmlBody}
                 fontSize: 13,
                 fontWeight: 600,
                 background: "#f3f4f6",
+                borderRadius: "10px 10px 0 0",
+                ...reconEditDraggable.handleProps.style,
               }}
             >
               <div>
@@ -19882,6 +19938,7 @@ ${htmlBody}
               >
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Tag</div>
                 <select
+                  ref={reconTagSelectRef}
                   value={reconEntryEdit.draft.tag}
                   onChange={(e) => {
                     const v = e.target.value as ReconEntryTag;
@@ -19892,9 +19949,10 @@ ${htmlBody}
                   style={{
                     padding: "6px 8px",
                     borderRadius: 8,
-                    border: "1px solid #d1d5db",
+                    border: reconEntryEdit.draft.tag ? "1px solid #d1d5db" : "2px solid #f59e0b",
                     fontSize: 12,
                     width: "100%",
+                    backgroundColor: reconEntryEdit.draft.tag ? "#ffffff" : "#fffbeb",
                   }}
                 >
                   <option value="">—</option>
@@ -19956,7 +20014,8 @@ ${htmlBody}
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Unit cost</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>Unit cost</div>
+                  <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 4 }}>Price contractor pays for 1 unit</div>
                   <input
                     value={reconEntryEdit.draft.unitCost}
                     onChange={(e) => updateReconFinancialField("unitCost", e.target.value)}
@@ -19970,7 +20029,8 @@ ${htmlBody}
                   />
                 </div>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Item amount</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>Item amount</div>
+                  <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 4 }}>Qty × Unit cost</div>
                   <input
                     value={reconEntryEdit.draft.itemAmount}
                     onChange={(e) => updateReconFinancialField("itemAmount", e.target.value)}
@@ -20022,7 +20082,7 @@ ${htmlBody}
               </div>
 
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>
                   RCV
                   {!reconEntryEdit.rcvManuallyEdited && reconEntryEdit.draft.rcvAmount && (
                     <span style={{ fontWeight: 400, marginLeft: 6, color: "#6b7280", fontStyle: "italic" }}>
@@ -20030,6 +20090,7 @@ ${htmlBody}
                     </span>
                   )}
                 </div>
+                <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 4 }}>Item amount + Tax + O&P/Other</div>
                 <input
                   value={reconEntryEdit.draft.rcvAmount}
                   onChange={(e) => {
@@ -20061,6 +20122,22 @@ ${htmlBody}
                     ? "For CREDIT entries, keep this negative; for ADD entries, keep it positive."
                     : "Auto-calculated from Item + Tax + O\u0026P. Type a value to override."}
                 </div>
+                {!reconEntryEdit.draft.rcvAmount.trim() && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      backgroundColor: "#fef3c7",
+                      border: "1px solid #f59e0b",
+                      fontSize: 11,
+                      color: "#92400e",
+                    }}
+                  >
+                    <strong>Missing RCV</strong> — Fill in Qty + Unit cost (or Item amount) to calculate RCV.
+                    You can still save this entry as a draft.
+                  </div>
+                )}
               </div>
 
               <div>
@@ -20493,13 +20570,7 @@ ${htmlBody}
           noteText={String(
             reconEntryEdit.draft.note ?? reconEntryEdit.entry?.note ?? "",
           ).trim()}
-          defaultQty={(() => {
-            const raw = reconEntryEdit.draft.qty.trim();
-            const n = Number(raw.replace(/,/g, ""));
-            if (Number.isFinite(n) && n > 0) return n;
-            const q = petlReconPanel.data?.rcvBreakdown?.qty;
-            return typeof q === "number" && Number.isFinite(q) && q > 0 ? q : 1;
-          })()}
+          defaultQty={1}
           confirmLabel="Use selected"
           onConfirm={async (selection) => {
             if (!selection || selection.length === 0) {
@@ -20536,7 +20607,15 @@ ${htmlBody}
                 nextDraft.unitCost = String(unitPrice);
                 const qtyNum = Number(String(nextDraft.qty).replace(/,/g, ""));
                 if (Number.isFinite(qtyNum) && qtyNum > 0) {
-                  nextDraft.itemAmount = String(qtyNum * unitPrice);
+                  const itemAmount = qtyNum * unitPrice;
+                  nextDraft.itemAmount = String(itemAmount);
+                  
+                  // Auto-calculate RCV (itemAmount + tax + op)
+                  // Tax and O&P may already have values or be blank
+                  const tax = parseReconNumber(nextDraft.salesTaxAmount);
+                  const op = parseReconNumber(nextDraft.opAmount);
+                  const rcv = itemAmount + tax + op;
+                  nextDraft.rcvAmount = rcv > 0 ? String(rcv) : "";
                 }
               }
 
@@ -20544,10 +20623,16 @@ ${htmlBody}
                 nextDraft.description = String(item.description ?? "").trim();
               }
 
-              return { ...prev, draft: nextDraft };
+              // Keep rcvManuallyEdited false so further edits continue auto-calculating
+              return { ...prev, draft: nextDraft, rcvManuallyEdited: false };
             });
 
             setReconEditCostBookOpen(false);
+            
+            // Focus the tag select so user builds muscle memory for tagging
+            setTimeout(() => {
+              reconTagSelectRef.current?.focus();
+            }, 100);
           }}
           onClose={() => setReconEditCostBookOpen(false)}
         />
