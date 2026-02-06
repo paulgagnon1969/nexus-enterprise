@@ -55,13 +55,13 @@ const BKM_DOCUMENTS: BkmDocument[] = [
   },
   {
     id: "BKM-NCC-002",
-    title: "Project Setup and Configuration",
+    title: "Dev Stack & Environment Guide",
     description:
-      "How to create projects, configure settings, assign team members, and set up the project for success.",
+      "How to start and manage local development environments: Docker, Cloud SQL, and the three startup scripts.",
     category: "nexus-101",
     lastUpdated: "February 2026",
-    path: "/learning/bkm/project-setup",
-    status: "coming-soon",
+    path: "/learning/bkm/dev-stack",
+    status: "published",
   },
   {
     id: "BKM-NCC-003",
@@ -179,7 +179,7 @@ const BKM_DOCUMENTS: BkmDocument[] = [
     category: "integrations",
     lastUpdated: "February 2026",
     path: "/learning/bkm/xactimate-integration",
-    status: "coming-soon",
+    status: "published",
   },
 ];
 
