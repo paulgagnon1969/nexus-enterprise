@@ -15,6 +15,11 @@ jobs:
   deploy-api-prod:
     runs-on: ubuntu-latest
 
+    # Required for Workload Identity Federation
+    permissions:
+      contents: read
+      id-token: write
+
     env:
       GOOGLE_CLOUD_PROJECT: nexus-enterprise-480610
 
@@ -31,16 +36,12 @@ jobs:
       - name: Install dependencies (root)
         run: npm ci
 
-      # Authenticate to GCP using a deployer service account JSON stored in secrets.
-      # Create a service account (e.g. nexus-api-deployer) with minimal roles:
-      #   - Cloud Run Admin
-      #   - Cloud Build Service Account
-      #   - Artifact Registry Writer (for us-docker.pkg.dev)
-      # Download its JSON key and store it as the GitHub secret GCP_SA_DEPLOY_JSON.
+      # Authenticate to GCP using Workload Identity Federation (no keys needed)
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_DEPLOY_JSON }}
+          workload_identity_provider: projects/979156454944/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider
+          service_account: nexus-api-deployer@nexus-enterprise-480610.iam.gserviceaccount.com
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
