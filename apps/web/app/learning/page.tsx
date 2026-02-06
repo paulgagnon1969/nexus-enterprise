@@ -148,6 +148,7 @@ export default function LearningPage() {
                 "Templates and examples from real engagements",
               ]}
               cta="Explore BKMs"
+              onClick={() => router.push("/learning/bkm")}
             />
             <TrackCard
               title="Culture & Ways of Working"
@@ -312,9 +313,10 @@ interface TrackCardProps {
   tagline: string;
   bullets: string[];
   cta: string;
+  onClick?: () => void;
 }
 
-function TrackCard({ id, title, tagline, bullets, cta }: TrackCardProps) {
+function TrackCard({ id, title, tagline, bullets, cta, onClick }: TrackCardProps) {
   return (
     <div
       id={id}
@@ -339,6 +341,7 @@ function TrackCard({ id, title, tagline, bullets, cta }: TrackCardProps) {
       <div style={{ marginTop: "auto" }}>
         <button
           type="button"
+          onClick={onClick}
           style={{
             padding: "6px 10px",
             borderRadius: 6,
