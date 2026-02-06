@@ -3729,6 +3729,15 @@ ${htmlBody}
   const [petlEditDraft, setPetlEditDraft] = useState<string>("");
   const [petlEditSaving, setPetlEditSaving] = useState(false);
 
+  // Brief toast notification for single-line saves
+  const [petlToast, setPetlToast] = useState<string | null>(null);
+  const petlToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showPetlToast = useCallback((msg: string, durationMs = 2500) => {
+    if (petlToastTimeoutRef.current) clearTimeout(petlToastTimeoutRef.current);
+    setPetlToast(msg);
+    petlToastTimeoutRef.current = setTimeout(() => setPetlToast(null), durationMs);
+  }, []);
+
   const openPetlCellEditor = (
     sowItemId: string,
     field: "qty" | "unit" | "rcvAmount" | "categoryCode" | "selectionCode",
@@ -7364,7 +7373,16 @@ ${htmlBody}
                               );
                               if (!res.ok) {
                                 console.error("Per-line update failed", res.status);
+                                showPetlToast(`Failed to save line #${displayLineNo}`);
+                                return;
                               }
+
+                              // Show brief toast confirmation
+                              showPetlToast(
+                                isAcv
+                                  ? `Line #${displayLineNo} set to ACV only`
+                                  : `Line #${displayLineNo} set to ${percent}%`
+                              );
 
                               // After a single-line edit in the flat PETL table,
                               // also refresh the server-backed PETL + groups so the
@@ -8064,6 +8082,8 @@ ${htmlBody}
           alert(`Failed to update percent (${res.status}) ${text}`);
           return;
         }
+
+        showPetlToast(`Reconciliation entry set to ${newPercent}%`);
 
         setPetlReloadTick(t => t + 1);
         if (petlReconPanel.sowItemId) {
@@ -16814,7 +16834,29 @@ ${htmlBody}
 
       {/* PETL tab content */}
       {activeTab === "PETL" && (
-        <div>
+        <div style={{ position: "relative" }}>
+          {/* Toast notification for single-line saves */}
+          {petlToast && (
+            <div
+              style={{
+                position: "fixed",
+                bottom: 24,
+                right: 24,
+                padding: "10px 16px",
+                borderRadius: 8,
+                background: "#065f46",
+                color: "#ffffff",
+                fontSize: 13,
+                fontWeight: 500,
+                boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                zIndex: 9999,
+                animation: "fadeIn 0.2s ease-out",
+              }}
+            >
+              {petlToast}
+            </div>
+          )}
+
           {!petlTabMounted && (
             <div
               style={{
