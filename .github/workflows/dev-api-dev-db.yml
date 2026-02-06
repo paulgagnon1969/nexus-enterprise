@@ -44,13 +44,12 @@ jobs:
         with:
           project_id: ${{ env.GOOGLE_CLOUD_PROJECT }}
 
-      # Start Cloud SQL Proxy to enable socket connection to Cloud SQL
+      # Start Cloud SQL Proxy in TCP mode (port 5432)
       - name: Start Cloud SQL Proxy
         run: |
           curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.3/cloud-sql-proxy.linux.amd64
           chmod +x cloud-sql-proxy
-          mkdir -p /tmp/cloudsql
-          ./cloud-sql-proxy --unix-socket /tmp/cloudsql nexus-enterprise-480610:us-central1:nexus-dev-postgres &
+          ./cloud-sql-proxy --port 5432 nexus-enterprise-480610:us-central1:nexus-dev-postgres &
           sleep 5  # Wait for proxy to start
 
       # Run Prisma migrations against Cloud SQL dev using DATABASE_URL
@@ -59,7 +58,7 @@ jobs:
           cd packages/database
           npx prisma migrate deploy --schema prisma/schema.prisma
         env:
-          DATABASE_URL: postgresql://postgres:${{ secrets.DEV_DB_PASSWORD }}@localhost:5432/nexus_db?host=/tmp/cloudsql/nexus-enterprise-480610:us-central1:nexus-dev-postgres
+          DATABASE_URL: postgresql://postgres:${{ secrets.DEV_DB_PASSWORD }}@127.0.0.1:5432/nexus_db
 
       # Deploy API to Cloud Run dev service (e.g. nexus-api-dev)
       - name: Deploy API to Cloud Run dev
