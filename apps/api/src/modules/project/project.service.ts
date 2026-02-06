@@ -3819,24 +3819,21 @@ export class ProjectService {
     sowItemId: string,
     body: { kind?: string; tag?: string | null; note?: string | null },
   ) {
-    const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
-      projectId,
-      companyId,
-      actor,
-      sowItemId,
-    });
-
+    // Ensure the SOW item exists and belongs to this project first.
     const sowItem = await this.prisma.sowItem.findUnique({
       where: { id: sowItemId },
       select: {
         estimateVersionId: true,
         projectParticleId: true,
         lineNo: true,
+        sow: {
+          select: { projectId: true },
+        },
       },
     });
 
-    if (!sowItem) {
-      throw new NotFoundException("SOW item not found");
+    if (!sowItem || sowItem.sow.projectId !== projectId) {
+      throw new NotFoundException("SOW item not found for this project");
     }
 
     const kind =
@@ -3855,51 +3852,81 @@ export class ProjectService {
       throw new BadRequestException("Invalid reconciliation entry tag");
     })();
 
-    const entry = await this.prisma.petlReconciliationEntry.create({
-      data: {
+    try {
+      const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
         projectId,
-        estimateVersionId: sowItem.estimateVersionId,
-        caseId: theCase.id,
-        parentSowItemId: sowItemId,
-        projectParticleId: sowItem.projectParticleId,
-        kind,
-        tag,
-        status: PetlReconciliationEntryStatus.APPROVED,
-        note: body.note ?? null,
-        rcvAmount: null,
-        percentComplete: 0,
-        isPercentCompleteLocked: true,
-        createdByUserId: actor.userId,
-        originEstimateVersionId: sowItem.estimateVersionId,
-        originSowItemId: sowItemId,
-        originLineNo: sowItem.lineNo ?? null,
-        events: {
-          create: {
-            projectId,
-            estimateVersionId: sowItem.estimateVersionId,
-            caseId: theCase.id,
-            eventType: "ENTRY_CREATED",
-            payloadJson: { kind, note: body.note ?? null },
-            createdByUserId: actor.userId,
-          },
-        },
-      },
-      include: {
-        case: {
-          include: {
-            entries: {
-              orderBy: { createdAt: "asc" },
-              include: {
-                attachments: { orderBy: { createdAt: "asc" } },
-              },
-            },
-            events: { orderBy: { createdAt: "asc" } },
-          },
-        },
-      },
-    });
+        companyId,
+        actor,
+        sowItemId,
+      });
 
-    return { entry, reconciliationCase: entry.case };
+      const entry = await this.prisma.petlReconciliationEntry.create({
+        data: {
+          projectId,
+          estimateVersionId: sowItem.estimateVersionId,
+          caseId: theCase.id,
+          parentSowItemId: sowItemId,
+          projectParticleId: sowItem.projectParticleId,
+          kind,
+          tag,
+          status: PetlReconciliationEntryStatus.APPROVED,
+          note: body.note ?? null,
+          rcvAmount: null,
+          percentComplete: 0,
+          isPercentCompleteLocked: true,
+          createdByUserId: actor.userId,
+          originEstimateVersionId: sowItem.estimateVersionId,
+          originSowItemId: sowItemId,
+          originLineNo: sowItem.lineNo ?? null,
+          events: {
+            create: {
+              projectId,
+              estimateVersionId: sowItem.estimateVersionId,
+              caseId: theCase.id,
+              eventType: "ENTRY_CREATED",
+              payloadJson: { kind, note: body.note ?? null },
+              createdByUserId: actor.userId,
+            },
+          },
+        },
+        include: {
+          case: {
+            include: {
+              entries: {
+                orderBy: { createdAt: "asc" },
+                include: {
+                  attachments: { orderBy: { createdAt: "asc" } },
+                },
+              },
+              events: { orderBy: { createdAt: "asc" } },
+            },
+          },
+        },
+      });
+
+      return { entry, reconciliationCase: entry.case };
+    } catch (err: any) {
+      // If reconciliation tables are missing in this environment, log and
+      // gracefully degrade instead of 500-ing the project UI.
+      if (
+        this.isMissingPrismaTableError(err, "PetlReconciliationCase") ||
+        this.isMissingPrismaTableError(err, "PetlReconciliationEntry") ||
+        this.isMissingPrismaTableError(err, "PetlReconciliationEvent") ||
+        this.isMissingPrismaTableError(err, "PetlReconciliationAttachment")
+      ) {
+        this.logger.error(
+          `createPetlReconciliationPlaceholder skipped because reconciliation tables are not fully migrated for project ${projectId}`,
+          err instanceof Error ? err.stack : String(err),
+        );
+
+        return {
+          entry: null,
+          reconciliationCase: null,
+        };
+      }
+
+      throw err;
+    }
   }
 
   async importPetlReconcileNotesFromCsv(args: {
