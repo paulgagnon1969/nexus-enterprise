@@ -1940,6 +1940,15 @@ export class ProjectService {
     return msg.includes(tableOrModel);
   }
 
+  /**
+   * Returns true if the error is a Prisma schema mismatch error (missing table or column).
+   * P2021 = table doesn't exist, P2022 = column doesn't exist.
+   */
+  private isPrismaSchemaMismatchError(err: any) {
+    const code = String(err?.code ?? "");
+    return code === "P2021" || code === "P2022";
+  }
+
   async getPetlForProject(
     projectId: string,
     companyId: string,
@@ -3371,37 +3380,15 @@ export class ProjectService {
         },
       });
     } catch (err: any) {
-      // If reconciliation tables themselves are missing, treat as "no case yet"
+      // If reconciliation tables/columns are missing, treat as "no case yet"
       // so PETL still works in partially migrated environments.
-      if (
-        this.isMissingPrismaTableError(err, "PetlReconciliationCase") ||
-        this.isMissingPrismaTableError(err, "PetlReconciliationEntry") ||
-        this.isMissingPrismaTableError(err, "PetlReconciliationEvent")
-      ) {
+      // P2021 = table missing, P2022 = column missing.
+      if (this.isPrismaSchemaMismatchError(err)) {
         return null;
       }
 
-      // Backwards-compatible: in environments where only the
-      // PetlReconciliationAttachment table/migration is missing, fall back to
-      // loading the case without attachments instead of 500-ing the project
-      // page.
-      if (!this.isMissingPrismaTableError(err, "PetlReconciliationAttachment")) {
-        throw err;
-      }
-
-      return this.prisma.petlReconciliationCase.findFirst({
-        where: {
-          projectId,
-          OR: [
-            { sowItemId },
-            { logicalItemId: sowItem.logicalItemId },
-          ],
-        },
-        include: {
-          entries: { orderBy: { createdAt: "asc" } },
-          events: { orderBy: { createdAt: "asc" } },
-        },
-      });
+      // Unknown error - log and re-throw.
+      throw err;
     }
   }
 
@@ -3906,16 +3893,12 @@ export class ProjectService {
 
       return { entry, reconciliationCase: entry.case };
     } catch (err: any) {
-      // If reconciliation tables are missing in this environment, log and
+      // If reconciliation tables/columns are missing in this environment, log and
       // gracefully degrade instead of 500-ing the project UI.
-      if (
-        this.isMissingPrismaTableError(err, "PetlReconciliationCase") ||
-        this.isMissingPrismaTableError(err, "PetlReconciliationEntry") ||
-        this.isMissingPrismaTableError(err, "PetlReconciliationEvent") ||
-        this.isMissingPrismaTableError(err, "PetlReconciliationAttachment")
-      ) {
+      // P2021 = table missing, P2022 = column missing.
+      if (this.isPrismaSchemaMismatchError(err)) {
         this.logger.error(
-          `createPetlReconciliationPlaceholder skipped because reconciliation tables are not fully migrated for project ${projectId}`,
+          `createPetlReconciliationPlaceholder skipped because reconciliation schema is not fully migrated for project ${projectId}`,
           err instanceof Error ? err.stack : String(err),
         );
 
@@ -4775,14 +4758,12 @@ export class ProjectService {
 
       return { entry, reconciliationCase: entry.case };
     } catch (err: any) {
-      if (
-        this.isMissingPrismaTableError(err, "PetlReconciliationCase") ||
-        this.isMissingPrismaTableError(err, "PetlReconciliationEntry") ||
-        this.isMissingPrismaTableError(err, "PetlReconciliationEvent") ||
-        this.isMissingPrismaTableError(err, "PetlReconciliationAttachment")
-      ) {
+      // If reconciliation tables/columns are missing in this environment, log and
+      // gracefully degrade instead of 500-ing the project UI.
+      // P2021 = table missing, P2022 = column missing.
+      if (this.isPrismaSchemaMismatchError(err)) {
         this.logger.error(
-          `createPetlReconciliationAddFromCostBook skipped because reconciliation tables are not fully migrated for project ${projectId}`,
+          `createPetlReconciliationAddFromCostBook skipped because reconciliation schema is not fully migrated for project ${projectId}`,
           err instanceof Error ? err.stack : String(err),
         );
 
@@ -5700,10 +5681,25 @@ export class ProjectService {
           estimateVersionId: latestVersion.id,
           rcvAmount: { not: null },
         },
+        // Explicit select to avoid failures if new columns haven't been migrated yet
+        select: {
+          id: true,
+          projectId: true,
+          estimateVersionId: true,
+          projectParticleId: true,
+          rcvAmount: true,
+          percentComplete: true,
+          isPercentCompleteLocked: true,
+        },
       });
     } catch (err: any) {
-      if (!this.isMissingPrismaTableError(err, "PetlReconciliationEntry")) {
-        throw err;
+      // Gracefully degrade if the table or columns don't exist in this environment.
+      // P2021 = table missing, P2022 = column missing.
+      if (!this.isPrismaSchemaMismatchError(err)) {
+        this.logger.error(
+          `getPetlGroupsForProject reconciliation query failed for project ${projectId}`,
+          err instanceof Error ? err.stack : String(err),
+        );
       }
       reconEntries = [];
     }
@@ -6018,10 +6014,21 @@ export class ProjectService {
               ? { selectionCode: { in: filters.selectionCodes } }
               : {}),
           },
+          // Explicit select to avoid failures if new columns haven't been migrated yet
+          select: {
+            id: true,
+            rcvAmount: true,
+            percentComplete: true,
+            isPercentCompleteLocked: true,
+          },
         });
       } catch (err: any) {
-        if (!this.isMissingPrismaTableError(err, "PetlReconciliationEntry")) {
-          throw err;
+        // Gracefully degrade if the table or columns don't exist in this environment.
+        if (!this.isPrismaSchemaMismatchError(err)) {
+          this.logger.error(
+            `getPetlSelectionSummaryForProject reconciliation query failed for project ${projectId}`,
+            err instanceof Error ? err.stack : String(err),
+          );
         }
         reconEntries = [];
       }
