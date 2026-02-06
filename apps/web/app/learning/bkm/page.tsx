@@ -169,7 +169,7 @@ const BKM_DOCUMENTS: BkmDocument[] = [
     category: "integrations",
     lastUpdated: "February 2026",
     path: "/learning/bkm/csv-import-architecture",
-    status: "coming-soon",
+    status: "published",
   },
   {
     id: "BKM-INT-002",
