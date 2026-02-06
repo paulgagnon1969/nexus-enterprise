@@ -2019,8 +2019,15 @@ export class ProjectService {
         .filter((v: any): v is string => typeof v === "string" && v.length > 0);
     } catch (err: any) {
       if (!this.isMissingPrismaTableError(err, "PetlReconciliationEntry")) {
-        throw err;
+        // In prod, reconciliation data should never prevent the PETL grid from
+        // loading. Log the error and continue with no reconciliation entries.
+        this.logger.error(
+          `getPetlForProject reconciliation query failed for project ${projectId}`,
+          err instanceof Error ? err.stack : String(err),
+        );
       }
+      reconciliationEntriesRaw = [];
+      reconciliationActivitySowItemIds = [];
     }
 
     const particleById = await this.resolveProjectParticlesForProject({
