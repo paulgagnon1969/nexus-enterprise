@@ -5805,7 +5805,7 @@ export class ProjectService {
     },
   ) {
     const project = await this.prisma.project.findFirst({
-      where: { id: projectId, companyId }
+      where: { id: projectId, companyId },
     });
 
     if (!project) {
@@ -5818,141 +5818,157 @@ export class ProjectService {
         where: {
           userId_projectId: {
             userId: actor.userId,
-            projectId
-          }
-        }
+            projectId,
+          },
+        },
       });
       if (!membership) {
         throw new ForbiddenException("You do not have access to this project's PETL");
       }
     }
 
-    // Prefer the same estimate version that backs the PETL grid so selection
-    // summaries stay aligned with what the user sees in the PETL tab.
-    let latestVersion = await this.prisma.estimateVersion.findFirst({
-      where: {
-        projectId,
-        sows: {
-          some: {
-            items: {
-              some: {},
+    try {
+      // Prefer the same estimate version that backs the PETL grid so selection
+      // summaries stay aligned with what the user sees in the PETL tab.
+      let latestVersion = await this.prisma.estimateVersion.findFirst({
+        where: {
+          projectId,
+          sows: {
+            some: {
+              items: {
+                some: {},
+              },
             },
           },
         },
-      },
-      orderBy: [
-        { sequenceNo: "desc" },
-        { importedAt: "desc" },
-        { createdAt: "desc" },
-      ],
-    });
-
-    if (!latestVersion) {
-      latestVersion = await this.prisma.estimateVersion.findFirst({
-        where: { projectId },
         orderBy: [
           { sequenceNo: "desc" },
           { importedAt: "desc" },
           { createdAt: "desc" },
         ],
       });
-    }
 
-    if (!latestVersion) {
+      if (!latestVersion) {
+        latestVersion = await this.prisma.estimateVersion.findFirst({
+          where: { projectId },
+          orderBy: [
+            { sequenceNo: "desc" },
+            { importedAt: "desc" },
+            { createdAt: "desc" },
+          ],
+        });
+      }
+
+      if (!latestVersion) {
+        return {
+          projectId,
+          estimateVersionId: null,
+          itemCount: 0,
+          totalAmount: 0,
+          completedAmount: 0,
+          percentComplete: 0,
+        };
+      }
+
+      const where: any = {
+        estimateVersionId: latestVersion.id,
+      };
+
+      if (filters.roomParticleIds?.length) {
+        where.projectParticleId = { in: filters.roomParticleIds };
+      }
+      if (filters.categoryCodes?.length) {
+        where.categoryCode = { in: filters.categoryCodes };
+      }
+      if (filters.selectionCodes?.length) {
+        where.selectionCode = { in: filters.selectionCodes };
+      }
+
+      const items = await this.prisma.sowItem.findMany({ where });
+
+      let reconEntries: any[] = [];
+      try {
+        reconEntries = await this.prisma.petlReconciliationEntry.findMany({
+          where: {
+            projectId,
+            estimateVersionId: latestVersion.id,
+            status: PetlReconciliationEntryStatus.APPROVED,
+            rcvAmount: { not: null },
+            ...(filters.roomParticleIds?.length
+              ? { projectParticleId: { in: filters.roomParticleIds } }
+              : {}),
+            ...(filters.categoryCodes?.length ? { categoryCode: { in: filters.categoryCodes } } : {}),
+            ...(filters.selectionCodes?.length
+              ? { selectionCode: { in: filters.selectionCodes } }
+              : {}),
+          },
+        });
+      } catch (err: any) {
+        if (!this.isMissingPrismaTableError(err, "PetlReconciliationEntry")) {
+          throw err;
+        }
+        reconEntries = [];
+      }
+
+      if (items.length === 0 && reconEntries.length === 0) {
+        return {
+          projectId,
+          estimateVersionId: latestVersion.id,
+          itemCount: 0,
+          totalAmount: 0,
+          completedAmount: 0,
+          percentComplete: 0,
+        };
+      }
+
+      let itemCount = 0;
+      let totalAmount = 0;
+      let completedAmount = 0;
+
+      for (const item of items) {
+        // Baseline selection summaries on RCV; fall back to Item Amount if RCV is missing.
+        const lineTotal = item.rcvAmount ?? item.itemAmount ?? 0;
+        const basePct = item.percentComplete ?? 0;
+        const pct = item.isAcvOnly ? 0 : basePct;
+        itemCount += 1;
+        totalAmount += lineTotal;
+        completedAmount += lineTotal * (pct / 100);
+      }
+
+      for (const entry of reconEntries) {
+        const lineTotal = entry.rcvAmount ?? 0;
+        const pct = entry.isPercentCompleteLocked ? 0 : (entry.percentComplete ?? 0);
+        itemCount += 1;
+        totalAmount += lineTotal;
+        completedAmount += lineTotal * (pct / 100);
+      }
+
+      const percentComplete = totalAmount > 0 ? (completedAmount / totalAmount) * 100 : 0;
+
+      return {
+        projectId,
+        estimateVersionId: latestVersion.id,
+        itemCount,
+        totalAmount,
+        completedAmount,
+        percentComplete,
+      };
+    } catch (err: any) {
+      this.logger.error(
+        `getPetlSelectionSummaryForProject failed for project ${projectId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+
+      // Fall back to an empty-but-successful summary so PETL UI can still load.
       return {
         projectId,
         estimateVersionId: null,
         itemCount: 0,
         totalAmount: 0,
         completedAmount: 0,
-        percentComplete: 0
+        percentComplete: 0,
       };
     }
-
-    const where: any = {
-      estimateVersionId: latestVersion.id
-    };
-
-    if (filters.roomParticleIds?.length) {
-      where.projectParticleId = { in: filters.roomParticleIds };
-    }
-    if (filters.categoryCodes?.length) {
-      where.categoryCode = { in: filters.categoryCodes };
-    }
-    if (filters.selectionCodes?.length) {
-      where.selectionCode = { in: filters.selectionCodes };
-    }
-
-    const items = await this.prisma.sowItem.findMany({ where });
-
-    let reconEntries: any[] = [];
-    try {
-      reconEntries = await this.prisma.petlReconciliationEntry.findMany({
-        where: {
-          projectId,
-          estimateVersionId: latestVersion.id,
-          status: PetlReconciliationEntryStatus.APPROVED,
-          rcvAmount: { not: null },
-          ...(filters.roomParticleIds?.length
-            ? { projectParticleId: { in: filters.roomParticleIds } }
-            : {}),
-          ...(filters.categoryCodes?.length ? { categoryCode: { in: filters.categoryCodes } } : {}),
-          ...(filters.selectionCodes?.length
-            ? { selectionCode: { in: filters.selectionCodes } }
-            : {}),
-        },
-      });
-    } catch (err: any) {
-      if (!this.isMissingPrismaTableError(err, "PetlReconciliationEntry")) {
-        throw err;
-      }
-      reconEntries = [];
-    }
-
-    if (items.length === 0 && reconEntries.length === 0) {
-      return {
-        projectId,
-        estimateVersionId: latestVersion.id,
-        itemCount: 0,
-        totalAmount: 0,
-        completedAmount: 0,
-        percentComplete: 0
-      };
-    }
-
-    let itemCount = 0;
-    let totalAmount = 0;
-    let completedAmount = 0;
-
-    for (const item of items) {
-      // Baseline selection summaries on RCV; fall back to Item Amount if RCV is missing.
-      const lineTotal = item.rcvAmount ?? item.itemAmount ?? 0;
-      const basePct = item.percentComplete ?? 0;
-      const pct = item.isAcvOnly ? 0 : basePct;
-      itemCount += 1;
-      totalAmount += lineTotal;
-      completedAmount += lineTotal * (pct / 100);
-    }
-
-    for (const entry of reconEntries) {
-      const lineTotal = entry.rcvAmount ?? 0;
-      const pct = entry.isPercentCompleteLocked ? 0 : (entry.percentComplete ?? 0);
-      itemCount += 1;
-      totalAmount += lineTotal;
-      completedAmount += lineTotal * (pct / 100);
-    }
-
-    const percentComplete =
-      totalAmount > 0 ? (completedAmount / totalAmount) * 100 : 0;
-
-    return {
-      projectId,
-      estimateVersionId: latestVersion.id,
-      itemCount,
-      totalAmount,
-      completedAmount,
-      percentComplete
-    };
   }
 
   async updatePetlLineItemForProject(
