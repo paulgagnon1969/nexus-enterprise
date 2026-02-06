@@ -40,6 +40,21 @@ services:
   #     - postgres
   #     - redis
 
+  # Shadow database for Prisma migrations (avoids polluting main dev DB)
+  postgres-shadow:
+    image: postgres:18
+    container_name: nexus-postgres-shadow
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nexus_user
+      POSTGRES_PASSWORD: nexus_password
+      POSTGRES_DB: nexus_shadow
+    ports:
+      - "5434:5432"
+    volumes:
+      - nexus-postgres-shadow-data:/var/lib/postgresql
+
 volumes:
   nexus-postgres-data:
+  nexus-postgres-shadow-data:
   nexus-redis-data:

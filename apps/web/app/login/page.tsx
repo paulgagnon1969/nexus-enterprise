@@ -85,6 +85,9 @@ export default function LoginPage() {
       localStorage.setItem("refreshToken", data.refreshToken);
       localStorage.setItem("companyId", data.company.id);
 
+      // Notify other components (e.g. UserMenu) that auth state changed.
+      window.dispatchEvent(new Event("nexus-auth-change"));
+
       // Route by user context:
       // - APPLICANT: candidate portal
       // - SUPER_ADMIN: Nexus System

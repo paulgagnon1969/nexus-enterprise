@@ -79,31 +79,19 @@ export function ContactList() {
 
   // Load device contacts
   useEffect(() => {
-    console.log("[ContactList] Mounted, loading contacts...");
     loadContacts();
     loadSyncedContacts();
   }, []);
 
   const loadContacts = async () => {
-    console.log("[ContactList] loadContacts() starting...");
     setSyncState("loading");
     setError(null);
     try {
-      console.log("[ContactList] Invoking get_contacts...");
       const result = await invoke<DeviceContact[]>("get_contacts");
-      console.log("[ContactList] Got contacts:", result?.length ?? 0);
-      // Debug: log first few contacts to verify data structure
-      if (result?.length) {
-        const sample = result[0];
-        const keys = Object.keys(sample);
-        const debugInfo = `Keys: ${keys.join(", ")}\n\nFirst contact:\ndisplayName: ${sample.displayName}\nemail: ${sample.email}\nphone: ${sample.phone}\n\nRaw JSON: ${JSON.stringify(sample, null, 2).slice(0, 500)}`;
-        console.log("[ContactList] DEBUG:", debugInfo);
-        alert(debugInfo);
-      }
       setContacts(result || []);
       setSyncState("idle");
     } catch (err) {
-      console.error("[ContactList] loadContacts error:", err);
+      console.error("Failed to load contacts:", err);
       const errorMsg = typeof err === "string" ? err : (err as Error)?.message || "Failed to load contacts";
       setError(errorMsg);
       setSyncState("error");
@@ -111,10 +99,8 @@ export function ContactList() {
   };
 
   const loadSyncedContacts = async () => {
-    console.log("[ContactList] loadSyncedContacts() starting...");
     try {
       const synced = await listContacts(undefined, 200);
-      console.log("[ContactList] Got synced contacts:", synced?.length ?? 0);
       const emails = new Set<string>();
       const phones = new Set<string>();
       (synced || []).forEach((c) => {
@@ -124,7 +110,6 @@ export function ContactList() {
       setSyncedEmails(emails);
       setSyncedPhones(phones);
     } catch (err) {
-      console.error("[ContactList] Failed to load synced contacts:", err);
       // Don't block UI for this - just log it
     }
   };
@@ -277,21 +262,8 @@ export function ContactList() {
 
   const unsyncedCount = filteredContacts.filter((c) => !isSynced(c)).length;
 
-  // Debug: show first contact's raw data
-  const debugContact = contacts[0];
-  const debugKeys = debugContact ? Object.keys(debugContact).join(", ") : "no contacts";
-
   return (
     <div className="h-full flex flex-col space-y-4">
-      {/* DEBUG INFO - REMOVE LATER */}
-      {debugContact && (
-        <div className="bg-yellow-100 border border-yellow-400 p-2 text-xs font-mono">
-          <div><strong>Keys:</strong> {debugKeys}</div>
-          <div><strong>displayName:</strong> {String(debugContact.displayName)}</div>
-          <div><strong>email:</strong> {String(debugContact.email)}</div>
-          <div><strong>phone:</strong> {String(debugContact.phone)}</div>
-        </div>
-      )}
       {/* Environment Selector */}
       <EnvironmentSelector />
 
@@ -316,10 +288,7 @@ export function ContactList() {
           />
           <button
             type="button"
-            onClick={() => {
-              console.log("[ContactList] Refresh clicked");
-              loadContacts();
-            }}
+            onClick={loadContacts}
             className="px-3 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg"
             title="Refresh"
           >

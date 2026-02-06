@@ -909,6 +909,26 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
   const [me, setMe] = React.useState<UserMeResponse | null>(null);
   const [canManageCompany, setCanManageCompany] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const [tokenVersion, setTokenVersion] = React.useState(0);
+
+  // Listen for auth changes (same-tab custom event + cross-tab storage event).
+  useEffect(() => {
+    function handleAuthChange() {
+      setTokenVersion(v => v + 1);
+    }
+    function handleStorage(e: StorageEvent) {
+      if (e.key === "accessToken") {
+        setTokenVersion(v => v + 1);
+      }
+    }
+    window.addEventListener("nexus-auth-change", handleAuthChange);
+    window.addEventListener("storage", handleStorage);
+
+    return () => {
+      window.removeEventListener("nexus-auth-change", handleAuthChange);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -952,7 +972,7 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
       .catch(() => {
         // ignore
       });
-  }, []);
+  }, [tokenVersion]);
 
   // Close menu when clicking outside or pressing Escape.
   useEffect(() => {
