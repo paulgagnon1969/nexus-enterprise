@@ -386,6 +386,7 @@ model User {
   stagedDocumentsScanned     StagedDocument[] @relation("StagedDocumentScannedBy")
   stagedDocumentsArchived    StagedDocument[] @relation("StagedDocumentArchivedBy")
   stagedDocumentsImported    StagedDocument[] @relation("StagedDocumentImportedBy")
+  stagedDocumentsPublished   StagedDocument[] @relation("StagedDocumentPublishedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -4236,9 +4237,9 @@ enum DocumentScanJobStatus {
 
 /// Status of a staged document
 enum StagedDocumentStatus {
-  ACTIVE
-  ARCHIVED
-  IMPORTED
+  ACTIVE       // Unpublished eDocs - available for editing/tagging
+  ARCHIVED     // Soft-deleted, not visible to regular users
+  PUBLISHED    // Published and available organization-wide
 }
 
 /// Status of HTML conversion for a staged document
@@ -4300,6 +4301,21 @@ model StagedDocument {
   sortOrder           Int?                   // Custom sort order within category
   metadata            Json?                  // Additional file metadata
   
+  // Tagging for filtering and categorization
+  tags                String[]               // User-defined tags for filtering
+  category            String?                // Primary category (e.g., "Safety", "HR", "Operations")
+  subcategory         String?                // Subcategory for finer organization
+  
+  // Revision control
+  revisionNumber      Int                    @default(1)  // Current revision number
+  revisionDate        DateTime?              // Date of current revision
+  revisionNotes       String?                // Notes about what changed in this revision
+  revisionHistory     Json?                  // JSON array of previous revision info
+  
+  // Publishing workflow
+  publishedAt         DateTime?              // When document was published
+  publishedByUserId   String?                // Who published it
+  
   // HTML conversion fields
   htmlContent         String?                @db.Text  // Converted HTML content
   conversionStatus    HtmlConversionStatus?  // Status of HTML conversion
@@ -4314,9 +4330,11 @@ model StagedDocument {
   scannedBy           User                   @relation("StagedDocumentScannedBy", fields: [scannedByUserId], references: [id])
   archivedBy          User?                  @relation("StagedDocumentArchivedBy", fields: [archivedByUserId], references: [id])
   importedBy          User?                  @relation("StagedDocumentImportedBy", fields: [importedByUserId], references: [id])
+  publishedBy         User?                  @relation("StagedDocumentPublishedBy", fields: [publishedByUserId], references: [id])
 
   @@index([companyId, status], map: "StagedDocument_company_status_idx")
   @@index([scanJobId], map: "StagedDocument_job_idx")
   @@index([companyId, fileType], map: "StagedDocument_company_type_idx")
   @@index([companyId, importedToType, importedToCategory], map: "StagedDocument_imported_idx")
+  @@index([companyId, category], map: "StagedDocument_company_category_idx")
 }

@@ -322,6 +322,138 @@ export class DocumentImportController {
     return this.documentImport.getImportedCategories(actor, importToType);
   }
 
+  // ==================== Tagging & Document Details ====================
+
+  /**
+   * Update document details (title, description, tags, category)
+   * PATCH /document-import/documents/:id/details
+   */
+  @Roles(Role.ADMIN, Role.OWNER)
+  @Patch("documents/:id/details")
+  async updateDocumentDetails(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body()
+    body: {
+      displayTitle?: string;
+      displayDescription?: string;
+      tags?: string[];
+      category?: string;
+      subcategory?: string;
+      revisionNotes?: string;
+    }
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.updateDocumentDetails(actor, id, body);
+  }
+
+  // ==================== Publishing Workflow ====================
+
+  /**
+   * Publish a document (make it visible to all users)
+   * POST /document-import/documents/:id/publish
+   */
+  @Roles(Role.ADMIN, Role.OWNER)
+  @Post("documents/:id/publish")
+  async publishDocument(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body()
+    body?: {
+      displayTitle?: string;
+      displayDescription?: string;
+      category?: string;
+      subcategory?: string;
+      tags?: string[];
+    }
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.publishDocument(actor, id, body);
+  }
+
+  /**
+   * Unpublish a document (return to ACTIVE/unpublished status)
+   * POST /document-import/documents/:id/unpublish
+   */
+  @Roles(Role.ADMIN, Role.OWNER)
+  @Post("documents/:id/unpublish")
+  async unpublishDocument(@Req() req: any, @Param("id") id: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.unpublishDocument(actor, id);
+  }
+
+  /**
+   * Bulk publish multiple documents
+   * POST /document-import/documents/bulk-publish
+   */
+  @Roles(Role.ADMIN, Role.OWNER)
+  @Post("documents/bulk-publish")
+  async bulkPublishDocuments(
+    @Req() req: any,
+    @Body()
+    body: {
+      documentIds: string[];
+      category?: string;
+      tags?: string[];
+    }
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.bulkPublishDocuments(actor, body.documentIds, {
+      category: body.category,
+      tags: body.tags,
+    });
+  }
+
+  // ==================== Published Documents (for all users) ====================
+
+  /**
+   * Get published documents with optional filtering
+   * GET /document-import/published
+   */
+  @Roles(Role.MEMBER, Role.ADMIN, Role.OWNER)
+  @Get("published")
+  async getPublishedDocuments(
+    @Req() req: any,
+    @Query("category") category?: string,
+    @Query("subcategory") subcategory?: string,
+    @Query("tags") tags?: string,
+    @Query("search") search?: string,
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.getPublishedDocuments(actor, {
+      category,
+      subcategory,
+      tags: tags ? tags.split(",").map(t => t.trim()) : undefined,
+      search,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
+  /**
+   * Get categories for published documents
+   * GET /document-import/published/categories
+   */
+  @Roles(Role.MEMBER, Role.ADMIN, Role.OWNER)
+  @Get("published/categories")
+  async getPublishedCategories(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.getPublishedCategories(actor);
+  }
+
+  /**
+   * Get all tags used in published documents
+   * GET /document-import/published/tags
+   */
+  @Roles(Role.MEMBER, Role.ADMIN, Role.OWNER)
+  @Get("published/tags")
+  async getPublishedTags(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.getPublishedTags(actor);
+  }
+
   // ==================== Statistics ====================
 
   /**

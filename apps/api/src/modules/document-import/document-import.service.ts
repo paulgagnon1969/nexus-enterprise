@@ -730,7 +730,321 @@ ${bodyHtml}
     return this.convertToHtml(documentId);
   }
 
-  // --- Import Workflow ---
+  // --- Tagging & Document Details ---
+
+  /**
+   * Update document details including tags, category, title, description
+   */
+  async updateDocumentDetails(
+    actor: AuthenticatedUser,
+    documentId: string,
+    data: {
+      displayTitle?: string;
+      displayDescription?: string;
+      tags?: string[];
+      category?: string;
+      subcategory?: string;
+      revisionNotes?: string;
+    }
+  ) {
+    const doc = await this.prisma.stagedDocument.findFirst({
+      where: { id: documentId, companyId: actor.companyId },
+    });
+
+    if (!doc) throw new NotFoundException("Document not found");
+
+    const updateData: any = {};
+
+    if (data.displayTitle !== undefined) {
+      updateData.displayTitle = data.displayTitle?.trim() || null;
+    }
+    if (data.displayDescription !== undefined) {
+      updateData.displayDescription = data.displayDescription?.trim() || null;
+    }
+    if (data.tags !== undefined) {
+      updateData.tags = data.tags.map(t => t.trim().toLowerCase()).filter(Boolean);
+    }
+    if (data.category !== undefined) {
+      updateData.category = data.category?.trim() || null;
+    }
+    if (data.subcategory !== undefined) {
+      updateData.subcategory = data.subcategory?.trim() || null;
+    }
+    if (data.revisionNotes !== undefined) {
+      // When revision notes are updated, increment revision number
+      updateData.revisionNotes = data.revisionNotes?.trim() || null;
+      updateData.revisionNumber = { increment: 1 };
+      updateData.revisionDate = new Date();
+      
+      // Store previous revision in history
+      const history = (doc.revisionHistory as any[]) || [];
+      history.push({
+        revisionNumber: doc.revisionNumber,
+        revisionNotes: doc.revisionNotes,
+        revisionDate: doc.revisionDate,
+        updatedBy: actor.userId,
+        updatedAt: new Date().toISOString(),
+      });
+      updateData.revisionHistory = history;
+    }
+
+    const updated = await this.prisma.stagedDocument.update({
+      where: { id: documentId },
+      data: updateData,
+    });
+
+    return { ...updated, fileSize: updated.fileSize.toString() };
+  }
+
+  /**
+   * Publish a document (make it visible to all users)
+   */
+  async publishDocument(
+    actor: AuthenticatedUser,
+    documentId: string,
+    publishData?: {
+      displayTitle?: string;
+      displayDescription?: string;
+      category?: string;
+      subcategory?: string;
+      tags?: string[];
+    }
+  ) {
+    const doc = await this.prisma.stagedDocument.findFirst({
+      where: { id: documentId, companyId: actor.companyId },
+    });
+
+    if (!doc) throw new NotFoundException("Document not found");
+    if (doc.status === StagedDocumentStatus.PUBLISHED) {
+      throw new Error("Document is already published");
+    }
+
+    const updateData: any = {
+      status: StagedDocumentStatus.PUBLISHED,
+      publishedAt: new Date(),
+      publishedByUserId: actor.userId,
+      conversionStatus: HtmlConversionStatus.PENDING,
+    };
+
+    // Apply optional publish-time metadata
+    if (publishData?.displayTitle) {
+      updateData.displayTitle = publishData.displayTitle.trim();
+    }
+    if (publishData?.displayDescription) {
+      updateData.displayDescription = publishData.displayDescription.trim();
+    }
+    if (publishData?.category) {
+      updateData.category = publishData.category.trim();
+    }
+    if (publishData?.subcategory) {
+      updateData.subcategory = publishData.subcategory.trim();
+    }
+    if (publishData?.tags) {
+      updateData.tags = publishData.tags.map(t => t.trim().toLowerCase()).filter(Boolean);
+    }
+
+    const updated = await this.prisma.stagedDocument.update({
+      where: { id: documentId },
+      data: updateData,
+    });
+
+    // Trigger HTML conversion in background
+    this.convertToHtml(documentId).catch((err) => {
+      this.logger.error(`Background conversion failed for ${documentId}: ${err.message}`);
+    });
+
+    return { ...updated, fileSize: updated.fileSize.toString() };
+  }
+
+  /**
+   * Unpublish a document (return to ACTIVE/unpublished status)
+   */
+  async unpublishDocument(actor: AuthenticatedUser, documentId: string) {
+    const doc = await this.prisma.stagedDocument.findFirst({
+      where: { id: documentId, companyId: actor.companyId },
+    });
+
+    if (!doc) throw new NotFoundException("Document not found");
+    if (doc.status !== StagedDocumentStatus.PUBLISHED) {
+      throw new Error("Document is not published");
+    }
+
+    const updated = await this.prisma.stagedDocument.update({
+      where: { id: documentId },
+      data: {
+        status: StagedDocumentStatus.ACTIVE,
+        publishedAt: null,
+        publishedByUserId: null,
+      },
+    });
+
+    return { ...updated, fileSize: updated.fileSize.toString() };
+  }
+
+  /**
+   * Bulk publish multiple documents
+   */
+  async bulkPublishDocuments(
+    actor: AuthenticatedUser,
+    documentIds: string[],
+    publishData?: {
+      category?: string;
+      tags?: string[];
+    }
+  ) {
+    // Verify all documents belong to this company and are not already published
+    const docs = await this.prisma.stagedDocument.findMany({
+      where: {
+        id: { in: documentIds },
+        companyId: actor.companyId,
+        status: StagedDocumentStatus.ACTIVE,
+      },
+      select: { id: true },
+    });
+
+    const validIds = docs.map((d) => d.id);
+
+    const updateData: any = {
+      status: StagedDocumentStatus.PUBLISHED,
+      publishedAt: new Date(),
+      publishedByUserId: actor.userId,
+      conversionStatus: HtmlConversionStatus.PENDING,
+    };
+
+    if (publishData?.category) {
+      updateData.category = publishData.category.trim();
+    }
+    if (publishData?.tags) {
+      updateData.tags = publishData.tags.map(t => t.trim().toLowerCase()).filter(Boolean);
+    }
+
+    await this.prisma.stagedDocument.updateMany({
+      where: { id: { in: validIds } },
+      data: updateData,
+    });
+
+    // Trigger HTML conversion for each document in background
+    for (const id of validIds) {
+      this.convertToHtml(id).catch((err) => {
+        this.logger.error(`Background conversion failed for ${id}: ${err.message}`);
+      });
+    }
+
+    return { published: validIds.length, skipped: documentIds.length - validIds.length };
+  }
+
+  // --- Published Documents (for all users) ---
+
+  /**
+   * Get published documents with optional filtering
+   */
+  async getPublishedDocuments(
+    actor: AuthenticatedUser,
+    opts: {
+      category?: string;
+      subcategory?: string;
+      tags?: string[];
+      search?: string;
+      page?: number;
+      pageSize?: number;
+    }
+  ) {
+    const page = opts.page ?? 1;
+    const pageSize = Math.min(opts.pageSize ?? 50, 200);
+    const skip = (page - 1) * pageSize;
+
+    const where: any = {
+      companyId: actor.companyId,
+      status: StagedDocumentStatus.PUBLISHED,
+      ...(opts.category && { category: opts.category }),
+      ...(opts.subcategory && { subcategory: opts.subcategory }),
+      ...(opts.tags && opts.tags.length > 0 && { tags: { hasSome: opts.tags } }),
+      ...(opts.search && {
+        OR: [
+          { displayTitle: { contains: opts.search, mode: "insensitive" } },
+          { fileName: { contains: opts.search, mode: "insensitive" } },
+          { displayDescription: { contains: opts.search, mode: "insensitive" } },
+        ],
+      }),
+    };
+
+    const [items, total] = await Promise.all([
+      this.prisma.stagedDocument.findMany({
+        where,
+        orderBy: [
+          { category: "asc" },
+          { sortOrder: { sort: "asc", nulls: "last" } },
+          { displayTitle: "asc" },
+          { fileName: "asc" },
+        ],
+        skip,
+        take: pageSize,
+        include: {
+          publishedBy: { select: { id: true, firstName: true, lastName: true } },
+        },
+      }),
+      this.prisma.stagedDocument.count({ where }),
+    ]);
+
+    return {
+      items: items.map((doc) => ({
+        ...doc,
+        fileSize: doc.fileSize.toString(),
+        title: doc.displayTitle || doc.fileName.replace(/\.[^/.]+$/, ""),
+        description: doc.displayDescription || null,
+      })),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
+  }
+
+  /**
+   * Get available categories for published documents
+   */
+  async getPublishedCategories(actor: AuthenticatedUser) {
+    const categories = await this.prisma.stagedDocument.groupBy({
+      by: ["category"],
+      where: {
+        companyId: actor.companyId,
+        status: StagedDocumentStatus.PUBLISHED,
+        category: { not: null },
+      },
+      _count: true,
+    });
+
+    return categories.map((c) => ({
+      category: c.category,
+      count: c._count,
+    }));
+  }
+
+  /**
+   * Get all unique tags used in published documents
+   */
+  async getPublishedTags(actor: AuthenticatedUser) {
+    const docs = await this.prisma.stagedDocument.findMany({
+      where: {
+        companyId: actor.companyId,
+        status: StagedDocumentStatus.PUBLISHED,
+        tags: { isEmpty: false },
+      },
+      select: { tags: true },
+    });
+
+    // Flatten and deduplicate tags
+    const allTags = new Set<string>();
+    for (const doc of docs) {
+      for (const tag of doc.tags) {
+        allTags.add(tag);
+      }
+    }
+
+    return Array.from(allTags).sort();
+  }
+
+  // --- Import Workflow (Legacy - maps to publish for backward compatibility) ---
 
   async importDocument(
     actor: AuthenticatedUser,
@@ -749,18 +1063,19 @@ ${bodyHtml}
     });
 
     if (!doc) throw new NotFoundException("Document not found");
-    if (doc.status === StagedDocumentStatus.IMPORTED) {
-      throw new Error("Document is already imported");
+    if (doc.status === StagedDocumentStatus.PUBLISHED) {
+      throw new Error("Document is already published");
     }
 
     const updated = await this.prisma.stagedDocument.update({
       where: { id: documentId },
       data: {
-        status: StagedDocumentStatus.IMPORTED,
-        importedAt: new Date(),
-        importedByUserId: actor.userId,
+        status: StagedDocumentStatus.PUBLISHED,
+        publishedAt: new Date(),
+        publishedByUserId: actor.userId,
         importedToType: importData.importToType,
         importedToCategory: importData.importToCategory,
+        category: importData.importToCategory, // Also set new category field
         displayTitle: importData.displayTitle?.trim() || null,
         displayDescription: importData.displayDescription?.trim() || null,
         oshaReference: importData.oshaReference?.trim() || null,
@@ -785,12 +1100,12 @@ ${bodyHtml}
       importToCategory: string;
     }
   ) {
-    // Verify all documents belong to this company and are not already imported
+    // Verify all documents belong to this company and are not already published
     const docs = await this.prisma.stagedDocument.findMany({
       where: {
         id: { in: documentIds },
         companyId: actor.companyId,
-        status: { not: StagedDocumentStatus.IMPORTED },
+        status: { not: StagedDocumentStatus.PUBLISHED },
       },
       select: { id: true },
     });
@@ -800,11 +1115,12 @@ ${bodyHtml}
     await this.prisma.stagedDocument.updateMany({
       where: { id: { in: validIds } },
       data: {
-        status: StagedDocumentStatus.IMPORTED,
-        importedAt: new Date(),
-        importedByUserId: actor.userId,
+        status: StagedDocumentStatus.PUBLISHED,
+        publishedAt: new Date(),
+        publishedByUserId: actor.userId,
         importedToType: importData.importToType,
         importedToCategory: importData.importToCategory,
+        category: importData.importToCategory, // Also set new category field
         conversionStatus: HtmlConversionStatus.PENDING,
       },
     });
@@ -825,16 +1141,16 @@ ${bodyHtml}
     });
 
     if (!doc) throw new NotFoundException("Document not found");
-    if (doc.status !== StagedDocumentStatus.IMPORTED) {
-      throw new Error("Document is not imported");
+    if (doc.status !== StagedDocumentStatus.PUBLISHED) {
+      throw new Error("Document is not published");
     }
 
     const updated = await this.prisma.stagedDocument.update({
       where: { id: documentId },
       data: {
         status: StagedDocumentStatus.ACTIVE,
-        importedAt: null,
-        importedByUserId: null,
+        publishedAt: null,
+        publishedByUserId: null,
         importedToType: null,
         importedToCategory: null,
         displayTitle: null,
@@ -847,7 +1163,7 @@ ${bodyHtml}
     return { ...updated, fileSize: updated.fileSize.toString() };
   }
 
-  // --- Imported Documents Query (for Safety Manual, BKMs, etc.) ---
+  // --- Imported/Published Documents Query (for Safety Manual, BKMs, etc.) ---
 
   async getImportedDocuments(
     actor: AuthenticatedUser,
@@ -858,7 +1174,7 @@ ${bodyHtml}
   ) {
     const where: any = {
       companyId: actor.companyId,
-      status: StagedDocumentStatus.IMPORTED,
+      status: StagedDocumentStatus.PUBLISHED,
       importedToType: opts.importToType,
       ...(opts.importToCategory && { importedToCategory: opts.importToCategory }),
     };
@@ -871,7 +1187,7 @@ ${bodyHtml}
         { fileName: "asc" },
       ],
       include: {
-        importedBy: { select: { id: true, firstName: true, lastName: true } },
+        publishedBy: { select: { id: true, firstName: true, lastName: true } },
       },
     });
 
@@ -880,7 +1196,7 @@ ${bodyHtml}
       fileSize: doc.fileSize.toString(),
       // Provide display-friendly values
       title: doc.displayTitle || doc.fileName.replace(/\.[^/.]+$/, ""),
-      description: doc.displayDescription || `Imported from ${doc.breadcrumb.join(" / ")}`,
+      description: doc.displayDescription || `Published from ${doc.breadcrumb.join(" / ")}`,
     }));
   }
 
@@ -889,7 +1205,7 @@ ${bodyHtml}
       by: ["importedToCategory"],
       where: {
         companyId: actor.companyId,
-        status: StagedDocumentStatus.IMPORTED,
+        status: StagedDocumentStatus.PUBLISHED,
         importedToType: importToType,
         importedToCategory: { not: null },
       },
