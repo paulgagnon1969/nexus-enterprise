@@ -1219,25 +1219,26 @@ export default function ProjectDetailPage({
 
   // Invoice printing - field definitions for customizable print
   const INVOICE_PRINT_FIELD_DEFS = useMemo(() => [
-    { key: "lineNo", label: "Line #", defaultOn: true },
-    { key: "categoryCode", label: "Task", defaultOn: true },
-    { key: "selectionCode", label: "Selection Code", defaultOn: false },
-    { key: "description", label: "Description", defaultOn: true },
-    { key: "room", label: "Room", defaultOn: false },
-    { key: "unit", label: "Unit", defaultOn: false },
-    { key: "building", label: "Building", defaultOn: false },
-    { key: "percentComplete", label: "% Complete", defaultOn: false },
-    { key: "earnedTotal", label: "Earned Total", defaultOn: false },
-    { key: "prevBilledTotal", label: "Previously Billed", defaultOn: false },
-    { key: "thisInvTotal", label: "This Invoice", defaultOn: true },
-    { key: "billingTag", label: "Billing Tag", defaultOn: false },
+    { key: "lineNo", label: "Line #" },
+    { key: "categoryCode", label: "CAT" },
+    { key: "selectionCode", label: "SEL" },
+    { key: "description", label: "Description" },
+    { key: "room", label: "Room" },
+    { key: "unit", label: "Unit" },
+    { key: "building", label: "Building" },
+    { key: "percentComplete", label: "% Complete" },
+    { key: "earnedTotal", label: "Earned Total" },
+    { key: "prevBilledTotal", label: "Previously Billed" },
+    { key: "thisInvTotal", label: "This Invoice" },
+    { key: "billingTag", label: "Billing Tag" },
   ], []);
 
   // State for line exclusion modal
   const [invoiceLineExclusionModalOpen, setInvoiceLineExclusionModalOpen] = useState(false);
 
-  const DEFAULT_PRINT_FIELDS = useMemo(
-    () => new Set(INVOICE_PRINT_FIELD_DEFS.filter(f => f.defaultOn).map(f => f.key)),
+  // Default: ALL fields selected. User's last selection persists globally.
+  const ALL_PRINT_FIELDS = useMemo(
+    () => new Set(INVOICE_PRINT_FIELD_DEFS.map(f => f.key)),
     [INVOICE_PRINT_FIELD_DEFS]
   );
 
@@ -1247,21 +1248,22 @@ export default function ProjectDetailPage({
   const [invoicePrintGroups, setInvoicePrintGroups] = useState<"KEEP" | "COLLAPSE_ALL" | "EXPAND_ALL">("KEEP");
   const [invoicePrintBusy, setInvoicePrintBusy] = useState(false);
 
-  // Customizable print fields
-  const printFieldsKey = `invoicePrintFields:v1:${id}`;
+  // Customizable print fields - persisted GLOBALLY (not per-project) so user's
+  // last selection carries across projects
+  const printFieldsKey = "invoicePrintFields:v2:global";
   const [invoicePrintFields, setInvoicePrintFields] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return DEFAULT_PRINT_FIELDS;
+    if (typeof window === "undefined") return ALL_PRINT_FIELDS;
     try {
       const raw = localStorage.getItem(printFieldsKey);
-      if (!raw) return DEFAULT_PRINT_FIELDS;
+      if (!raw) return ALL_PRINT_FIELDS;
       const arr = JSON.parse(raw);
-      return Array.isArray(arr) ? new Set(arr) : DEFAULT_PRINT_FIELDS;
+      return Array.isArray(arr) && arr.length > 0 ? new Set(arr) : ALL_PRINT_FIELDS;
     } catch {
-      return DEFAULT_PRINT_FIELDS;
+      return ALL_PRINT_FIELDS;
     }
   });
 
-  // Persist print fields to localStorage
+  // Persist print fields to localStorage (global)
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -1269,7 +1271,7 @@ export default function ProjectDetailPage({
     } catch {
       // ignore
     }
-  }, [printFieldsKey, invoicePrintFields]);
+  }, [invoicePrintFields]);
 
   // Lines to exclude from print (per invoice, not persisted)
   const [invoicePrintExcludedLines, setInvoicePrintExcludedLines] = useState<Set<string>>(() => new Set());
@@ -1301,6 +1303,30 @@ export default function ProjectDetailPage({
       // ignore
     }
   }, [printGroupByKey, invoicePrintGroupBy]);
+
+  // Consolidate by description - merges lines with same description, sums totals
+  const printConsolidateKey = "invoicePrintConsolidate:v1:global";
+  const [invoicePrintConsolidate, setInvoicePrintConsolidate] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(printConsolidateKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  // Persist consolidate setting
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(printConsolidateKey, invoicePrintConsolidate ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [invoicePrintConsolidate]);
+
+  // Fields to hide when consolidating (they vary per line so don't make sense)
+  const CONSOLIDATE_HIDDEN_FIELDS = new Set(["lineNo", "room", "unit", "building", "billingTag"]);
 
   // Toggle a print field on/off
   const togglePrintField = (fieldKey: string) => {
@@ -13817,7 +13843,13 @@ ${htmlBody}
             return 0;
           });
         const previewTotal = previewLines.reduce((sum: number, li: any) => sum + (Number(li?.thisInvTotal ?? 0) || 0), 0);
-        const enabledFieldsPreview = INVOICE_PRINT_FIELD_DEFS.filter(f => invoicePrintFields.has(f.key));
+        
+        // Filter fields: hide certain columns when consolidating
+        const enabledFieldsPreview = INVOICE_PRINT_FIELD_DEFS.filter(f => {
+          if (!invoicePrintFields.has(f.key)) return false;
+          if (invoicePrintConsolidate && CONSOLIDATE_HIDDEN_FIELDS.has(f.key)) return false;
+          return true;
+        });
 
         // Helper to get display line number (matches PETL view)
         const getDisplayLineNo = (li: any): string => {
@@ -13827,9 +13859,11 @@ ${htmlBody}
           return String(li?.sourceLineNoSnapshot ?? li?.lineNoSnapshot ?? "");
         };
 
-        // Check if line is a child (has parentLineId or displayLineNo like "1.1")
+        // Check if line is a child (has parentLineId, anchorKind LINE_TIED, or displayLineNo like "1.1")
         const isChildLine = (li: any): boolean => {
           if (li?.parentLineId) return true;
+          if (li?.anchorKind === "LINE_TIED") return true;
+          if (li?.kind === "ACV_HOLDBACK_CREDIT") return true;
           const displayNo = getDisplayLineNo(li);
           return displayNo.includes(".");
         };
@@ -13845,13 +13879,23 @@ ${htmlBody}
               return isChild ? `↳ ${displayNo}` : displayNo;
             case "categoryCode": return String(li?.categoryCodeSnapshot ?? "");
             case "selectionCode": return String(li?.selectionCodeSnapshot ?? "");
-            case "description": 
-              // For child lines, show kind indicator if it's a credit/add
+            case "description": {
+              // For child lines, show kind indicator
               const kind = String(li?.kind ?? "");
+              const anchorKind = String(li?.anchorKind ?? "");
+              const billingTag = String(li?.billingTag ?? "");
               const desc = String(li?.descriptionSnapshot ?? "");
+              // ACV credits (80% rebate)
               if (kind === "ACV_HOLDBACK_CREDIT") return "[CREDIT] " + desc;
-              if (kind === "ADD") return "[ADD] " + desc;
+              // Line-tied reconciliation entries
+              if (anchorKind === "LINE_TIED") {
+                if (billingTag === "SUPPLEMENT") return "[SUPP] " + desc;
+                if (billingTag === "CHANGE_ORDER") return "[CO] " + desc;
+                // Regular ADD/CREDIT/etc
+                return "[ADD] " + desc;
+              }
               return desc;
+            }
             case "room": return String(li?.projectParticleLabelSnapshot ?? "");
             case "unit": return String(li?.projectUnitLabelSnapshot ?? "");
             case "building": return String(li?.projectBuildingLabelSnapshot ?? "");
@@ -13875,6 +13919,49 @@ ${htmlBody}
           }
         };
 
+        // Consolidate lines by description - merges lines with same description, aggregates values
+        const consolidateLines = (lines: any[]): any[] => {
+          if (!invoicePrintConsolidate) return lines;
+          
+          const map = new Map<string, any>();
+          for (const li of lines) {
+            const desc = String(li?.descriptionSnapshot ?? "").trim();
+            const existing = map.get(desc);
+            if (!existing) {
+              // First occurrence - clone the line
+              map.set(desc, {
+                ...li,
+                _consolidated: true,
+                _lineCount: 1,
+                earnedTotal: Number(li?.earnedTotal ?? 0) || 0,
+                prevBilledTotal: Number(li?.prevBilledTotal ?? 0) || 0,
+                thisInvTotal: Number(li?.thisInvTotal ?? 0) || 0,
+                _weightedPercentSum: (Number(li?.percentCompleteSnapshot ?? 0) || 0) * (Number(li?.earnedTotal ?? 0) || 0),
+                _earnedForWeighting: Number(li?.earnedTotal ?? 0) || 0,
+              });
+            } else {
+              // Merge into existing
+              existing._lineCount += 1;
+              existing.earnedTotal += Number(li?.earnedTotal ?? 0) || 0;
+              existing.prevBilledTotal += Number(li?.prevBilledTotal ?? 0) || 0;
+              existing.thisInvTotal += Number(li?.thisInvTotal ?? 0) || 0;
+              existing._weightedPercentSum += (Number(li?.percentCompleteSnapshot ?? 0) || 0) * (Number(li?.earnedTotal ?? 0) || 0);
+              existing._earnedForWeighting += Number(li?.earnedTotal ?? 0) || 0;
+            }
+          }
+          
+          // Calculate weighted average % complete
+          for (const li of map.values()) {
+            if (li._earnedForWeighting > 0) {
+              li.percentCompleteSnapshot = li._weightedPercentSum / li._earnedForWeighting;
+            } else {
+              li.percentCompleteSnapshot = 0;
+            }
+          }
+          
+          return Array.from(map.values());
+        };
+
         const previewGrouped = invoicePrintGroupBy !== "none" ? (() => {
           const map = new Map<string, any[]>();
           for (const li of previewLines) {
@@ -13884,13 +13971,21 @@ ${htmlBody}
             map.set(gk, bucket);
           }
           return Array.from(map.entries())
-            .map(([key, lines]) => ({
-              key,
-              lines: lines.sort((a, b) => Number(a?.lineNoSnapshot ?? 0) - Number(b?.lineNoSnapshot ?? 0)),
-              subtotal: lines.reduce((s, l) => s + (Number(l?.thisInvTotal ?? 0) || 0), 0),
-            }))
+            .map(([key, lines]) => {
+              const consolidated = consolidateLines(lines);
+              return {
+                key,
+                lines: consolidated.sort((a, b) => Number(a?.lineNoSnapshot ?? 0) - Number(b?.lineNoSnapshot ?? 0)),
+                subtotal: consolidated.reduce((s, l) => s + (Number(l?.thisInvTotal ?? 0) || 0), 0),
+              };
+            })
             .sort((a, b) => Number(a.lines[0]?.lineNoSnapshot ?? 0) - Number(b.lines[0]?.lineNoSnapshot ?? 0));
         })() : null;
+        
+        // For flat view (no grouping) with consolidation
+        const previewLinesForDisplay = invoicePrintGroupBy === "none" && invoicePrintConsolidate
+          ? consolidateLines(previewLines)
+          : previewLines;
 
         return (
         <div
@@ -13969,17 +14064,55 @@ ${htmlBody}
                   background: "#fafafa",
                 }}
               >
-                {/* Settings row - all controls inline */}
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 24, flexWrap: "wrap" }}>
-                  {/* Field Selection */}
-                  <div style={{ flex: "1 1 auto", minWidth: 300 }}>
+                {/* Row 1: Columns */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Columns
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {INVOICE_PRINT_FIELD_DEFS.map((field) => (
+                      <label
+                        key={field.key}
+                        style={{
+                          display: "flex",
+                          gap: 4,
+                          alignItems: "center",
+                          fontSize: 11,
+                          padding: "4px 8px",
+                          borderRadius: 4,
+                          background: invoicePrintFields.has(field.key) ? "#dbeafe" : "#ffffff",
+                          border: `1px solid ${invoicePrintFields.has(field.key) ? "#3b82f6" : "#d1d5db"}`,
+                          cursor: "pointer",
+                          userSelect: "none",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={invoicePrintFields.has(field.key)}
+                          onChange={() => togglePrintField(field.key)}
+                          style={{ margin: 0, width: 12, height: 12 }}
+                        />
+                        {field.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Row 2: Group By + Actions */}
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24 }}>
+                  {/* Grouping - Dynamic hierarchy levels */}
+                  <div>
                     <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                      Columns
+                      Group By
                     </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                      {INVOICE_PRINT_FIELD_DEFS.map((field) => (
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      {/* Base options: None + CAT */}
+                      {[
+                        { value: "none", label: "None" },
+                        { value: "category", label: "CAT" },
+                      ].map((opt) => (
                         <label
-                          key={field.key}
+                          key={opt.value}
                           style={{
                             display: "flex",
                             gap: 4,
@@ -13987,106 +14120,88 @@ ${htmlBody}
                             fontSize: 11,
                             padding: "4px 8px",
                             borderRadius: 4,
-                            background: invoicePrintFields.has(field.key) ? "#dbeafe" : "#ffffff",
-                            border: `1px solid ${invoicePrintFields.has(field.key) ? "#3b82f6" : "#d1d5db"}`,
+                            background: invoicePrintGroupBy === opt.value ? "#dbeafe" : "#ffffff",
+                            border: `1px solid ${invoicePrintGroupBy === opt.value ? "#3b82f6" : "#d1d5db"}`,
                             cursor: "pointer",
-                            userSelect: "none",
                           }}
                         >
                           <input
-                            type="checkbox"
-                            checked={invoicePrintFields.has(field.key)}
-                            onChange={() => togglePrintField(field.key)}
+                            type="radio"
+                            name="invoicePrintGroupBy"
+                            value={opt.value}
+                            checked={invoicePrintGroupBy === opt.value}
+                            onChange={() => setInvoicePrintGroupBy(opt.value as any)}
                             style={{ margin: 0, width: 12, height: 12 }}
                           />
-                          {field.label}
+                          {opt.label}
                         </label>
                       ))}
-                    </div>
-                  </div>
-
-                  {/* Grouping - Dynamic hierarchy levels */}
-                  <div style={{ flexShrink: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                      Group By
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {/* Row 1: None + Task (always available) */}
-                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                        <span style={{ fontSize: 10, color: "#9ca3af", width: 50 }}>Base:</span>
-                        {[
-                          { value: "none", label: "None" },
-                          { value: "category", label: "Task" },
-                        ].map((opt) => (
-                          <label
-                            key={opt.value}
-                            style={{
-                              display: "flex",
-                              gap: 4,
-                              alignItems: "center",
-                              fontSize: 11,
-                              padding: "4px 8px",
-                              borderRadius: 4,
-                              background: invoicePrintGroupBy === opt.value ? "#dbeafe" : "#ffffff",
-                              border: `1px solid ${invoicePrintGroupBy === opt.value ? "#3b82f6" : "#d1d5db"}`,
-                              cursor: "pointer",
-                            }}
-                          >
-                            <input
-                              type="radio"
-                              name="invoicePrintGroupBy"
-                              value={opt.value}
-                              checked={invoicePrintGroupBy === opt.value}
-                              onChange={() => setInvoicePrintGroupBy(opt.value as any)}
-                              style={{ margin: 0, width: 12, height: 12 }}
-                            />
-                            {opt.label}
-                          </label>
-                        ))}
-                      </div>
-                      {/* Row 2: Organization hierarchy levels (dynamic based on project structure) */}
+                      {/* Separator if hierarchy levels exist */}
                       {invoicePrintHierarchyLevels.length > 0 && (
-                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                          <span style={{ fontSize: 10, color: "#9ca3af", width: 50 }}>Location:</span>
-                          {invoicePrintHierarchyLevels.map((level) => (
-                            <label
-                              key={level.key}
-                              style={{
-                                display: "flex",
-                                gap: 4,
-                                alignItems: "center",
-                                fontSize: 11,
-                                padding: "4px 8px",
-                                borderRadius: 4,
-                                background: invoicePrintGroupBy === level.key ? "#dbeafe" : "#ffffff",
-                                border: `1px solid ${invoicePrintGroupBy === level.key ? "#3b82f6" : "#d1d5db"}`,
-                                cursor: "pointer",
-                              }}
-                            >
-                              <input
-                                type="radio"
-                                name="invoicePrintGroupBy"
-                                value={level.key}
-                                checked={invoicePrintGroupBy === level.key}
-                                onChange={() => setInvoicePrintGroupBy(level.key)}
-                                style={{ margin: 0, width: 12, height: 12 }}
-                              />
-                              {level.label}
-                              <span style={{ fontSize: 9, color: "#6b7280", marginLeft: 2 }}>({level.count})</span>
-                            </label>
-                          ))}
-                        </div>
+                        <span style={{ color: "#d1d5db", fontSize: 11 }}>|</span>
                       )}
+                      {/* Location hierarchy levels */}
+                      {invoicePrintHierarchyLevels.map((level) => (
+                        <label
+                          key={level.key}
+                          style={{
+                            display: "flex",
+                            gap: 4,
+                            alignItems: "center",
+                            fontSize: 11,
+                            padding: "4px 8px",
+                            borderRadius: 4,
+                            background: invoicePrintGroupBy === level.key ? "#dbeafe" : "#ffffff",
+                            border: `1px solid ${invoicePrintGroupBy === level.key ? "#3b82f6" : "#d1d5db"}`,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <input
+                            type="radio"
+                            name="invoicePrintGroupBy"
+                            value={level.key}
+                            checked={invoicePrintGroupBy === level.key}
+                            onChange={() => setInvoicePrintGroupBy(level.key)}
+                            style={{ margin: 0, width: 12, height: 12 }}
+                          />
+                          {level.label}
+                          <span style={{ fontSize: 9, color: "#6b7280" }}>({level.count})</span>
+                        </label>
+                      ))}
                       {invoicePrintHierarchyLevels.length === 0 && (
-                        <div style={{ fontSize: 10, color: "#9ca3af", fontStyle: "italic" }}>
-                          No organization structure yet. Set up Buildings/Units/Rooms in the STRUCTURE tab.
-                        </div>
+                        <span style={{ fontSize: 10, color: "#9ca3af", fontStyle: "italic" }}>
+                          (Set up structure in STRUCTURE tab for location grouping)
+                        </span>
                       )}
+                      {/* Separator before consolidate */}
+                      <span style={{ color: "#d1d5db", fontSize: 11, marginLeft: 8 }}>|</span>
+                      {/* Consolidate toggle */}
+                      <label
+                        style={{
+                          display: "flex",
+                          gap: 4,
+                          alignItems: "center",
+                          fontSize: 11,
+                          padding: "4px 8px",
+                          borderRadius: 4,
+                          background: invoicePrintConsolidate ? "#fef3c7" : "#ffffff",
+                          border: `1px solid ${invoicePrintConsolidate ? "#f59e0b" : "#d1d5db"}`,
+                          cursor: "pointer",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={invoicePrintConsolidate}
+                          onChange={() => setInvoicePrintConsolidate(prev => !prev)}
+                          style={{ margin: 0, width: 12, height: 12 }}
+                        />
+                        Consolidate by Description
+                      </label>
                     </div>
                   </div>
 
-                  {/* Line Item Exclusion + Actions */}
-                  <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-end", gap: 8 }}>
+                  {/* Actions */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                     <button
                       type="button"
                       onClick={() => setInvoiceLineExclusionModalOpen(true)}
@@ -14100,7 +14215,6 @@ ${htmlBody}
                         display: "flex",
                         alignItems: "center",
                         gap: 6,
-                        marginTop: 20,
                       }}
                     >
                       Exclude line item/s
@@ -14122,8 +14236,9 @@ ${htmlBody}
                     <button
                       type="button"
                       onClick={() => {
-                        setInvoicePrintFields(DEFAULT_PRINT_FIELDS);
+                        setInvoicePrintFields(ALL_PRINT_FIELDS);
                         setInvoicePrintGroupBy("none");
+                        setInvoicePrintConsolidate(false);
                         setInvoicePrintExcludedLines(new Set());
                       }}
                       style={{
@@ -14134,7 +14249,6 @@ ${htmlBody}
                         cursor: "pointer",
                         fontSize: 11,
                         color: "#6b7280",
-                        marginTop: 20,
                       }}
                     >
                       Reset
@@ -14166,7 +14280,6 @@ ${htmlBody}
                         cursor: invoicePrintBusy || invoicePrintFields.size === 0 ? "default" : "pointer",
                         fontSize: 11,
                         fontWeight: 600,
-                        marginTop: 20,
                       }}
                     >
                       {invoicePrintBusy ? "Preparing…" : "Print / Save PDF"}
@@ -14207,8 +14320,11 @@ ${htmlBody}
 
                   {/* Preview summary */}
                   <div style={{ marginBottom: 16, fontSize: 12, color: "#6b7280" }}>
-                    {previewLines.length} line{previewLines.length !== 1 ? "s" : ""} · {enabledFieldsPreview.length} column{enabledFieldsPreview.length !== 1 ? "s" : ""}
+                    {previewLines.length} line{previewLines.length !== 1 ? "s" : ""}
+                    {invoicePrintConsolidate && ` → ${previewGrouped ? previewGrouped.reduce((sum, g) => sum + g.lines.length, 0) : previewLinesForDisplay.length} consolidated`}
+                    {" · "}{enabledFieldsPreview.length} column{enabledFieldsPreview.length !== 1 ? "s" : ""}
                     {invoicePrintGroupBy !== "none" && ` · Grouped by ${invoicePrintGroupBy}`}
+                    {invoicePrintConsolidate && " · Consolidated by description"}
                   </div>
 
                   {/* Preview Table */}
@@ -14299,27 +14415,38 @@ ${htmlBody}
                             </React.Fragment>
                           ))
                         ) : (
-                          // Flat view - show all lines
-                          previewLines.map((li: any, idx: number) => (
-                            <tr key={li?.id ?? idx} style={{ background: idx % 2 === 1 ? "#fafafa" : "transparent" }}>
-                              {enabledFieldsPreview.map((f) => (
-                                <td
-                                  key={f.key}
-                                  style={{
-                                    padding: "6px 10px",
-                                    textAlign: ["earnedTotal", "prevBilledTotal", "thisInvTotal", "percentComplete"].includes(f.key) ? "right" : "left",
-                                    borderBottom: "1px solid #f3f4f6",
-                                    maxWidth: f.key === "description" ? 280 : undefined,
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                    whiteSpace: "nowrap",
-                                  }}
-                                >
-                                  {getPreviewFieldValue(li, f.key)}
-                                </td>
-                              ))}
-                            </tr>
-                          ))
+                          // Flat view - show all lines (or consolidated lines)
+                          previewLinesForDisplay.map((li: any, idx: number) => {
+                            const isChild = isChildLine(li);
+                            return (
+                              <tr 
+                                key={li?.id ?? `consolidated-${idx}`} 
+                                style={{ 
+                                  background: isChild ? "#fefce8" : (idx % 2 === 1 ? "#fafafa" : "transparent"),
+                                }}
+                              >
+                                {enabledFieldsPreview.map((f) => (
+                                  <td
+                                    key={f.key}
+                                    style={{
+                                      padding: "6px 10px",
+                                      paddingLeft: isChild && f.key === "lineNo" ? 20 : 10,
+                                      textAlign: ["earnedTotal", "prevBilledTotal", "thisInvTotal", "percentComplete"].includes(f.key) ? "right" : "left",
+                                      borderBottom: "1px solid #f3f4f6",
+                                      maxWidth: f.key === "description" ? 280 : undefined,
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                      fontSize: isChild ? 11 : 12,
+                                      color: isChild ? "#6b7280" : undefined,
+                                    }}
+                                  >
+                                    {getPreviewFieldValue(li, f.key)}
+                                  </td>
+                                ))}
+                              </tr>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>

@@ -36,6 +36,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [userType, setUserType] = useState<string | null>(null);
   const [currentCompanyName, setCurrentCompanyName] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
+  const [companyRole, setCompanyRole] = useState<string | null>(null); // OWNER, ADMIN, PM, MEMBER
 
   const path = pathname ?? "/";
   const isSystemRoute = path.startsWith("/system");
@@ -248,6 +249,13 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         setGlobalRole(nextGlobalRole);
         setUserType(nextUserType);
+
+        // Determine company-level role for current company
+        const currentCompanyId = window.localStorage.getItem("companyId");
+        if (currentCompanyId && Array.isArray(json.memberships)) {
+          const membership = json.memberships.find(m => m.companyId === currentCompanyId);
+          setCompanyRole(membership?.role ?? null);
+        }
 
         // Post-login sync: keep localStorage in sync so layouts that rely on
         // cached globalRole/userType (e.g. /system) behave correctly even
@@ -485,15 +493,22 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             {h.files}
           </Link>
-          <Link
-            href="/documents"
-            className={
-              "app-nav-link" +
-              (isActive("/documents") ? " app-nav-link-active" : "")
+          <NavDropdown
+            label="Documents"
+            active={isActive("/documents") || isActive("/admin/documents")}
+            items={
+              globalRole === "SUPER_ADMIN" || companyRole === "OWNER" || companyRole === "ADMIN"
+                ? [
+                    { label: "Document Control", href: "/admin/documents" },
+                    { label: "Templates", href: "/documents/templates" },
+                    { label: "Approved Documents", href: "/documents" },
+                  ]
+                : [
+                    { label: "Templates", href: "/documents/templates" },
+                    { label: "Approved Documents", href: "/documents" },
+                  ]
             }
-          >
-            Documents
-          </Link>
+          />
           <Link
             href="/messaging"
             className={
