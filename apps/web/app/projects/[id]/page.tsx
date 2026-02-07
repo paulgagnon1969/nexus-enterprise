@@ -14412,7 +14412,7 @@ ${htmlBody}
                       <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>#{activeInvoice?.invoiceNumber ?? "—"}</div>
                     </div>
                     <div style={{ textAlign: "right", fontSize: 12, color: "#4b5563" }}>
-                      <div style={{ fontWeight: 600 }}>{project?.company?.name || "Your Company"}</div>
+                      <div style={{ fontWeight: 600 }}>Nexus Fortified Structures LLC</div>
                       <div style={{ color: "#6b7280" }}>{new Date().toLocaleDateString()}</div>
                     </div>
                   </div>
