@@ -4284,7 +4284,11 @@ model StagedDocument {
   importedAt          DateTime?
   importedByUserId    String?
   importedToType      String?                // e.g. "safety", "bkm"
-  importedToId        String?                // ID of the imported document
+  importedToCategory  String?                // e.g. "ppe", "general-safety", "hazard-communication"
+  displayTitle        String?                // Override title for display (vs fileName)
+  displayDescription  String?                // Description shown in document listings
+  oshaReference       String?                // OSHA CFR reference if applicable
+  sortOrder           Int?                   // Custom sort order within category
   metadata            Json?                  // Additional file metadata
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
@@ -4298,4 +4302,5 @@ model StagedDocument {
   @@index([companyId, status], map: "StagedDocument_company_status_idx")
   @@index([scanJobId], map: "StagedDocument_job_idx")
   @@index([companyId, fileType], map: "StagedDocument_company_type_idx")
+  @@index([companyId, importedToType, importedToCategory], map: "StagedDocument_imported_idx")
 }

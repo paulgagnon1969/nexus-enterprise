@@ -74,6 +74,8 @@ export default function DocumentImportPage() {
   // Modals
   const [showScanModal, setShowScanModal] = useState(false);
   const [quickLookDoc, setQuickLookDoc] = useState<StagedDocument | null>(null);
+  const [importDoc, setImportDoc] = useState<StagedDocument | null>(null);
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
 
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -222,6 +224,52 @@ export default function DocumentImportPage() {
       loadScanJobs();
     } catch (err: any) {
       alert(err?.message ?? "Failed to start scan");
+    }
+  };
+
+  const handleImport = async (
+    docId: string,
+    importData: {
+      importToType: string;
+      importToCategory: string;
+      displayTitle?: string;
+      displayDescription?: string;
+      oshaReference?: string;
+    }
+  ) => {
+    try {
+      const res = await fetch(`${API_BASE}/document-import/documents/${docId}/import`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(importData),
+      });
+      if (!res.ok) throw new Error("Failed to import document");
+      setImportDoc(null);
+      loadDocuments();
+      loadStats();
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to import document");
+    }
+  };
+
+  const handleBulkImport = async (importData: { importToType: string; importToCategory: string }) => {
+    if (selectedIds.size === 0) return;
+    try {
+      const res = await fetch(`${API_BASE}/document-import/documents/bulk-import`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          documentIds: Array.from(selectedIds),
+          ...importData,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to import documents");
+      setSelectedIds(new Set());
+      setShowBulkImportModal(false);
+      loadDocuments();
+      loadStats();
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to import documents");
     }
   };
 
@@ -501,6 +549,21 @@ export default function DocumentImportPage() {
             </button>
             <button
               type="button"
+              onClick={() => setShowBulkImportModal(true)}
+              style={{
+                padding: "4px 10px",
+                fontSize: 12,
+                backgroundColor: "#2563eb",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: 4,
+                cursor: "pointer",
+              }}
+            >
+              📥 Import Selected
+            </button>
+            <button
+              type="button"
               onClick={() => setSelectedIds(new Set())}
               style={{
                 padding: "4px 10px",
@@ -561,7 +624,7 @@ export default function DocumentImportPage() {
 
             {/* Document Cards */}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {documents.map((doc) => (
+            {documents.map((doc) => (
                 <DocumentCard
                   key={doc.id}
                   document={doc}
@@ -571,6 +634,7 @@ export default function DocumentImportPage() {
                   onToggleStatus={() =>
                     handleUpdateStatus(doc.id, doc.status === "ACTIVE" ? "ARCHIVED" : "ACTIVE")
                   }
+                  onImport={() => setImportDoc(doc)}
                 />
               ))}
             </div>
@@ -637,6 +701,24 @@ export default function DocumentImportPage() {
         <QuickLookModal document={quickLookDoc} onClose={() => setQuickLookDoc(null)} />
       )}
 
+      {/* Import Modal (single document) */}
+      {importDoc && (
+        <ImportModal
+          document={importDoc}
+          onClose={() => setImportDoc(null)}
+          onImport={(data) => handleImport(importDoc.id, data)}
+        />
+      )}
+
+      {/* Bulk Import Modal */}
+      {showBulkImportModal && (
+        <BulkImportModal
+          count={selectedIds.size}
+          onClose={() => setShowBulkImportModal(false)}
+          onImport={handleBulkImport}
+        />
+      )}
+
       {/* Spin animation */}
       <style jsx global>{`
         @keyframes spin {
@@ -670,9 +752,10 @@ interface DocumentCardProps {
   onSelect: () => void;
   onQuickLook: () => void;
   onToggleStatus: () => void;
+  onImport: () => void;
 }
 
-function DocumentCard({ document, selected, onSelect, onQuickLook, onToggleStatus }: DocumentCardProps) {
+function DocumentCard({ document, selected, onSelect, onQuickLook, onToggleStatus, onImport }: DocumentCardProps) {
   const isArchived = document.status === "ARCHIVED";
   const isImported = document.status === "IMPORTED";
 
@@ -801,6 +884,24 @@ function DocumentCard({ document, selected, onSelect, onQuickLook, onToggleStatu
         >
           👁️
         </button>
+        {!isImported && !isArchived && (
+          <button
+            type="button"
+            onClick={onImport}
+            title="Import to Safety Manual"
+            style={{
+              padding: "6px 10px",
+              fontSize: 12,
+              backgroundColor: "#dbeafe",
+              color: "#1e40af",
+              border: "none",
+              borderRadius: 4,
+              cursor: "pointer",
+            }}
+          >
+            📥
+          </button>
+        )}
         {!isImported && (
           <button
             type="button"
@@ -1107,6 +1208,352 @@ function QuickLookModal({ document, onClose }: QuickLookModalProps) {
             </a>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// --- Import Modal Component ---
+
+const SAFETY_CATEGORIES = [
+  { id: "general-safety", name: "General Safety" },
+  { id: "ppe", name: "Personal Protective Equipment" },
+  { id: "hazard-communication", name: "Hazard Communication" },
+  { id: "fall-protection", name: "Fall Protection" },
+  { id: "electrical-safety", name: "Electrical Safety" },
+  { id: "emergency-response", name: "Emergency Response" },
+];
+
+interface ImportModalProps {
+  document: StagedDocument;
+  onClose: () => void;
+  onImport: (data: {
+    importToType: string;
+    importToCategory: string;
+    displayTitle?: string;
+    displayDescription?: string;
+    oshaReference?: string;
+  }) => void;
+}
+
+function ImportModal({ document, onClose, onImport }: ImportModalProps) {
+  const [importToType] = useState("safety"); // For now, only safety manual
+  const [importToCategory, setImportToCategory] = useState("");
+  const [displayTitle, setDisplayTitle] = useState(document.fileName.replace(/\.[^/.]+$/, ""));
+  const [displayDescription, setDisplayDescription] = useState("");
+  const [oshaReference, setOshaReference] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!importToCategory) return;
+    setIsSubmitting(true);
+    await onImport({
+      importToType,
+      importToCategory,
+      displayTitle: displayTitle.trim() || undefined,
+      displayDescription: displayDescription.trim() || undefined,
+      oshaReference: oshaReference.trim() || undefined,
+    });
+    setIsSubmitting(false);
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0, 0, 0, 0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          backgroundColor: "#ffffff",
+          borderRadius: 12,
+          padding: 24,
+          width: "100%",
+          maxWidth: 500,
+          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 style={{ margin: 0, fontSize: 18 }}>Import to Safety Manual</h2>
+        <p style={{ marginTop: 8, marginBottom: 16, fontSize: 14, color: "#6b7280" }}>
+          Import "{document.fileName}" to the Safety Manual with custom metadata.
+        </p>
+
+        {/* Category */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+            Category *
+          </label>
+          <select
+            value={importToCategory}
+            onChange={(e) => setImportToCategory(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              fontSize: 14,
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              backgroundColor: "#ffffff",
+            }}
+          >
+            <option value="">Select a category...</option>
+            {SAFETY_CATEGORIES.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Display Title */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+            Display Title
+          </label>
+          <input
+            type="text"
+            value={displayTitle}
+            onChange={(e) => setDisplayTitle(e.target.value)}
+            placeholder="Enter a title for display"
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              fontSize: 14,
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+            }}
+          />
+        </div>
+
+        {/* Description */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+            Description
+          </label>
+          <textarea
+            value={displayDescription}
+            onChange={(e) => setDisplayDescription(e.target.value)}
+            placeholder="Brief description of this document"
+            rows={2}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              fontSize: 14,
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              resize: "vertical",
+            }}
+          />
+        </div>
+
+        {/* OSHA Reference */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+            OSHA Reference
+          </label>
+          <input
+            type="text"
+            value={oshaReference}
+            onChange={(e) => setOshaReference(e.target.value)}
+            placeholder="e.g., 29 CFR 1910.132"
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              fontSize: 14,
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+            }}
+          />
+        </div>
+
+        {/* Source Path Info */}
+        <div
+          style={{
+            padding: 12,
+            backgroundColor: "#f0fdf4",
+            border: "1px solid #bbf7d0",
+            borderRadius: 6,
+            marginBottom: 16,
+          }}
+        >
+          <p style={{ margin: 0, fontSize: 12, color: "#166534" }}>
+            <strong>Source:</strong> {document.breadcrumb.join(" / ")}
+          </p>
+          <p style={{ margin: "4px 0 0", fontSize: 11, color: "#16a34a" }}>
+            The original file will remain accessible at its current location.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: "8px 16px",
+              fontSize: 14,
+              backgroundColor: "#ffffff",
+              color: "#374151",
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!importToCategory || isSubmitting}
+            style={{
+              padding: "8px 16px",
+              fontSize: 14,
+              fontWeight: 500,
+              backgroundColor: !importToCategory || isSubmitting ? "#9ca3af" : "#2563eb",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: 6,
+              cursor: !importToCategory || isSubmitting ? "not-allowed" : "pointer",
+            }}
+          >
+            {isSubmitting ? "Importing..." : "Import Document"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Bulk Import Modal Component ---
+
+interface BulkImportModalProps {
+  count: number;
+  onClose: () => void;
+  onImport: (data: { importToType: string; importToCategory: string }) => void;
+}
+
+function BulkImportModal({ count, onClose, onImport }: BulkImportModalProps) {
+  const [importToType] = useState("safety");
+  const [importToCategory, setImportToCategory] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!importToCategory) return;
+    setIsSubmitting(true);
+    await onImport({ importToType, importToCategory });
+    setIsSubmitting(false);
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0, 0, 0, 0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          backgroundColor: "#ffffff",
+          borderRadius: 12,
+          padding: 24,
+          width: "100%",
+          maxWidth: 450,
+          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 style={{ margin: 0, fontSize: 18 }}>Bulk Import to Safety Manual</h2>
+        <p style={{ marginTop: 8, marginBottom: 16, fontSize: 14, color: "#6b7280" }}>
+          Import {count} selected document{count !== 1 ? "s" : ""} to the Safety Manual.
+        </p>
+
+        {/* Category */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+            Category *
+          </label>
+          <select
+            value={importToCategory}
+            onChange={(e) => setImportToCategory(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              fontSize: 14,
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              backgroundColor: "#ffffff",
+            }}
+          >
+            <option value="">Select a category...</option>
+            {SAFETY_CATEGORIES.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div
+          style={{
+            padding: 12,
+            backgroundColor: "#fef3c7",
+            border: "1px solid #fcd34d",
+            borderRadius: 6,
+            marginBottom: 16,
+          }}
+        >
+          <p style={{ margin: 0, fontSize: 13, color: "#92400e" }}>
+            <strong>Note:</strong> Documents will be imported with their filenames as titles.
+            You can edit individual documents after import to add descriptions and OSHA references.
+          </p>
+        </div>
+
+        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: "8px 16px",
+              fontSize: 14,
+              backgroundColor: "#ffffff",
+              color: "#374151",
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!importToCategory || isSubmitting}
+            style={{
+              padding: "8px 16px",
+              fontSize: 14,
+              fontWeight: 500,
+              backgroundColor: !importToCategory || isSubmitting ? "#9ca3af" : "#2563eb",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: 6,
+              cursor: !importToCategory || isSubmitting ? "not-allowed" : "pointer",
+            }}
+          >
+            {isSubmitting ? "Importing..." : `Import ${count} Document${count !== 1 ? "s" : ""}`}
+          </button>
+        </div>
       </div>
     </div>
   );

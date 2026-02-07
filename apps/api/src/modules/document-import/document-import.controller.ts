@@ -157,6 +157,98 @@ export class DocumentImportController {
     return new StreamableFile(fileStream);
   }
 
+  // ==================== Import Workflow ====================
+
+  /**
+   * Import a single document to Safety Manual, BKM, etc.
+   * POST /document-import/documents/:id/import
+   */
+  @Roles(Role.ADMIN, Role.OWNER)
+  @Post("documents/:id/import")
+  async importDocument(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body()
+    body: {
+      importToType: string;
+      importToCategory: string;
+      displayTitle?: string;
+      displayDescription?: string;
+      oshaReference?: string;
+      sortOrder?: number;
+    }
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.importDocument(actor, id, body);
+  }
+
+  /**
+   * Bulk import multiple documents
+   * POST /document-import/documents/bulk-import
+   */
+  @Roles(Role.ADMIN, Role.OWNER)
+  @Post("documents/bulk-import")
+  async bulkImportDocuments(
+    @Req() req: any,
+    @Body()
+    body: {
+      documentIds: string[];
+      importToType: string;
+      importToCategory: string;
+    }
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.bulkImportDocuments(actor, body.documentIds, {
+      importToType: body.importToType,
+      importToCategory: body.importToCategory,
+    });
+  }
+
+  /**
+   * Unimport a document (return to ACTIVE status)
+   * POST /document-import/documents/:id/unimport
+   */
+  @Roles(Role.ADMIN, Role.OWNER)
+  @Post("documents/:id/unimport")
+  async unimportDocument(@Req() req: any, @Param("id") id: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.unimportDocument(actor, id);
+  }
+
+  // ==================== Imported Documents (for Safety Manual, BKMs) ====================
+
+  /**
+   * Get imported documents by type and optionally category
+   * GET /document-import/imported
+   */
+  @Roles(Role.MEMBER, Role.ADMIN, Role.OWNER)
+  @Get("imported")
+  async getImportedDocuments(
+    @Req() req: any,
+    @Query("type") importToType: string,
+    @Query("category") importToCategory?: string
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.getImportedDocuments(actor, {
+      importToType,
+      importToCategory,
+    });
+  }
+
+  /**
+   * Get categories with imported documents for a given type
+   * GET /document-import/imported/categories
+   */
+  @Roles(Role.MEMBER, Role.ADMIN, Role.OWNER)
+  @Get("imported/categories")
+  async getImportedCategories(
+    @Req() req: any,
+    @Query("type") importToType: string
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.getImportedCategories(actor, importToType);
+  }
+
   // ==================== Statistics ====================
 
   /**

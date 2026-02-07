@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { PageCard } from "../../ui-shell";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 interface SafetyDocument {
   id: string;
@@ -11,8 +13,10 @@ interface SafetyDocument {
   category: string;
   lastUpdated: string;
   path: string;
-  status: "published" | "coming-soon";
+  status: "published" | "coming-soon" | "imported";
   oshaRef?: string; // OSHA standard reference (e.g., "29 CFR 1910.134")
+  isImported?: boolean;
+  sourcePath?: string; // Original file path for imported docs
 }
 
 const SAFETY_CATEGORIES = [
@@ -262,15 +266,62 @@ export default function SafetyManualPage() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [importedDocs, setImportedDocs] = useState<SafetyDocument[]>([]);
+  const [loadingImported, setLoadingImported] = useState(true);
 
-  const publishedCount = SAFETY_DOCUMENTS.filter((d) => d.status === "published").length;
-  const totalCount = SAFETY_DOCUMENTS.length;
+  // Load imported documents from API
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setLoadingImported(false);
+      return;
+    }
+
+    async function loadImported() {
+      try {
+        const res = await fetch(`${API_BASE}/document-import/imported?type=safety`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          // Transform imported docs to SafetyDocument format
+          const transformed: SafetyDocument[] = data.map((doc: any) => ({
+            id: `IMP-${doc.id.slice(0, 8).toUpperCase()}`,
+            title: doc.title || doc.displayTitle || doc.fileName.replace(/\.[^/.]+$/, ""),
+            description: doc.description || doc.displayDescription || `Imported from ${doc.breadcrumb.slice(0, -1).join(" / ")}`,
+            category: doc.importedToCategory || "general-safety",
+            lastUpdated: new Date(doc.importedAt).toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+            path: `${API_BASE}/document-import/documents/${doc.id}/preview`,
+            status: "imported" as const,
+            oshaRef: doc.oshaReference,
+            isImported: true,
+            sourcePath: doc.breadcrumb.join(" / "),
+          }));
+          setImportedDocs(transformed);
+        }
+      } catch {
+        // Non-critical - imported docs just won't show
+      } finally {
+        setLoadingImported(false);
+      }
+    }
+
+    loadImported();
+  }, []);
+
+  // Merge static and imported documents
+  const allDocuments = useMemo(() => {
+    return [...SAFETY_DOCUMENTS, ...importedDocs];
+  }, [importedDocs]);
+
+  const publishedCount = allDocuments.filter((d) => d.status === "published" || d.status === "imported").length;
+  const totalCount = allDocuments.length;
 
   // Filter documents based on search and category
   const filteredDocuments = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
 
-    return SAFETY_DOCUMENTS.filter((doc) => {
+    return allDocuments.filter((doc) => {
       // Category filter
       if (selectedCategory && doc.category !== selectedCategory) {
         return false;
@@ -283,6 +334,7 @@ export default function SafetyManualPage() {
           doc.title,
           doc.description,
           doc.oshaRef || "",
+          doc.sourcePath || "",
           SAFETY_CATEGORIES.find((c) => c.id === doc.category)?.name || "",
         ]
           .join(" ")
@@ -293,7 +345,7 @@ export default function SafetyManualPage() {
 
       return true;
     });
-  }, [searchQuery, selectedCategory]);
+  }, [searchQuery, selectedCategory, allDocuments]);
 
   // Group filtered documents by category
   const groupedDocuments = useMemo(() => {
@@ -365,7 +417,7 @@ export default function SafetyManualPage() {
               color: "#166534",
             }}
           >
-            📚 <strong>{publishedCount}</strong> published | <strong>{totalCount - publishedCount}</strong> in development
+            📚 <strong>{publishedCount}</strong> available{importedDocs.length > 0 && ` (${importedDocs.length} imported)`} | <strong>{totalCount - publishedCount}</strong> in development
           </div>
         </header>
 
@@ -450,7 +502,7 @@ export default function SafetyManualPage() {
               All Topics
             </button>
             {SAFETY_CATEGORIES.map((cat) => {
-              const count = SAFETY_DOCUMENTS.filter((d) => d.category === cat.id).length;
+              const count = allDocuments.filter((d) => d.category === cat.id).length;
               const isSelected = selectedCategory === cat.id;
               return (
                 <button
@@ -631,24 +683,36 @@ interface SafetyCardProps {
 
 function SafetyCard({ document, searchQuery, onClick }: SafetyCardProps) {
   const isComingSoon = document.status === "coming-soon";
+  const isImported = document.status === "imported";
+  const isClickable = !isComingSoon;
+
+  const handleClick = () => {
+    if (isImported) {
+      // Open imported documents in new tab with auth token
+      const token = localStorage.getItem("accessToken");
+      window.open(`${document.path}?token=${token}`, "_blank");
+    } else if (onClick) {
+      onClick();
+    }
+  };
 
   return (
     <div
       style={{
         borderRadius: 8,
-        border: isComingSoon ? "1px dashed #d1d5db" : "1px solid #e5e7eb",
-        backgroundColor: isComingSoon ? "#fafafa" : "#ffffff",
+        border: isComingSoon ? "1px dashed #d1d5db" : isImported ? "1px solid #dbeafe" : "1px solid #e5e7eb",
+        backgroundColor: isComingSoon ? "#fafafa" : isImported ? "#f0f9ff" : "#ffffff",
         padding: 14,
-        cursor: isComingSoon ? "default" : "pointer",
+        cursor: isClickable ? "pointer" : "default",
         transition: "border-color 0.15s",
         opacity: isComingSoon ? 0.7 : 1,
       }}
-      onClick={onClick}
+      onClick={isClickable ? handleClick : undefined}
       onMouseEnter={(e) => {
-        if (!isComingSoon) e.currentTarget.style.borderColor = "#dc2626";
+        if (isClickable) e.currentTarget.style.borderColor = isImported ? "#3b82f6" : "#dc2626";
       }}
       onMouseLeave={(e) => {
-        if (!isComingSoon) e.currentTarget.style.borderColor = "#e5e7eb";
+        if (isClickable) e.currentTarget.style.borderColor = isImported ? "#dbeafe" : "#e5e7eb";
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -658,13 +722,13 @@ function SafetyCard({ document, searchQuery, onClick }: SafetyCardProps) {
               style={{
                 fontSize: 11,
                 fontWeight: 600,
-                color: "#991b1b",
-                backgroundColor: "#fef2f2",
+                color: isImported ? "#1e40af" : "#991b1b",
+                backgroundColor: isImported ? "#dbeafe" : "#fef2f2",
                 padding: "2px 6px",
                 borderRadius: 4,
               }}
             >
-              {document.id}
+              {isImported ? "📄" : ""} {document.id}
             </span>
             {document.oshaRef && (
               <span
@@ -693,6 +757,19 @@ function SafetyCard({ document, searchQuery, onClick }: SafetyCardProps) {
               >
                 COMING SOON
               </span>
+            ) : isImported ? (
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: "#1e40af",
+                  backgroundColor: "#dbeafe",
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                }}
+              >
+                IMPORTED
+              </span>
             ) : (
               <span style={{ fontSize: 11, color: "#9ca3af" }}>
                 Updated {document.lastUpdated}
@@ -705,9 +782,16 @@ function SafetyCard({ document, searchQuery, onClick }: SafetyCardProps) {
           <p style={{ margin: "6px 0 0", fontSize: 13, color: "#4b5563", lineHeight: 1.5 }}>
             <HighlightText text={document.description} query={searchQuery} />
           </p>
+          {isImported && document.sourcePath && (
+            <p style={{ margin: "4px 0 0", fontSize: 11, color: "#6b7280" }}>
+              📁 {document.sourcePath}
+            </p>
+          )}
         </div>
-        {!isComingSoon && (
-          <span style={{ fontSize: 18, color: "#9ca3af", marginLeft: 12 }}>→</span>
+        {isClickable && (
+          <span style={{ fontSize: 18, color: isImported ? "#3b82f6" : "#9ca3af", marginLeft: 12 }}>
+            {isImported ? "↗" : "→"}
+          </span>
         )}
       </div>
     </div>
