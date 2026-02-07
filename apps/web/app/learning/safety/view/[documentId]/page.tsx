@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
+import DOMPurify from "isomorphic-dompurify";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -167,7 +168,7 @@ export default function DocumentViewerPage() {
       <div style={styles.documentFrame}>
         {document.htmlContent ? (
           <div
-            dangerouslySetInnerHTML={{ __html: extractBodyContent(document.htmlContent) }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(extractBodyContent(document.htmlContent)) }}
             style={styles.documentContent}
           />
         ) : (
@@ -180,8 +181,12 @@ export default function DocumentViewerPage() {
         )}
       </div>
 
-      {/* Print styles */}
+      {/* Global styles including spinner animation */}
       <style jsx global>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
         @media print {
           .no-print {
             display: none !important;
@@ -206,6 +211,27 @@ function extractBodyContent(html: string): string {
   }
   // If no body tags, return as-is (might be a fragment)
   return html;
+}
+
+/**
+ * Sanitize HTML to prevent XSS attacks.
+ * Allows safe tags for document content while removing scripts and event handlers.
+ */
+function sanitizeHtml(html: string): string {
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: [
+      "h1", "h2", "h3", "h4", "h5", "h6",
+      "p", "br", "hr",
+      "ul", "ol", "li",
+      "table", "thead", "tbody", "tr", "th", "td",
+      "strong", "b", "em", "i", "u", "s", "mark",
+      "a", "img",
+      "div", "span",
+      "pre", "code", "blockquote",
+    ],
+    ALLOWED_ATTR: ["href", "src", "alt", "title", "class", "style", "width", "height"],
+    ALLOW_DATA_ATTR: false,
+  });
 }
 
 const styles: Record<string, React.CSSProperties> = {

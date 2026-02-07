@@ -705,8 +705,16 @@ ${bodyHtml}
         importedByUserId: actor.userId,
         importedToType: importData.importToType,
         importedToCategory: importData.importToCategory,
+        conversionStatus: HtmlConversionStatus.PENDING,
       },
     });
+
+    // Trigger HTML conversion for each document in background
+    for (const id of validIds) {
+      this.convertToHtml(id).catch((err) => {
+        this.logger.error(`Background conversion failed for ${id}: ${err.message}`);
+      });
+    }
 
     return { imported: validIds.length, skipped: documentIds.length - validIds.length };
   }

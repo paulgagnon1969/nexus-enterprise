@@ -1279,8 +1279,8 @@ export default function ProjectDetailPage({
     setInvoicePrintExcludedLines(new Set());
   }, [activeInvoice?.id]);
 
-  // Group by field for print
-  const printGroupByKey = `invoicePrintGroupBy:v1:${id}`;
+  // Group by field for print - supports multi-level hierarchy
+  const printGroupByKey = `invoicePrintGroupBy:v2:${id}`;
   const [invoicePrintGroupBy, setInvoicePrintGroupBy] = useState<"none" | "room" | "unit" | "building" | "category">(() => {
     if (typeof window === "undefined") return "none";
     try {
@@ -1384,7 +1384,21 @@ export default function ProjectDetailPage({
 
   const activeInvoicePetlLines = useMemo(() => {
     const lines = activeInvoice?.petlLines;
-    return Array.isArray(lines) ? lines : [];
+    if (!Array.isArray(lines)) return [];
+    // Sort by displayLineNo for consistent display (handles 1, 1.1, 1.2, 2, etc.)
+    return [...lines].sort((a: any, b: any) => {
+      const aDisplay = String(a?.displayLineNo ?? a?.sourceLineNoSnapshot ?? a?.lineNoSnapshot ?? "0");
+      const bDisplay = String(b?.displayLineNo ?? b?.sourceLineNoSnapshot ?? b?.lineNoSnapshot ?? "0");
+      // Parse as version-like strings: "1" < "1.1" < "1.2" < "2"
+      const aParts = aDisplay.split(".").map((p: string) => Number(p) || 0);
+      const bParts = bDisplay.split(".").map((p: string) => Number(p) || 0);
+      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+        const aVal = aParts[i] ?? 0;
+        const bVal = bParts[i] ?? 0;
+        if (aVal !== bVal) return aVal - bVal;
+      }
+      return 0;
+    });
   }, [activeInvoice]);
 
   // Roll up invoiced/paid/outstanding for the Financial Overview.
@@ -3461,6 +3475,40 @@ ${htmlBody}
     buildings: any[];
     units: any[];
   } | null>(null);
+
+  // Compute which hierarchy levels are available based on the project structure
+  // (used for dynamic invoice print grouping options)
+  const invoicePrintHierarchyLevels = useMemo(() => {
+    const levels: { key: "building" | "unit" | "room"; label: string; count: number }[] = [];
+    if (!hierarchy) return levels;
+
+    // Count buildings
+    const buildingCount = hierarchy.buildings?.length ?? 0;
+    if (buildingCount > 0) {
+      levels.push({ key: "building", label: "Building", count: buildingCount });
+    }
+
+    // Count units (from buildings + standalone)
+    const buildingUnits = (hierarchy.buildings ?? []).reduce((sum: number, b: any) => sum + (b.units?.length ?? 0), 0);
+    const standaloneUnits = hierarchy.units?.length ?? 0;
+    const unitCount = buildingUnits + standaloneUnits;
+    if (unitCount > 0) {
+      levels.push({ key: "unit", label: "Unit", count: unitCount });
+    }
+
+    // Count rooms/particles
+    const buildingRooms = (hierarchy.buildings ?? []).reduce((sum: number, b: any) => {
+      const unitRooms = (b.units ?? []).reduce((s: number, u: any) => s + (u.particles?.length ?? 0), 0);
+      return sum + unitRooms + (b.particles?.length ?? 0);
+    }, 0);
+    const standaloneUnitRooms = (hierarchy.units ?? []).reduce((sum: number, u: any) => sum + (u.particles?.length ?? 0), 0);
+    const roomCount = buildingRooms + standaloneUnitRooms;
+    if (roomCount > 0) {
+      levels.push({ key: "room", label: "Room", count: roomCount });
+    }
+
+    return levels;
+  }, [hierarchy]);
 
   // Precompute a breadcrumb label for each room particle so click handlers don't
   // have to walk/flatten the hierarchy tree (helps INP on PETL buttons).
@@ -6069,10 +6117,13 @@ ${htmlBody}
     };
   }, [project, activeTab, isPmOrAbove, pendingPetlReloadTick]);
 
-  // Load hierarchy lazily when STRUCTURE tab is opened
+  // Load hierarchy lazily when STRUCTURE or FINANCIAL tab is opened
+  // (FINANCIAL needs it for dynamic invoice grouping options)
   useEffect(() => {
     if (!project) return;
-    if (activeTab !== "STRUCTURE") return;
+    if (activeTab !== "STRUCTURE" && activeTab !== "FINANCIAL") return;
+    // Skip if already loaded (avoid re-fetching when switching between these tabs)
+    if (hierarchy) return;
     const token = localStorage.getItem("accessToken");
     if (!token) return;
 
@@ -6097,7 +6148,7 @@ ${htmlBody}
     return () => {
       cancelled = true;
     };
-  }, [project, activeTab]);
+  }, [project, activeTab, hierarchy]);
 
   // Load import structuring room buckets when STRUCTURE tab is opened
   useEffect(() => {
@@ -13744,21 +13795,63 @@ ${htmlBody}
       )}
 
       {invoicePrintDialogOpen && (() => {
-        // Compute preview data
-        const previewLines = (activeInvoicePetlLines as any[]).filter((li: any) => {
-          const lineId = String(li?.id ?? "");
-          return !invoicePrintExcludedLines.has(lineId);
-        });
+        // Compute preview data - filter excluded lines
+        // Sort by displayLineNo to match PETL view (1, 1.1, 1.2, 2, 2.1, etc.)
+        const previewLines = (activeInvoicePetlLines as any[])
+          .filter((li: any) => {
+            const lineId = String(li?.id ?? "");
+            return !invoicePrintExcludedLines.has(lineId);
+          })
+          .sort((a: any, b: any) => {
+            // Use displayLineNo for sorting (handles 1, 1.1, 1.2, 2, etc.)
+            const aDisplay = String(a?.displayLineNo ?? a?.sourceLineNoSnapshot ?? a?.lineNoSnapshot ?? "0");
+            const bDisplay = String(b?.displayLineNo ?? b?.sourceLineNoSnapshot ?? b?.lineNoSnapshot ?? "0");
+            // Parse as version-like strings: "1" < "1.1" < "1.2" < "2"
+            const aParts = aDisplay.split(".").map(p => Number(p) || 0);
+            const bParts = bDisplay.split(".").map(p => Number(p) || 0);
+            for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+              const aVal = aParts[i] ?? 0;
+              const bVal = bParts[i] ?? 0;
+              if (aVal !== bVal) return aVal - bVal;
+            }
+            return 0;
+          });
         const previewTotal = previewLines.reduce((sum: number, li: any) => sum + (Number(li?.thisInvTotal ?? 0) || 0), 0);
         const enabledFieldsPreview = INVOICE_PRINT_FIELD_DEFS.filter(f => invoicePrintFields.has(f.key));
 
+        // Helper to get display line number (matches PETL view)
+        const getDisplayLineNo = (li: any): string => {
+          if (li?.displayLineNo != null && String(li.displayLineNo).trim()) {
+            return String(li.displayLineNo).trim();
+          }
+          return String(li?.sourceLineNoSnapshot ?? li?.lineNoSnapshot ?? "");
+        };
+
+        // Check if line is a child (has parentLineId or displayLineNo like "1.1")
+        const isChildLine = (li: any): boolean => {
+          if (li?.parentLineId) return true;
+          const displayNo = getDisplayLineNo(li);
+          return displayNo.includes(".");
+        };
+
         // Helper to get field value for preview
         const getPreviewFieldValue = (li: any, fieldKey: string): string => {
+          const isChild = isChildLine(li);
+          const displayNo = getDisplayLineNo(li);
+          
           switch (fieldKey) {
-            case "lineNo": return String(li?.sourceLineNoSnapshot ?? li?.lineNoSnapshot ?? "");
+            case "lineNo": 
+              // Add arrow prefix for child lines
+              return isChild ? `↳ ${displayNo}` : displayNo;
             case "categoryCode": return String(li?.categoryCodeSnapshot ?? "");
             case "selectionCode": return String(li?.selectionCodeSnapshot ?? "");
-            case "description": return String(li?.descriptionSnapshot ?? "");
+            case "description": 
+              // For child lines, show kind indicator if it's a credit/add
+              const kind = String(li?.kind ?? "");
+              const desc = String(li?.descriptionSnapshot ?? "");
+              if (kind === "ACV_HOLDBACK_CREDIT") return "[CREDIT] " + desc;
+              if (kind === "ADD") return "[ADD] " + desc;
+              return desc;
             case "room": return String(li?.projectParticleLabelSnapshot ?? "");
             case "unit": return String(li?.projectUnitLabelSnapshot ?? "");
             case "building": return String(li?.projectBuildingLabelSnapshot ?? "");
@@ -13912,44 +14005,83 @@ ${htmlBody}
                     </div>
                   </div>
 
-                  {/* Grouping */}
+                  {/* Grouping - Dynamic hierarchy levels */}
                   <div style={{ flexShrink: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.5px" }}>
                       Group By
                     </div>
-                    <div style={{ display: "flex", gap: 4 }}>
-                      {[
-                        { value: "none", label: "None" },
-                        { value: "category", label: "Task" },
-                        { value: "room", label: "Room" },
-                        { value: "unit", label: "Unit" },
-                        { value: "building", label: "Bldg" },
-                      ].map((opt) => (
-                        <label
-                          key={opt.value}
-                          style={{
-                            display: "flex",
-                            gap: 4,
-                            alignItems: "center",
-                            fontSize: 11,
-                            padding: "4px 8px",
-                            borderRadius: 4,
-                            background: invoicePrintGroupBy === opt.value ? "#dbeafe" : "#ffffff",
-                            border: `1px solid ${invoicePrintGroupBy === opt.value ? "#3b82f6" : "#d1d5db"}`,
-                            cursor: "pointer",
-                          }}
-                        >
-                          <input
-                            type="radio"
-                            name="invoicePrintGroupBy"
-                            value={opt.value}
-                            checked={invoicePrintGroupBy === opt.value}
-                            onChange={() => setInvoicePrintGroupBy(opt.value as any)}
-                            style={{ margin: 0, width: 12, height: 12 }}
-                          />
-                          {opt.label}
-                        </label>
-                      ))}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {/* Row 1: None + Task (always available) */}
+                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                        <span style={{ fontSize: 10, color: "#9ca3af", width: 50 }}>Base:</span>
+                        {[
+                          { value: "none", label: "None" },
+                          { value: "category", label: "Task" },
+                        ].map((opt) => (
+                          <label
+                            key={opt.value}
+                            style={{
+                              display: "flex",
+                              gap: 4,
+                              alignItems: "center",
+                              fontSize: 11,
+                              padding: "4px 8px",
+                              borderRadius: 4,
+                              background: invoicePrintGroupBy === opt.value ? "#dbeafe" : "#ffffff",
+                              border: `1px solid ${invoicePrintGroupBy === opt.value ? "#3b82f6" : "#d1d5db"}`,
+                              cursor: "pointer",
+                            }}
+                          >
+                            <input
+                              type="radio"
+                              name="invoicePrintGroupBy"
+                              value={opt.value}
+                              checked={invoicePrintGroupBy === opt.value}
+                              onChange={() => setInvoicePrintGroupBy(opt.value as any)}
+                              style={{ margin: 0, width: 12, height: 12 }}
+                            />
+                            {opt.label}
+                          </label>
+                        ))}
+                      </div>
+                      {/* Row 2: Organization hierarchy levels (dynamic based on project structure) */}
+                      {invoicePrintHierarchyLevels.length > 0 && (
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <span style={{ fontSize: 10, color: "#9ca3af", width: 50 }}>Location:</span>
+                          {invoicePrintHierarchyLevels.map((level) => (
+                            <label
+                              key={level.key}
+                              style={{
+                                display: "flex",
+                                gap: 4,
+                                alignItems: "center",
+                                fontSize: 11,
+                                padding: "4px 8px",
+                                borderRadius: 4,
+                                background: invoicePrintGroupBy === level.key ? "#dbeafe" : "#ffffff",
+                                border: `1px solid ${invoicePrintGroupBy === level.key ? "#3b82f6" : "#d1d5db"}`,
+                                cursor: "pointer",
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name="invoicePrintGroupBy"
+                                value={level.key}
+                                checked={invoicePrintGroupBy === level.key}
+                                onChange={() => setInvoicePrintGroupBy(level.key)}
+                                style={{ margin: 0, width: 12, height: 12 }}
+                              />
+                              {level.label}
+                              <span style={{ fontSize: 9, color: "#6b7280", marginLeft: 2 }}>({level.count})</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      {invoicePrintHierarchyLevels.length === 0 && (
+                        <div style={{ fontSize: 10, color: "#9ca3af", fontStyle: "italic" }}>
+                          No organization structure yet. Set up Buildings/Units/Rooms in the STRUCTURE tab.
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -15786,36 +15918,200 @@ ${htmlBody}
       {activeTab === "STRUCTURE" && (
         <div style={{ marginTop: 8, marginBottom: 16 }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
-            Project Organization (Room Buckets)
+            Project Organization
           </h2>
-          <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 8 }}>
-            These buckets come directly from the latest Xactimate RAW import by
-            combining <strong>Group Code</strong> and <strong>Group Description</strong>.
-            Use this view to group buckets into Units and later Buildings.
+          <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 12 }}>
+            Organize your project structure: <strong>Property → Buildings → Units → Rooms</strong>.
+            Assign imported room buckets to units to build the hierarchy.
           </p>
 
-          {importRoomBucketsLoading && (
-            <p style={{ fontSize: 12, color: "#6b7280" }}>Loading room buckets…</p>
-          )}
+          {/* Real-time Hierarchy Tree */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "320px 1fr",
+              gap: 16,
+              marginBottom: 16,
+            }}
+          >
+            {/* Left: Hierarchy Tree */}
+            <div
+              style={{
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                background: "#ffffff",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  padding: "8px 12px",
+                  background: "#f3f4f6",
+                  borderBottom: "1px solid #e5e7eb",
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                Hierarchy Tree
+              </div>
+              <div style={{ padding: 12, fontSize: 12, maxHeight: 400, overflow: "auto" }}>
+                {/* Property (Project) - Root */}
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "#1f2937" }}>
+                    <span style={{ fontSize: 14 }}>🏠</span>
+                    <span>{project?.name || "Project"}</span>
+                  </div>
+                  {project?.addressLine1 && (
+                    <div style={{ marginLeft: 22, fontSize: 11, color: "#6b7280" }}>
+                      {project.addressLine1}
+                      {project.city && `, ${project.city}`}
+                      {project.state && `, ${project.state}`}
+                    </div>
+                  )}
+                </div>
 
-          {!importRoomBucketsLoading && importRoomBucketsError && (
-            <p style={{ fontSize: 12, color: "#b91c1c" }}>{importRoomBucketsError}</p>
-          )}
+                {/* Buildings with their units */}
+                {hierarchy?.buildings && hierarchy.buildings.length > 0 && (
+                  <div style={{ marginLeft: 12, borderLeft: "2px solid #e5e7eb", paddingLeft: 12 }}>
+                    {hierarchy.buildings.map((b: any) => (
+                      <div key={b.id} style={{ marginBottom: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "#4338ca" }}>
+                          <span style={{ fontSize: 13 }}>🏢</span>
+                          <span>{b.code ? `${b.code} - ` : ""}{b.name || "Building"}</span>
+                        </div>
+                        {/* Units in this building */}
+                        {b.units && b.units.length > 0 && (
+                          <div style={{ marginLeft: 12, borderLeft: "2px solid #c7d2fe", paddingLeft: 12, marginTop: 4 }}>
+                            {b.units.map((u: any) => (
+                              <div key={u.id} style={{ marginBottom: 6 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 500, color: "#0891b2" }}>
+                                  <span style={{ fontSize: 12 }}>📦</span>
+                                  <span>{u.label}{typeof u.floor === "number" ? ` (Floor ${u.floor})` : ""}</span>
+                                </div>
+                                {/* Rooms in this unit */}
+                                {u.particles && u.particles.length > 0 && (
+                                  <div style={{ marginLeft: 12, marginTop: 2 }}>
+                                    {u.particles.map((p: any) => (
+                                      <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, color: "#6b7280", fontSize: 11, marginBottom: 2 }}>
+                                        <span>📍</span>
+                                        <span>{p.name || p.fullLabel || "Room"}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* Rooms directly in building (no unit) */}
+                        {b.particles && b.particles.length > 0 && (
+                          <div style={{ marginLeft: 12, marginTop: 4 }}>
+                            {b.particles.map((p: any) => (
+                              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, color: "#6b7280", fontSize: 11, marginBottom: 2 }}>
+                                <span>📍</span>
+                                <span>{p.name || p.fullLabel || "Room"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
-          {!importRoomBucketsLoading &&
-            !importRoomBucketsError &&
-            importRoomBuckets &&
-            importRoomBuckets.length === 0 && (
-              <p style={{ fontSize: 12, color: "#6b7280" }}>
-                No RAW Xactimate imports found for this project yet.
-              </p>
-            )}
+                {/* Standalone Units (no building) */}
+                {hierarchy?.units && hierarchy.units.length > 0 && (
+                  <div style={{ marginLeft: 12, borderLeft: "2px solid #e5e7eb", paddingLeft: 12 }}>
+                    {hierarchy.units.map((u: any) => (
+                      <div key={u.id} style={{ marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 500, color: "#0891b2" }}>
+                          <span style={{ fontSize: 12 }}>📦</span>
+                          <span>{u.label}{typeof u.floor === "number" ? ` (Floor ${u.floor})` : ""}</span>
+                          <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 400 }}>(no building)</span>
+                        </div>
+                        {/* Rooms in this unit */}
+                        {u.particles && u.particles.length > 0 && (
+                          <div style={{ marginLeft: 12, marginTop: 2 }}>
+                            {u.particles.map((p: any) => (
+                              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, color: "#6b7280", fontSize: 11, marginBottom: 2 }}>
+                                <span>📍</span>
+                                <span>{p.name || p.fullLabel || "Room"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
-          {!importRoomBucketsLoading &&
-            !importRoomBucketsError &&
-            importRoomBuckets &&
-            importRoomBuckets.length > 0 && (
-              <>
+                {/* Empty state */}
+                {(!hierarchy || ((!hierarchy.buildings || hierarchy.buildings.length === 0) && (!hierarchy.units || hierarchy.units.length === 0))) && (
+                  <div style={{ marginLeft: 12, color: "#9ca3af", fontStyle: "italic" }}>
+                    No buildings or units yet. Assign room buckets below to create the structure.
+                  </div>
+                )}
+
+                {/* Summary stats */}
+                {hierarchy && (
+                  <div style={{ marginTop: 12, paddingTop: 8, borderTop: "1px solid #e5e7eb", fontSize: 11, color: "#6b7280" }}>
+                    <div>Buildings: {hierarchy.buildings?.length || 0}</div>
+                    <div>Units: {(hierarchy.buildings?.reduce((sum: number, b: any) => sum + (b.units?.length || 0), 0) || 0) + (hierarchy.units?.length || 0)}</div>
+                    <div>Rooms: {
+                      (hierarchy.buildings?.reduce((sum: number, b: any) => {
+                        const unitRooms = (b.units || []).reduce((s: number, u: any) => s + (u.particles?.length || 0), 0);
+                        return sum + unitRooms + (b.particles?.length || 0);
+                      }, 0) || 0) +
+                      (hierarchy.units?.reduce((sum: number, u: any) => sum + (u.particles?.length || 0), 0) || 0)
+                    }</div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right: Assignment Panel */}
+            <div
+              style={{
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                background: "#ffffff",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  padding: "8px 12px",
+                  background: "#f3f4f6",
+                  borderBottom: "1px solid #e5e7eb",
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                Room Buckets (from Xactimate Import)
+              </div>
+              <div style={{ padding: 12 }}>
+                {importRoomBucketsLoading && (
+                  <p style={{ fontSize: 12, color: "#6b7280" }}>Loading room buckets…</p>
+                )}
+
+                {!importRoomBucketsLoading && importRoomBucketsError && (
+                  <p style={{ fontSize: 12, color: "#b91c1c" }}>{importRoomBucketsError}</p>
+                )}
+
+                {!importRoomBucketsLoading &&
+                  !importRoomBucketsError &&
+                  importRoomBuckets &&
+                  importRoomBuckets.length === 0 && (
+                    <p style={{ fontSize: 12, color: "#6b7280" }}>
+                      No RAW Xactimate imports found for this project yet.
+                    </p>
+                  )}
+
+                {!importRoomBucketsLoading &&
+                  !importRoomBucketsError &&
+                  importRoomBuckets &&
+                  importRoomBuckets.length > 0 && (
+                    <>
                 {/* Assignment controls */}
                 <div
                   style={{
@@ -16005,20 +16301,28 @@ ${htmlBody}
 
                           setAssignMessage("Assigned buckets to unit.");
                           setImportRoomBucketsSelection(new Set());
-                          // Refresh buckets so assignedUnitLabel updates
+                          // Refresh buckets and hierarchy so the tree updates in real-time
                           try {
                             setImportRoomBucketsLoading(true);
-                            const bucketsRes = await fetch(
-                              `${API_BASE}/projects/${id}/import-structure/room-buckets`,
-                              {
-                                headers: { Authorization: `Bearer ${token}` },
-                              },
-                            );
+                            const [bucketsRes, hierarchyRes] = await Promise.all([
+                              fetch(
+                                `${API_BASE}/projects/${id}/import-structure/room-buckets`,
+                                { headers: { Authorization: `Bearer ${token}` } },
+                              ),
+                              fetch(
+                                `${API_BASE}/projects/${id}/hierarchy`,
+                                { headers: { Authorization: `Bearer ${token}` } },
+                              ),
+                            ]);
                             if (bucketsRes.ok) {
                               const json: any = await bucketsRes.json();
                               setImportRoomBuckets(
                                 Array.isArray(json.buckets) ? json.buckets : [],
                               );
+                            }
+                            if (hierarchyRes.ok) {
+                              const hierarchyJson: any = await hierarchyRes.json();
+                              setHierarchy(hierarchyJson);
                             }
                           } finally {
                             setImportRoomBucketsLoading(false);
@@ -16554,6 +16858,9 @@ ${htmlBody}
                 </div>
               </>
             )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

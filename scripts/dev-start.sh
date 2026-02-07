@@ -125,16 +125,21 @@ fi
 
 # --- 5) Start API worker (BullMQ) ----------------------------------------
 
-if pgrep -f "apps/api.*src/worker.ts" >/dev/null 2>&1; then
-  echo "[dev-start] API worker already running" | tee -a "$LOG_DIR/dev-start.log"
-else
-  echo "[dev-start] Starting API worker (import jobs)..." | tee -a "$LOG_DIR/dev-start.log"
-  (
-    cd "$REPO_ROOT/apps/api"
-    nohup npm run worker:dev \
-      > "$LOG_DIR/api-worker-dev.log" 2>&1 &
-  )
+# Kill any stale/orphaned worker processes before starting a fresh one.
+# Workers can become orphaned when terminals are closed or dev-start is
+# re-run without proper cleanup. We want exactly ONE worker running.
+if pgrep -f "ts-node.*src/worker.ts" >/dev/null 2>&1; then
+  echo "[dev-start] Killing stale worker processes before starting fresh one..." | tee -a "$LOG_DIR/dev-start.log"
+  pkill -f "ts-node.*src/worker.ts" || true
+  sleep 1
 fi
+
+echo "[dev-start] Starting API worker (import jobs)..." | tee -a "$LOG_DIR/dev-start.log"
+(
+  cd "$REPO_ROOT/apps/api"
+  nohup npm run worker:dev \
+    > "$LOG_DIR/api-worker-dev.log" 2>&1 &
+)
 
 # --- 6) Start web dev server ---------------------------------------------
 
