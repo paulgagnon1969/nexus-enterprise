@@ -34,6 +34,7 @@ import { NttModule } from "./modules/ntt/ntt.module";
 import { UploadsModule } from "./modules/uploads/uploads.module";
 import { XactScheduleModule } from "./modules/xact-schedule/xact-schedule.module";
 import { PnpModule } from "./modules/pnp/pnp.module";
+import { DocumentImportModule } from "./modules/document-import/document-import.module";
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { PnpModule } from "./modules/pnp/pnp.module";
     NttModule,
     UploadsModule,
     PnpModule,
+    DocumentImportModule,
   ],
   controllers: [DevController]
 })

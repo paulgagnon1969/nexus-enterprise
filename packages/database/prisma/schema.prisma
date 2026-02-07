@@ -126,6 +126,10 @@ model Company {
 
   // PnP (Policy & Procedure) library documents
   tenantPnpDocuments TenantPnpDocument[]
+
+  // Document Import System
+  documentScanJobs   DocumentScanJob[]
+  stagedDocuments    StagedDocument[]
 }
 
 model OrganizationTemplate {
@@ -376,6 +380,13 @@ model User {
 
   // Global, confidential personal contacts for this user (per-profile, not per-tenant)
   personalContacts PersonalContact[]
+
+  // Document Import System
+  documentScanJobsCreated    DocumentScanJob[]
+  stagedDocumentsScanned     StagedDocument[] @relation("StagedDocumentScannedBy")
+  stagedDocumentsArchived    StagedDocument[] @relation("StagedDocumentArchivedBy")
+  stagedDocumentsImported    StagedDocument[] @relation("StagedDocumentImportedBy")
+  stagedDocumentsPublished   StagedDocument[] @relation("StagedDocumentPublishedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -4210,4 +4221,139 @@ model TenantPnpDocumentVersion {
 
   @@unique([documentId, versionNo], name: "TenantPnpDocVersion_doc_version_key")
   @@index([documentId], map: "TenantPnpDocVersion_doc_idx")
+}
+
+// =============================================================================
+// Document Import System (Staging & Archive)
+// =============================================================================
+
+/// Status of a document scan job
+enum DocumentScanJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+/// Status of a staged document
+enum StagedDocumentStatus {
+  ACTIVE       // Unpublished eDocs - available for editing/tagging
+  ARCHIVED     // Soft-deleted, not visible to regular users
+  PUBLISHED    // Published and available organization-wide
+}
+
+/// Status of HTML conversion for a staged document
+enum HtmlConversionStatus {
+  PENDING
+  CONVERTING
+  COMPLETED
+  FAILED
+  SKIPPED       // For unsupported file types
+}
+
+/// AI-guessed document type based on filename and content analysis
+enum DocumentTypeGuess {
+  LIKELY_PROCEDURE    // Steps, numbered lists, SOP indicators
+  LIKELY_POLICY       // Policy/compliance language
+  LIKELY_FORM         // Forms, templates, checklists
+  REFERENCE_DOC       // General reference material
+  UNLIKELY_PROCEDURE  // Plain paragraphs, no structure
+  UNKNOWN             // Unable to classify
+}
+
+/// Job record for scanning external file systems for documents
+model DocumentScanJob {
+  id                  String                 @id @default(cuid())
+  companyId           String
+  scanPath            String                 // Root path being scanned
+  status              DocumentScanJobStatus  @default(PENDING)
+  documentsFound      Int                    @default(0)
+  documentsProcessed  Int                    @default(0)
+  errorMessage        String?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  createdByUserId     String
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  company             Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy           User                   @relation(fields: [createdByUserId], references: [id])
+  stagedDocuments     StagedDocument[]
+
+  @@index([companyId, status], map: "DocumentScanJob_company_status_idx")
+  @@index([createdByUserId], map: "DocumentScanJob_user_idx")
+}
+
+/// Staged document discovered during a scan, awaiting import decision
+model StagedDocument {
+  id                  String                 @id @default(cuid())
+  companyId           String
+  scanJobId           String
+  fileName            String
+  filePath            String                 // Full path to the file
+  breadcrumb          String[]               // Path segments for display
+  fileType            String                 // Extension (pdf, docx, etc.)
+  fileSize            BigInt                 // Size in bytes
+  mimeType            String?
+  thumbnailUrl        String?
+  status              StagedDocumentStatus   @default(ACTIVE)
+  scannedAt           DateTime               @default(now())
+  scannedByUserId     String
+  archivedAt          DateTime?
+  archivedByUserId    String?
+  importedAt          DateTime?
+  importedByUserId    String?
+  importedToType      String?                // e.g. "safety", "bkm"
+  importedToCategory  String?                // e.g. "ppe", "general-safety", "hazard-communication"
+  displayTitle        String?                // Override title for display (vs fileName)
+  displayDescription  String?                // Description shown in document listings
+  oshaReference       String?                // OSHA CFR reference if applicable
+  sortOrder           Int?                   // Custom sort order within category
+  metadata            Json?                  // Additional file metadata
+  
+  // Tagging for filtering and categorization
+  tags                String[]               // User-defined tags for filtering
+  category            String?                // Primary category (e.g., "Safety", "HR", "Operations")
+  subcategory         String?                // Subcategory for finer organization
+  
+  // Revision control
+  revisionNumber      Int                    @default(1)  // Current revision number
+  revisionDate        DateTime?              // Date of current revision
+  revisionNotes       String?                // Notes about what changed in this revision
+  revisionHistory     Json?                  // JSON array of previous revision info
+  
+  // Document classification (AI-guessed)
+  documentTypeGuess   DocumentTypeGuess?     // Auto-classified document type
+  classificationScore Float?                 // Confidence score (0-1)
+  classificationReason String?               // Why it was classified this way
+  
+  // Publishing workflow
+  publishedAt         DateTime?              // When document was published
+  publishedByUserId   String?                // Who published it
+  
+  // Text extraction (for search and classification)
+  textContent         String?                @db.Text  // Extracted plain text for search/classification
+  originalPath        String?                // Original path where file lives (source of truth)
+  
+  // HTML conversion fields
+  htmlContent         String?                @db.Text  // Converted HTML content
+  conversionStatus    HtmlConversionStatus?  // Status of HTML conversion
+  conversionError     String?                // Error message if conversion failed
+  convertedAt         DateTime?              // When conversion completed
+  
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  company             Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  scanJob             DocumentScanJob        @relation(fields: [scanJobId], references: [id], onDelete: Cascade)
+  scannedBy           User                   @relation("StagedDocumentScannedBy", fields: [scannedByUserId], references: [id])
+  archivedBy          User?                  @relation("StagedDocumentArchivedBy", fields: [archivedByUserId], references: [id])
+  importedBy          User?                  @relation("StagedDocumentImportedBy", fields: [importedByUserId], references: [id])
+  publishedBy         User?                  @relation("StagedDocumentPublishedBy", fields: [publishedByUserId], references: [id])
+
+  @@index([companyId, status], map: "StagedDocument_company_status_idx")
+  @@index([scanJobId], map: "StagedDocument_job_idx")
+  @@index([companyId, fileType], map: "StagedDocument_company_type_idx")
+  @@index([companyId, importedToType, importedToCategory], map: "StagedDocument_imported_idx")
+  @@index([companyId, category], map: "StagedDocument_company_category_idx")
 }
