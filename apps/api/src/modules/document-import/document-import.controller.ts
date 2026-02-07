@@ -215,6 +215,30 @@ export class DocumentImportController {
     return this.documentImport.unimportDocument(actor, id);
   }
 
+  // ==================== HTML Conversion ====================
+
+  /**
+   * Get HTML content for a document (for fast rendering)
+   * GET /document-import/documents/:id/html
+   */
+  @Roles(Role.MEMBER, Role.ADMIN, Role.OWNER)
+  @Get("documents/:id/html")
+  async getDocumentHtml(@Req() req: any, @Param("id") id: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.getDocumentHtml(actor, id);
+  }
+
+  /**
+   * Re-convert a document to HTML (Admin+ only)
+   * POST /document-import/documents/:id/reconvert
+   */
+  @Roles(Role.ADMIN, Role.OWNER)
+  @Post("documents/:id/reconvert")
+  async reconvertDocument(@Req() req: any, @Param("id") id: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.reconvertDocument(actor, id);
+  }
+
   // ==================== Imported Documents (for Safety Manual, BKMs) ====================
 
   /**

@@ -4241,6 +4241,15 @@ enum StagedDocumentStatus {
   IMPORTED
 }
 
+/// Status of HTML conversion for a staged document
+enum HtmlConversionStatus {
+  PENDING
+  CONVERTING
+  COMPLETED
+  FAILED
+  SKIPPED       // For unsupported file types
+}
+
 /// Job record for scanning external file systems for documents
 model DocumentScanJob {
   id                  String                 @id @default(cuid())
@@ -4290,6 +4299,13 @@ model StagedDocument {
   oshaReference       String?                // OSHA CFR reference if applicable
   sortOrder           Int?                   // Custom sort order within category
   metadata            Json?                  // Additional file metadata
+  
+  // HTML conversion fields
+  htmlContent         String?                @db.Text  // Converted HTML content
+  conversionStatus    HtmlConversionStatus?  // Status of HTML conversion
+  conversionError     String?                // Error message if conversion failed
+  convertedAt         DateTime?              // When conversion completed
+  
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
