@@ -20,6 +20,18 @@ interface ScanJob {
   createdBy?: { firstName?: string; lastName?: string; email: string };
 }
 
+interface StagedSOP {
+  id: string;
+  title: string;
+  module: string;
+  revision: string;
+  tags: string[];
+  status: "draft" | "published";
+  created: string;
+  updated: string;
+  fileName: string;
+}
+
 interface StagedDocument {
   id: string;
   fileName: string;
@@ -90,6 +102,11 @@ export default function DocumentImportPage() {
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // Unpublished SOPs
+  const [sops, setSops] = useState<StagedSOP[]>([]);
+  const [sopsExpanded, setSopsExpanded] = useState(false);
+  const [sopsLoading, setSopsLoading] = useState(false);
+
   const getAuthHeaders = () => {
     const token = localStorage.getItem("accessToken");
     return { Authorization: `Bearer ${token}` };
@@ -150,6 +167,24 @@ export default function DocumentImportPage() {
     }
   }, []);
 
+  const loadSOPs = useCallback(async () => {
+    setSopsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/document-import/sops?status=draft`, {
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSops(data.items || []);
+      }
+    } catch {
+      // SOPs endpoint might not exist yet - that's OK
+      setSops([]);
+    } finally {
+      setSopsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
     if (!token) {
@@ -158,10 +193,10 @@ export default function DocumentImportPage() {
       return;
     }
 
-    Promise.all([loadDocuments(), loadStats(), loadScanJobs()]).finally(() =>
+    Promise.all([loadDocuments(), loadStats(), loadScanJobs(), loadSOPs()]).finally(() =>
       setLoading(false)
     );
-  }, [loadDocuments, loadStats, loadScanJobs]);
+  }, [loadDocuments, loadStats, loadScanJobs, loadSOPs]);
 
   // Reload when filters change
   useEffect(() => {
@@ -363,6 +398,162 @@ export default function DocumentImportPage() {
             </div>
           </div>
         )}
+
+        {/* Unpublished SOPs - Collapsible Section */}
+        <div
+          style={{
+            border: "1px solid #e5e7eb",
+            borderRadius: 8,
+            overflow: "hidden",
+            backgroundColor: "#fefce8",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setSopsExpanded(!sopsExpanded)}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 16px",
+              backgroundColor: "transparent",
+              border: "none",
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 18 }}>📋</span>
+              <span style={{ fontSize: 15, fontWeight: 600, color: "#854d0e" }}>
+                Unpublished SOPs
+              </span>
+              <span
+                style={{
+                  fontSize: 12,
+                  padding: "2px 8px",
+                  borderRadius: 10,
+                  backgroundColor: "#fde047",
+                  color: "#713f12",
+                  fontWeight: 500,
+                }}
+              >
+                {sops.length}
+              </span>
+            </div>
+            <span style={{ fontSize: 14, color: "#854d0e" }}>
+              {sopsExpanded ? "▼" : "▶"}
+            </span>
+          </button>
+
+          {sopsExpanded && (
+            <div style={{ padding: "0 16px 16px", borderTop: "1px solid #fde047" }}>
+              {sopsLoading ? (
+                <p style={{ fontSize: 13, color: "#854d0e", padding: "12px 0" }}>Loading SOPs...</p>
+              ) : sops.length === 0 ? (
+                <div style={{ padding: "16px 0", textAlign: "center" }}>
+                  <p style={{ fontSize: 13, color: "#a16207", marginBottom: 8 }}>
+                    No unpublished SOPs found.
+                  </p>
+                  <p style={{ fontSize: 12, color: "#ca8a04" }}>
+                    SOPs are generated when features are pushed to production.<br />
+                    Check <code style={{ backgroundColor: "#fef9c3", padding: "2px 4px", borderRadius: 3 }}>docs/sops-staging/</code> for pending SOPs.
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+                  {sops.map((sop) => (
+                    <div
+                      key={sop.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "10px 12px",
+                        backgroundColor: "#ffffff",
+                        border: "1px solid #fde68a",
+                        borderRadius: 6,
+                      }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 14, fontWeight: 500, color: "#1f2937" }}>
+                            {sop.title}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 10,
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              backgroundColor: "#dbeafe",
+                              color: "#1e40af",
+                              fontWeight: 500,
+                            }}
+                          >
+                            Rev {sop.revision}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                          Module: {sop.module} • Updated: {new Date(sop.updated).toLocaleDateString()}
+                        </div>
+                        {sop.tags.length > 0 && (
+                          <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                            {sop.tags.slice(0, 4).map((tag) => (
+                              <span
+                                key={tag}
+                                style={{
+                                  fontSize: 10,
+                                  padding: "1px 5px",
+                                  borderRadius: 3,
+                                  backgroundColor: "#f3f4f6",
+                                  color: "#4b5563",
+                                }}
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          type="button"
+                          title="Preview SOP"
+                          style={{
+                            padding: "6px 10px",
+                            fontSize: 12,
+                            backgroundColor: "#f3f4f6",
+                            color: "#374151",
+                            border: "none",
+                            borderRadius: 4,
+                            cursor: "pointer",
+                          }}
+                        >
+                          👁️
+                        </button>
+                        <button
+                          type="button"
+                          title="Publish SOP"
+                          style={{
+                            padding: "6px 10px",
+                            fontSize: 12,
+                            backgroundColor: "#16a34a",
+                            color: "#ffffff",
+                            border: "none",
+                            borderRadius: 4,
+                            cursor: "pointer",
+                          }}
+                        >
+                          🚀 Publish
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Stats Bar */}
         {stats && (
@@ -981,6 +1172,8 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  // Scan progress state
+  const [scanProgress, setScanProgress] = useState({ filesFound: 0, currentPath: "" });
 
   const isSupported = typeof window !== "undefined" && "showDirectoryPicker" in window;
 
@@ -1031,9 +1224,13 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
     if (!folderHandle || !confirmed) return;
     setIsScanning(true);
     setError(null);
+    setScanProgress({ filesFound: 0, currentPath: folderHandle.name });
     const files: ScannedFile[] = [];
 
     async function scanDir(dirHandle: FileSystemDirectoryHandle, path: string[]) {
+      // Update current path being scanned
+      setScanProgress(prev => ({ ...prev, currentPath: path.join(" / ") }));
+      
       try {
         // @ts-ignore
         for await (const entry of dirHandle.values()) {
@@ -1044,6 +1241,8 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
                 // @ts-ignore
                 const file = await entry.getFile();
                 files.push({ name: entry.name, path: [...path, entry.name], size: file.size, type: ext, file });
+                // Update file count in real-time
+                setScanProgress(prev => ({ ...prev, filesFound: files.length }));
               } catch {}
             }
           } else if (entry.kind === "directory" && !entry.name.startsWith(".")) {
@@ -1055,6 +1254,7 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
     }
 
     await scanDir(folderHandle, [folderHandle.name]);
+    console.log("[Scan Complete]", files.length, "files found:", files.map(f => f.name));
     setScannedFiles(files);
     setIsScanning(false);
     setScanComplete(true);
@@ -1255,6 +1455,24 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
             >
               {isScanning ? "🔄 Scanning..." : "🔍 Scan Folder"}
             </button>
+          </div>
+        )}
+
+        {/* Real-time Scan Progress */}
+        {isScanning && (
+          <div style={{ marginBottom: 16, padding: 16, backgroundColor: "#eff6ff", border: "1px solid #93c5fd", borderRadius: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <div style={{ width: 20, height: 20, border: "3px solid #3b82f6", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+              <span style={{ fontSize: 16, fontWeight: 600, color: "#1e40af" }}>
+                {scanProgress.filesFound} document{scanProgress.filesFound !== 1 ? "s" : ""} found
+              </span>
+            </div>
+            <div style={{ fontSize: 13, color: "#3b82f6", display: "flex", alignItems: "center", gap: 6 }}>
+              <span>📂</span>
+              <span style={{ fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {scanProgress.currentPath || "Starting scan..."}
+              </span>
+            </div>
           </div>
         )}
 
