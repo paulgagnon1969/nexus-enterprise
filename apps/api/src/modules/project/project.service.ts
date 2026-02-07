@@ -9378,6 +9378,55 @@ export class ProjectService {
     }
   }
 
+  async deleteDraftInvoice(
+    projectId: string,
+    invoiceId: string,
+    actor: AuthenticatedUser,
+  ) {
+    this.ensureBillingModelsAvailable();
+
+    try {
+      const { invoice } = await this.getInvoiceOrThrow(projectId, invoiceId, actor);
+
+      if (invoice.status !== ProjectInvoiceStatus.DRAFT) {
+        throw new BadRequestException("Only draft invoices can be deleted");
+      }
+
+      // Check if the invoice has any dollar amount
+      const total = await this.recomputeInvoiceTotal(invoice.id);
+      if (total !== 0) {
+        throw new BadRequestException(
+          "Cannot delete an invoice with a non-zero total. Remove all line items first or void the invoice after issuing.",
+        );
+      }
+
+      // Delete PETL lines first (if they exist)
+      if (this.invoicePetlModelsAvailable()) {
+        try {
+          const p: any = this.prisma as any;
+          await p.projectInvoicePetlLine.deleteMany({ where: { invoiceId: invoice.id } });
+        } catch (err: any) {
+          if (!this.isMissingPrismaTableError(err, "ProjectInvoicePetlLine")) {
+            throw err;
+          }
+        }
+      }
+
+      // Delete manual line items
+      await this.prisma.projectInvoiceLineItem.deleteMany({ where: { invoiceId: invoice.id } });
+
+      // Delete the invoice
+      await this.prisma.projectInvoice.delete({ where: { id: invoice.id } });
+
+      return { deleted: true, invoiceId: invoice.id };
+    } catch (err: any) {
+      if (this.isBillingTableMissingError(err)) {
+        this.throwBillingTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
   async issueInvoice(
     projectId: string,
     invoiceId: string,

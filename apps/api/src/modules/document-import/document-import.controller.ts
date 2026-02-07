@@ -454,6 +454,42 @@ export class DocumentImportController {
     return this.documentImport.getPublishedTags(actor);
   }
 
+  // ==================== SOPs (Standard Operating Procedures) ====================
+
+  /**
+   * Get unpublished/draft SOPs
+   * GET /document-import/sops
+   */
+  @Roles(Role.ADMIN, Role.OWNER)
+  @Get("sops")
+  async getSOPs(
+    @Req() req: any,
+    @Query("status") status?: string,
+    @Query("module") module?: string
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.getSOPs(actor, { status, module });
+  }
+
+  /**
+   * Publish an SOP
+   * POST /document-import/sops/:id/publish
+   */
+  @Roles(Role.ADMIN, Role.OWNER)
+  @Post("sops/:id/publish")
+  async publishSOP(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body()
+    body?: {
+      category?: string;
+      visibleToRoles?: string[];
+    }
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.publishSOP(actor, id, body);
+  }
+
   // ==================== Statistics ====================
 
   /**

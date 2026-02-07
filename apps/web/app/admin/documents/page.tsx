@@ -32,6 +32,15 @@ interface StagedSOP {
   fileName: string;
 }
 
+// Document type classification
+type DocumentTypeGuess = 
+  | "LIKELY_PROCEDURE" 
+  | "LIKELY_POLICY" 
+  | "LIKELY_FORM" 
+  | "REFERENCE_DOC" 
+  | "UNLIKELY_PROCEDURE" 
+  | "UNKNOWN";
+
 interface StagedDocument {
   id: string;
   fileName: string;
@@ -55,6 +64,10 @@ interface StagedDocument {
   revisionNumber?: number;
   revisionDate?: string;
   revisionNotes?: string;
+  // Document classification
+  documentTypeGuess?: DocumentTypeGuess;
+  classificationScore?: number;
+  classificationReason?: string;
 }
 
 interface PaginatedResponse<T> {
@@ -963,9 +976,19 @@ interface DocumentCardProps {
   onImport: () => void;
 }
 
+// Classification badge config
+const CLASSIFICATION_CONFIG: Record<DocumentTypeGuess, { emoji: string; label: string; bgColor: string; textColor: string }> = {
+  LIKELY_PROCEDURE: { emoji: "✅", label: "Procedure", bgColor: "#dcfce7", textColor: "#166534" },
+  LIKELY_POLICY: { emoji: "📋", label: "Policy", bgColor: "#dbeafe", textColor: "#1e40af" },
+  LIKELY_FORM: { emoji: "📝", label: "Form", bgColor: "#fef3c7", textColor: "#92400e" },
+  REFERENCE_DOC: { emoji: "📖", label: "Reference", bgColor: "#f3f4f6", textColor: "#374151" },
+  UNLIKELY_PROCEDURE: { emoji: "⚠️", label: "Unlikely Proc", bgColor: "#fee2e2", textColor: "#991b1b" },
+  UNKNOWN: { emoji: "❓", label: "Unknown", bgColor: "#f3f4f6", textColor: "#6b7280" },
+};
+
 function DocumentCard({ document, selected, onSelect, onQuickLook, onToggleStatus, onImport }: DocumentCardProps) {
   const isArchived = document.status === "ARCHIVED";
-  const isImported = document.status === "IMPORTED";
+  const isPublished = document.status === "PUBLISHED";
 
   const formatFileSize = (bytes: string) => {
     const num = parseInt(bytes, 10);
@@ -1038,17 +1061,42 @@ function DocumentCard({ document, selected, onSelect, onQuickLook, onToggleStatu
               fontSize: 11,
               padding: "2px 6px",
               borderRadius: 4,
-              backgroundColor: isImported
-                ? "#dbeafe"
+              backgroundColor: isPublished
+                ? "#dcfce7"
                 : isArchived
                 ? "#f3f4f6"
-                : "#dcfce7",
-              color: isImported ? "#1e40af" : isArchived ? "#6b7280" : "#166534",
+                : "#fef3c7",
+              color: isPublished ? "#166534" : isArchived ? "#6b7280" : "#92400e",
               fontWeight: 500,
             }}
           >
-            {document.status}
+            {isPublished ? "Published" : isArchived ? "Archived" : "Unpublished"}
           </span>
+          {/* Classification Badge */}
+          {document.documentTypeGuess && (
+            <span
+              style={{
+                fontSize: 10,
+                padding: "2px 6px",
+                borderRadius: 4,
+                backgroundColor: CLASSIFICATION_CONFIG[document.documentTypeGuess]?.bgColor || "#f3f4f6",
+                color: CLASSIFICATION_CONFIG[document.documentTypeGuess]?.textColor || "#6b7280",
+                fontWeight: 500,
+                display: "flex",
+                alignItems: "center",
+                gap: 3,
+              }}
+              title={document.classificationReason || "Document type classification"}
+            >
+              {CLASSIFICATION_CONFIG[document.documentTypeGuess]?.emoji}
+              {CLASSIFICATION_CONFIG[document.documentTypeGuess]?.label}
+              {document.classificationScore && (
+                <span style={{ opacity: 0.7 }}>
+                  ({Math.round((document.classificationScore || 0) * 100)}%)
+                </span>
+              )}
+            </span>
+          )}
         </div>
 
         {/* Breadcrumb */}
@@ -1092,25 +1140,25 @@ function DocumentCard({ document, selected, onSelect, onQuickLook, onToggleStatu
         >
           👁️
         </button>
-        {!isImported && !isArchived && (
+        {!isPublished && !isArchived && (
           <button
             type="button"
             onClick={onImport}
-            title="Import to Safety Manual"
+            title="Publish Document"
             style={{
               padding: "6px 10px",
               fontSize: 12,
-              backgroundColor: "#dbeafe",
-              color: "#1e40af",
+              backgroundColor: "#dcfce7",
+              color: "#166534",
               border: "none",
               borderRadius: 4,
               cursor: "pointer",
             }}
           >
-            📥
+            🚀
           </button>
         )}
-        {!isImported && (
+        {!isPublished && (
           <button
             type="button"
             onClick={onToggleStatus}

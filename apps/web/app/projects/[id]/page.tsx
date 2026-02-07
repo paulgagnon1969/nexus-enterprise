@@ -3056,21 +3056,34 @@ ${htmlBody}
 
     const groups: Group[] = [];
 
+    // Helper to parse displayLineNo for sorting (handles "1", "1.001", "2", etc.)
+    const parseDisplayLineNo = (li: any): number[] => {
+      const display = String(li?.displayLineNo ?? li?.lineNoSnapshot ?? "0");
+      return display.split(".").map(p => Number(p) || 0);
+    };
+
+    const compareDisplayLineNo = (a: any, b: any): number => {
+      const aParts = parseDisplayLineNo(a);
+      const bParts = parseDisplayLineNo(b);
+      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+        const aVal = aParts[i] ?? 0;
+        const bVal = bParts[i] ?? 0;
+        if (aVal !== bVal) return aVal - bVal;
+      }
+      // Fallback to kind for ties
+      const ka = String(a?.kind ?? "");
+      const kb = String(b?.kind ?? "");
+      return ka.localeCompare(kb);
+    };
+
     for (const [groupKey, lines] of byGroup.entries()) {
-      // Sort lines within each group by line number
-      const sorted = [...lines].sort((a, b) => {
-        const la = Number(a?.lineNoSnapshot ?? 0);
-        const lb = Number(b?.lineNoSnapshot ?? 0);
-        if (la !== lb) return la - lb;
-        const ka = String(a?.kind ?? "");
-        const kb = String(b?.kind ?? "");
-        return ka.localeCompare(kb);
-      });
+      // Sort lines within each group by displayLineNo (1, 1.001, 1.002, 2, etc.)
+      const sorted = [...lines].sort(compareDisplayLineNo);
 
       const subtotal = sorted.reduce((sum, x) => sum + (Number(x?.thisInvTotal ?? 0) || 0), 0);
 
       // Track the minimum line number in this group for sorting groups
-      const minLineNo = sorted.length > 0 ? Number(sorted[0]?.lineNoSnapshot ?? 0) : 0;
+      const minLineNo = sorted.length > 0 ? parseDisplayLineNo(sorted[0])[0] : 0;
 
       groups.push({ groupKey, groupLabel: groupKey, lines: sorted, subtotal, minLineNo } as any);
     }
@@ -11166,7 +11179,36 @@ ${htmlBody}
               marginBottom: 8,
             }}
           >
-            <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Financial Overview</h2>
+            {activeInvoice ? (
+              <button
+                type="button"
+                className="no-print"
+                onClick={() => {
+                  setActiveInvoice(null);
+                  if (invoiceFullscreen) {
+                    router.push(`/projects/${id}?tab=FINANCIAL`);
+                  }
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: 0,
+                  margin: 0,
+                  border: "none",
+                  background: "none",
+                  color: "#2563eb",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <span style={{ fontSize: 16 }}>←</span>
+                Back to Financial Overview
+              </button>
+            ) : (
+              <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Financial Overview</h2>
+            )}
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <button
                 type="button"
@@ -13330,6 +13372,7 @@ ${htmlBody}
                             <th style={{ textAlign: "right", padding: "6px 8px" }}>Paid</th>
                             <th style={{ textAlign: "right", padding: "6px 8px" }}>Balance</th>
                             <th style={{ textAlign: "left", padding: "6px 8px" }}>Issued</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}></th>
                           </tr>
                         </thead>
                         <tbody>
@@ -13424,6 +13467,62 @@ ${htmlBody}
                               </td>
                               <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
                                 {inv.issuedAt ? new Date(inv.issuedAt).toLocaleDateString() : "—"}
+                              </td>
+                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                {inv.status === "DRAFT" && (inv.totalAmount ?? 0) === 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      if (!project) return;
+                                      const ok = window.confirm(
+                                        "Delete this empty draft invoice?\n\nThis action cannot be undone.",
+                                      );
+                                      if (!ok) return;
+
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) {
+                                        setInvoiceMessage("Missing access token.");
+                                        return;
+                                      }
+                                      setInvoiceMessage(null);
+                                      try {
+                                        const res = await fetch(
+                                          `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
+                                          {
+                                            method: "DELETE",
+                                            headers: {
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                          },
+                                        );
+                                        if (!res.ok) {
+                                          const text = await res.text().catch(() => "");
+                                          setInvoiceMessage(
+                                            `Delete failed (${res.status}) ${text}`,
+                                          );
+                                          return;
+                                        }
+                                        setProjectInvoices(null);
+                                        setInvoiceMessage("Draft invoice deleted.");
+                                      } catch (err: any) {
+                                        setInvoiceMessage(err?.message ?? "Delete failed.");
+                                      }
+                                    }}
+                                    style={{
+                                      padding: "3px 8px",
+                                      borderRadius: 4,
+                                      border: "1px solid #dc2626",
+                                      background: "#fef2f2",
+                                      color: "#b91c1c",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    Delete $0 Draft
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))}
@@ -15011,70 +15110,22 @@ ${htmlBody}
                                             Number(li.thisInvTotal ?? 0) === 0 &&
                                             Number(li.contractTotal ?? 0) !== 0;
 
-                                          const isReconDebug =
-                                            isAdminOrAbove &&
-                                            li.anchorKind === "LINE_TIED" &&
-                                            (effectiveTag === "SUPPLEMENT" || effectiveTag === "CHANGE_ORDER");
-
-                                          const debugFragment = (() => {
-                                            if (!isReconDebug) return null;
-                                            const pctLabel =
-                                              li.percentCompleteSnapshot != null
-                                                ? `${Number(li.percentCompleteSnapshot).toFixed(0)}%`
-                                                : "—";
-                                            const targetDelta =
-                                              Number(li.earnedTotal ?? 0) - Number(li.prevBilledTotal ?? 0);
+                                          if (isRejectedSupplement) {
                                             return (
                                               <span
                                                 style={{
-                                                  display: "block",
-                                                  marginTop: 2,
-                                                  fontSize: 10,
-                                                  color: "#6b7280",
-                                                  fontWeight: 400,
+                                                  fontWeight: 700,
+                                                  color: "#b91c1c",
+                                                  fontSize: 11,
+                                                  letterSpacing: "0.08em",
                                                 }}
                                               >
-                                                p {pctLabel} · e {formatMoney(li.earnedTotal)} · prev {formatMoney(li.prevBilledTotal)} · tgt {formatMoney(targetDelta)}
+                                                REJECTED
                                               </span>
-                                            );
-                                          })();
-
-                                          if (isRejectedSupplement) {
-                                            return (
-                                              <div
-                                                style={{
-                                                  display: "flex",
-                                                  flexDirection: "column",
-                                                  alignItems: "flex-end",
-                                                }}
-                                              >
-                                                <span
-                                                  style={{
-                                                    fontWeight: 700,
-                                                    color: "#b91c1c",
-                                                    fontSize: 11,
-                                                    letterSpacing: "0.08em",
-                                                  }}
-                                                >
-                                                  REJECTED
-                                                </span>
-                                                {debugFragment}
-                                              </div>
                                             );
                                           }
 
-                                          return (
-                                            <div
-                                              style={{
-                                                display: "flex",
-                                                flexDirection: "column",
-                                                alignItems: "flex-end",
-                                              }}
-                                            >
-                                              <span>{formatMoney(li.thisInvTotal)}</span>
-                                              {debugFragment}
-                                            </div>
-                                          );
+                                          return formatMoney(li.thisInvTotal);
                                         })()}
                                       </td>
                                     </tr>,
@@ -15086,12 +15137,16 @@ ${htmlBody}
                             ) : (
                               [...visibleInvoicePetlLines]
                                 .sort((a, b) => {
-                                  const pa = String(a?.projectTreePathSnapshot ?? "");
-                                  const pb = String(b?.projectTreePathSnapshot ?? "");
-                                  if (pa !== pb) return pa.localeCompare(pb);
-                                  const la = Number(a?.lineNoSnapshot ?? 0);
-                                  const lb = Number(b?.lineNoSnapshot ?? 0);
-                                  if (la !== lb) return la - lb;
+                                  // Sort by displayLineNo for PETL-like ordering (1, 1.001, 1.002, 2, etc.)
+                                  const aDisplay = String(a?.displayLineNo ?? a?.lineNoSnapshot ?? "0");
+                                  const bDisplay = String(b?.displayLineNo ?? b?.lineNoSnapshot ?? "0");
+                                  const aParts = aDisplay.split(".").map((p: string) => Number(p) || 0);
+                                  const bParts = bDisplay.split(".").map((p: string) => Number(p) || 0);
+                                  for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+                                    const aVal = aParts[i] ?? 0;
+                                    const bVal = bParts[i] ?? 0;
+                                    if (aVal !== bVal) return aVal - bVal;
+                                  }
                                   const ka = String(a?.kind ?? "");
                                   const kb = String(b?.kind ?? "");
                                   return ka.localeCompare(kb);
@@ -15298,70 +15353,22 @@ ${htmlBody}
                                             Number(li.thisInvTotal ?? 0) === 0 &&
                                             Number(li.contractTotal ?? 0) !== 0;
 
-                                          const isReconDebug =
-                                            isAdminOrAbove &&
-                                            li.anchorKind === "LINE_TIED" &&
-                                            (effectiveTag === "SUPPLEMENT" || effectiveTag === "CHANGE_ORDER");
-
-                                          const debugFragment = (() => {
-                                            if (!isReconDebug) return null;
-                                            const pctLabel =
-                                              li.percentCompleteSnapshot != null
-                                                ? `${Number(li.percentCompleteSnapshot).toFixed(0)}%`
-                                                : "—";
-                                            const targetDelta =
-                                              Number(li.earnedTotal ?? 0) - Number(li.prevBilledTotal ?? 0);
+                                          if (isRejectedSupplement) {
                                             return (
                                               <span
                                                 style={{
-                                                  display: "block",
-                                                  marginTop: 2,
-                                                  fontSize: 10,
-                                                  color: "#6b7280",
-                                                  fontWeight: 400,
+                                                  fontWeight: 700,
+                                                  color: "#b91c1c",
+                                                  fontSize: 11,
+                                                  letterSpacing: "0.08em",
                                                 }}
                                               >
-                                                p {pctLabel} · e {formatMoney(li.earnedTotal)} · prev {formatMoney(li.prevBilledTotal)} · tgt {formatMoney(targetDelta)}
+                                                REJECTED
                                               </span>
-                                            );
-                                          })();
-
-                                          if (isRejectedSupplement) {
-                                            return (
-                                              <div
-                                                style={{
-                                                  display: "flex",
-                                                  flexDirection: "column",
-                                                  alignItems: "flex-end",
-                                                }}
-                                              >
-                                                <span
-                                                  style={{
-                                                    fontWeight: 700,
-                                                    color: "#b91c1c",
-                                                    fontSize: 11,
-                                                    letterSpacing: "0.08em",
-                                                  }}
-                                                >
-                                                  REJECTED
-                                                </span>
-                                                {debugFragment}
-                                              </div>
                                             );
                                           }
 
-                                          return (
-                                            <div
-                                              style={{
-                                                display: "flex",
-                                                flexDirection: "column",
-                                                alignItems: "flex-end",
-                                              }}
-                                            >
-                                              <span>{formatMoney(li.thisInvTotal)}</span>
-                                              {debugFragment}
-                                            </div>
-                                          );
+                                          return formatMoney(li.thisInvTotal);
                                         })()}
                                       </td>
                                     </tr>
