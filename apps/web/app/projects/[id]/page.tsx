@@ -444,6 +444,10 @@ interface PetlItem {
     name: string;
     fullLabel: string;
   } | null;
+  /// Standalone Change Order fields
+  isStandaloneChangeOrder?: boolean;
+  coSequenceNo?: number | null;
+  coSourceLineNo?: number | null;
 }
 
 interface Participant {
@@ -3369,6 +3373,13 @@ ${htmlBody}
           opAmount: string;
           rcvAmount: string;
           percentComplete: string;
+          // Activity and cost component fields
+          activity: string;
+          workersWage: string;
+          laborBurden: string;
+          laborOverhead: string;
+          materialCost: string;
+          equipmentCost: string;
         };
         rcvManuallyEdited: boolean;
         saving: boolean;
@@ -4161,7 +4172,6 @@ ${htmlBody}
 
 
   const petlFlatItems = useMemo(() => {
-    console.time('[PERF] petlFlatItems filter+sort');
     const filtered = petlItems.filter((it) => {
       if (!matchesFilters(it)) return false;
       if (petlDisplayMode === "RECONCILIATION_ONLY") {
@@ -4170,9 +4180,26 @@ ${htmlBody}
       return true;
     });
 
-    filtered.sort((a, b) => a.lineNo - b.lineNo);
-    console.timeEnd('[PERF] petlFlatItems filter+sort');
-    console.log('[PERF] petlFlatItems count:', filtered.length, 'of', petlItems.length);
+    // Sort: Standalone COs first (at the top), then regular items by lineNo
+    filtered.sort((a, b) => {
+      const aIsCo = a.isStandaloneChangeOrder ?? false;
+      const bIsCo = b.isStandaloneChangeOrder ?? false;
+
+      // COs sort to the top
+      if (aIsCo && !bIsCo) return -1;
+      if (!aIsCo && bIsCo) return 1;
+
+      // Both are COs: sort by source line, then sequence
+      if (aIsCo && bIsCo) {
+        const aSource = a.coSourceLineNo ?? 0;
+        const bSource = b.coSourceLineNo ?? 0;
+        if (aSource !== bSource) return aSource - bSource;
+        return (a.coSequenceNo ?? 0) - (b.coSequenceNo ?? 0);
+      }
+
+      // Both are regular items: sort by lineNo
+      return a.lineNo - b.lineNo;
+    });
     return filtered;
   }, [
     petlItems,
@@ -7197,7 +7224,8 @@ ${htmlBody}
 
   // The line-sequence PETL table can be very large. Memoize its JSX so opening the
   // reconciliation drawer doesn't force React to rebuild thousands of rows.
-  const VIRTUALIZATION_THRESHOLD = 100;
+  // Lowered threshold from 100 to 50 for better paint performance on medium-sized PETLs.
+  const VIRTUALIZATION_THRESHOLD = 50;
   const useVirtualizedTable = petlFlatItems.length > VIRTUALIZATION_THRESHOLD;
 
   // Callbacks for virtualized table
@@ -7240,8 +7268,7 @@ ${htmlBody}
 
   // Memoized percent change handler for virtualized table
   const handleVirtualPercentChange = useCallback(
-    async (sowItemId: string, displayLineNo: number, newPercent: number, isAcvOnly: boolean) => {
-      console.time('[PERF] handleVirtualPercentChange');
+    async (sowItemId: string, displayLineNo: string | number, newPercent: number, isAcvOnly: boolean) => {
       const token = localStorage.getItem("accessToken");
       if (!token) {
         alert("Missing access token; please log in again.");
@@ -7337,18 +7364,15 @@ ${htmlBody}
         } catch (err) {
           console.error(err);
         }
-        console.timeEnd('[PERF] handleVirtualPercentChange');
       });
     },
     [id, busyOverlay, showPetlToast, activeInvoice?.id],
   );
 
   const petlLineSequenceTable = useMemo(() => {
-    console.time('[PERF] petlLineSequenceTable useMemo');
     // Critical: don't even *build* the large JSX tree unless the PETL tab content is mounted.
     // (PETL data may load while on SUMMARY for the progress summary.)
     if (activeTab !== "PETL") {
-      console.timeEnd('[PERF] petlLineSequenceTable useMemo');
       return null;
     }
 
@@ -7358,7 +7382,6 @@ ${htmlBody}
       petlItems.length > 0;
 
     if (!shouldShow) {
-      console.timeEnd('[PERF] petlLineSequenceTable useMemo');
       return null;
     }
 
@@ -8436,7 +8459,6 @@ ${htmlBody}
         )}
       </div>
     );
-    console.timeEnd('[PERF] petlLineSequenceTable useMemo');
     return result;
   }, [
     activeTab,
@@ -8710,6 +8732,28 @@ ${htmlBody}
         ? (tag as ReconEntryTag)
         : "";
 
+    // Activity enum values (matching Xactimate: &=R&R, -=Remove, +=Replace, R=D&R, M=Materials, F=Repair, I=Install)
+    const validActivities = ["REMOVE_AND_REPLACE", "REMOVE", "REPLACE", "DETACH_AND_RESET", "MATERIALS", "REPAIR", "INSTALL_ONLY"];
+    const rawActivity = String(entry?.activity ?? "").trim();
+    const draftActivity = validActivities.includes(rawActivity) ? rawActivity : "";
+
+    // Get parent Xact cost components for fallback (from reconciliation panel data)
+    const parentXact = petlReconPanel.data?.xactCostComponents;
+
+    // Helper to get cost component value: entry value first, then parent Xact value as fallback
+    const getCostComponent = (
+      entryVal: number | null | undefined,
+      parentVal: number | null | undefined
+    ): string => {
+      if (typeof entryVal === "number" && Number.isFinite(entryVal)) {
+        return String(entryVal);
+      }
+      if (typeof parentVal === "number" && Number.isFinite(parentVal)) {
+        return String(parentVal);
+      }
+      return "";
+    };
+
     // Always start with rcvManuallyEdited: false so auto-calc works.
     // Only set to true when user directly types in the RCV field.
     setReconEntryEdit({
@@ -8747,6 +8791,13 @@ ${htmlBody}
           typeof entry?.percentComplete === "number" && Number.isFinite(entry.percentComplete)
             ? String(entry.percentComplete)
             : "100",
+        // Activity and cost component fields - use parent Xact components as fallback
+        activity: draftActivity,
+        workersWage: getCostComponent(entry?.workersWage, parentXact?.workersWage),
+        laborBurden: getCostComponent(entry?.laborBurden, parentXact?.laborBurden),
+        laborOverhead: getCostComponent(entry?.laborOverhead, parentXact?.laborOverhead),
+        materialCost: getCostComponent(entry?.materialCost, parentXact?.material),
+        equipmentCost: getCostComponent(entry?.equipmentCost, parentXact?.equipment),
       },
       rcvManuallyEdited: false,
       saving: false,
@@ -8841,6 +8892,62 @@ ${htmlBody}
         newDraft.rcvAmount = rcv === 0 ? "" : String(rcv);
       }
       
+      return { ...prev, draft: newDraft };
+    });
+  };
+
+  // Update a cost component field and auto-recalculate based on activity
+  const updateReconCostComponent = (
+    field: "workersWage" | "laborBurden" | "laborOverhead" | "materialCost" | "equipmentCost",
+    value: string
+  ) => {
+    setReconEntryEdit((prev) => {
+      if (!prev) return prev;
+      const newDraft = { ...prev.draft, [field]: value };
+
+      // Only auto-recalculate if activity is set
+      const activity = newDraft.activity;
+      if (activity) {
+        const workersWage = parseReconNumber(newDraft.workersWage || "");
+        const laborBurden = parseReconNumber(newDraft.laborBurden || "");
+        const laborOverhead = parseReconNumber(newDraft.laborOverhead || "");
+        const materialCost = parseReconNumber(newDraft.materialCost || "");
+        const equipmentCost = parseReconNumber(newDraft.equipmentCost || "");
+        const laborTotal = workersWage + laborBurden + laborOverhead;
+
+        let derivedTotal = 0;
+        switch (activity) {
+          case "REMOVE_AND_REPLACE":
+            derivedTotal = laborTotal + materialCost + equipmentCost;
+            break;
+          case "REMOVE":
+          case "DETACH_AND_RESET":
+            derivedTotal = laborTotal;
+            break;
+          case "REPLACE":
+            derivedTotal = laborTotal + equipmentCost;
+            break;
+          case "MATERIALS":
+            derivedTotal = materialCost;
+            break;
+          default:
+            derivedTotal = laborTotal + materialCost + equipmentCost;
+        }
+
+        if (derivedTotal > 0) {
+          const qty = parseReconNumber(newDraft.qty || "") || 1;
+          newDraft.unitCost = String(derivedTotal / qty);
+          newDraft.itemAmount = String(derivedTotal);
+
+          // Auto-update RCV if not manually edited
+          if (!prev.rcvManuallyEdited) {
+            const tax = parseReconNumber(newDraft.salesTaxAmount || "");
+            const op = parseReconNumber(newDraft.opAmount || "");
+            newDraft.rcvAmount = String(derivedTotal + tax + op);
+          }
+        }
+      }
+
       return { ...prev, draft: newDraft };
     });
   };
@@ -9024,6 +9131,61 @@ ${htmlBody}
     }
     const prevPct = typeof entry?.percentComplete === "number" ? entry.percentComplete : 0;
     if (pctVal !== prevPct) patch.percentComplete = pctVal;
+
+    // Activity and cost component fields
+    const nextActivity = d.activity || null;
+    const prevActivity = entry?.activity ?? null;
+    if (nextActivity !== prevActivity) patch.activity = nextActivity;
+
+    const workersWageRaw = d.workersWage || "";
+    const workersWageVal = cleanNumber(workersWageRaw);
+    if (workersWageRaw.trim() !== "" && workersWageVal === null) {
+      alert("Worker's Wage must be a number (or blank).");
+      return;
+    }
+    const nextWorkersWage = workersWageVal;
+    const prevWorkersWage = typeof entry?.workersWage === "number" ? entry.workersWage : null;
+    if (nextWorkersWage !== prevWorkersWage) patch.workersWage = nextWorkersWage;
+
+    const laborBurdenRaw = d.laborBurden || "";
+    const laborBurdenVal = cleanNumber(laborBurdenRaw);
+    if (laborBurdenRaw.trim() !== "" && laborBurdenVal === null) {
+      alert("Labor Burden must be a number (or blank).");
+      return;
+    }
+    const nextLaborBurden = laborBurdenVal;
+    const prevLaborBurden = typeof entry?.laborBurden === "number" ? entry.laborBurden : null;
+    if (nextLaborBurden !== prevLaborBurden) patch.laborBurden = nextLaborBurden;
+
+    const laborOverheadRaw = d.laborOverhead || "";
+    const laborOverheadVal = cleanNumber(laborOverheadRaw);
+    if (laborOverheadRaw.trim() !== "" && laborOverheadVal === null) {
+      alert("Labor Overhead must be a number (or blank).");
+      return;
+    }
+    const nextLaborOverhead = laborOverheadVal;
+    const prevLaborOverhead = typeof entry?.laborOverhead === "number" ? entry.laborOverhead : null;
+    if (nextLaborOverhead !== prevLaborOverhead) patch.laborOverhead = nextLaborOverhead;
+
+    const materialCostRaw = d.materialCost || "";
+    const materialCostVal = cleanNumber(materialCostRaw);
+    if (materialCostRaw.trim() !== "" && materialCostVal === null) {
+      alert("Material Cost must be a number (or blank).");
+      return;
+    }
+    const nextMaterialCost = materialCostVal;
+    const prevMaterialCost = typeof entry?.materialCost === "number" ? entry.materialCost : null;
+    if (nextMaterialCost !== prevMaterialCost) patch.materialCost = nextMaterialCost;
+
+    const equipmentCostRaw = d.equipmentCost || "";
+    const equipmentCostVal = cleanNumber(equipmentCostRaw);
+    if (equipmentCostRaw.trim() !== "" && equipmentCostVal === null) {
+      alert("Equipment Cost must be a number (or blank).");
+      return;
+    }
+    const nextEquipmentCost = equipmentCostVal;
+    const prevEquipmentCost = typeof entry?.equipmentCost === "number" ? entry.equipmentCost : null;
+    if (nextEquipmentCost !== prevEquipmentCost) patch.equipmentCost = nextEquipmentCost;
 
     if (Object.keys(patch).length === 0) {
       closeReconEntryEdit();
@@ -19663,6 +19825,111 @@ ${htmlBody}
         </div>
       )}
 
+      {/* Standalone Change Orders group - appears at top of PROJECT_GROUPING */}
+      {petlDisplayMode === "PROJECT_GROUPING" && !groupLoading && (() => {
+        const coItems = petlItems.filter(it => it.isStandaloneChangeOrder);
+        if (coItems.length === 0) return null;
+        const coTotal = coItems.reduce((sum, it) => sum + (it.rcvAmount ?? 0), 0);
+        const coCompleted = coItems.reduce((sum, it) => sum + ((it.rcvAmount ?? 0) * (it.percentComplete ?? 0) / 100), 0);
+        const coPct = coTotal > 0 ? (coCompleted / coTotal) * 100 : 0;
+        const isCoExpanded = expandedUnits.has("__standalone_cos__");
+        return (
+          <div style={{ marginTop: 16, marginBottom: 16 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: "#d97706" }}>Standalone Change Orders</h2>
+            <div style={{ borderRadius: 8, backgroundColor: "#fffbeb", border: "1px solid #f59e0b" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ backgroundColor: "#fef3c7" }}>
+                    <th style={{ textAlign: "left", padding: "8px 12px" }}>CO Line</th>
+                    <th style={{ textAlign: "left", padding: "8px 12px" }}>Description</th>
+                    <th style={{ textAlign: "right", padding: "8px 12px" }}>RCV</th>
+                    <th style={{ textAlign: "right", padding: "8px 12px" }}>% Complete</th>
+                    <th style={{ textAlign: "left", padding: "8px 12px" }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    style={{ cursor: "pointer", backgroundColor: "#fef3c7" }}
+                    onClick={() => toggleUnitExpanded("__standalone_cos__")}
+                  >
+                    <td colSpan={2} style={{ padding: "6px 12px", fontWeight: 600 }}>
+                      {isCoExpanded ? "▾" : "▸"} {coItems.length} Change Order{coItems.length !== 1 ? "s" : ""}
+                    </td>
+                    <td style={{ padding: "6px 12px", textAlign: "right", fontWeight: 600 }}>
+                      {coTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </td>
+                    <td style={{ padding: "6px 12px", textAlign: "right", fontWeight: 600 }}>
+                      {coPct.toFixed(1)}%
+                    </td>
+                    <td style={{ padding: "6px 12px" }} />
+                  </tr>
+                  {isCoExpanded && coItems
+                    .sort((a, b) => {
+                      const aSource = a.coSourceLineNo ?? 0;
+                      const bSource = b.coSourceLineNo ?? 0;
+                      if (aSource !== bSource) return aSource - bSource;
+                      return (a.coSequenceNo ?? 0) - (b.coSequenceNo ?? 0);
+                    })
+                    .map((item) => {
+                      const coLineLabel = item.coSourceLineNo != null && item.coSequenceNo != null
+                        ? `${item.coSourceLineNo}-CO${item.coSequenceNo}`
+                        : `CO-${item.lineNo}`;
+                      const hasRecon = petlReconActivityIds.has(item.id);
+                      const flagged = petlReconFlagIds.has(item.id);
+                      return (
+                        <tr key={item.id} style={{ backgroundColor: "#ffffff" }}>
+                          <td style={{ padding: "6px 12px", borderTop: "1px solid #fcd34d", fontFamily: "monospace" }}>
+                            {coLineLabel}
+                          </td>
+                          <td style={{ padding: "6px 12px", borderTop: "1px solid #fcd34d", maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {item.description || "(No description)"}
+                          </td>
+                          <td style={{ padding: "6px 12px", borderTop: "1px solid #fcd34d", textAlign: "right" }}>
+                            {(item.rcvAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </td>
+                          <td style={{ padding: "6px 12px", borderTop: "1px solid #fcd34d", textAlign: "right" }}>
+                            {item.percentComplete ?? 0}%
+                          </td>
+                          <td style={{ padding: "6px 12px", borderTop: "1px solid #fcd34d" }}>
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); togglePetlReconFlag(item.id); }}
+                                style={{
+                                  padding: "2px 6px", borderRadius: 999,
+                                  border: flagged ? "1px solid #b45309" : "1px solid #d1d5db",
+                                  background: flagged ? "#fffbeb" : "#ffffff",
+                                  fontSize: 11, cursor: "pointer",
+                                  color: flagged ? "#92400e" : "#374151",
+                                }}
+                              >
+                                {flagged ? "Flagged" : "Flag"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); void openPetlReconciliation(item.id); }}
+                                style={{
+                                  padding: "2px 6px", borderRadius: 999,
+                                  border: hasRecon ? "1px solid #0284c7" : "1px solid #d1d5db",
+                                  background: hasRecon ? "#e0f2fe" : "#ffffff",
+                                  fontSize: 11, cursor: "pointer",
+                                  color: hasRecon ? "#075985" : "#374151",
+                                }}
+                              >
+                                Recon
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
       {petlDisplayMode === "PROJECT_GROUPING" && !groupLoading && unitGroups.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Units</h2>
@@ -20632,6 +20899,24 @@ ${htmlBody}
                           RCV: {petlReconPanel.data.rcvBreakdown?.rcvAmount ?? 0}
                         </div>
                       </div>
+                      {/* Xact cost components for activity-based calculations */}
+                      {petlReconPanel.data.xactCostComponents && (
+                        <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #e5e7eb" }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: "#4338ca", marginBottom: 4 }}>
+                            Xactimate Cost Components
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, fontSize: 11 }}>
+                            <div>Wage: ${(petlReconPanel.data.xactCostComponents.workersWage ?? 0).toFixed(2)}</div>
+                            <div>Burden: ${(petlReconPanel.data.xactCostComponents.laborBurden ?? 0).toFixed(2)}</div>
+                            <div>Overhead: ${(petlReconPanel.data.xactCostComponents.laborOverhead ?? 0).toFixed(2)}</div>
+                            <div>Material: ${(petlReconPanel.data.xactCostComponents.material ?? 0).toFixed(2)}</div>
+                            <div>Equipment: ${(petlReconPanel.data.xactCostComponents.equipment ?? 0).toFixed(2)}</div>
+                            {petlReconPanel.data.xactCostComponents.sourceActivity && (
+                              <div style={{ color: "#6b7280" }}>Activity: {petlReconPanel.data.xactCostComponents.sourceActivity}</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -20857,8 +21142,10 @@ ${htmlBody}
                             {reconEntries.map((e: any) => {
                               const pct = e.isPercentCompleteLocked ? 0 : (e.percentComplete ?? 0);
                               const seq = reconSeqById.get(String(e.id));
-                              const lineLabel =
-                                reconBaseLineNo != null && seq != null ? `${reconBaseLineNo}.${seq}` : "—";
+                              // Show CO line number format for standalone change orders
+                              const lineLabel = e.isStandaloneChangeOrder && e.coSequenceNo != null
+                                ? `${e.originLineNo ?? reconBaseLineNo ?? ""}-CO${e.coSequenceNo}`
+                                : reconBaseLineNo != null && seq != null ? `${reconBaseLineNo}.${seq}` : "—";
 
                               const tagRaw = String(e?.tag ?? "").trim();
                               const tagLabel =
@@ -21319,9 +21606,9 @@ ${htmlBody}
         >
           <div
             style={{
-              width: 640,
+              width: 1100,
               maxWidth: "96vw",
-              maxHeight: "55vh",
+              maxHeight: "85vh",
               overflow: "auto",
               background: "#ffffff",
               borderRadius: 10,
@@ -21369,6 +21656,211 @@ ${htmlBody}
             </div>
 
             <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+              {/* Item Context - Location and Description for reference */}
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                  background: "#f8fafc",
+                  marginBottom: 4,
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Source Item Reference
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 12px", fontSize: 12 }}>
+                  <div style={{ fontWeight: 600, color: "#374151" }}>Line:</div>
+                  <div style={{ color: "#111827" }}>
+                    {reconEntryEdit.entry?.isStandaloneChangeOrder && reconEntryEdit.entry?.originLineNo != null && reconEntryEdit.entry?.coSequenceNo != null
+                      ? `${reconEntryEdit.entry.originLineNo}-CO${reconEntryEdit.entry.coSequenceNo}`
+                      : petlReconPanel.data?.sowItem?.sourceLineNo || petlReconPanel.data?.sowItem?.lineNo || "—"}
+                  </div>
+                  <div style={{ fontWeight: 600, color: "#374151" }}>Location:</div>
+                  <div style={{ color: "#111827" }}>
+                    {petlReconPanel.data?.sowItem?.projectParticle?.fullLabel ||
+                     petlReconPanel.data?.sowItem?.projectParticle?.name ||
+                     "—"}
+                  </div>
+                  <div style={{ fontWeight: 600, color: "#374151" }}>Description:</div>
+                  <div style={{ color: "#111827", lineHeight: 1.4 }}>
+                    {petlReconPanel.data?.sowItem?.description || "—"}
+                  </div>
+                  {(petlReconPanel.data?.sowItem?.categoryCode || petlReconPanel.data?.sowItem?.selectionCode) && (
+                    <>
+                      <div style={{ fontWeight: 600, color: "#374151" }}>Cat/Sel:</div>
+                      <div style={{ color: "#6b7280", fontFamily: "monospace", fontSize: 11 }}>
+                        {petlReconPanel.data?.sowItem?.categoryCode || "—"} / {petlReconPanel.data?.sowItem?.selectionCode || "—"}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Move to Standalone Change Order option - shown at TOP for non-CO entries */}
+              {isPmOrAbove && !reconEntryEdit.entry?.isStandaloneChangeOrder && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    padding: 12,
+                    borderRadius: 8,
+                    border: "1px solid #f59e0b",
+                    background: "#fffbeb",
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#92400e", marginBottom: 6 }}>
+                    Move to Standalone Change Order?
+                  </div>
+                  <div style={{ fontSize: 11, color: "#78350f", marginBottom: 8 }}>
+                    This will detach the entry from the original line item and create a new Change Order (CO)
+                    in the same room. The note will travel with the entry. Use this for client-requested work
+                    that is not part of the original loss scope.
+                  </div>
+                  <button
+                    type="button"
+                    disabled={reconEntryEdit.saving}
+                    onClick={async () => {
+                      if (!project || !reconEntryEdit) return;
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) {
+                        alert("Missing access token.");
+                        return;
+                      }
+                      if (!window.confirm("Convert this entry to a standalone Change Order? You can undo this later if needed.")) {
+                        return;
+                      }
+                      setReconEntryEdit((prev) => (prev ? { ...prev, saving: true } : prev));
+                      try {
+                        const res = await fetch(
+                          `${API_BASE}/projects/${project.id}/petl-reconciliation/entries/${reconEntryEdit.entry.id}/convert-to-co`,
+                          {
+                            method: "POST",
+                            headers: {
+                              "Content-Type": "application/json",
+                              Authorization: `Bearer ${token}`,
+                            },
+                            body: JSON.stringify({
+                              note: reconEntryEdit.draft.note || reconEntryEdit.entry?.note || null,
+                              description: reconEntryEdit.draft.description || reconEntryEdit.entry?.description || null,
+                              qty: parseFloat(reconEntryEdit.draft.qty) || reconEntryEdit.entry?.qty || 1,
+                              unit: reconEntryEdit.draft.unit || reconEntryEdit.entry?.unit || null,
+                            }),
+                          },
+                        );
+                        if (!res.ok) {
+                          const text = await res.text().catch(() => "");
+                          alert(`Failed to convert to CO (${res.status}) ${text}`);
+                          return;
+                        }
+                        const result = await res.json();
+                        showPetlToast(`Converted to standalone CO: ${result.coLineNumber || "CO"}`);
+                        closeReconEntryEdit();
+                        setPetlReloadTick((t) => t + 1);
+                        if (petlReconPanel.sowItemId) {
+                          await loadPetlReconciliation(petlReconPanel.sowItemId);
+                        }
+                      } catch (err: any) {
+                        alert(err?.message ?? "Failed to convert to Change Order.");
+                      } finally {
+                        setReconEntryEdit((prev) => (prev ? { ...prev, saving: false } : prev));
+                      }
+                    }}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: 8,
+                      border: "1px solid #d97706",
+                      background: "#fbbf24",
+                      color: "#78350f",
+                      cursor: reconEntryEdit.saving ? "default" : "pointer",
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {reconEntryEdit.saving ? "Converting…" : "Move to Standalone CO"}
+                  </button>
+                </div>
+              )}
+
+              {/* Return to Original Line option - shown at TOP for CO entries */}
+              {isPmOrAbove && reconEntryEdit.entry?.isStandaloneChangeOrder && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    padding: 12,
+                    borderRadius: 8,
+                    border: "1px solid #3b82f6",
+                    background: "#eff6ff",
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#1e40af", marginBottom: 6 }}>
+                    This is a Standalone Change Order
+                    <span style={{ marginLeft: 8, fontWeight: 400, color: "#6b7280" }}>
+                      ({reconEntryEdit.entry.originLineNo ?? "?"}-CO{reconEntryEdit.entry.coSequenceNo ?? "?"})
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#1e3a8a", marginBottom: 8 }}>
+                    This entry was converted from the original POL line item. You can return it to the original
+                    line if this was done in error.
+                  </div>
+                  <button
+                    type="button"
+                    disabled={reconEntryEdit.saving}
+                    onClick={async () => {
+                      if (!project || !reconEntryEdit) return;
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) {
+                        alert("Missing access token.");
+                        return;
+                      }
+                      if (!window.confirm("Return this entry to the original POL line item? It will no longer be a standalone Change Order.")) {
+                        return;
+                      }
+                      setReconEntryEdit((prev) => (prev ? { ...prev, saving: true } : prev));
+                      try {
+                        const res = await fetch(
+                          `${API_BASE}/projects/${project.id}/petl-reconciliation/entries/${reconEntryEdit.entry.id}/revert-from-co`,
+                          {
+                            method: "POST",
+                            headers: {
+                              "Content-Type": "application/json",
+                              Authorization: `Bearer ${token}`,
+                            },
+                            body: JSON.stringify({}),
+                          },
+                        );
+                        if (!res.ok) {
+                          const text = await res.text().catch(() => "");
+                          alert(`Failed to revert from CO (${res.status}) ${text}`);
+                          return;
+                        }
+                        showPetlToast("Returned to original POL line item");
+                        closeReconEntryEdit();
+                        setPetlReloadTick((t) => t + 1);
+                        if (petlReconPanel.sowItemId) {
+                          await loadPetlReconciliation(petlReconPanel.sowItemId);
+                        }
+                      } catch (err: any) {
+                        alert(err?.message ?? "Failed to revert from Change Order.");
+                      } finally {
+                        setReconEntryEdit((prev) => (prev ? { ...prev, saving: false } : prev));
+                      }
+                    }}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: 8,
+                      border: "1px solid #2563eb",
+                      background: "#dbeafe",
+                      color: "#1e40af",
+                      cursor: reconEntryEdit.saving ? "default" : "pointer",
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {reconEntryEdit.saving ? "Reverting…" : "Return to Original Line"}
+                  </button>
+                </div>
+              )}
+
               <div style={{ marginBottom: 8 }}>
                 <button
                   type="button"
@@ -21508,6 +22000,412 @@ ${htmlBody}
                     (mandatory field to save)
                   </div>
                 )}
+              </div>
+
+              {/* Activity Selector */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Activity</div>
+                <select
+                  value={reconEntryEdit.draft.activity || ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setReconEntryEdit((prev) => {
+                      if (!prev) return prev;
+                      const newDraft = { ...prev.draft, activity: v };
+
+                      // Auto-calculate item amount based on activity when cost components exist
+                      const workersWage = parseReconNumber(newDraft.workersWage || "");
+                      const laborBurden = parseReconNumber(newDraft.laborBurden || "");
+                      const laborOverhead = parseReconNumber(newDraft.laborOverhead || "");
+                      const materialCost = parseReconNumber(newDraft.materialCost || "");
+                      const equipmentCost = parseReconNumber(newDraft.equipmentCost || "");
+
+                      const hasComponents = workersWage || laborBurden || laborOverhead || materialCost || equipmentCost;
+
+                      if (hasComponents && v) {
+                        const laborTotal = workersWage + laborBurden + laborOverhead;
+                        let derivedTotal = 0;
+
+                        switch (v) {
+                          case "REMOVE_AND_REPLACE":
+                            derivedTotal = laborTotal + materialCost + equipmentCost;
+                            break;
+                          case "REMOVE":
+                          case "DETACH_AND_RESET":
+                            derivedTotal = laborTotal;
+                            break;
+                          case "REPLACE":
+                          case "INSTALL_ONLY":
+                            derivedTotal = laborTotal + equipmentCost;
+                            break;
+                          case "MATERIALS":
+                            derivedTotal = materialCost;
+                            break;
+                          case "REPAIR":
+                            derivedTotal = laborTotal + materialCost;
+                            break;
+                          default:
+                            derivedTotal = laborTotal + materialCost + equipmentCost;
+                        }
+
+                        if (derivedTotal > 0) {
+                          const qty = parseReconNumber(newDraft.qty || "") || 1;
+                          newDraft.unitCost = String(derivedTotal / qty);
+                          newDraft.itemAmount = String(derivedTotal);
+
+                          // Auto-update RCV if not manually edited
+                          if (!prev.rcvManuallyEdited) {
+                            const tax = parseReconNumber(newDraft.salesTaxAmount || "");
+                            const op = parseReconNumber(newDraft.opAmount || "");
+                            newDraft.rcvAmount = String(derivedTotal + tax + op);
+                          }
+                        }
+                      }
+
+                      return { ...prev, draft: newDraft };
+                    });
+                  }}
+                  style={{
+                    padding: "6px 8px",
+                    borderRadius: 8,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                    width: "100%",
+                    backgroundColor: "#ffffff",
+                  }}
+                >
+                  <option value="">— Select activity —</option>
+                  <option value="REMOVE_AND_REPLACE">& R&R (Remove & Replace)</option>
+                  <option value="REMOVE">- Remove</option>
+                  <option value="REPLACE">+ Replace</option>
+                  <option value="DETACH_AND_RESET">R D&R (Detach & Reset)</option>
+                  <option value="MATERIALS">M Materials Only</option>
+                  <option value="REPAIR">F Repair</option>
+                  <option value="INSTALL_ONLY">I Install Only</option>
+                </select>
+                <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>
+                  Controls which cost components contribute to the line total
+                </div>
+              </div>
+
+              {/* Xactimate-style Cost Breakdown Panel */}
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 8,
+                  border: "1px solid #c7d2fe",
+                  background: "#eef2ff",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#4338ca" }}>
+                    Xactimate Cost Breakdown
+                  </div>
+                  <button
+                    type="button"
+                    disabled={reconEntryEdit.saving}
+                    onClick={async () => {
+                      if (!project || !reconEntryEdit) return;
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) return;
+
+                      // Get CAT/SEL from entry or parent
+                      const cat = reconEntryEdit.entry?.categoryCode ||
+                        petlReconPanel.data?.sowItem?.categoryCode || null;
+                      const sel = reconEntryEdit.entry?.selectionCode ||
+                        petlReconPanel.data?.sowItem?.selectionCode || null;
+
+                      if (!cat && !sel) {
+                        alert("No CAT or SEL code available to lookup.");
+                        return;
+                      }
+
+                      try {
+                        const params = new URLSearchParams();
+                        if (cat) params.set("cat", cat);
+                        if (sel) params.set("sel", sel);
+
+                        const res = await fetch(
+                          `${API_BASE}/projects/${project.id}/cost-lookup/cat-sel?${params.toString()}`,
+                          {
+                            headers: { Authorization: `Bearer ${token}` },
+                          },
+                        );
+
+                        if (!res.ok) {
+                          alert("Failed to lookup cost data.");
+                          return;
+                        }
+
+                        const data = await res.json();
+                        if (!data.found || !data.suggested) {
+                          alert(`No historical PETL data found for CAT=${cat ?? "*"} SEL=${sel ?? "*"}`);
+                          return;
+                        }
+
+                        // Populate cost fields from lookup and recalculate
+                        let calculationSummary = "";
+                        setReconEntryEdit((prev) => {
+                          if (!prev) return prev;
+                          const newDraft = { ...prev.draft };
+
+                          // Always populate the cost component fields from lookup
+                          if (data.suggested.workersWage != null) {
+                            newDraft.workersWage = String(data.suggested.workersWage);
+                          }
+                          if (data.suggested.laborBurden != null) {
+                            newDraft.laborBurden = String(data.suggested.laborBurden);
+                          }
+                          if (data.suggested.laborOverhead != null) {
+                            newDraft.laborOverhead = String(data.suggested.laborOverhead);
+                          }
+                          if (data.suggested.material != null) {
+                            newDraft.materialCost = String(data.suggested.material);
+                          }
+                          if (data.suggested.equipment != null) {
+                            newDraft.equipmentCost = String(data.suggested.equipment);
+                          }
+
+                          // Parse all cost components for calculation
+                          const workersWage = parseReconNumber(newDraft.workersWage || "");
+                          const laborBurden = parseReconNumber(newDraft.laborBurden || "");
+                          const laborOverhead = parseReconNumber(newDraft.laborOverhead || "");
+                          const materialCost = parseReconNumber(newDraft.materialCost || "");
+                          const equipmentCost = parseReconNumber(newDraft.equipmentCost || "");
+                          const laborTotal = workersWage + laborBurden + laborOverhead;
+
+                          // Get the current activity from state
+                          const activity = newDraft.activity;
+
+                          // If no activity is selected, prompt user to select one
+                          if (!activity) {
+                            calculationSummary = `Cost components loaded. Select an Activity to calculate the line total. (Labor: $${laborTotal.toFixed(2)}, Material: $${materialCost.toFixed(2)}, Equipment: $${equipmentCost.toFixed(2)})`;
+                            return { ...prev, draft: newDraft };
+                          }
+
+                          // Calculate based on activity
+                          let derivedTotal = 0;
+                          let formula = "";
+                          switch (activity) {
+                            case "REMOVE_AND_REPLACE":
+                              derivedTotal = laborTotal + materialCost + equipmentCost;
+                              formula = `Labor ($${laborTotal.toFixed(2)}) + Material ($${materialCost.toFixed(2)}) + Equipment ($${equipmentCost.toFixed(2)})`;
+                              break;
+                            case "REMOVE":
+                            case "DETACH_AND_RESET":
+                              derivedTotal = laborTotal;
+                              formula = `Labor only ($${laborTotal.toFixed(2)})`;
+                              break;
+                            case "REPLACE":
+                            case "INSTALL_ONLY":
+                              derivedTotal = laborTotal + equipmentCost;
+                              formula = `Labor ($${laborTotal.toFixed(2)}) + Equipment ($${equipmentCost.toFixed(2)}) [no material]`;
+                              break;
+                            case "MATERIALS":
+                              derivedTotal = materialCost;
+                              formula = `Material only ($${materialCost.toFixed(2)})`;
+                              break;
+                            case "REPAIR":
+                              derivedTotal = laborTotal + materialCost;
+                              formula = `Labor ($${laborTotal.toFixed(2)}) + Material ($${materialCost.toFixed(2)}) [no equipment]`;
+                              break;
+                            default:
+                              derivedTotal = laborTotal + materialCost + equipmentCost;
+                              formula = `Full R&R: Labor + Material + Equipment`;
+                          }
+
+                          const qty = parseReconNumber(newDraft.qty || "") || 1;
+
+                          if (derivedTotal > 0) {
+                            newDraft.unitCost = String((derivedTotal / qty).toFixed(2));
+                            newDraft.itemAmount = String(derivedTotal.toFixed(2));
+
+                            if (!prev.rcvManuallyEdited) {
+                              const tax = parseReconNumber(newDraft.salesTaxAmount || "");
+                              const op = parseReconNumber(newDraft.opAmount || "");
+                              newDraft.rcvAmount = String((derivedTotal + tax + op).toFixed(2));
+                            }
+                          }
+
+                          const activityLabel = {
+                            "REMOVE_AND_REPLACE": "R&R",
+                            "REMOVE": "Remove",
+                            "REPLACE": "Replace",
+                            "DETACH_AND_RESET": "D&R",
+                            "MATERIALS": "Materials",
+                            "REPAIR": "Repair",
+                            "INSTALL_ONLY": "Install Only",
+                          }[activity] || activity;
+
+                          calculationSummary = `${activityLabel}: ${formula} = $${derivedTotal.toFixed(2)} (Qty ${qty} → Unit $${(derivedTotal / qty).toFixed(2)})`;
+
+                          return { ...prev, draft: newDraft };
+                        });
+
+                        const sourceInfo = data.suggested.source?.projectName
+                          ? ` (from ${data.suggested.source.projectName})`
+                          : "";
+                        // Show detailed calculation result
+                        if (calculationSummary) {
+                          showPetlToast(calculationSummary);
+                        } else {
+                          showPetlToast(`Loaded cost data from ${data.totalMatches} historical matches${sourceInfo}`);
+                        }
+                      } catch (err: any) {
+                        alert(err?.message ?? "Failed to lookup cost data.");
+                      }
+                    }}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #6366f1",
+                      background: "#ffffff",
+                      color: "#4f46e5",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      cursor: reconEntryEdit.saving ? "default" : "pointer",
+                    }}
+                  >
+                    Lookup from PETL History
+                  </button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 2, color: "#4b5563" }}>Worker's Wage</div>
+                    <input
+                      value={reconEntryEdit.draft.workersWage || ""}
+                      onChange={(e) => updateReconCostComponent("workersWage", e.target.value)}
+                      placeholder="0.00"
+                      style={{
+                        padding: "5px 7px",
+                        borderRadius: 6,
+                        border: "1px solid #a5b4fc",
+                        fontSize: 12,
+                        width: "100%",
+                        background: "#ffffff",
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 2, color: "#4b5563" }}>Labor Burden</div>
+                    <input
+                      value={reconEntryEdit.draft.laborBurden || ""}
+                      onChange={(e) => updateReconCostComponent("laborBurden", e.target.value)}
+                      placeholder="0.00"
+                      style={{
+                        padding: "5px 7px",
+                        borderRadius: 6,
+                        border: "1px solid #a5b4fc",
+                        fontSize: 12,
+                        width: "100%",
+                        background: "#ffffff",
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 2, color: "#4b5563" }}>Labor Overhead</div>
+                    <input
+                      value={reconEntryEdit.draft.laborOverhead || ""}
+                      onChange={(e) => updateReconCostComponent("laborOverhead", e.target.value)}
+                      placeholder="0.00"
+                      style={{
+                        padding: "5px 7px",
+                        borderRadius: 6,
+                        border: "1px solid #a5b4fc",
+                        fontSize: 12,
+                        width: "100%",
+                        background: "#ffffff",
+                      }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 2, color: "#4b5563" }}>Material</div>
+                    <input
+                      value={reconEntryEdit.draft.materialCost || ""}
+                      onChange={(e) => updateReconCostComponent("materialCost", e.target.value)}
+                      placeholder="0.00"
+                      style={{
+                        padding: "5px 7px",
+                        borderRadius: 6,
+                        border: "1px solid #a5b4fc",
+                        fontSize: 12,
+                        width: "100%",
+                        background: "#ffffff",
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 2, color: "#4b5563" }}>Equipment</div>
+                    <input
+                      value={reconEntryEdit.draft.equipmentCost || ""}
+                      onChange={(e) => updateReconCostComponent("equipmentCost", e.target.value)}
+                      placeholder="0.00"
+                      style={{
+                        padding: "5px 7px",
+                        borderRadius: 6,
+                        border: "1px solid #a5b4fc",
+                        fontSize: 12,
+                        width: "100%",
+                        background: "#ffffff",
+                      }}
+                    />
+                  </div>
+                </div>
+                {/* Activity-based calculation summary */}
+                {reconEntryEdit.draft.activity && (() => {
+                  const workersWage = parseReconNumber(reconEntryEdit.draft.workersWage || "");
+                  const laborBurden = parseReconNumber(reconEntryEdit.draft.laborBurden || "");
+                  const laborOverhead = parseReconNumber(reconEntryEdit.draft.laborOverhead || "");
+                  const materialCost = parseReconNumber(reconEntryEdit.draft.materialCost || "");
+                  const equipmentCost = parseReconNumber(reconEntryEdit.draft.equipmentCost || "");
+                  const laborTotal = workersWage + laborBurden + laborOverhead;
+
+                  let includedParts: string[] = [];
+                  let derivedTotal = 0;
+
+                  switch (reconEntryEdit.draft.activity) {
+                    case "REMOVE_AND_REPLACE":
+                      if (laborTotal) includedParts.push(`Labor $${laborTotal.toFixed(2)}`);
+                      if (materialCost) includedParts.push(`Material $${materialCost.toFixed(2)}`);
+                      if (equipmentCost) includedParts.push(`Equipment $${equipmentCost.toFixed(2)}`);
+                      derivedTotal = laborTotal + materialCost + equipmentCost;
+                      break;
+                    case "REMOVE":
+                    case "DETACH_AND_RESET":
+                      if (laborTotal) includedParts.push(`Labor $${laborTotal.toFixed(2)}`);
+                      derivedTotal = laborTotal;
+                      break;
+                    case "REPLACE":
+                      if (laborTotal) includedParts.push(`Labor $${laborTotal.toFixed(2)}`);
+                      if (equipmentCost) includedParts.push(`Equipment $${equipmentCost.toFixed(2)}`);
+                      derivedTotal = laborTotal + equipmentCost;
+                      break;
+                    case "MATERIALS":
+                      if (materialCost) includedParts.push(`Material $${materialCost.toFixed(2)}`);
+                      derivedTotal = materialCost;
+                      break;
+                  }
+
+                  if (includedParts.length === 0) return null;
+
+                  return (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #c7d2fe" }}>
+                      <div style={{ fontSize: 11, color: "#4338ca", fontWeight: 500 }}>
+                        {reconEntryEdit.draft.activity === "REMOVE_AND_REPLACE" && "R&R"}
+                        {reconEntryEdit.draft.activity === "REMOVE" && "Remove"}
+                        {reconEntryEdit.draft.activity === "REPLACE" && "Replace"}
+                        {reconEntryEdit.draft.activity === "DETACH_AND_RESET" && "D&R"}
+                        {reconEntryEdit.draft.activity === "MATERIALS" && "Materials"}
+                        {" includes: "}
+                        {includedParts.join(" + ")}
+                        {" = "}
+                        <span style={{ fontWeight: 700 }}>${derivedTotal.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>

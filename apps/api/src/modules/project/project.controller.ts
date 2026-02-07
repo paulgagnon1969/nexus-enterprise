@@ -1032,6 +1032,13 @@ export class ProjectController {
       note?: string | null;
       isPercentCompleteLocked?: boolean | null;
       percentComplete?: number | null;
+      // Activity and cost component fields
+      activity?: string | null;
+      workersWage?: number | null;
+      laborBurden?: number | null;
+      laborOverhead?: number | null;
+      materialCost?: number | null;
+      equipmentCost?: number | null;
     },
   ) {
     const user = req.user as AuthenticatedUser;
@@ -1041,6 +1048,55 @@ export class ProjectController {
       user,
       entryId,
       body,
+    );
+  }
+
+  // Convert a reconciliation entry to a standalone Change Order (CO).
+  // This detaches the entry from the original line item, assigns a CO sequence number,
+  // and optionally attaches a cost book item with activity-based cost calculation.
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl-reconciliation/entries/:entryId/convert-to-co")
+  convertEntryToStandaloneChangeOrder(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("entryId") entryId: string,
+    @Body()
+    body: {
+      companyPriceListItemId?: string | null;
+      activity?: string | null; // PetlActivity enum value
+      laborCost?: number | null;
+      materialCost?: number | null;
+      equipmentCost?: number | null;
+      description?: string | null;
+      qty?: number | null;
+      unit?: string | null;
+      note?: string | null;
+    },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.convertEntryToStandaloneChangeOrder(
+      projectId,
+      user.companyId,
+      user,
+      entryId,
+      body as any, // activity will be validated in service
+    );
+  }
+
+  // Revert a standalone Change Order back to a regular reconciliation entry.
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl-reconciliation/entries/:entryId/revert-from-co")
+  revertEntryFromStandaloneChangeOrder(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("entryId") entryId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.revertEntryFromStandaloneChangeOrder(
+      projectId,
+      user.companyId,
+      user,
+      entryId,
     );
   }
 
@@ -1074,6 +1130,25 @@ export class ProjectController {
       user.companyId,
       user,
       entryId,
+    );
+  }
+
+  // Look up historical cost components by CAT/SEL from tenant's PETL data
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/cost-lookup/cat-sel")
+  lookupCostComponentsByCatSel(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Query("cat") cat?: string,
+    @Query("sel") sel?: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.lookupCostComponentsByCatSel(
+      projectId,
+      user.companyId,
+      user,
+      cat ?? null,
+      sel ?? null,
     );
   }
 

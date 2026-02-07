@@ -26,7 +26,13 @@ import {
   ProjectInvoiceStatus,
   ProjectPaymentMethod,
   ProjectPaymentStatus,
+  PetlActivity,
 } from "@prisma/client";
+import {
+  calculateCostByActivity,
+  extractCostComponents,
+  getNextCoSequenceNo,
+} from "./petl-cost-utils";
 import { CreateProjectDto, UpdateProjectDto } from "./dto/project.dto";
 import {
   AddInvoiceLineItemDto,
@@ -3541,6 +3547,16 @@ export class ProjectService {
       where: { id: sowItemId },
       include: {
         estimateVersion: { select: { projectId: true } },
+        rawRow: {
+          select: {
+            workersWage: true,
+            laborBurden: true,
+            laborOverhead: true,
+            material: true,
+            equipment: true,
+            activity: true,
+          },
+        },
       },
     });
 
@@ -3566,6 +3582,18 @@ export class ProjectService {
       rcvAmount: sowItemWithParticle.rcvAmount ?? null,
     });
 
+    // Extract Xactimate cost components from the raw row for activity-based calculations
+    const xactCostComponents = sowItem.rawRow
+      ? {
+          workersWage: sowItem.rawRow.workersWage ?? null,
+          laborBurden: sowItem.rawRow.laborBurden ?? null,
+          laborOverhead: sowItem.rawRow.laborOverhead ?? null,
+          material: sowItem.rawRow.material ?? null,
+          equipment: sowItem.rawRow.equipment ?? null,
+          sourceActivity: sowItem.rawRow.activity ?? null,
+        }
+      : null;
+
     const existingCase = await this.findPetlReconciliationCaseForSowItem({
       projectId,
       sowItemId,
@@ -3578,7 +3606,173 @@ export class ProjectService {
       projectParticleId: sowItemWithParticle.projectParticleId,
       sowItem: sowItemWithParticle,
       rcvBreakdown: breakdown,
+      xactCostComponents,
       reconciliationCase: existingCase,
+    };
+  }
+
+  /**
+   * Look up historical cost components by CAT/SEL from the tenant's PETL data.
+   * This queries RawXactRow across all company projects to find matching line items
+   * and returns aggregated cost component data for activity-based pricing.
+   */
+  async lookupCostComponentsByCatSel(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    cat: string | null,
+    sel: string | null,
+  ) {
+    // Validate project access
+    await this.getProjectByIdForUser(projectId, actor);
+
+    if (!cat && !sel) {
+      return {
+        found: false,
+        message: "No CAT or SEL provided",
+        matches: [],
+        suggested: null,
+      };
+    }
+
+    // Query RawXactRow for matching CAT/SEL across all company projects
+    // We join through EstimateVersion -> Project to scope to the company
+    const matchingRows = await this.prisma.rawXactRow.findMany({
+      where: {
+        estimateVersion: {
+          project: {
+            companyId,
+          },
+        },
+        ...(cat ? { cat: { equals: cat, mode: "insensitive" as const } } : {}),
+        ...(sel ? { sel: { equals: sel, mode: "insensitive" as const } } : {}),
+      },
+      select: {
+        id: true,
+        cat: true,
+        sel: true,
+        desc: true,
+        unit: true,
+        unitCost: true,
+        workersWage: true,
+        laborBurden: true,
+        laborOverhead: true,
+        material: true,
+        equipment: true,
+        activity: true,
+        rcv: true,
+        qty: true,
+        estimateVersion: {
+          select: {
+            projectId: true,
+            project: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50, // Limit to most recent 50 matches
+    });
+
+    if (matchingRows.length === 0) {
+      return {
+        found: false,
+        message: `No PETL data found for CAT=${cat ?? "*"} SEL=${sel ?? "*"}`,
+        matches: [],
+        suggested: null,
+      };
+    }
+
+    // Aggregate cost components - use most recent non-null values
+    // Also compute averages for reference
+    const withCosts = matchingRows.filter(
+      (r) =>
+        r.workersWage != null ||
+        r.laborBurden != null ||
+        r.laborOverhead != null ||
+        r.material != null ||
+        r.equipment != null,
+    );
+
+    // Find the most recent row with cost data
+    const mostRecent = withCosts[0] ?? matchingRows[0];
+
+    // Compute averages from rows that have cost data
+    const avgWorkersWage =
+      withCosts.filter((r) => r.workersWage != null).length > 0
+        ? withCosts.filter((r) => r.workersWage != null).reduce((sum, r) => sum + (r.workersWage ?? 0), 0) /
+          withCosts.filter((r) => r.workersWage != null).length
+        : null;
+    const avgLaborBurden =
+      withCosts.filter((r) => r.laborBurden != null).length > 0
+        ? withCosts.filter((r) => r.laborBurden != null).reduce((sum, r) => sum + (r.laborBurden ?? 0), 0) /
+          withCosts.filter((r) => r.laborBurden != null).length
+        : null;
+    const avgLaborOverhead =
+      withCosts.filter((r) => r.laborOverhead != null).length > 0
+        ? withCosts.filter((r) => r.laborOverhead != null).reduce((sum, r) => sum + (r.laborOverhead ?? 0), 0) /
+          withCosts.filter((r) => r.laborOverhead != null).length
+        : null;
+    const avgMaterial =
+      withCosts.filter((r) => r.material != null).length > 0
+        ? withCosts.filter((r) => r.material != null).reduce((sum, r) => sum + (r.material ?? 0), 0) /
+          withCosts.filter((r) => r.material != null).length
+        : null;
+    const avgEquipment =
+      withCosts.filter((r) => r.equipment != null).length > 0
+        ? withCosts.filter((r) => r.equipment != null).reduce((sum, r) => sum + (r.equipment ?? 0), 0) /
+          withCosts.filter((r) => r.equipment != null).length
+        : null;
+
+    // Build suggested values - prefer most recent, fall back to averages
+    const suggested = {
+      workersWage: mostRecent?.workersWage ?? avgWorkersWage,
+      laborBurden: mostRecent?.laborBurden ?? avgLaborBurden,
+      laborOverhead: mostRecent?.laborOverhead ?? avgLaborOverhead,
+      material: mostRecent?.material ?? avgMaterial,
+      equipment: mostRecent?.equipment ?? avgEquipment,
+      unit: mostRecent?.unit ?? null,
+      unitCost: mostRecent?.unitCost ?? null,
+      activity: mostRecent?.activity ?? null,
+      description: mostRecent?.desc ?? null,
+      source: {
+        projectId: mostRecent?.estimateVersion?.projectId ?? null,
+        projectName: mostRecent?.estimateVersion?.project?.name ?? null,
+      },
+    };
+
+    // Include sample matches for transparency
+    const matches = matchingRows.slice(0, 10).map((r) => ({
+      cat: r.cat,
+      sel: r.sel,
+      description: r.desc,
+      unit: r.unit,
+      unitCost: r.unitCost,
+      workersWage: r.workersWage,
+      laborBurden: r.laborBurden,
+      laborOverhead: r.laborOverhead,
+      material: r.material,
+      equipment: r.equipment,
+      activity: r.activity,
+      projectName: r.estimateVersion?.project?.name ?? null,
+    }));
+
+    return {
+      found: true,
+      totalMatches: matchingRows.length,
+      matchesWithCosts: withCosts.length,
+      suggested,
+      averages: {
+        workersWage: avgWorkersWage,
+        laborBurden: avgLaborBurden,
+        laborOverhead: avgLaborOverhead,
+        material: avgMaterial,
+        equipment: avgEquipment,
+      },
+      matches,
     };
   }
 
@@ -4882,6 +5076,13 @@ export class ProjectService {
       note?: string | null;
       isPercentCompleteLocked?: boolean | null;
       percentComplete?: number | null;
+      // Activity and cost component fields
+      activity?: string | null;
+      workersWage?: number | null;
+      laborBurden?: number | null;
+      laborOverhead?: number | null;
+      materialCost?: number | null;
+      equipmentCost?: number | null;
     },
   ) {
     await this.getProjectByIdForUser(projectId, actor);
@@ -5060,6 +5261,30 @@ export class ProjectService {
       return Math.max(0, Math.min(100, pct));
     })();
 
+    // Activity enum value
+    const activity = (() => {
+      if (body.activity === undefined) return undefined;
+      if (body.activity == null || String(body.activity).trim() === "") return null;
+      const raw = String(body.activity).trim();
+      const validActivities = ["REMOVE_AND_REPLACE", "REMOVE", "REPLACE", "DETACH_AND_RESET", "MATERIALS"];
+      if (validActivities.includes(raw)) {
+        return raw as PetlActivity;
+      }
+      throw new BadRequestException("Invalid activity value");
+    })();
+
+    // Cost component fields
+    const workersWage =
+      body.workersWage === undefined ? undefined : parseNumberOrNull(body.workersWage, "workersWage");
+    const laborBurden =
+      body.laborBurden === undefined ? undefined : parseNumberOrNull(body.laborBurden, "laborBurden");
+    const laborOverhead =
+      body.laborOverhead === undefined ? undefined : parseNumberOrNull(body.laborOverhead, "laborOverhead");
+    const materialCost =
+      body.materialCost === undefined ? undefined : parseNumberOrNull(body.materialCost, "materialCost");
+    const equipmentCost =
+      body.equipmentCost === undefined ? undefined : parseNumberOrNull(body.equipmentCost, "equipmentCost");
+
     const data: Prisma.PetlReconciliationEntryUpdateInput = {
       kind: kind === undefined ? autoKind : kind ?? undefined,
       tag: tag === undefined ? undefined : tag,
@@ -5106,6 +5331,13 @@ export class ProjectService {
       note: body.note === undefined ? undefined : cleanText(body.note, 5000),
       isPercentCompleteLocked: nextIsLocked === undefined ? undefined : nextIsLocked,
       percentComplete: nextPercentComplete,
+      // Activity and cost component fields
+      activity: activity === undefined ? undefined : activity,
+      workersWage: workersWage === undefined ? undefined : workersWage,
+      laborBurden: laborBurden === undefined ? undefined : laborBurden,
+      laborOverhead: laborOverhead === undefined ? undefined : laborOverhead,
+      materialCost: materialCost === undefined ? undefined : materialCost,
+      equipmentCost: equipmentCost === undefined ? undefined : equipmentCost,
       events: {
         create: {
           projectId,
@@ -5129,6 +5361,12 @@ export class ProjectService {
             note: body.note ?? undefined,
             isPercentCompleteLocked: body.isPercentCompleteLocked ?? undefined,
             percentComplete: body.percentComplete ?? undefined,
+            activity: body.activity ?? undefined,
+            workersWage: body.workersWage ?? undefined,
+            laborBurden: body.laborBurden ?? undefined,
+            laborOverhead: body.laborOverhead ?? undefined,
+            materialCost: body.materialCost ?? undefined,
+            equipmentCost: body.equipmentCost ?? undefined,
           },
           createdByUserId: actor.userId,
         },
@@ -5237,6 +5475,516 @@ export class ProjectService {
     });
 
     return attachment;
+  }
+
+  /**
+   * Convert an existing reconciliation entry to a standalone Change Order (CO).
+   * This creates a NEW SowItem for the CO and re-parents the reconciliation entry to it.
+   * The new SowItem appears as its own row in the PETL grid with CO line numbering.
+   */
+  async convertEntryToStandaloneChangeOrder(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    entryId: string,
+    body: {
+      // Optional cost book item to attach
+      companyPriceListItemId?: string | null;
+      // Activity type for cost calculation
+      activity?: PetlActivity | null;
+      // Cost component overrides (user-editable)
+      laborCost?: number | null;
+      materialCost?: number | null;
+      equipmentCost?: number | null;
+      // Standard fields
+      description?: string | null;
+      qty?: number | null;
+      unit?: string | null;
+      note?: string | null;
+    },
+  ) {
+    // Only PM/Owner/Admin can convert entries to standalone COs
+    const canConvert = await this.isProjectManagerOrAbove(projectId, actor);
+    if (!canConvert) {
+      throw new ForbiddenException(
+        "Only project managers/owners/admins can convert entries to standalone Change Orders",
+      );
+    }
+
+    // Fetch entry with full parent context
+    const entry = await this.prisma.petlReconciliationEntry.findUnique({
+      where: { id: entryId },
+      include: {
+        case: true,
+        parentSowItem: {
+          include: {
+            sow: true,
+            projectParticle: true,
+          },
+        },
+      },
+    });
+
+    if (!entry || entry.projectId !== projectId) {
+      throw new NotFoundException("Reconciliation entry not found for this project");
+    }
+
+    if (entry.isStandaloneChangeOrder) {
+      throw new BadRequestException("Entry is already a standalone Change Order");
+    }
+
+    if (!entry.parentSowItem) {
+      throw new BadRequestException("Entry has no parent line item to detach from");
+    }
+
+    const parentSowItem = entry.parentSowItem;
+    const sourceLineNo = parentSowItem.sourceLineNo ?? parentSowItem.lineNo;
+
+    // Calculate next CO sequence number for this source line
+    const existingCoItems = await this.prisma.sowItem.findMany({
+      where: {
+        estimateVersionId: entry.estimateVersionId,
+        isStandaloneChangeOrder: true,
+        coSourceLineNo: sourceLineNo,
+      },
+      select: { coSequenceNo: true },
+    });
+
+    const nextCoSeq = getNextCoSequenceNo(existingCoItems.map(e => e.coSequenceNo));
+
+    // If a cost book item is provided, fetch it
+    let costBookItem: any = null;
+    if (body.companyPriceListItemId) {
+      costBookItem = await this.prisma.companyPriceListItem.findFirst({
+        where: {
+          id: body.companyPriceListItemId,
+          companyPriceList: {
+            companyId,
+            isActive: true,
+          },
+        },
+      });
+
+      if (!costBookItem) {
+        throw new NotFoundException("Cost book item not found for this company");
+      }
+    }
+
+    // Calculate costs based on activity if provided
+    let laborCost = body.laborCost ?? 0;
+    let materialCost = body.materialCost ?? 0;
+    let equipmentCost = body.equipmentCost ?? 0;
+
+    // If we have a cost book item with cost components, use activity-based calculation
+    if (costBookItem && body.activity) {
+      const rawJson = costBookItem.rawJson as any;
+      if (rawJson) {
+        const costComponents = extractCostComponents({
+          workersWage: rawJson.workersWage ?? rawJson.workers_wage ?? null,
+          laborBurden: rawJson.laborBurden ?? rawJson.labor_burden ?? null,
+          laborOverhead: rawJson.laborOverhead ?? rawJson.labor_overhead ?? null,
+          material: rawJson.material ?? null,
+          equipment: rawJson.equipment ?? null,
+        });
+
+        const calculated = calculateCostByActivity(costComponents, body.activity);
+        laborCost = body.laborCost ?? calculated.laborCost;
+        materialCost = body.materialCost ?? calculated.materialCost;
+        equipmentCost = body.equipmentCost ?? calculated.equipmentCost;
+      }
+    }
+
+    // Use entry's existing amounts if no costs provided
+    const qty = body.qty ?? entry.qty ?? 1;
+    const totalCost = (laborCost + materialCost + equipmentCost) || (entry.unitCost ?? 0);
+    const itemAmount = (laborCost + materialCost + equipmentCost) > 0 
+      ? qty * totalCost 
+      : (entry.itemAmount ?? entry.rcvAmount ?? 0);
+    const rcvAmount = itemAmount;
+    const description = body.description ?? costBookItem?.description ?? entry.description ?? "Change Order";
+    const unit = body.unit ?? costBookItem?.unit ?? entry.unit ?? "LS";
+    const categoryCode = costBookItem?.cat ?? entry.categoryCode ?? "CO";
+    const selectionCode = costBookItem?.sel ?? entry.selectionCode ?? null;
+
+    // Run everything in a transaction
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Determine next PETL line number
+      const maxAgg = await tx.sowItem.aggregate({
+        where: { estimateVersionId: entry.estimateVersionId },
+        _max: { lineNo: true },
+      });
+      const nextLineNo = (maxAgg._max.lineNo ?? 0) + 1;
+
+      // Create RawXactRow for the CO
+      const rawRow = await tx.rawXactRow.create({
+        data: {
+          estimateVersionId: entry.estimateVersionId,
+          lineNo: nextLineNo,
+          desc: description,
+          qty,
+          unitCost: totalCost,
+          itemAmount,
+          rcv: rcvAmount,
+          unit,
+          cat: categoryCode,
+          sel: selectionCode,
+          sourceName: "STANDALONE_CO",
+          rawRowJson: {
+            coSource: {
+              kind: "STANDALONE_CHANGE_ORDER",
+              originalEntryId: entry.id,
+              originalParentSowItemId: parentSowItem.id,
+              sourceLineNo,
+              coSequenceNo: nextCoSeq,
+              createdByUserId: actor.userId,
+            },
+          },
+        },
+      });
+
+      // Create or find SowLogicalItem
+      const signature = `CO|${sourceLineNo}|${nextCoSeq}|${description}`.slice(0, 255);
+      let logical = await tx.sowLogicalItem.findFirst({
+        where: {
+          projectId,
+          projectParticleId: parentSowItem.projectParticleId,
+          signatureHash: signature,
+        },
+      });
+
+      if (!logical) {
+        logical = await tx.sowLogicalItem.create({
+          data: {
+            projectId,
+            projectParticleId: parentSowItem.projectParticleId,
+            signatureHash: signature,
+          },
+        });
+      }
+
+      // Create the new SowItem for the CO
+      const coSowItem = await tx.sowItem.create({
+        data: {
+          sowId: parentSowItem.sowId,
+          estimateVersionId: entry.estimateVersionId,
+          rawRowId: rawRow.id,
+          logicalItemId: logical.id,
+          projectParticleId: parentSowItem.projectParticleId,
+          lineNo: nextLineNo,
+          sourceLineNo: sourceLineNo, // Keep source for reference
+          description,
+          qty,
+          originalQty: qty,
+          unit,
+          unitCost: totalCost,
+          itemAmount,
+          rcvAmount,
+          categoryCode,
+          selectionCode,
+          payerType: parentSowItem.payerType ?? "Insurance",
+          performed: false,
+          eligibleForAcvRefund: false,
+          percentComplete: 100, // COs default to 100% complete
+          isAcvOnly: false,
+          qtyFlaggedIncorrect: false,
+          // CO-specific fields
+          isStandaloneChangeOrder: true,
+          coSequenceNo: nextCoSeq,
+          coSourceLineNo: sourceLineNo,
+        },
+      });
+
+      // Create a new reconciliation case for the CO SowItem
+      const coCase = await tx.petlReconciliationCase.create({
+        data: {
+          projectId,
+          estimateVersionId: entry.estimateVersionId,
+          sowItemId: coSowItem.id,
+          logicalItemId: logical.id,
+          status: "OPEN",
+          createdByUserId: actor.userId,
+        },
+      });
+
+      // Update the reconciliation entry to point to the new CO SowItem
+      const updatedEntry = await tx.petlReconciliationEntry.update({
+        where: { id: entryId },
+        data: {
+          // Re-parent to the new CO SowItem
+          parentSowItemId: coSowItem.id,
+          caseId: coCase.id,
+          // Mark as standalone CO
+          isStandaloneChangeOrder: true,
+          coSequenceNo: nextCoSeq,
+          // Preserve original reference
+          originSowItemId: parentSowItem.id,
+          originLineNo: sourceLineNo,
+          // Update financial data
+          tag: PetlReconciliationEntryTag.CHANGE_ORDER,
+          kind: PetlReconciliationEntryKind.ADD,
+          status: PetlReconciliationEntryStatus.PENDING,
+          percentComplete: 100,
+          qty,
+          unitCost: totalCost,
+          itemAmount,
+          rcvAmount,
+          description,
+          unit,
+          categoryCode,
+          selectionCode,
+          note: body.note ?? entry.note,
+          // Cost components
+          workersWage: laborCost > 0 ? laborCost : null,
+          materialCost: materialCost > 0 ? materialCost : null,
+          equipmentCost: equipmentCost > 0 ? equipmentCost : null,
+          activity: body.activity ?? null,
+        },
+        include: {
+          case: {
+            include: {
+              entries: {
+                orderBy: { createdAt: "asc" },
+                include: {
+                  attachments: { orderBy: { createdAt: "asc" } },
+                },
+              },
+              events: { orderBy: { createdAt: "asc" } },
+            },
+          },
+        },
+      });
+
+      // Create audit event
+      await tx.petlReconciliationEvent.create({
+        data: {
+          projectId,
+          estimateVersionId: entry.estimateVersionId,
+          caseId: coCase.id,
+          entryId: updatedEntry.id,
+          eventType: "ENTRY_CONVERTED_TO_STANDALONE_CO",
+          payloadJson: {
+            sourceLineNo,
+            coSequenceNo: nextCoSeq,
+            newSowItemId: coSowItem.id,
+            originalParentSowItemId: parentSowItem.id,
+            activity: body.activity ?? null,
+            laborCost,
+            materialCost,
+            equipmentCost,
+            totalCost: itemAmount,
+          },
+          createdByUserId: actor.userId,
+        },
+      });
+
+      return {
+        entry: updatedEntry,
+        coSowItem,
+        coCase,
+        coLineNumber: `${sourceLineNo}-CO${nextCoSeq}`,
+      };
+    });
+
+    // Sync invoice if applicable
+    try {
+      await this.maybeSyncLivingDraftInvoiceFromPetl(projectId, companyId, actor);
+    } catch (err) {
+      this.logger.error(
+        `Failed to sync living draft invoice after CO conversion for project ${projectId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+    }
+
+    return {
+      entry: result.entry,
+      reconciliationCase: result.coCase,
+      coSowItem: result.coSowItem,
+      coLineNumber: result.coLineNumber,
+    };
+  }
+
+  /**
+   * Revert a standalone Change Order back to a regular reconciliation entry.
+   * This deletes the CO SowItem and moves the entry back to the original parent.
+   */
+  async revertEntryFromStandaloneChangeOrder(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    entryId: string,
+  ) {
+    // Only PM/Owner/Admin can revert COs
+    const canRevert = await this.isProjectManagerOrAbove(projectId, actor);
+    if (!canRevert) {
+      throw new ForbiddenException(
+        "Only project managers/owners/admins can revert standalone Change Orders",
+      );
+    }
+
+    const entry = await this.prisma.petlReconciliationEntry.findUnique({
+      where: { id: entryId },
+      include: {
+        case: true,
+        parentSowItem: {
+          include: {
+            sow: true,
+            rawRow: true,
+          },
+        },
+      },
+    });
+
+    if (!entry || entry.projectId !== projectId) {
+      throw new NotFoundException("Reconciliation entry not found for this project");
+    }
+
+    if (!entry.isStandaloneChangeOrder) {
+      throw new BadRequestException("Entry is not a standalone Change Order");
+    }
+
+    // Find the original parent SowItem
+    if (!entry.originSowItemId) {
+      throw new BadRequestException("Cannot revert: original line item reference not found");
+    }
+
+    const originalParent = await this.prisma.sowItem.findUnique({
+      where: { id: entry.originSowItemId },
+      include: { sow: true },
+    });
+
+    if (!originalParent) {
+      throw new BadRequestException("Cannot revert: original line item no longer exists");
+    }
+
+    // The current parent is the CO SowItem we created
+    const coSowItem = entry.parentSowItem;
+    const coCase = entry.case;
+
+    // Run in transaction
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Find or create a reconciliation case for the original parent
+      let originalCase = await tx.petlReconciliationCase.findFirst({
+        where: {
+          projectId,
+          sowItemId: originalParent.id,
+        },
+      });
+
+      if (!originalCase) {
+        originalCase = await tx.petlReconciliationCase.create({
+          data: {
+            projectId,
+            estimateVersionId: entry.estimateVersionId,
+            sowItemId: originalParent.id,
+            status: "OPEN",
+            createdByUserId: actor.userId,
+          },
+        });
+      }
+
+      // Move the entry back to the original parent
+      const updatedEntry = await tx.petlReconciliationEntry.update({
+        where: { id: entryId },
+        data: {
+          parentSowItemId: originalParent.id,
+          caseId: originalCase.id,
+          isStandaloneChangeOrder: false,
+          coSequenceNo: null,
+          // Clear CO-specific fields but keep financial data
+          activity: null,
+          sourceActivity: null,
+          // Keep originSowItemId and originLineNo for history
+        },
+        include: {
+          case: {
+            include: {
+              entries: {
+                orderBy: { createdAt: "asc" },
+                include: {
+                  attachments: { orderBy: { createdAt: "asc" } },
+                },
+              },
+              events: { orderBy: { createdAt: "asc" } },
+            },
+          },
+        },
+      });
+
+      // Create audit event on the original case
+      await tx.petlReconciliationEvent.create({
+        data: {
+          projectId,
+          estimateVersionId: entry.estimateVersionId,
+          caseId: originalCase.id,
+          entryId: updatedEntry.id,
+          eventType: "ENTRY_REVERTED_FROM_STANDALONE_CO",
+          payloadJson: {
+            previousCoSequenceNo: entry.coSequenceNo,
+            originLineNo: entry.originLineNo,
+            deletedCoSowItemId: coSowItem?.id ?? null,
+          },
+          createdByUserId: actor.userId,
+        },
+      });
+
+      // Delete the CO case if it exists and has no other entries
+      if (coCase && coCase.id !== originalCase.id) {
+        const otherEntries = await tx.petlReconciliationEntry.count({
+          where: {
+            caseId: coCase.id,
+            id: { not: entryId },
+          },
+        });
+
+        if (otherEntries === 0) {
+          // Delete events first (cascade should handle this, but be explicit)
+          await tx.petlReconciliationEvent.deleteMany({
+            where: { caseId: coCase.id },
+          });
+          await tx.petlReconciliationCase.delete({
+            where: { id: coCase.id },
+          });
+        }
+      }
+
+      // Delete the CO SowItem if it exists and was created for this CO
+      if (coSowItem?.isStandaloneChangeOrder) {
+        // Delete raw row first
+        if (coSowItem.rawRowId) {
+          await tx.rawXactRow.delete({
+            where: { id: coSowItem.rawRowId },
+          }).catch(() => {
+            // Ignore if already deleted or has other references
+          });
+        }
+        // Delete the SowItem
+        await tx.sowItem.delete({
+          where: { id: coSowItem.id },
+        }).catch(() => {
+          // Ignore if already deleted
+        });
+      }
+
+      return {
+        entry: updatedEntry,
+        originalCase,
+      };
+    });
+
+    // Sync invoice if applicable
+    try {
+      await this.maybeSyncLivingDraftInvoiceFromPetl(projectId, companyId, actor);
+    } catch (err) {
+      this.logger.error(
+        `Failed to sync living draft invoice after CO revert for project ${projectId}`,
+        err instanceof Error ? err.stack : String(err),
+      );
+    }
+
+    return {
+      entry: result.entry,
+      reconciliationCase: result.originalCase,
+    };
   }
 
   async applySinglePetlPercentEdit(
