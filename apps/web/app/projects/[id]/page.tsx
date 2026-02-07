@@ -21172,18 +21172,20 @@ ${htmlBody}
                       return null;
                     }
 
+                    // Group entries by version for better display
+                    const entriesWithNotes = history.entries.filter((e: any) => e.note);
+
                     return (
                       <div>
                         <div style={{ fontWeight: 600, marginBottom: 6 }}>Case history across estimate versions</div>
                         <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>
-                          Each row shows where a reconciliation entry started and where it lives now
-                          (estimate version and line number).
+                          Shows reconciliation entries across all versions, including notes from previous revisions.
                         </div>
                         <div
                           style={{
                             border: "1px solid #e5e7eb",
                             borderRadius: 8,
-                            maxHeight: 220,
+                            maxHeight: 320,
                             overflowY: "auto",
                             fontSize: 11,
                           }}
@@ -21192,51 +21194,26 @@ ${htmlBody}
                             style={{
                               width: "100%",
                               borderCollapse: "collapse",
-                              minWidth: 620,
+                              minWidth: 700,
                             }}
                           >
                             <thead>
                               <tr style={{ background: "#f9fafb" }}>
-                                <th style={{ textAlign: "left", padding: "6px 8px", width: 140 }}>When</th>
+                                <th style={{ textAlign: "left", padding: "6px 8px", width: 100 }}>Version</th>
+                                <th style={{ textAlign: "left", padding: "6px 8px", width: 60 }}>Line</th>
                                 <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>Kind</th>
                                 <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>Tag</th>
-                                <th style={{ textAlign: "left", padding: "6px 8px" }}>From → To</th>
+                                <th style={{ textAlign: "left", padding: "6px 8px" }}>Note</th>
                                 <th style={{ textAlign: "right", padding: "6px 8px", width: 90 }}>RCV</th>
                               </tr>
                             </thead>
                             <tbody>
                               {history.entries.map((e: any) => {
-                                const createdAt = e.createdAt ? new Date(e.createdAt) : null;
-                                const whenLabel = createdAt
-                                  ? createdAt.toLocaleString(undefined, {
-                                      month: "short",
-                                      day: "2-digit",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })
-                                  : "";
-
                                 const originVer = e.origin?.estimateVersion ?? null;
-                                const currentVer = e.current?.estimateVersion ?? null;
-
                                 const originVerLabel = originVer
                                   ? `v${originVer.sequenceNo ?? "?"}`
                                   : "—";
-                                const currentVerLabel = currentVer
-                                  ? `v${currentVer.sequenceNo ?? "?"}`
-                                  : originVerLabel;
-
-                                const originLine = e.origin?.lineNo ?? null;
-                                const currentLine = e.current?.lineNo ?? null;
-
-                                const fromLabel =
-                                  originLine != null
-                                    ? `${originVerLabel} · line ${originLine}`
-                                    : originVerLabel;
-                                const toLabel =
-                                  currentLine != null
-                                    ? `${currentVerLabel} · line ${currentLine}`
-                                    : currentVerLabel;
+                                const originLine = e.originLineNo ?? e.origin?.lineNo ?? null;
 
                                 const tagRaw = String(e.tag ?? "").trim();
                                 const tagLabel =
@@ -21248,37 +21225,39 @@ ${htmlBody}
                                         ? "Other"
                                         : tagRaw === "WARRANTY"
                                           ? "Warranty"
-                                          : "";
+                                          : "—";
+
+                                const hasNote = e.note && e.note.trim();
 
                                 return (
-                                  <tr key={e.id} style={{ borderTop: "1px solid #e5e7eb" }}>
-                                    <td style={{ padding: "4px 8px", whiteSpace: "nowrap" }}>{whenLabel}</td>
-                                    <td style={{ padding: "4px 8px" }}>{e.kind}</td>
-                                    <td style={{ padding: "4px 8px" }}>{tagLabel || "—"}</td>
-                                    <td style={{ padding: "4px 8px" }}>
-                                      <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                        <span style={{ color: "#6b7280" }}>{fromLabel}</span>
-                                        <span style={{ margin: "0 4px" }}>→</span>
-                                        <span>{toLabel}</span>
-                                      </div>
-                                      {e.note && (
-                                        <div
-                                          style={{
-                                            marginTop: 2,
-                                            color: "#6b7280",
-                                            whiteSpace: "nowrap",
-                                            overflow: "hidden",
-                                            textOverflow: "ellipsis",
-                                          }}
-                                        >
-                                          {e.note}
-                                        </div>
-                                      )}
+                                  <tr
+                                    key={e.id}
+                                    style={{
+                                      borderTop: "1px solid #e5e7eb",
+                                      background: hasNote ? "#fffbeb" : undefined,
+                                    }}
+                                  >
+                                    <td style={{ padding: "6px 8px", whiteSpace: "nowrap", color: "#6b7280" }}>
+                                      {originVerLabel}
                                     </td>
-                                    <td style={{ padding: "4px 8px", textAlign: "right" }}>
-                                      {(e.rcvAmount ?? 0).toLocaleString(undefined, {
-                                        maximumFractionDigits: 2,
-                                      })}
+                                    <td style={{ padding: "6px 8px", fontFamily: "monospace" }}>
+                                      {originLine ?? "—"}
+                                    </td>
+                                    <td style={{ padding: "6px 8px" }}>{e.kind}</td>
+                                    <td style={{ padding: "6px 8px" }}>{tagLabel}</td>
+                                    <td
+                                      style={{
+                                        padding: "6px 8px",
+                                        color: hasNote ? "#92400e" : "#9ca3af",
+                                        fontStyle: hasNote ? "normal" : "italic",
+                                      }}
+                                    >
+                                      {hasNote ? e.note : "(no note)"}
+                                    </td>
+                                    <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                                      {e.rcvAmount != null
+                                        ? e.rcvAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })
+                                        : "—"}
                                     </td>
                                   </tr>
                                 );
@@ -21286,6 +21265,35 @@ ${htmlBody}
                             </tbody>
                           </table>
                         </div>
+                        {entriesWithNotes.length > 0 && (
+                          <div
+                            style={{
+                              marginTop: 8,
+                              padding: "8px 10px",
+                              background: "#fffbeb",
+                              border: "1px solid #fcd34d",
+                              borderRadius: 6,
+                              fontSize: 11,
+                            }}
+                          >
+                            <div style={{ fontWeight: 600, color: "#92400e", marginBottom: 4 }}>
+                              📝 Notes from previous versions ({entriesWithNotes.length})
+                            </div>
+                            {entriesWithNotes.map((e: any) => {
+                              const originVer = e.origin?.estimateVersion ?? null;
+                              const originVerLabel = originVer ? `v${originVer.sequenceNo ?? "?"}` : "";
+                              const originLine = e.originLineNo ?? e.origin?.lineNo ?? null;
+                              return (
+                                <div key={e.id} style={{ marginBottom: 4, color: "#78350f" }}>
+                                  <span style={{ color: "#6b7280" }}>
+                                    {originVerLabel} line {originLine ?? "?"}:
+                                  </span>{" "}
+                                  {e.note}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
