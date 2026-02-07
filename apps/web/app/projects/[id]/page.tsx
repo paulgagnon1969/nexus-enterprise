@@ -1137,6 +1137,8 @@ export default function ProjectDetailPage({
   const [financialSummary, setFinancialSummary] = useState<FinancialSummary | null>(null);
   const [financialLoading, setFinancialLoading] = useState(false);
   const [financialError, setFinancialError] = useState<string | null>(null);
+  // Track when we last entered the Financial tab to trigger refresh on each visit
+  const [financialTabVisitTick, setFinancialTabVisitTick] = useState(0);
 
   // PETL archives (Admin/Owner)
   const [petlArchives, setPetlArchives] = useState<any[] | null>(null);
@@ -1215,22 +1217,138 @@ export default function ProjectDetailPage({
     }
   }
 
-  // Invoice printing
+  // Invoice printing - field definitions for customizable print
+  const INVOICE_PRINT_FIELD_DEFS = useMemo(() => [
+    { key: "lineNo", label: "Line #", defaultOn: true },
+    { key: "categoryCode", label: "Task", defaultOn: true },
+    { key: "selectionCode", label: "Selection Code", defaultOn: false },
+    { key: "description", label: "Description", defaultOn: true },
+    { key: "room", label: "Room", defaultOn: false },
+    { key: "unit", label: "Unit", defaultOn: false },
+    { key: "building", label: "Building", defaultOn: false },
+    { key: "percentComplete", label: "% Complete", defaultOn: false },
+    { key: "earnedTotal", label: "Earned Total", defaultOn: false },
+    { key: "prevBilledTotal", label: "Previously Billed", defaultOn: false },
+    { key: "thisInvTotal", label: "This Invoice", defaultOn: true },
+    { key: "billingTag", label: "Billing Tag", defaultOn: false },
+  ], []);
+
+  // State for line exclusion modal
+  const [invoiceLineExclusionModalOpen, setInvoiceLineExclusionModalOpen] = useState(false);
+
+  const DEFAULT_PRINT_FIELDS = useMemo(
+    () => new Set(INVOICE_PRINT_FIELD_DEFS.filter(f => f.defaultOn).map(f => f.key)),
+    [INVOICE_PRINT_FIELD_DEFS]
+  );
+
+  // Invoice printing state
   const [invoicePrintDialogOpen, setInvoicePrintDialogOpen] = useState(false);
   const [invoicePrintLayout, setInvoicePrintLayout] = useState<"KEEP" | "GROUPED" | "FLAT">("KEEP");
   const [invoicePrintGroups, setInvoicePrintGroups] = useState<"KEEP" | "COLLAPSE_ALL" | "EXPAND_ALL">("KEEP");
   const [invoicePrintBusy, setInvoicePrintBusy] = useState(false);
 
+  // Customizable print fields
+  const printFieldsKey = `invoicePrintFields:v1:${id}`;
+  const [invoicePrintFields, setInvoicePrintFields] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return DEFAULT_PRINT_FIELDS;
+    try {
+      const raw = localStorage.getItem(printFieldsKey);
+      if (!raw) return DEFAULT_PRINT_FIELDS;
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? new Set(arr) : DEFAULT_PRINT_FIELDS;
+    } catch {
+      return DEFAULT_PRINT_FIELDS;
+    }
+  });
+
+  // Persist print fields to localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(printFieldsKey, JSON.stringify([...invoicePrintFields]));
+    } catch {
+      // ignore
+    }
+  }, [printFieldsKey, invoicePrintFields]);
+
+  // Lines to exclude from print (per invoice, not persisted)
+  const [invoicePrintExcludedLines, setInvoicePrintExcludedLines] = useState<Set<string>>(() => new Set());
+
+  // Reset excluded lines when invoice changes
+  useEffect(() => {
+    setInvoicePrintExcludedLines(new Set());
+  }, [activeInvoice?.id]);
+
+  // Group by field for print
+  const printGroupByKey = `invoicePrintGroupBy:v1:${id}`;
+  const [invoicePrintGroupBy, setInvoicePrintGroupBy] = useState<"none" | "room" | "unit" | "building" | "category">(() => {
+    if (typeof window === "undefined") return "none";
+    try {
+      const raw = localStorage.getItem(printGroupByKey);
+      if (raw === "room" || raw === "unit" || raw === "building" || raw === "category") return raw;
+      return "none";
+    } catch {
+      return "none";
+    }
+  });
+
+  // Persist groupBy to localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(printGroupByKey, invoicePrintGroupBy);
+    } catch {
+      // ignore
+    }
+  }, [printGroupByKey, invoicePrintGroupBy]);
+
+  // Toggle a print field on/off
+  const togglePrintField = (fieldKey: string) => {
+    setInvoicePrintFields(prev => {
+      const next = new Set(prev);
+      if (next.has(fieldKey)) {
+        next.delete(fieldKey);
+      } else {
+        next.add(fieldKey);
+      }
+      return next;
+    });
+  };
+
+  // Toggle a line exclusion
+  const togglePrintLineExclusion = (lineId: string) => {
+    setInvoicePrintExcludedLines(prev => {
+      const next = new Set(prev);
+      if (next.has(lineId)) {
+        next.delete(lineId);
+      } else {
+        next.add(lineId);
+      }
+      return next;
+    });
+  };
+
+  // Select/deselect all lines for print
+  const setAllLinesIncluded = (include: boolean) => {
+    if (include) {
+      setInvoicePrintExcludedLines(new Set());
+    } else {
+      const allIds = (activeInvoicePetlLines as any[]).map((li: any) => String(li?.id ?? "")).filter(Boolean);
+      setInvoicePrintExcludedLines(new Set(allIds));
+    }
+  };
+
   // Detailed invoice view toggle: flat list vs PETL project grouping tree
-  const invoiceGroupKey = `invoicePetlGroup:v1:${id}`;
+  // Default to flat list (line sequence) for easier reconciliation with estimate.
+  const invoiceGroupKey = `invoicePetlGroup:v2:${id}`;
   const [invoiceGroupEnabled, setInvoiceGroupEnabled] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
+    if (typeof window === "undefined") return false;
     try {
       const raw = localStorage.getItem(invoiceGroupKey);
-      // default ON
-      return raw !== "0";
+      // default OFF (flat/line sequence view)
+      return raw === "1";
     } catch {
-      return true;
+      return false;
     }
   });
 
@@ -1929,25 +2047,238 @@ export default function ProjectDetailPage({
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${htmlEscape(title)}</title>
 <style>
-  @page { size: letter; margin: 0.5in; }
-  html, body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color: #111827; }
-  h1 { font-size: 18px; margin: 0; }
-  h2 { font-size: 13px; margin: 16px 0 8px; }
-  .muted { color: #6b7280; font-size: 11px; }
-  .meta { margin-top: 8px; display: grid; grid-template-columns: 1.2fr 1fr; gap: 10px; font-size: 12px; }
-  .box { border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; }
-  .kv { display: grid; grid-template-columns: 120px 1fr; row-gap: 4px; column-gap: 8px; }
-  .k { color: #6b7280; }
-  .v { color: #111827; }
-  table { width: 100%; border-collapse: collapse; font-size: 11px; }
-  th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e7eb; background: #f9fafb; }
-  td { padding: 6px 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
-  .num { text-align: right; white-space: nowrap; }
-  .group { background: #f3f4f6; font-weight: 700; }
-  .indent { padding-left: 18px; }
-  .tag { font-weight: 700; font-size: 10px; border: 1px solid #d1d5db; border-radius: 999px; padding: 2px 8px; display: inline-block; margin-left: 8px; }
-  .total-row td { font-weight: 700; background: #f9fafb; }
+  @page { size: letter; margin: 0.6in 0.5in; }
+  * { box-sizing: border-box; }
+  html, body {
+    font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    color: #1f2937;
+    font-size: 12px;
+    line-height: 1.4;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Header */
+  .invoice-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding-bottom: 16px;
+    border-bottom: 2px solid #e5e7eb;
+    margin-bottom: 20px;
+  }
+  .company-logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .company-logo img {
+    height: 48px;
+    width: auto;
+  }
+  .company-logo-text {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: #0f172a;
+  }
+  .company-info {
+    text-align: right;
+    font-size: 11px;
+    color: #4b5563;
+    line-height: 1.5;
+  }
+  .company-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 2px;
+  }
+  .company-tagline {
+    font-size: 10px;
+    color: #6b7280;
+    font-style: italic;
+    margin-top: 4px;
+  }
+
+  /* Bill To + Invoice Meta */
+  .invoice-meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .bill-to {
+    font-size: 12px;
+  }
+  .bill-to-label {
+    font-weight: 700;
+    color: #374151;
+    margin-bottom: 4px;
+  }
+  .bill-to-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #111827;
+  }
+  .bill-to-address {
+    color: #4b5563;
+    margin-top: 2px;
+  }
+  .invoice-details {
+    text-align: right;
+  }
+  .invoice-details-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-bottom: 3px;
+  }
+  .invoice-details-label {
+    color: #6b7280;
+    min-width: 90px;
+    text-align: right;
+  }
+  .invoice-details-value {
+    font-weight: 600;
+    color: #111827;
+    min-width: 100px;
+    text-align: right;
+  }
+  .invoice-details-value.amount {
+    font-size: 16px;
+    color: #0f172a;
+  }
+
+  /* Project Title */
+  .project-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1f2937;
+    margin-bottom: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f3f4f6;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    margin-bottom: 20px;
+  }
+  thead tr {
+    background: #f8fafc;
+  }
+  th {
+    text-align: left;
+    padding: 10px 12px;
+    font-weight: 600;
+    color: #374151;
+    border-bottom: 2px solid #e5e7eb;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  th.num { text-align: right; }
+  td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #f3f4f6;
+    vertical-align: top;
+    color: #374151;
+  }
+  td.num {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  tbody tr:nth-child(even) {
+    background: #fafbfc;
+  }
+  tbody tr:hover {
+    background: #f3f4f6;
+  }
+
+  /* Totals row */
+  .totals-row td {
+    font-weight: 700;
+    background: #f1f5f9;
+    border-top: 2px solid #e5e7eb;
+    border-bottom: none;
+    padding: 12px;
+    font-size: 12px;
+  }
+
+  /* Section headers */
+  .section-header {
+    font-size: 12px;
+    font-weight: 700;
+    color: #1f2937;
+    margin: 24px 0 10px 0;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  /* Group rows */
+  .group-row td {
+    background: #f1f5f9;
+    font-weight: 600;
+    color: #1f2937;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .indent { padding-left: 24px; }
+
+  /* Tags */
+  .tag {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #e0e7ff;
+    color: #3730a3;
+    margin-left: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+
+  /* Description / Notes */
+  .invoice-notes {
+    margin-top: 24px;
+    padding: 12px 16px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    font-size: 11px;
+    color: #4b5563;
+  }
+  .invoice-notes-label {
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 4px;
+  }
+
+  /* Footer */
+  .invoice-footer {
+    margin-top: 32px;
+    padding-top: 16px;
+    border-top: 1px solid #e5e7eb;
+    font-size: 10px;
+    color: #9ca3af;
+    text-align: center;
+  }
+
+  /* Print optimizations */
   tr { page-break-inside: avoid; }
+  .section-header { page-break-after: avoid; }
+  thead { display: table-header-group; }
+  @media print {
+    tbody tr:nth-child(even) { background: #fafbfc !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    thead tr { background: #f8fafc !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .totals-row td { background: #f1f5f9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
 </style>
 </head>
 <body>
@@ -2007,70 +2338,86 @@ ${htmlBody}
 
     const logoUrl = `${window.location.origin}/nexus-logo-mark.png`;
 
+    // Build address lines for bill-to
+    const billToAddress = [
+      activeInvoice.billToAddress ?? "",
+      [activeInvoice.billToCity, activeInvoice.billToState, activeInvoice.billToZip].filter(Boolean).join(", "),
+    ].filter(s => s.trim()).join("<br>");
+
+    // Project name for title
+    const projectName = project?.name ?? "";
+
     const headerHtml = `
-      <div class="box">
-        <div style="display:flex; align-items:center; justify-content:space-between; gap: 12px;">
-          <div style="display:flex; align-items:center; gap: 10px;">
-            <img src="${htmlEscape(logoUrl)}" alt="Nexus" style="height:44px; width:auto;" />
-            <div>
-              <div style="font-weight:900; letter-spacing:0.06em; font-size:14px; line-height:1;">NEXUS</div>
-              <div class="muted" style="margin-top:2px;">Fortified Structures</div>
-            </div>
-          </div>
-          <div style="text-align:right;">
-            <div class="muted">Invoice</div>
-            <div style="font-weight:800; font-size:18px; line-height:1.1;">${htmlEscape(invoiceNo || "Invoice")}</div>
-          </div>
+      <!-- Header: Logo + Company Info -->
+      <div class="invoice-header">
+        <div class="company-logo">
+          <img src="${htmlEscape(logoUrl)}" alt="Nexus" />
+          <span class="company-logo-text">NEXUS</span>
         </div>
+        <div class="company-info">
+          <div class="company-name">Nexus Fortified Structures LLC</div>
+          <div>123 Construction Way, Suite 100</div>
+          <div>Tampa, FL 33601</div>
+          <div>Phone: (555) 123-4567</div>
+          <div class="company-tagline">Building Excellence, Fortifying Futures</div>
+        </div>
+      </div>
 
-        <div class="muted" style="margin-top: 6px;">Status: ${htmlEscape(activeInvoice.status ?? "")}</div>
-
-        <div class="meta">
-          <div class="box">
-            <div class="kv">
-              <div class="k">Bill to</div><div class="v">${htmlEscape(activeInvoice.billToName ?? "")}</div>
-              <div class="k">Email</div><div class="v">${htmlEscape(activeInvoice.billToEmail ?? "")}</div>
-              <div class="k">Memo</div><div class="v">${htmlEscape(activeInvoice.memo ?? "")}</div>
-            </div>
+      <!-- Bill To + Invoice Details -->
+      <div class="invoice-meta-row">
+        <div class="bill-to">
+          <div class="bill-to-label">Bill To:</div>
+          <div class="bill-to-name">${htmlEscape(activeInvoice.billToName ?? "")}</div>
+          <div class="bill-to-address">${billToAddress || ""}</div>
+        </div>
+        <div class="invoice-details">
+          <div class="invoice-details-row">
+            <span class="invoice-details-label">Invoice ID:</span>
+            <span class="invoice-details-value">${htmlEscape(invoiceNo)}</span>
           </div>
-          <div class="box">
-            <div class="kv">
-              <div class="k">Issued</div><div class="v">${htmlEscape(fmtDate(activeInvoice.issuedAt))}</div>
-              <div class="k">Due</div><div class="v">${htmlEscape(fmtDate(activeInvoice.dueAt))}</div>
-              <div class="k">Total</div><div class="v">${htmlEscape(fmtCurrency(activeInvoice.totalAmount ?? 0))}</div>
-              <div class="k">Paid</div><div class="v">${htmlEscape(fmtCurrency(activeInvoice.paidAmount ?? 0))}</div>
-              <div class="k">Balance</div><div class="v">${htmlEscape(fmtCurrency(activeInvoice.balanceDue ?? 0))}</div>
-            </div>
+          <div class="invoice-details-row">
+            <span class="invoice-details-label">Amount Due:</span>
+            <span class="invoice-details-value amount">${htmlEscape(fmtCurrency(activeInvoice.balanceDue ?? activeInvoice.totalAmount ?? 0))}</span>
+          </div>
+          <div class="invoice-details-row">
+            <span class="invoice-details-label">Due Date:</span>
+            <span class="invoice-details-value">${htmlEscape(fmtDate(activeInvoice.dueAt) || "Upon Receipt")}</span>
+          </div>
+          <div class="invoice-details-row">
+            <span class="invoice-details-label">Status:</span>
+            <span class="invoice-details-value">${htmlEscape(activeInvoice.status ?? "DRAFT")}</span>
           </div>
         </div>
       </div>
+
+      <!-- Project Title -->
+      ${projectName ? `<div class="project-title">${htmlEscape(projectName)}</div>` : ""}
     `;
 
     const invoiceLinesHtml = (() => {
       const groups = activeInvoiceLineItemGroups;
       if (!groups || groups.length === 0) {
-        return `<h2>Invoice line items</h2><div class="muted">No invoice line items.</div>`;
+        return ``; // Skip if no manual line items
       }
+
+      const totalAmount = groups.reduce((sum, g) => sum + g.subtotal, 0);
 
       const rows = groups
         .flatMap((g) => {
           const out: string[] = [];
           out.push(`
-            <tr class="group">
-              <td colspan="6">${htmlEscape(g.label)} · ${htmlEscape(fmtCurrency(g.subtotal))}</td>
+            <tr class="group-row">
+              <td colspan="3">${htmlEscape(g.label)}</td>
+              <td class="num">${htmlEscape(fmtCurrency(g.subtotal))}</td>
             </tr>
           `);
 
           for (const li of g.items) {
-            const kind = String(li?.kind ?? "");
-            const tag = String(li?.billingTag ?? "");
             out.push(`
               <tr>
-                <td>${htmlEscape(kind)}</td>
-                <td>${htmlEscape(tag)}</td>
                 <td>${htmlEscape(li?.description ?? "")}</td>
-                <td class="num">${htmlEscape(li?.qty ?? "")}</td>
-                <td class="num">${htmlEscape(li?.unitPrice ?? "")}</td>
+                <td class="num">${li?.qty ?? ""}</td>
+                <td class="num">${li?.unitPrice ? fmtCurrency(li.unitPrice) : ""}</td>
                 <td class="num">${htmlEscape(fmtCurrency(li?.amount ?? 0))}</td>
               </tr>
             `);
@@ -2080,103 +2427,170 @@ ${htmlBody}
         .join("\n");
 
       return `
-        <h2>Invoice line items</h2>
+        <div class="section-header">Additional Line Items</div>
         <table>
           <thead>
             <tr>
-              <th style="width: 120px">Kind</th>
-              <th style="width: 140px">Tag</th>
               <th>Description</th>
-              <th class="num" style="width: 70px">Qty</th>
-              <th class="num" style="width: 90px">Unit</th>
-              <th class="num" style="width: 110px">Amount</th>
+              <th class="num" style="width: 80px">Qty</th>
+              <th class="num" style="width: 100px">Unit Price</th>
+              <th class="num" style="width: 120px">Amount</th>
             </tr>
           </thead>
           <tbody>
             ${rows}
           </tbody>
+          <tfoot>
+            <tr class="totals-row">
+              <td colspan="3">Subtotal</td>
+              <td class="num">${htmlEscape(fmtCurrency(totalAmount))}</td>
+            </tr>
+          </tfoot>
         </table>
       `;
     })();
 
     const petlHtml = (() => {
-      const lines = activeInvoicePetlLines;
-      if (!lines || lines.length === 0) {
-        return `<h2>Estimate line items (PETL)</h2><div class="muted">No PETL-derived invoice detail lines.</div>`;
+      const allLines = activeInvoicePetlLines as any[];
+      if (!allLines || allLines.length === 0) {
+        return ``; // Skip if no PETL lines
       }
 
-      const totalDelta = lines.reduce((sum, x) => sum + (Number(x?.thisInvTotal ?? 0) || 0), 0);
+      // Filter out excluded lines
+      const lines = allLines.filter((li: any) => {
+        const lineId = String(li?.id ?? "");
+        return !invoicePrintExcludedLines.has(lineId);
+      });
 
-      if (wantGrouped) {
-        const rows = (invoicePetlGrouped as any[])
-          .flatMap((g, idx) => {
-            const groupKey = getGroupKey(g, idx);
-            const isOpen = openGroups.has(groupKey);
-            const groupLabel = String(g?.groupLabel ?? g?.groupKey ?? "(Unlabeled)");
+      if (lines.length === 0) {
+        return ``; // All lines excluded
+      }
 
-            const out: string[] = [];
-            out.push(`
-              <tr class="group">
-                <td>${htmlEscape(groupLabel)}${!isOpen ? ` <span class="muted">(collapsed)</span>` : ""}</td>
-                <td class="num">—</td>
-                <td class="num">—</td>
-                <td class="num">—</td>
-                <td class="num">${htmlEscape(fmtCurrency(g?.subtotal ?? 0))}</td>
-              </tr>
-            `);
+      const totalDelta = lines.reduce((sum: number, x: any) => sum + (Number(x?.thisInvTotal ?? 0) || 0), 0);
 
-            if (!isOpen) return out;
+      // Helper to get field value from a line
+      const getFieldValue = (li: any, fieldKey: string): string => {
+        switch (fieldKey) {
+          case "lineNo":
+            return String(li?.sourceLineNoSnapshot ?? li?.lineNoSnapshot ?? "");
+          case "categoryCode":
+            return String(li?.categoryCodeSnapshot ?? "");
+          case "selectionCode":
+            return String(li?.selectionCodeSnapshot ?? "");
+          case "description":
+            return String(li?.descriptionSnapshot ?? "");
+          case "room":
+            return String(li?.projectParticleLabelSnapshot ?? "");
+          case "unit":
+            return String(li?.projectUnitLabelSnapshot ?? "");
+          case "building":
+            return String(li?.projectBuildingLabelSnapshot ?? "");
+          case "percentComplete":
+            return li?.percentCompleteSnapshot != null ? `${Number(li.percentCompleteSnapshot).toFixed(0)}%` : "";
+          case "earnedTotal":
+            return fmtCurrency(li?.earnedTotal ?? 0);
+          case "prevBilledTotal":
+            return fmtCurrency(li?.prevBilledTotal ?? 0);
+          case "thisInvTotal":
+            return fmtCurrency(li?.thisInvTotal ?? 0);
+          case "billingTag":
+            return formatBillingTag(getInvoicePetlEffectiveTag(li));
+          default:
+            return "";
+        }
+      };
 
-            const groupLines = Array.isArray(g?.lines) ? g.lines : [];
-            for (const li of groupLines) {
-              const isCredit = String(li?.kind) === "ACV_HOLDBACK_CREDIT";
-              const cat = String(li?.categoryCodeSnapshot ?? "").trim();
-              const sel = String(li?.selectionCodeSnapshot ?? "").trim();
-              const task = String(li?.descriptionSnapshot ?? "").trim();
-              const lineNoValue = li?.sourceLineNoSnapshot ?? li?.lineNoSnapshot;
-              const lineNo = lineNoValue != null ? String(lineNoValue) : "";
+      // Get enabled fields in order
+      const enabledFields = INVOICE_PRINT_FIELD_DEFS.filter(f => invoicePrintFields.has(f.key));
 
-              const baseLabel = isCredit
-                ? "ACV holdback (80%)"
-                : `${lineNo}${cat || sel ? ` · ${cat}${sel ? `/${sel}` : ""}` : ""}${task ? ` · ${task}` : ""}`;
+      // Determine if we need to group
+      const shouldGroup = invoicePrintGroupBy !== "none";
 
-              const effectiveTag = getInvoicePetlEffectiveTag(li);
-              const tagLabel = formatBillingTag(effectiveTag);
+      // Build table headers
+      const headerCells = enabledFields.map(f => {
+        const isNumeric = ["percentComplete", "earnedTotal", "prevBilledTotal", "thisInvTotal"].includes(f.key);
+        return `<th${isNumeric ? ' class="num"' : ''}>${htmlEscape(f.label)}</th>`;
+      }).join("");
 
-              const pct = li?.percentCompleteSnapshot != null ? `${Number(li.percentCompleteSnapshot).toFixed(0)}%` : "—";
-              out.push(`
-                <tr>
-                  <td class="indent">${htmlEscape(baseLabel)}${tagLabel ? `<span class="tag">${htmlEscape(tagLabel)}</span>` : ""}</td>
-                  <td class="num">${htmlEscape(pct)}</td>
-                  <td class="num">${htmlEscape(fmtCurrency(li?.earnedTotal ?? 0))}</td>
-                  <td class="num">${htmlEscape(fmtCurrency(li?.prevBilledTotal ?? 0))}</td>
-                  <td class="num">${htmlEscape(fmtCurrency(li?.thisInvTotal ?? 0))}</td>
-                </tr>
-              `);
-            }
+      // Helper to get group key for a line
+      const getLineGroupKey = (li: any): string => {
+        switch (invoicePrintGroupBy) {
+          case "category":
+            return String(li?.categoryCodeSnapshot ?? "(No category)").trim() || "(No category)";
+          case "room":
+            return String(li?.projectParticleLabelSnapshot ?? "(No room)").trim() || "(No room)";
+          case "unit":
+            return String(li?.projectUnitLabelSnapshot ?? "(No unit)").trim() || "(No unit)";
+          case "building":
+            return String(li?.projectBuildingLabelSnapshot ?? "(No building)").trim() || "(No building)";
+          default:
+            return "";
+        }
+      };
 
-            return out;
-          })
-          .join("\n");
+      // Build row HTML for a single line
+      const buildLineRow = (li: any, indent = false): string => {
+        const cells = enabledFields.map(f => {
+          const isNumeric = ["percentComplete", "earnedTotal", "prevBilledTotal", "thisInvTotal"].includes(f.key);
+          const value = getFieldValue(li, f.key);
+          const className = isNumeric ? ' class="num"' : (indent && f.key === enabledFields[0]?.key ? ' class="indent"' : '');
+          return `<td${className}>${htmlEscape(value)}</td>`;
+        }).join("");
+        return `<tr>${cells}</tr>`;
+      };
+
+      if (shouldGroup) {
+        // Group lines
+        const groupedMap = new Map<string, any[]>();
+        for (const li of lines) {
+          const gk = getLineGroupKey(li);
+          const bucket = groupedMap.get(gk) ?? [];
+          bucket.push(li);
+          groupedMap.set(gk, bucket);
+        }
+
+        // Sort groups by first line number in each group
+        const groups = Array.from(groupedMap.entries())
+          .map(([key, groupLines]) => ({
+            key,
+            lines: groupLines.sort((a, b) => Number(a?.lineNoSnapshot ?? 0) - Number(b?.lineNoSnapshot ?? 0)),
+            subtotal: groupLines.reduce((s, l) => s + (Number(l?.thisInvTotal ?? 0) || 0), 0),
+          }))
+          .sort((a, b) => {
+            const aMin = Number(a.lines[0]?.lineNoSnapshot ?? 0);
+            const bMin = Number(b.lines[0]?.lineNoSnapshot ?? 0);
+            return aMin - bMin;
+          });
+
+        const rows = groups.flatMap(g => {
+          const out: string[] = [];
+          // Group header row
+          const colSpan = enabledFields.length - 1;
+          out.push(`
+            <tr class="group-row">
+              <td colspan="${colSpan}">${htmlEscape(g.key)}</td>
+              <td class="num">${htmlEscape(fmtCurrency(g.subtotal))}</td>
+            </tr>
+          `);
+          // Line rows
+          for (const li of g.lines) {
+            out.push(buildLineRow(li, true));
+          }
+          return out;
+        }).join("\n");
 
         return `
-          <h2>Estimate line items (PETL)</h2>
+          <div class="section-header">Estimate Line Items</div>
           <table>
             <thead>
-              <tr>
-                <th>Estimate Line Item</th>
-                <th class="num" style="width: 70px">%</th>
-                <th class="num" style="width: 100px">Earned</th>
-                <th class="num" style="width: 110px">Prev billed</th>
-                <th class="num" style="width: 110px">This (Δ)</th>
-              </tr>
+              <tr>${headerCells}</tr>
             </thead>
             <tbody>
               ${rows}
             </tbody>
             <tfoot>
-              <tr class="total-row">
-                <td colspan="4" class="num">Total PETL (Δ)</td>
+              <tr class="totals-row">
+                <td colspan="${enabledFields.length - 1}">Totals:</td>
                 <td class="num">${htmlEscape(fmtCurrency(totalDelta))}</td>
               </tr>
             </tfoot>
@@ -2184,72 +2598,27 @@ ${htmlBody}
         `;
       }
 
-      const sorted = [...lines].sort((a, b) => {
-        const pa = String(a?.projectTreePathSnapshot ?? "");
-        const pb = String(b?.projectTreePathSnapshot ?? "");
-        if (pa !== pb) return pa.localeCompare(pb);
+      // Flat view
+      const sorted = [...lines].sort((a: any, b: any) => {
         const la = Number(a?.lineNoSnapshot ?? 0);
         const lb = Number(b?.lineNoSnapshot ?? 0);
-        if (la !== lb) return la - lb;
-        const ka = String(a?.kind ?? "");
-        const kb = String(b?.kind ?? "");
-        return ka.localeCompare(kb);
+        return la - lb;
       });
 
-      const rows = sorted
-        .map((li: any) => {
-          const isCredit = String(li?.kind) === "ACV_HOLDBACK_CREDIT";
-          const cat = String(li?.categoryCodeSnapshot ?? "").trim();
-          const sel = String(li?.selectionCodeSnapshot ?? "").trim();
-          const task = String(li?.descriptionSnapshot ?? "").trim();
-          const lineNoValue = li?.sourceLineNoSnapshot ?? li?.lineNoSnapshot;
-          const lineNo = lineNoValue != null ? String(lineNoValue) : "";
-
-          const baseLabel = isCredit
-            ? "ACV holdback (80%)"
-            : `${lineNo}${cat || sel ? ` · ${cat}${sel ? `/${sel}` : ""}` : ""}${task ? ` · ${task}` : ""}`;
-
-          const effectiveTag = getInvoicePetlEffectiveTag(li);
-          const tagLabel = formatBillingTag(effectiveTag);
-
-          const pct = li?.percentCompleteSnapshot != null ? `${Number(li.percentCompleteSnapshot).toFixed(0)}%` : "—";
-
-          return `
-            <tr>
-              <td>${htmlEscape(baseLabel)}${tagLabel ? `<span class="tag">${htmlEscape(tagLabel)}</span>` : ""}</td>
-              <td>${htmlEscape(li?.projectParticleLabelSnapshot ?? "")}</td>
-              <td>${htmlEscape(li?.projectUnitLabelSnapshot ?? "")}</td>
-              <td>${htmlEscape(li?.projectBuildingLabelSnapshot ?? "")}</td>
-              <td class="num">${htmlEscape(pct)}</td>
-              <td class="num">${htmlEscape(fmtCurrency(li?.earnedTotal ?? 0))}</td>
-              <td class="num">${htmlEscape(fmtCurrency(li?.prevBilledTotal ?? 0))}</td>
-              <td class="num">${htmlEscape(fmtCurrency(li?.thisInvTotal ?? 0))}</td>
-            </tr>
-          `;
-        })
-        .join("\n");
+      const rows = sorted.map((li: any) => buildLineRow(li)).join("\n");
 
       return `
-        <h2>Estimate line items (PETL)</h2>
+        <div class="section-header">Estimate Line Items</div>
         <table>
           <thead>
-            <tr>
-              <th>Estimate Line Item</th>
-              <th>Room</th>
-              <th>Unit</th>
-              <th>Building</th>
-              <th class="num" style="width: 70px">%</th>
-              <th class="num" style="width: 100px">Earned</th>
-              <th class="num" style="width: 110px">Prev billed</th>
-              <th class="num" style="width: 110px">This (Δ)</th>
-            </tr>
+            <tr>${headerCells}</tr>
           </thead>
           <tbody>
             ${rows}
           </tbody>
           <tfoot>
-            <tr class="total-row">
-              <td colspan="7" class="num">Total PETL (Δ)</td>
+            <tr class="totals-row">
+              <td colspan="${enabledFields.length - 1}">Totals:</td>
               <td class="num">${htmlEscape(fmtCurrency(totalDelta))}</td>
             </tr>
           </tfoot>
@@ -2257,10 +2626,27 @@ ${htmlBody}
       `;
     })();
 
+    // Memo / Notes section
+    const memoHtml = activeInvoice.memo?.trim()
+      ? `
+        <div class="invoice-notes">
+          <div class="invoice-notes-label">Description of Invoice</div>
+          <div>${htmlEscape(activeInvoice.memo)}</div>
+        </div>
+      `
+      : ``;
+
+    // Footer
+    const footerHtml = `
+      <div class="invoice-footer">
+        Thank you for your business. Payment is due upon receipt unless otherwise specified.
+      </div>
+    `;
+
     // Yield before final print
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const body = `${headerHtml}\n${invoiceLinesHtml}\n${petlHtml}`;
+    const body = `${headerHtml}\n${petlHtml}\n${invoiceLinesHtml}\n${memoHtml}\n${footerHtml}`;
     printHtmlDocument(title, body);
     } finally {
       done();
@@ -2630,18 +3016,9 @@ ${htmlBody}
 
     const groups: Group[] = [];
 
-    const parseUnitNo = (label: string): number | null => {
-      const m = label.match(/^Unit\s*(\d+)/i);
-      if (!m) return null;
-      const n = Number(m[1]);
-      return Number.isFinite(n) ? n : null;
-    };
-
     for (const [groupKey, lines] of byGroup.entries()) {
+      // Sort lines within each group by line number
       const sorted = [...lines].sort((a, b) => {
-        const pa = String(a?.projectTreePathSnapshot ?? "");
-        const pb = String(b?.projectTreePathSnapshot ?? "");
-        if (pa !== pb) return pa.localeCompare(pb);
         const la = Number(a?.lineNoSnapshot ?? 0);
         const lb = Number(b?.lineNoSnapshot ?? 0);
         if (la !== lb) return la - lb;
@@ -2652,19 +3029,17 @@ ${htmlBody}
 
       const subtotal = sorted.reduce((sum, x) => sum + (Number(x?.thisInvTotal ?? 0) || 0), 0);
 
-      groups.push({ groupKey, groupLabel: groupKey, lines: sorted, subtotal });
+      // Track the minimum line number in this group for sorting groups
+      const minLineNo = sorted.length > 0 ? Number(sorted[0]?.lineNoSnapshot ?? 0) : 0;
+
+      groups.push({ groupKey, groupLabel: groupKey, lines: sorted, subtotal, minLineNo } as any);
     }
 
+    // Sort groups by their minimum line number so they appear in estimate order
     groups.sort((a, b) => {
-      const au = parseUnitNo(a.groupLabel);
-      const bu = parseUnitNo(b.groupLabel);
-      const aIsUnit = au != null;
-      const bIsUnit = bu != null;
-      // Put non-unit groups (e.g. ELECTRI) before unit groups.
-      if (aIsUnit !== bIsUnit) return aIsUnit ? 1 : -1;
-      // Unit groups sort numerically.
-      if (aIsUnit && bIsUnit) return (au ?? 0) - (bu ?? 0);
-      return a.groupLabel.localeCompare(b.groupLabel);
+      const aMin = (a as any).minLineNo ?? 0;
+      const bMin = (b as any).minLineNo ?? 0;
+      return aMin - bMin;
     });
 
     return groups;
@@ -3571,8 +3946,8 @@ ${htmlBody}
 
     for (const item of petlItems) {
       const amt = item.rcvAmount ?? item.itemAmount ?? 0;
-      const basePct = item.percentComplete ?? 0;
-      const pct = item.isAcvOnly ? 0 : basePct;
+      // ACV items still count toward progress - ACV affects payer type, not work completion.
+      const pct = item.percentComplete ?? 0;
       count += 1;
       total += amt;
       completed += amt * (pct / 100);
@@ -3699,6 +4074,7 @@ ${htmlBody}
 
 
   const petlFlatItems = useMemo(() => {
+    console.time('[PERF] petlFlatItems filter+sort');
     const filtered = petlItems.filter((it) => {
       if (!matchesFilters(it)) return false;
       if (petlDisplayMode === "RECONCILIATION_ONLY") {
@@ -3708,6 +4084,8 @@ ${htmlBody}
     });
 
     filtered.sort((a, b) => a.lineNo - b.lineNo);
+    console.timeEnd('[PERF] petlFlatItems filter+sort');
+    console.log('[PERF] petlFlatItems count:', filtered.length, 'of', petlItems.length);
     return filtered;
   }, [
     petlItems,
@@ -3739,27 +4117,30 @@ ${htmlBody}
     petlToastTimeoutRef.current = setTimeout(() => setPetlToast(null), durationMs);
   }, []);
 
-  const openPetlCellEditor = (
-    sowItemId: string,
-    field: "qty" | "unit" | "rcvAmount" | "categoryCode" | "selectionCode",
-    current: any,
-  ) => {
-    if (!isPmOrAbove) return;
-    let draft = "";
-    if (current !== null && current !== undefined) {
-      draft = String(current);
-    }
-    setPetlEditingCell({ sowItemId, field });
-    setPetlEditDraft(draft);
-  };
+  const openPetlCellEditor = useCallback(
+    (
+      sowItemId: string,
+      field: "qty" | "unit" | "rcvAmount" | "categoryCode" | "selectionCode",
+      current: any,
+    ) => {
+      if (!isPmOrAbove) return;
+      let draft = "";
+      if (current !== null && current !== undefined) {
+        draft = String(current);
+      }
+      setPetlEditingCell({ sowItemId, field });
+      setPetlEditDraft(draft);
+    },
+    [isPmOrAbove],
+  );
 
-  const cancelPetlCellEditor = () => {
+  const cancelPetlCellEditor = useCallback(() => {
     if (petlEditSaving) return;
     setPetlEditingCell(null);
     setPetlEditDraft("");
-  };
+  }, [petlEditSaving]);
 
-  const savePetlInlineEdit = async () => {
+  const savePetlInlineEdit = useCallback(async () => {
     if (!petlEditingCell) return;
     const token = localStorage.getItem("accessToken");
     if (!token) {
@@ -3846,7 +4227,7 @@ ${htmlBody}
       // Keep server-side summaries in sync after edits that affect dollars.
       setPetlReloadTick((t) => t + 1);
     }
-  };
+  }, [petlEditingCell, petlEditDraft, busyOverlay, id, cancelPetlCellEditor]);
 
   const petlFlatListRef = useRef<HTMLDivElement | null>(null);
 
@@ -6245,13 +6626,19 @@ ${htmlBody}
     };
   }, [project, roomParticleIdFilters, categoryCodeFilters, selectionCodeFilters, petlItems]);
 
-  // Lazy-load financial summary only when Financial tab is opened
+  // Increment visit tick when entering Financial tab to trigger a fresh fetch
+  useEffect(() => {
+    if (activeTab === "FINANCIAL") {
+      setFinancialTabVisitTick((t) => t + 1);
+    }
+  }, [activeTab]);
+
+  // Fetch financial summary whenever we enter the Financial tab
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
     if (!token || !project) return;
     if (activeTab !== "FINANCIAL") return;
-    // Only load once per project/tab while there is no summary yet
-    if (financialSummary) return;
+    if (financialTabVisitTick === 0) return; // Skip initial mount
 
     let cancelled = false;
 
@@ -6293,7 +6680,7 @@ ${htmlBody}
     return () => {
       cancelled = true;
     };
-  }, [activeTab, project, financialSummary]);
+  }, [activeTab, project, financialTabVisitTick]);
 
   // Lazy-load PETL archives when Financial tab is opened (Admin/Owner)
   useEffect(() => {
@@ -6749,19 +7136,143 @@ ${htmlBody}
     void deletePetlLineItem(item);
   }, [deletePetlLineItem]);
 
+  // Track container height in state to avoid layout thrashing during render
+  const [petlContainerHeight, setPetlContainerHeight] = useState(600);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const updateHeight = () => {
+      setPetlContainerHeight(Math.max(400, window.innerHeight - 320));
+    };
+    updateHeight();
+    window.addEventListener("resize", updateHeight);
+    return () => window.removeEventListener("resize", updateHeight);
+  }, []);
+
+  // Memoized percent change handler for virtualized table
+  const handleVirtualPercentChange = useCallback(
+    async (sowItemId: string, displayLineNo: number, newPercent: number, isAcvOnly: boolean) => {
+      console.time('[PERF] handleVirtualPercentChange');
+      const token = localStorage.getItem("accessToken");
+      if (!token) {
+        alert("Missing access token; please log in again.");
+        return;
+      }
+
+      await busyOverlay.run(`Updating line #${displayLineNo}…`, async () => {
+        try {
+          // Optimistic update
+          setPetlItems((prev) =>
+            prev.map((it) =>
+              it.id === sowItemId
+                ? { ...it, percentComplete: newPercent, isAcvOnly }
+                : it,
+            ),
+          );
+
+          const res = await fetch(
+            `${API_BASE}/projects/${id}/petl/${sowItemId}/percent`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                newPercent,
+                acvOnly: isAcvOnly,
+              }),
+            },
+          );
+
+          if (!res.ok) {
+            console.error("Per-line update failed", res.status);
+            showPetlToast(`Failed to save line #${displayLineNo}`);
+            return;
+          }
+
+          showPetlToast(
+            isAcvOnly
+              ? `Line #${displayLineNo} set to ACV only`
+              : `Line #${displayLineNo} set to ${newPercent}%`
+          );
+
+          // Refresh PETL from server
+          try {
+            const petlRes = await fetch(`${API_BASE}/projects/${id}/petl`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (petlRes.ok) {
+              const petl: any = await petlRes.json();
+              const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
+              setPetlItems(items);
+            }
+          } catch {
+            // non-fatal
+          }
+
+          // Refresh groups
+          try {
+            setGroupLoading(true);
+            const groupsRes = await fetch(`${API_BASE}/projects/${id}/petl-groups`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (groupsRes.ok) {
+              const json: any = await groupsRes.json();
+              setGroups(Array.isArray(json.groups) ? json.groups : []);
+              setUnitGroups(Array.isArray(json.unitGroups) ? json.unitGroups : []);
+            }
+          } catch {
+            // non-fatal
+          } finally {
+            setGroupLoading(false);
+          }
+
+          // Refresh the active invoice so Living Invoice reflects PETL changes
+          if (activeInvoice?.id) {
+            try {
+              const invRes = await fetch(
+                `${API_BASE}/projects/${id}/invoices/${activeInvoice.id}`,
+                { headers: { Authorization: `Bearer ${token}` } },
+              );
+              if (invRes.ok) {
+                const invJson = await invRes.json();
+                setActiveInvoice(invJson);
+              }
+            } catch {
+              // non-fatal
+            }
+          }
+          // Also refresh the invoice list to update totals
+          setProjectInvoices(null);
+        } catch (err) {
+          console.error(err);
+        }
+        console.timeEnd('[PERF] handleVirtualPercentChange');
+      });
+    },
+    [id, busyOverlay, showPetlToast, activeInvoice?.id],
+  );
+
   const petlLineSequenceTable = useMemo(() => {
+    console.time('[PERF] petlLineSequenceTable useMemo');
     // Critical: don't even *build* the large JSX tree unless the PETL tab content is mounted.
     // (PETL data may load while on SUMMARY for the progress summary.)
-    if (activeTab !== "PETL") return null;
+    if (activeTab !== "PETL") {
+      console.timeEnd('[PERF] petlLineSequenceTable useMemo');
+      return null;
+    }
 
     const shouldShow =
       (petlDisplayMode === "LINE_SEQUENCE" || petlDisplayMode === "RECONCILIATION_ONLY") &&
       !petlLoading &&
       petlItems.length > 0;
 
-    if (!shouldShow) return null;
+    if (!shouldShow) {
+      console.timeEnd('[PERF] petlLineSequenceTable useMemo');
+      return null;
+    }
 
-    return (
+    const result = (
       <div style={{ marginTop: 16 }}>
         <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
           {petlDisplayMode === "RECONCILIATION_ONLY"
@@ -6872,7 +7383,7 @@ ${htmlBody}
             editingCell={petlEditingCell}
             editDraft={petlEditDraft}
             editSaving={petlEditSaving}
-            containerHeight={Math.max(400, typeof window !== 'undefined' && window.innerHeight ? window.innerHeight - 320 : 600)}
+            containerHeight={petlContainerHeight}
             onToggleExpand={handleVirtualToggleExpand}
             onToggleFlag={handleVirtualToggleFlag}
             onOpenReconciliation={handleVirtualOpenReconciliation}
@@ -6881,86 +7392,7 @@ ${htmlBody}
             onEditDraftChange={setPetlEditDraft}
             onSaveEdit={savePetlInlineEdit}
             onCancelEdit={cancelPetlCellEditor}
-            onPercentChange={async (sowItemId, displayLineNo, newPercent, isAcvOnly) => {
-              const token = localStorage.getItem("accessToken");
-              if (!token) {
-                alert("Missing access token; please log in again.");
-                return;
-              }
-
-              await busyOverlay.run(`Updating line #${displayLineNo}…`, async () => {
-                try {
-                  // Optimistic update
-                  setPetlItems((prev) =>
-                    prev.map((it) =>
-                      it.id === sowItemId
-                        ? { ...it, percentComplete: newPercent, isAcvOnly }
-                        : it,
-                    ),
-                  );
-
-                  const res = await fetch(
-                    `${API_BASE}/projects/${id}/petl/${sowItemId}/percent`,
-                    {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${token}`,
-                      },
-                      body: JSON.stringify({
-                        newPercent,
-                        acvOnly: isAcvOnly,
-                      }),
-                    },
-                  );
-
-                  if (!res.ok) {
-                    console.error("Per-line update failed", res.status);
-                    showPetlToast(`Failed to save line #${displayLineNo}`);
-                    return;
-                  }
-
-                  showPetlToast(
-                    isAcvOnly
-                      ? `Line #${displayLineNo} set to ACV only`
-                      : `Line #${displayLineNo} set to ${newPercent}%`
-                  );
-
-                  // Refresh PETL from server
-                  try {
-                    const petlRes = await fetch(`${API_BASE}/projects/${id}/petl`, {
-                      headers: { Authorization: `Bearer ${token}` },
-                    });
-                    if (petlRes.ok) {
-                      const petl: any = await petlRes.json();
-                      const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
-                      setPetlItems(items);
-                    }
-                  } catch {
-                    // non-fatal
-                  }
-
-                  // Refresh groups
-                  try {
-                    setGroupLoading(true);
-                    const groupsRes = await fetch(`${API_BASE}/projects/${id}/petl-groups`, {
-                      headers: { Authorization: `Bearer ${token}` },
-                    });
-                    if (groupsRes.ok) {
-                      const json: any = await groupsRes.json();
-                      setGroups(Array.isArray(json.groups) ? json.groups : []);
-                      setUnitGroups(Array.isArray(json.unitGroups) ? json.unitGroups : []);
-                    }
-                  } catch {
-                    // non-fatal
-                  } finally {
-                    setGroupLoading(false);
-                  }
-                } catch (err) {
-                  console.error(err);
-                }
-              });
-            }}
+            onPercentChange={handleVirtualPercentChange}
           />
         ) : (
         <div
@@ -7914,6 +8346,8 @@ ${htmlBody}
         )}
       </div>
     );
+    console.timeEnd('[PERF] petlLineSequenceTable useMemo');
+    return result;
   }, [
     activeTab,
     id,
@@ -7938,6 +8372,8 @@ ${htmlBody}
     openPetlCellEditor,
     savePetlInlineEdit,
     cancelPetlCellEditor,
+    handleVirtualPercentChange,
+    petlContainerHeight,
   ]);
 
   const submitReconCredit = async () => {
@@ -13307,201 +13743,697 @@ ${htmlBody}
         </div>
       )}
 
-      {invoicePrintDialogOpen && (
-                    <div
-                      className="no-print"
-                      style={{
-                        position: "fixed",
-                        inset: 0,
-                        zIndex: 80,
-                        background: "rgba(15,23,42,0.45)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: 12,
-                      }}
-                      onClick={() => setInvoicePrintDialogOpen(false)}
-                    >
-                      <div
-                        style={{
-                          width: 560,
-                          maxWidth: "96vw",
-                          maxHeight: "90vh",
-                          overflow: "auto",
-                          background: "#ffffff",
-                          borderRadius: 10,
-                          border: "1px solid #e5e7eb",
-                          boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div
+      {invoicePrintDialogOpen && (() => {
+        // Compute preview data
+        const previewLines = (activeInvoicePetlLines as any[]).filter((li: any) => {
+          const lineId = String(li?.id ?? "");
+          return !invoicePrintExcludedLines.has(lineId);
+        });
+        const previewTotal = previewLines.reduce((sum: number, li: any) => sum + (Number(li?.thisInvTotal ?? 0) || 0), 0);
+        const enabledFieldsPreview = INVOICE_PRINT_FIELD_DEFS.filter(f => invoicePrintFields.has(f.key));
+
+        // Helper to get field value for preview
+        const getPreviewFieldValue = (li: any, fieldKey: string): string => {
+          switch (fieldKey) {
+            case "lineNo": return String(li?.sourceLineNoSnapshot ?? li?.lineNoSnapshot ?? "");
+            case "categoryCode": return String(li?.categoryCodeSnapshot ?? "");
+            case "selectionCode": return String(li?.selectionCodeSnapshot ?? "");
+            case "description": return String(li?.descriptionSnapshot ?? "");
+            case "room": return String(li?.projectParticleLabelSnapshot ?? "");
+            case "unit": return String(li?.projectUnitLabelSnapshot ?? "");
+            case "building": return String(li?.projectBuildingLabelSnapshot ?? "");
+            case "percentComplete": return li?.percentCompleteSnapshot != null ? `${Number(li.percentCompleteSnapshot).toFixed(0)}%` : "";
+            case "earnedTotal": return fmtCurrency(li?.earnedTotal ?? 0);
+            case "prevBilledTotal": return fmtCurrency(li?.prevBilledTotal ?? 0);
+            case "thisInvTotal": return fmtCurrency(li?.thisInvTotal ?? 0);
+            case "billingTag": return formatBillingTag(getInvoicePetlEffectiveTag(li));
+            default: return "";
+          }
+        };
+
+        // Group preview lines if needed
+        const getPreviewGroupKey = (li: any): string => {
+          switch (invoicePrintGroupBy) {
+            case "category": return String(li?.categoryCodeSnapshot ?? "(No category)").trim() || "(No category)";
+            case "room": return String(li?.projectParticleLabelSnapshot ?? "(No room)").trim() || "(No room)";
+            case "unit": return String(li?.projectUnitLabelSnapshot ?? "(No unit)").trim() || "(No unit)";
+            case "building": return String(li?.projectBuildingLabelSnapshot ?? "(No building)").trim() || "(No building)";
+            default: return "";
+          }
+        };
+
+        const previewGrouped = invoicePrintGroupBy !== "none" ? (() => {
+          const map = new Map<string, any[]>();
+          for (const li of previewLines) {
+            const gk = getPreviewGroupKey(li);
+            const bucket = map.get(gk) ?? [];
+            bucket.push(li);
+            map.set(gk, bucket);
+          }
+          return Array.from(map.entries())
+            .map(([key, lines]) => ({
+              key,
+              lines: lines.sort((a, b) => Number(a?.lineNoSnapshot ?? 0) - Number(b?.lineNoSnapshot ?? 0)),
+              subtotal: lines.reduce((s, l) => s + (Number(l?.thisInvTotal ?? 0) || 0), 0),
+            }))
+            .sort((a, b) => Number(a.lines[0]?.lineNoSnapshot ?? 0) - Number(b.lines[0]?.lineNoSnapshot ?? 0));
+        })() : null;
+
+        return (
+        <div
+          className="no-print"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 80,
+            background: "rgba(15,23,42,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 12,
+          }}
+          onClick={() => setInvoicePrintDialogOpen(false)}
+        >
+          <div
+            style={{
+              width: 1400,
+              maxWidth: "98vw",
+              height: "92vh",
+              display: "flex",
+              flexDirection: "column",
+              background: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div
+              style={{
+                padding: "10px 16px",
+                borderBottom: "1px solid #e5e7eb",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: 14,
+                fontWeight: 600,
+                background: "#f3f4f6",
+                flexShrink: 0,
+              }}
+            >
+              <div>
+                Customize Invoice Print
+                <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>
+                  Select fields, exclude lines, and configure grouping. Preview updates live.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInvoicePrintDialogOpen(false)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: 20,
+                  lineHeight: 1,
+                  padding: 4,
+                }}
+                aria-label="Close print dialog"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Main content: Settings at top, Preview below */}
+            <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
+              {/* Top: Settings Panel */}
+              <div
+                style={{
+                  flexShrink: 0,
+                  borderBottom: "1px solid #e5e7eb",
+                  padding: "12px 20px",
+                  background: "#fafafa",
+                }}
+              >
+                {/* Settings row - all controls inline */}
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 24, flexWrap: "wrap" }}>
+                  {/* Field Selection */}
+                  <div style={{ flex: "1 1 auto", minWidth: 300 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                      Columns
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {INVOICE_PRINT_FIELD_DEFS.map((field) => (
+                        <label
+                          key={field.key}
                           style={{
-                            padding: "10px 12px",
-                            borderBottom: "1px solid #e5e7eb",
                             display: "flex",
+                            gap: 4,
                             alignItems: "center",
-                            justifyContent: "space-between",
-                            fontSize: 13,
-                            fontWeight: 600,
-                            background: "#f3f4f6",
+                            fontSize: 11,
+                            padding: "4px 8px",
+                            borderRadius: 4,
+                            background: invoicePrintFields.has(field.key) ? "#dbeafe" : "#ffffff",
+                            border: `1px solid ${invoicePrintFields.has(field.key) ? "#3b82f6" : "#d1d5db"}`,
+                            cursor: "pointer",
+                            userSelect: "none",
                           }}
                         >
-                          <div>
-                            Print invoice
-                            <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>
-                              Configure layout for printing / PDF export.
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setInvoicePrintDialogOpen(false)}
-                            style={{
-                              border: "none",
-                              background: "transparent",
-                              cursor: "pointer",
-                              fontSize: 18,
-                              lineHeight: 1,
-                            }}
-                            aria-label="Close print dialog"
-                          >
-                            ×
-                          </button>
-                        </div>
+                          <input
+                            type="checkbox"
+                            checked={invoicePrintFields.has(field.key)}
+                            onChange={() => togglePrintField(field.key)}
+                            style={{ margin: 0, width: 12, height: 12 }}
+                          />
+                          {field.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
 
-                        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
-                          <div style={{ fontSize: 12, color: "#374151" }}>
-                            This will print the <strong>currently open invoice</strong>. For best results,
-                            use “Save as PDF” in your browser’s print dialog.
-                          </div>
+                  {/* Grouping */}
+                  <div style={{ flexShrink: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                      Group By
+                    </div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      {[
+                        { value: "none", label: "None" },
+                        { value: "category", label: "Task" },
+                        { value: "room", label: "Room" },
+                        { value: "unit", label: "Unit" },
+                        { value: "building", label: "Bldg" },
+                      ].map((opt) => (
+                        <label
+                          key={opt.value}
+                          style={{
+                            display: "flex",
+                            gap: 4,
+                            alignItems: "center",
+                            fontSize: 11,
+                            padding: "4px 8px",
+                            borderRadius: 4,
+                            background: invoicePrintGroupBy === opt.value ? "#dbeafe" : "#ffffff",
+                            border: `1px solid ${invoicePrintGroupBy === opt.value ? "#3b82f6" : "#d1d5db"}`,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <input
+                            type="radio"
+                            name="invoicePrintGroupBy"
+                            value={opt.value}
+                            checked={invoicePrintGroupBy === opt.value}
+                            onChange={() => setInvoicePrintGroupBy(opt.value as any)}
+                            style={{ margin: 0, width: 12, height: 12 }}
+                          />
+                          {opt.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
 
-                          <div>
-                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Layout</div>
-                            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
-                                <input
-                                  type="radio"
-                                  name="invoicePrintLayout"
-                                  value="KEEP"
-                                  checked={invoicePrintLayout === "KEEP"}
-                                  onChange={() => setInvoicePrintLayout("KEEP")}
-                                />
-                                Keep current
-                              </label>
-                              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
-                                <input
-                                  type="radio"
-                                  name="invoicePrintLayout"
-                                  value="GROUPED"
-                                  checked={invoicePrintLayout === "GROUPED"}
-                                  onChange={() => setInvoicePrintLayout("GROUPED")}
-                                />
-                                Grouped
-                              </label>
-                              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
-                                <input
-                                  type="radio"
-                                  name="invoicePrintLayout"
-                                  value="FLAT"
-                                  checked={invoicePrintLayout === "FLAT"}
-                                  onChange={() => setInvoicePrintLayout("FLAT")}
-                                />
-                                Flat list
-                              </label>
-                            </div>
-                          </div>
+                  {/* Line Item Exclusion + Actions */}
+                  <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-end", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setInvoiceLineExclusionModalOpen(true)}
+                      style={{
+                        padding: "6px 12px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        background: "#ffffff",
+                        cursor: "pointer",
+                        fontSize: 11,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        marginTop: 20,
+                      }}
+                    >
+                      Exclude line item/s
+                      {invoicePrintExcludedLines.size > 0 && (
+                        <span
+                          style={{
+                            background: "#ef4444",
+                            color: "#ffffff",
+                            padding: "1px 5px",
+                            borderRadius: 8,
+                            fontSize: 10,
+                            fontWeight: 600,
+                          }}
+                        >
+                          {invoicePrintExcludedLines.size}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInvoicePrintFields(DEFAULT_PRINT_FIELDS);
+                        setInvoicePrintGroupBy("none");
+                        setInvoicePrintExcludedLines(new Set());
+                      }}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        background: "#ffffff",
+                        cursor: "pointer",
+                        fontSize: 11,
+                        color: "#6b7280",
+                        marginTop: 20,
+                      }}
+                    >
+                      Reset
+                    </button>
+                    <button
+                      type="button"
+                      disabled={invoicePrintBusy || invoicePrintFields.size === 0}
+                      onClick={() => {
+                        if (!activeInvoice) return;
+                        if (invoicePrintFields.size === 0) return;
 
-                          <div>
-                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
-                              Group expansion
-                            </div>
-                            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
-                                <input
-                                  type="radio"
-                                  name="invoicePrintGroups"
-                                  value="KEEP"
-                                  checked={invoicePrintGroups === "KEEP"}
-                                  onChange={() => setInvoicePrintGroups("KEEP")}
-                                />
-                                Keep current
-                              </label>
-                              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
-                                <input
-                                  type="radio"
-                                  name="invoicePrintGroups"
-                                  value="COLLAPSE_ALL"
-                                  checked={invoicePrintGroups === "COLLAPSE_ALL"}
-                                  onChange={() => setInvoicePrintGroups("COLLAPSE_ALL")}
-                                />
-                                Collapse all
-                              </label>
-                              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
-                                <input
-                                  type="radio"
-                                  name="invoicePrintGroups"
-                                  value="EXPAND_ALL"
-                                  checked={invoicePrintGroups === "EXPAND_ALL"}
-                                  onChange={() => setInvoicePrintGroups("EXPAND_ALL")}
-                                />
-                                Expand all
-                              </label>
-                            </div>
-                            <div style={{ marginTop: 6, fontSize: 11, color: "#6b7280" }}>
-                              Tip: choose “Keep current” to expand only some groups, then print.
-                            </div>
-                          </div>
+                        setInvoicePrintBusy(true);
+                        try {
+                          printActiveInvoiceAsHtml({
+                            layout: invoicePrintGroupBy === "none" ? "FLAT" : "GROUPED",
+                            groups: "EXPAND_ALL",
+                          });
+                          setInvoicePrintDialogOpen(false);
+                        } finally {
+                          window.setTimeout(() => setInvoicePrintBusy(false), 300);
+                        }
+                      }}
+                      style={{
+                        padding: "6px 16px",
+                        borderRadius: 4,
+                        border: "1px solid #0f172a",
+                        background: invoicePrintBusy || invoicePrintFields.size === 0 ? "#e5e7eb" : "#0f172a",
+                        color: invoicePrintBusy || invoicePrintFields.size === 0 ? "#4b5563" : "#f9fafb",
+                        cursor: invoicePrintBusy || invoicePrintFields.size === 0 ? "default" : "pointer",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        marginTop: 20,
+                      }}
+                    >
+                      {invoicePrintBusy ? "Preparing…" : "Print / Save PDF"}
+                    </button>
+                  </div>
+                </div>
+              </div>
 
-                          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                            <button
-                              type="button"
-                              onClick={() => setInvoicePrintDialogOpen(false)}
+              {/* Bottom: Invoice Preview */}
+              <div
+                style={{
+                  flex: 1,
+                  overflow: "auto",
+                  background: "#f1f5f9",
+                  padding: 20,
+                }}
+              >
+                <div
+                  style={{
+                    background: "#ffffff",
+                    borderRadius: 8,
+                    boxShadow: "0 2px 12px rgba(0,0,0,0.08)",
+                    padding: 24,
+                    minHeight: "100%",
+                  }}
+                >
+                  {/* Preview Header */}
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20, paddingBottom: 16, borderBottom: "2px solid #e5e7eb" }}>
+                    <div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: "#1f2937" }}>INVOICE</div>
+                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>#{activeInvoice?.invoiceNumber ?? "—"}</div>
+                    </div>
+                    <div style={{ textAlign: "right", fontSize: 12, color: "#4b5563" }}>
+                      <div style={{ fontWeight: 600 }}>{project?.company?.name || "Your Company"}</div>
+                      <div style={{ color: "#6b7280" }}>{new Date().toLocaleDateString()}</div>
+                    </div>
+                  </div>
+
+                  {/* Preview summary */}
+                  <div style={{ marginBottom: 16, fontSize: 12, color: "#6b7280" }}>
+                    {previewLines.length} line{previewLines.length !== 1 ? "s" : ""} · {enabledFieldsPreview.length} column{enabledFieldsPreview.length !== 1 ? "s" : ""}
+                    {invoicePrintGroupBy !== "none" && ` · Grouped by ${invoicePrintGroupBy}`}
+                  </div>
+
+                  {/* Preview Table */}
+                  {enabledFieldsPreview.length === 0 ? (
+                    <div style={{ textAlign: "center", color: "#9ca3af", padding: 40 }}>
+                      Select at least one column to preview
+                    </div>
+                  ) : previewLines.length === 0 ? (
+                    <div style={{ textAlign: "center", color: "#9ca3af", padding: 40 }}>
+                      No lines included in invoice
+                    </div>
+                  ) : (
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ background: "#f9fafb" }}>
+                          {enabledFieldsPreview.map((f) => (
+                            <th
+                              key={f.key}
                               style={{
-                                padding: "6px 10px",
-                                borderRadius: 8,
-                                border: "1px solid #d1d5db",
-                                background: "#ffffff",
-                                cursor: "pointer",
-                                fontSize: 12,
+                                padding: "8px 10px",
+                                textAlign: ["earnedTotal", "prevBilledTotal", "thisInvTotal", "percentComplete"].includes(f.key) ? "right" : "left",
+                                borderBottom: "2px solid #e5e7eb",
+                                fontWeight: 600,
+                                fontSize: 11,
+                                color: "#374151",
                               }}
                             >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              disabled={invoicePrintBusy}
-                              onClick={() => {
-                                if (!activeInvoice) return;
+                              {f.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewGrouped ? (
+                          // Grouped view
+                          previewGrouped.map((group) => (
+                            <React.Fragment key={group.key}>
+                              {/* Group header row */}
+                              <tr style={{ background: "#eef2ff" }}>
+                                <td
+                                  colSpan={enabledFieldsPreview.length}
+                                  style={{
+                                    padding: "8px 10px",
+                                    fontWeight: 600,
+                                    fontSize: 12,
+                                    color: "#1f2937",
+                                    borderBottom: "1px solid #c7d2fe",
+                                  }}
+                                >
+                                  {group.key}
+                                </td>
+                              </tr>
+                              {/* Group lines - show all */}
+                              {group.lines.map((li: any, idx: number) => (
+                                <tr key={li?.id ?? idx}>
+                                  {enabledFieldsPreview.map((f) => (
+                                    <td
+                                      key={f.key}
+                                      style={{
+                                        padding: "6px 10px",
+                                        textAlign: ["earnedTotal", "prevBilledTotal", "thisInvTotal", "percentComplete"].includes(f.key) ? "right" : "left",
+                                        borderBottom: "1px solid #f3f4f6",
+                                        maxWidth: f.key === "description" ? 280 : undefined,
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      {getPreviewFieldValue(li, f.key)}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                              {/* Group subtotal */}
+                              <tr style={{ background: "#f8fafc" }}>
+                                <td
+                                  colSpan={enabledFieldsPreview.length - 1}
+                                  style={{ padding: "6px 10px", textAlign: "right", fontWeight: 500, borderBottom: "1px solid #e5e7eb", fontSize: 11 }}
+                                >
+                                  Subtotal:
+                                </td>
+                                <td
+                                  style={{ padding: "6px 10px", textAlign: "right", fontWeight: 600, borderBottom: "1px solid #e5e7eb" }}
+                                >
+                                  {fmtCurrency(group.subtotal)}
+                                </td>
+                              </tr>
+                            </React.Fragment>
+                          ))
+                        ) : (
+                          // Flat view - show all lines
+                          previewLines.map((li: any, idx: number) => (
+                            <tr key={li?.id ?? idx} style={{ background: idx % 2 === 1 ? "#fafafa" : "transparent" }}>
+                              {enabledFieldsPreview.map((f) => (
+                                <td
+                                  key={f.key}
+                                  style={{
+                                    padding: "6px 10px",
+                                    textAlign: ["earnedTotal", "prevBilledTotal", "thisInvTotal", "percentComplete"].includes(f.key) ? "right" : "left",
+                                    borderBottom: "1px solid #f3f4f6",
+                                    maxWidth: f.key === "description" ? 280 : undefined,
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {getPreviewFieldValue(li, f.key)}
+                                </td>
+                              ))}
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  )}
 
-                                setInvoicePrintBusy(true);
-                                try {
-                                  // Print a clean HTML document (PDF-friendly) based on the current screen layout.
-                                  printActiveInvoiceAsHtml({
-                                    layout: invoicePrintLayout,
-                                    groups: invoicePrintGroups,
-                                  });
-                                  setInvoicePrintDialogOpen(false);
-                                } finally {
-                                  window.setTimeout(() => setInvoicePrintBusy(false), 300);
-                                }
-                              }}
-                              style={{
-                                padding: "6px 10px",
-                                borderRadius: 8,
-                                border: "1px solid #0f172a",
-                                background: invoicePrintBusy ? "#e5e7eb" : "#0f172a",
-                                color: invoicePrintBusy ? "#4b5563" : "#f9fafb",
-                                cursor: invoicePrintBusy ? "default" : "pointer",
-                                fontSize: 12,
-                              }}
-                            >
-                              {invoicePrintBusy ? "Preparing…" : "Print / Save PDF"}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                  {/* Preview total */}
+                  {previewLines.length > 0 && enabledFieldsPreview.length > 0 && (
+                    <div
+                      style={{
+                        marginTop: 12,
+                        paddingTop: 10,
+                        borderTop: "2px solid #1f2937",
+                        display: "flex",
+                        justifyContent: "flex-end",
+                        gap: 16,
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: 12 }}>Total:</span>
+                      <span style={{ fontWeight: 700, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
+                        {fmtCurrency(previewTotal)}
+                      </span>
                     </div>
                   )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* Line Exclusion Modal */}
+      {invoiceLineExclusionModalOpen && (
+        <div
+          className="no-print"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 90,
+            background: "rgba(15,23,42,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 12,
+          }}
+          onClick={() => setInvoiceLineExclusionModalOpen(false)}
+        >
+          <div
+            style={{
+              width: 600,
+              maxWidth: "95vw",
+              maxHeight: "80vh",
+              display: "flex",
+              flexDirection: "column",
+              background: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div
+              style={{
+                padding: "12px 16px",
+                borderBottom: "1px solid #e5e7eb",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: 14,
+                fontWeight: 600,
+                background: "#f3f4f6",
+                flexShrink: 0,
+              }}
+            >
+              <div>
+                Exclude Line Items
+                <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>
+                  Uncheck lines to exclude them from the printed invoice.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInvoiceLineExclusionModalOpen(false)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: 20,
+                  lineHeight: 1,
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Quick actions */}
+            <div
+              style={{
+                padding: "8px 16px",
+                borderBottom: "1px solid #f3f4f6",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                background: "#fafafa",
+              }}
+            >
+              <div style={{ fontSize: 12, color: "#4b5563" }}>
+                {(activeInvoicePetlLines as any[]).length - invoicePrintExcludedLines.size} of {(activeInvoicePetlLines as any[]).length} lines included
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setAllLinesIncluded(true)}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    fontSize: 11,
+                    cursor: "pointer",
+                  }}
+                >
+                  Include All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAllLinesIncluded(false)}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    fontSize: 11,
+                    cursor: "pointer",
+                  }}
+                >
+                  Exclude All
+                </button>
+              </div>
+            </div>
+
+            {/* Line list */}
+            <div style={{ flex: 1, overflow: "auto", padding: "0" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: "#f9fafb", position: "sticky", top: 0 }}>
+                    <th style={{ padding: "8px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 40 }}>✓</th>
+                    <th style={{ padding: "8px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 50 }}>#</th>
+                    <th style={{ padding: "8px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>Task / Description</th>
+                    <th style={{ padding: "8px 12px", textAlign: "right", borderBottom: "1px solid #e5e7eb", width: 100 }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(activeInvoicePetlLines as any[]).map((li: any) => {
+                    const lineId = String(li?.id ?? "");
+                    const isExcluded = invoicePrintExcludedLines.has(lineId);
+                    const lineNo = li?.sourceLineNoSnapshot ?? li?.lineNoSnapshot ?? "";
+                    const cat = li?.categoryCodeSnapshot ?? "";
+                    const desc = li?.descriptionSnapshot ?? "";
+                    const amt = li?.thisInvTotal ?? 0;
+                    const label = [cat, desc].filter(Boolean).join(" · ") || "Line item";
+
+                    return (
+                      <tr
+                        key={lineId}
+                        style={{
+                          background: isExcluded ? "#fef2f2" : "transparent",
+                          opacity: isExcluded ? 0.6 : 1,
+                          cursor: "pointer",
+                        }}
+                        onClick={() => togglePrintLineExclusion(lineId)}
+                      >
+                        <td style={{ padding: "6px 12px", borderBottom: "1px solid #f3f4f6" }}>
+                          <input
+                            type="checkbox"
+                            checked={!isExcluded}
+                            onChange={() => togglePrintLineExclusion(lineId)}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ margin: 0, cursor: "pointer" }}
+                          />
+                        </td>
+                        <td style={{ padding: "6px 12px", borderBottom: "1px solid #f3f4f6", color: "#6b7280" }}>
+                          {lineNo}
+                        </td>
+                        <td
+                          style={{
+                            padding: "6px 12px",
+                            borderBottom: "1px solid #f3f4f6",
+                            maxWidth: 300,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={label}
+                        >
+                          {label}
+                        </td>
+                        <td
+                          style={{
+                            padding: "6px 12px",
+                            borderBottom: "1px solid #f3f4f6",
+                            textAlign: "right",
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {fmtCurrency(amt)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer */}
+            <div
+              style={{
+                padding: "12px 16px",
+                borderTop: "1px solid #e5e7eb",
+                display: "flex",
+                justifyContent: "flex-end",
+                background: "#f9fafb",
+                flexShrink: 0,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setInvoiceLineExclusionModalOpen(false)}
+                style={{
+                  padding: "8px 20px",
+                  borderRadius: 6,
+                  border: "1px solid #0f172a",
+                  background: "#0f172a",
+                  color: "#f9fafb",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
                   {/* Detailed invoice (PETL) */}
                   <div style={{ marginTop: 12 }}>
@@ -13633,7 +14565,7 @@ ${htmlBody}
                                         : "";
 
                                   const label = isCredit
-                                    ? "↳ ACV holdback (80%)"
+                                    ? "↳ ACV rebate (80%)"
                                     : `${lineNoValue}${cat || sel ? ` · ${cat}${sel ? `/${sel}` : ""}` : ""}${task ? ` · ${task}` : ""}`;
 
                                   const effectiveTag = getInvoicePetlEffectiveTag(li);
@@ -13918,7 +14850,7 @@ ${htmlBody}
                                         : "";
 
                                   const label = isCredit
-                                    ? "↳ ACV holdback (80%)"
+                                    ? "↳ ACV rebate (80%)"
                                     : `${lineNoValue}${cat || sel ? ` · ${cat}${sel ? `/${sel}` : ""}` : ""}${task ? ` · ${task}` : ""}`;
 
                                   const effectiveTag = getInvoicePetlEffectiveTag(li);
@@ -17588,9 +18520,11 @@ ${htmlBody}
                     prev.map(it => {
                       if (!matchesFilters(it)) return it;
 
-                      // For ACV-only bulk set, flag as ACV and zero out percent.
+                      // For ACV-only bulk set, flag as ACV but PRESERVE percent complete.
+                      // ACV = carrier paid but client chose NOT to do the repair.
+                      // We bill only O&P (20%), rebating 80% back to the insured.
                       if (isAcv && operation === "set") {
-                        return { ...it, percentComplete: 0, isAcvOnly: true };
+                        return { ...it, isAcvOnly: true };
                       }
 
                       const current = it.percentComplete ?? 0;
@@ -17639,6 +18573,24 @@ ${htmlBody}
                 } finally {
                   setGroupLoading(false);
                 }
+
+                // Refresh the active invoice so Living Invoice reflects PETL changes
+                if (activeInvoice?.id) {
+                  try {
+                    const invRes = await fetch(
+                      `${API_BASE}/projects/${id}/invoices/${activeInvoice.id}`,
+                      { headers: { Authorization: `Bearer ${token}` } },
+                    );
+                    if (invRes.ok) {
+                      const invJson = await invRes.json();
+                      setActiveInvoice(invJson);
+                    }
+                  } catch {
+                    // non-fatal
+                  }
+                }
+                // Also refresh the invoice list to update totals in the sidebar
+                setProjectInvoices(null);
 
                 showPetlToast(`Updated ${json?.updatedCount ?? 'filtered'} line items`);
                 setBulkMessage("Updated selection.");

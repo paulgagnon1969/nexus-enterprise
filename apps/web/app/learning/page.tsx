@@ -17,6 +17,37 @@ interface SearchableItem {
 }
 
 const SEARCHABLE_CONTENT: SearchableItem[] = [
+  // Safety Manual
+  {
+    id: "SAF-PPE-001",
+    title: "PPE Requirements & Selection",
+    description: "Overview of required PPE by job task, selection criteria, and proper fit.",
+    category: "safety",
+    categoryLabel: "Safety",
+    path: "/learning/safety/ppe-requirements",
+    keywords: ["ppe", "safety", "osha", "glasses", "hard hat", "gloves", "boots", "hearing", "protection"],
+    status: "published",
+  },
+  {
+    id: "SAF-HAZ-001",
+    title: "Hazard Communication (HazCom) Program",
+    description: "GHS labeling, Safety Data Sheets (SDS), chemical inventory management, and employee training.",
+    category: "safety",
+    categoryLabel: "Safety",
+    path: "/learning/safety/hazcom-program",
+    keywords: ["hazcom", "chemical", "sds", "ghs", "label", "safety", "osha", "msds"],
+    status: "published",
+  },
+  {
+    id: "REF-SAFETY",
+    title: "NEXUS Safety Manual",
+    description: "OSHA compliance, hazard prevention, and workplace safety procedures.",
+    category: "reference",
+    categoryLabel: "Reference",
+    path: "/learning/safety",
+    keywords: ["safety", "osha", "ppe", "hazard", "emergency", "fall", "electrical", "fire"],
+    status: "published",
+  },
   // BKMs
   {
     id: "BKM-NCC-001",
@@ -500,6 +531,18 @@ export default function LearningPage() {
               onClick={() => router.push("/learning/bkm")}
             />
             <TrackCard
+              title="Safety Manual"
+              tagline="OSHA compliance and workplace safety procedures."
+              bullets={[
+                "PPE requirements and selection",
+                "Hazard communication (HazCom)",
+                "Emergency response procedures",
+              ]}
+              cta="Open Safety Manual"
+              onClick={() => router.push("/learning/safety")}
+              variant="safety"
+            />
+            <TrackCard
               title="Culture & Ways of Working"
               tagline="Understand how we show up for each other and for clients."
               bullets={[
@@ -510,6 +553,36 @@ export default function LearningPage() {
               cta="View Culture modules"
             />
           </div>
+        </section>
+
+        {/* NEXUS Safety Manual */}
+        <section>
+          <h2 style={{ marginTop: 0, marginBottom: 4, fontSize: 16 }}>NEXUS Safety Manual</h2>
+          <p style={{ marginTop: 0, marginBottom: 8, fontSize: 13, color: "#4b5563" }}>
+            OSHA compliance, hazard prevention, and workplace safety procedures for all NEXUS projects.
+          </p>
+          <ul style={{ listStyle: "disc", paddingLeft: 20, marginTop: 0, marginBottom: 8 }}>
+            <li>Personal Protective Equipment (PPE)</li>
+            <li>Hazard Communication (HazCom)</li>
+            <li>Fall Protection & Ladder Safety</li>
+            <li>Electrical Safety & Lockout/Tagout</li>
+            <li>Emergency Response & First Aid</li>
+          </ul>
+          <button
+            type="button"
+            onClick={() => router.push("/learning/safety")}
+            style={{
+              padding: "8px 14px",
+              borderRadius: 6,
+              border: "1px solid #dc2626",
+              backgroundColor: "#dc2626",
+              color: "#f9fafb",
+              fontSize: 13,
+              cursor: "pointer",
+            }}
+          >
+            Open Safety Manual
+          </button>
         </section>
 
         {/* NEXUS Operating Manual */}
@@ -663,9 +736,11 @@ interface TrackCardProps {
   bullets: string[];
   cta: string;
   onClick?: () => void;
+  variant?: "default" | "safety";
 }
 
-function TrackCard({ id, title, tagline, bullets, cta, onClick }: TrackCardProps) {
+function TrackCard({ id, title, tagline, bullets, cta, onClick, variant = "default" }: TrackCardProps) {
+  const isSafety = variant === "safety";
   return (
     <div
       id={id}
@@ -694,8 +769,8 @@ function TrackCard({ id, title, tagline, bullets, cta, onClick }: TrackCardProps
           style={{
             padding: "6px 10px",
             borderRadius: 6,
-            border: "1px solid #2563eb",
-            backgroundColor: "#2563eb",
+            border: isSafety ? "1px solid #dc2626" : "1px solid #2563eb",
+            backgroundColor: isSafety ? "#dc2626" : "#2563eb",
             color: "#f9fafb",
             fontSize: 13,
             cursor: "pointer",
@@ -720,6 +795,7 @@ function SearchResultItem({ item, query, onClick }: SearchResultItemProps) {
     bkm: { bg: "#f0fdf4", text: "#166534", border: "#bbf7d0" },
     track: { bg: "#eff6ff", text: "#1e40af", border: "#bfdbfe" },
     reference: { bg: "#faf5ff", text: "#7c3aed", border: "#e9d5ff" },
+    safety: { bg: "#fef2f2", text: "#991b1b", border: "#fecaca" },
   };
   const colors = categoryColors[item.category] || categoryColors.reference;
 

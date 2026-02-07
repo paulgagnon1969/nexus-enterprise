@@ -5416,7 +5416,13 @@ export class ProjectService {
       .map((row) => {
         const current = row.percentComplete ?? 0;
         let next = current;
-        if (op === "set") {
+
+        // When setting ACV-only, preserve the existing percent complete.
+        // ACV = carrier paid but client chose NOT to do the repair.
+        // We bill only O&P (20%), rebating 80% back to the insured.
+        if (isAcvOnlyForBatch) {
+          next = current; // Keep existing percent
+        } else if (op === "set") {
           next = percent;
         } else if (op === "increment") {
           next = current + percent;
@@ -5424,6 +5430,8 @@ export class ProjectService {
           next = current - percent;
         }
         next = Math.max(0, Math.min(100, next));
+
+        // Include the change if percent changed OR if we're toggling ACV-only flag
         if (next === current && isAcvOnlyForBatch === undefined) {
           return null;
         }
@@ -7241,6 +7249,13 @@ export class ProjectService {
     });
     const reconUpdatedAt = reconAgg._max.updatedAt ?? null;
 
+    // Track SowItem updates (e.g., isAcvOnly, percentComplete changes)
+    const sowItemAgg = await this.prisma.sowItem.aggregate({
+      where: { estimateVersionId: latestVersion.id },
+      _max: { updatedAt: true },
+    });
+    const sowItemUpdatedAt = sowItemAgg._max.updatedAt ?? null;
+
     // Project billing (invoices/payments) should also invalidate snapshots.
     const maxDate = (a: Date | null, b: Date | null) => {
       if (a && b) return a > b ? a : b;
@@ -7331,7 +7346,8 @@ export class ProjectService {
       if (
         existing &&
         (!reconUpdatedAt || existing.computedAt >= reconUpdatedAt) &&
-        (!billingUpdatedAt || existing.computedAt >= billingUpdatedAt)
+        (!billingUpdatedAt || existing.computedAt >= billingUpdatedAt) &&
+        (!sowItemUpdatedAt || existing.computedAt >= sowItemUpdatedAt)
       ) {
         return {
           projectId,
@@ -7384,19 +7400,30 @@ export class ProjectService {
     let workCompleteRcv = 0;
     let acvReturn = 0;
 
+    // ACV business logic:
+    // - ACV = carrier paid but client chose NOT to do the repair
+    // - 80% of RCV is rebated back to the insured (acvReturn / credit bucket)
+    // - 20% of RCV is O&P that we bill (acvOP)
+    const ACV_REBATE_RATE = 0.8;
+    const ACV_OP_RATE = 0.2;
+
+    let acvRcvTotal = 0; // Track total RCV of ACV items for O&P calculation
+
     for (const item of items) {
       const rcv = item.rcvAmount ?? item.itemAmount ?? 0;
       const acv = item.acvAmount ?? 0;
       const basePct = item.percentComplete ?? 0;
-      const pct = item.isAcvOnly ? 0 : basePct;
 
       totalRcvClaim += rcv;
       totalAcvClaim += acv;
 
-      workCompleteRcv += rcv * (pct / 100);
-
       if (item.isAcvOnly) {
-        acvReturn += acv;
+        // ACV items: 80% rebated as credit, 20% O&P billed
+        acvRcvTotal += rcv;
+        acvReturn += rcv * ACV_REBATE_RATE;
+      } else {
+        // Regular items: work complete based on percent
+        workCompleteRcv += rcv * (basePct / 100);
       }
     }
 
@@ -7407,9 +7434,9 @@ export class ProjectService {
       workCompleteRcv += rcv * (pct / 100);
     }
 
-    // Use a 25% O&P factor for ACV, matching current spreadsheet behavior.
-    const opRate = 0.25;
-    const acvOP = acvReturn * opRate;
+    // ACV O&P is 20% of total RCV for ACV items
+    const opRate = ACV_OP_RATE;
+    const acvOP = acvRcvTotal * ACV_OP_RATE;
 
     const totalDueWorkBillable = workCompleteRcv + acvOP;
 
@@ -8815,6 +8842,9 @@ export class ProjectService {
       (prevByKey as any)._recon = prevReconByKey;
     }
 
+    // ACV (Actual Cash Value): Carrier paid, but client chose NOT to do the repair.
+    // We only bill O&P (20%) - the rest (80%) is rebated to the insured.
+    // The holdback rate is 80% (what we DON'T bill).
     const ACV_HOLDBACK_RATE = 0.8;
 
     // Line-tied reconciliation entries (APPROVED, monetary) keyed by parent sowItemId.
@@ -8996,12 +9026,14 @@ export class ProjectService {
             thisInvTotal = 0;
           }
 
+          // Use the reconciliation entry's own ID as sowItemId to avoid duplicate key
+          // constraint with the parent BASE line (invoiceId, sowItemId, kind must be unique).
           const reconLine = {
             invoiceId: invoice.id,
             kind: "BASE" as const,
             parentLineId: null,
             estimateVersionId: e.estimateVersionId,
-            sowItemId: e.parentSowItemId,
+            sowItemId: e.id,
             logicalItemId: s.logicalItemId,
             projectParticleId: e.projectParticleId,
             projectParticleLabelSnapshot: particleLabel,
@@ -9139,10 +9171,10 @@ export class ProjectService {
       const result = await this.syncDraftInvoiceFromPetl(projectId, draft.id, actor);
       this.logger.log(`[Invoice sync] Sync result: ${JSON.stringify(result)}`);
     } catch (err: any) {
-      this.logger.error(`[Invoice sync] Error: ${err?.message ?? err}`);
-      if (!this.isMissingPrismaTableError(err, "ProjectInvoicePetlLine")) {
-        throw err;
-      }
+      // Non-fatal: log the error but don't crash the PETL update.
+      // Common issues include duplicate key constraints when reconciliation
+      // entries create lines with the same (invoiceId, sowItemId, kind) tuple.
+      this.logger.error(`[Invoice sync] Error (non-fatal): ${err?.message ?? err}`);
     }
   }
 
