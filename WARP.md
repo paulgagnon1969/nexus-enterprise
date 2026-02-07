@@ -176,3 +176,86 @@ Use these when coordinating across multiple apps/packages:
 - Align code changes with the target architecture in `docs/architecture/ncc-overview.md` and the API migration plan in `docs/data/Migrate Nexus API from Laravel to Node+tRPC and align monorepo structure.md`.
 - When adding new backend capabilities, consider placing shared logic in `packages/database` (or future shared packages like `packages/types`) and consuming it from `apps/api` rather than duplicating logic in the app.
 - For significant architectural changes, update the relevant docs in `docs/architecture` and `docs/onboarding` so they remain the source of truth for future contributors and agents.
+
+## SOP Production Contract
+
+Whenever a feature is marked ready for production (user says "push to production", "ready for prod", "finalize", or similar), Warp MUST generate an SOP document before or alongside the deployment.
+
+### SOP Storage
+- **Staging location:** `docs/sops-staging/` (Markdown files with frontmatter)
+- **Final destination:** Nexus Documents system → "Unpublished SOPs" group
+- SOPs remain in the unpublished group (collapsed list) until manually reviewed and published
+
+### SOP Document Format
+
+Each SOP must be a Markdown file with this structure:
+
+```markdown
+---
+title: "[Module Name] SOP"
+module: [module-name]
+revision: "1.0"
+tags: [sop, module-name, relevant-department, relevant-roles]
+status: draft
+created: YYYY-MM-DD
+updated: YYYY-MM-DD
+author: Warp
+---
+
+# [Module Name]
+
+## Purpose
+Brief description of what this module does and why it exists.
+
+## Who Uses This
+- List of roles/users who interact with this module
+
+## Workflow
+
+### Step-by-Step Process
+1. Step one
+2. Step two
+3. ...
+
+### Flowchart
+
+```mermaid
+flowchart TD
+    A[Start] --> B{Decision?}
+    B -->|Yes| C[Action]
+    B -->|No| D[Other Action]
+    C --> E[End]
+    D --> E
+```
+
+## Key Features
+- Feature 1
+- Feature 2
+
+## Related Modules
+- [Other Module 1]
+- [Other Module 2]
+
+## Revision History
+| Rev | Date | Changes |
+|-----|------|--------|
+| 1.0 | YYYY-MM-DD | Initial release |
+```
+
+### Revision Numbering
+- New SOPs start at `revision: "1.0"`
+- Minor updates (clarifications, typos): increment minor version (1.0 → 1.1)
+- Major changes (workflow changes, new features): increment major version (1.1 → 2.0)
+- Always update the `updated` date and add entry to Revision History
+
+### Nexus Documents Integration
+- The Nexus Documents system must have an **"Unpublished SOPs"** group/category
+- This group displays as a collapsed list by default
+- Admins can expand the list, review SOPs, and select for publication
+- On publication, SOPs move to appropriate public category with role-based visibility
+
+### Tagging Convention
+- Always include: `sop`
+- Module tag: `module-name` (e.g., `document-import`, `timecard`, `user-management`)
+- Department tags as applicable: `admin`, `accounting`, `operations`, `hr`
+- Role tags as applicable: `admin-only`, `manager`, `all-users`

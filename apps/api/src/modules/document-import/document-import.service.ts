@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { StagedDocumentStatus, DocumentScanJobStatus, HtmlConversionStatus } from "@prisma/client";
+import { StagedDocumentStatus, DocumentScanJobStatus, HtmlConversionStatus, DocumentTypeGuess } from "@prisma/client";
 import * as fs from "fs";
 import * as path from "path";
 import { promisify } from "util";
@@ -54,11 +54,267 @@ const MIME_TYPES: Record<string, string> = {
   webp: "image/webp",
 };
 
+// Keywords for document classification
+const PROCEDURE_KEYWORDS = [
+  "sop", "procedure", "protocol", "instruction", "guideline", "step",
+  "how to", "checklist", "workflow", "process", "method", "operation",
+  "standard operating", "work instruction", "job aid"
+];
+const POLICY_KEYWORDS = [
+  "policy", "compliance", "regulation", "requirement", "standard",
+  "rule", "code of conduct", "governance", "mandate"
+];
+const SAFETY_KEYWORDS = [
+  "safety", "hazard", "osha", "ppe", "emergency", "accident", "incident",
+  "fire", "chemical", "msds", "sds", "lockout", "tagout", "first aid",
+  "evacuation", "danger", "warning", "caution"
+];
+const FORM_KEYWORDS = [
+  "form", "template", "application", "request", "log", "record",
+  "register", "sign-off", "signature", "approval"
+];
+const MANUAL_KEYWORDS = [
+  "manual", "handbook", "guide", "training", "orientation", "onboarding"
+];
+
 @Injectable()
 export class DocumentImportService {
   private readonly logger = new Logger(DocumentImportService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  // --- Document Classification ---
+
+  /**
+   * Classify a document based on its filename.
+   * Returns the guessed type, confidence score, and reason.
+   */
+  classifyByFilename(fileName: string): {
+    type: DocumentTypeGuess;
+    score: number;
+    reason: string;
+  } {
+    const lowerName = fileName.toLowerCase();
+    let score = 0;
+    const matches: string[] = [];
+
+    // Check for procedure/SOP indicators
+    for (const kw of PROCEDURE_KEYWORDS) {
+      if (lowerName.includes(kw)) {
+        score += 0.3;
+        matches.push(`filename contains "${kw}"`);
+      }
+    }
+    if (score > 0) {
+      return {
+        type: DocumentTypeGuess.LIKELY_PROCEDURE,
+        score: Math.min(score, 0.7), // Cap at 0.7 for filename-only
+        reason: matches.join("; "),
+      };
+    }
+
+    // Check for safety manual indicators
+    for (const kw of SAFETY_KEYWORDS) {
+      if (lowerName.includes(kw)) {
+        score += 0.25;
+        matches.push(`filename contains "${kw}"`);
+      }
+    }
+    for (const kw of MANUAL_KEYWORDS) {
+      if (lowerName.includes(kw)) {
+        score += 0.2;
+        matches.push(`filename contains "${kw}"`);
+      }
+    }
+    if (score > 0) {
+      return {
+        type: DocumentTypeGuess.LIKELY_PROCEDURE,
+        score: Math.min(score, 0.7),
+        reason: matches.join("; "),
+      };
+    }
+
+    // Check for policy indicators
+    for (const kw of POLICY_KEYWORDS) {
+      if (lowerName.includes(kw)) {
+        score += 0.25;
+        matches.push(`filename contains "${kw}"`);
+      }
+    }
+    if (score > 0) {
+      return {
+        type: DocumentTypeGuess.LIKELY_POLICY,
+        score: Math.min(score, 0.6),
+        reason: matches.join("; "),
+      };
+    }
+
+    // Check for form/template indicators
+    for (const kw of FORM_KEYWORDS) {
+      if (lowerName.includes(kw)) {
+        score += 0.25;
+        matches.push(`filename contains "${kw}"`);
+      }
+    }
+    if (score > 0) {
+      return {
+        type: DocumentTypeGuess.LIKELY_FORM,
+        score: Math.min(score, 0.6),
+        reason: matches.join("; "),
+      };
+    }
+
+    // Default: unknown from filename alone
+    return {
+      type: DocumentTypeGuess.UNKNOWN,
+      score: 0,
+      reason: "No procedural indicators in filename",
+    };
+  }
+
+  /**
+   * Classify a document based on its text content.
+   * This is more accurate than filename-based classification.
+   */
+  classifyByContent(text: string): {
+    type: DocumentTypeGuess;
+    score: number;
+    reason: string;
+  } {
+    const lowerText = text.toLowerCase();
+    const indicators: string[] = [];
+    let procedureScore = 0;
+    let policyScore = 0;
+    let formScore = 0;
+    let plainTextScore = 0;
+
+    // Check for numbered steps (strong procedure indicator)
+    const numberedSteps = (lowerText.match(/\b(step\s*\d|\d+\.\s+[a-z]|\d+\)\s+[a-z])/gi) || []).length;
+    if (numberedSteps >= 3) {
+      procedureScore += 0.4;
+      indicators.push(`${numberedSteps} numbered steps found`);
+    } else if (numberedSteps > 0) {
+      procedureScore += 0.2;
+      indicators.push(`${numberedSteps} numbered step(s) found`);
+    }
+
+    // Check for imperative verbs (procedure indicator)
+    const imperatives = ["shall", "must", "ensure", "verify", "check", "complete", "perform", "follow", "do not", "never", "always"];
+    let imperativeCount = 0;
+    for (const imp of imperatives) {
+      const count = (lowerText.match(new RegExp(`\\b${imp}\\b`, "gi")) || []).length;
+      if (count > 0) imperativeCount += count;
+    }
+    if (imperativeCount >= 5) {
+      procedureScore += 0.3;
+      indicators.push(`${imperativeCount} imperative directives`);
+    } else if (imperativeCount > 0) {
+      procedureScore += 0.1;
+    }
+
+    // Check for safety keywords in content
+    let safetyCount = 0;
+    for (const kw of SAFETY_KEYWORDS) {
+      if (lowerText.includes(kw)) safetyCount++;
+    }
+    if (safetyCount >= 3) {
+      procedureScore += 0.2;
+      indicators.push(`${safetyCount} safety-related terms`);
+    }
+
+    // Check for WARNING/CAUTION/NOTE blocks
+    const warningBlocks = (lowerText.match(/\b(warning|caution|note|important|danger):/gi) || []).length;
+    if (warningBlocks > 0) {
+      procedureScore += 0.15;
+      indicators.push(`${warningBlocks} warning/caution blocks`);
+    }
+
+    // Check for policy language
+    const policyTerms = ["effective date", "scope", "purpose", "responsibility", "violation", "disciplinary", "applicable to"];
+    let policyCount = 0;
+    for (const term of policyTerms) {
+      if (lowerText.includes(term)) policyCount++;
+    }
+    if (policyCount >= 3) {
+      policyScore += 0.4;
+      indicators.push(`${policyCount} policy structure terms`);
+    } else if (policyCount > 0) {
+      policyScore += 0.15;
+    }
+
+    // Check for form indicators
+    const formIndicators = ["signature:", "date:", "name:", "title:", "department:", "_______", "[ ]", "checkbox"];
+    let formCount = 0;
+    for (const fi of formIndicators) {
+      if (lowerText.includes(fi)) formCount++;
+    }
+    if (formCount >= 3) {
+      formScore += 0.5;
+      indicators.push(`${formCount} form field indicators`);
+    } else if (formCount > 0) {
+      formScore += 0.2;
+    }
+
+    // Check for plain paragraph text (unlikely procedure)
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 100);
+    const avgParagraphLength = paragraphs.length > 0 
+      ? paragraphs.reduce((sum, p) => sum + p.length, 0) / paragraphs.length 
+      : 0;
+    
+    if (avgParagraphLength > 500 && numberedSteps < 2 && imperativeCount < 3) {
+      plainTextScore += 0.4;
+      indicators.push("Long narrative paragraphs without procedural structure");
+    }
+
+    // Determine final classification
+    const maxScore = Math.max(procedureScore, policyScore, formScore, plainTextScore);
+    
+    if (maxScore < 0.2) {
+      return {
+        type: DocumentTypeGuess.UNKNOWN,
+        score: 0.3,
+        reason: "Insufficient indicators to classify",
+      };
+    }
+
+    if (procedureScore === maxScore && procedureScore > 0.2) {
+      return {
+        type: DocumentTypeGuess.LIKELY_PROCEDURE,
+        score: Math.min(procedureScore + 0.2, 0.95),
+        reason: indicators.join("; ") || "Procedural structure detected",
+      };
+    }
+
+    if (policyScore === maxScore && policyScore > 0.2) {
+      return {
+        type: DocumentTypeGuess.LIKELY_POLICY,
+        score: Math.min(policyScore + 0.2, 0.9),
+        reason: indicators.join("; ") || "Policy structure detected",
+      };
+    }
+
+    if (formScore === maxScore && formScore > 0.2) {
+      return {
+        type: DocumentTypeGuess.LIKELY_FORM,
+        score: Math.min(formScore + 0.2, 0.9),
+        reason: indicators.join("; ") || "Form/template structure detected",
+      };
+    }
+
+    if (plainTextScore === maxScore && plainTextScore > 0.3) {
+      return {
+        type: DocumentTypeGuess.UNLIKELY_PROCEDURE,
+        score: Math.min(plainTextScore + 0.1, 0.8),
+        reason: indicators.join("; ") || "Narrative text without procedural markers",
+      };
+    }
+
+    return {
+      type: DocumentTypeGuess.REFERENCE_DOC,
+      score: 0.4,
+      reason: "General reference material",
+    };
+  }
 
   // --- Scan Jobs ---
 
@@ -194,6 +450,9 @@ export class DocumentImportService {
     const ext = data.fileType.toLowerCase();
     const mimeType = data.mimeType || MIME_TYPES[ext] || "application/octet-stream";
 
+    // Classify document by filename
+    const classification = this.classifyByFilename(data.fileName);
+
     // Create staged document record
     const doc = await this.prisma.stagedDocument.create({
       data: {
@@ -207,6 +466,10 @@ export class DocumentImportService {
         mimeType,
         status: StagedDocumentStatus.ACTIVE,
         scannedByUserId: actor.userId,
+        // Document classification from filename
+        documentTypeGuess: classification.type,
+        classificationScore: classification.score,
+        classificationReason: classification.reason,
       },
     });
 
@@ -593,15 +856,32 @@ export class DocumentImportService {
         return { success: false, error: `Unsupported file type: ${ext}` };
       }
 
-      // Save HTML content
+      // Extract plain text for content classification
+      // Strip HTML tags to get raw text
+      const plainText = html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+      
+      // Run content-based classification (more accurate than filename)
+      const contentClassification = this.classifyByContent(plainText);
+      
+      // Save HTML content and update classification if content analysis is more confident
+      const updateData: any = {
+        htmlContent: html,
+        conversionStatus: HtmlConversionStatus.COMPLETED,
+        conversionError: null,
+        convertedAt: new Date(),
+      };
+
+      // Update classification if content-based is more confident
+      if (contentClassification.score > (doc.classificationScore || 0)) {
+        updateData.documentTypeGuess = contentClassification.type;
+        updateData.classificationScore = contentClassification.score;
+        updateData.classificationReason = contentClassification.reason;
+        this.logger.log(`Updated classification for ${doc.fileName}: ${contentClassification.type} (${(contentClassification.score * 100).toFixed(0)}%)`);
+      }
+
       await this.prisma.stagedDocument.update({
         where: { id: documentId },
-        data: {
-          htmlContent: html,
-          conversionStatus: HtmlConversionStatus.COMPLETED,
-          conversionError: null,
-          convertedAt: new Date(),
-        },
+        data: updateData,
       });
 
       this.logger.log(`Successfully converted ${doc.fileName} to HTML`);
@@ -1252,6 +1532,124 @@ ${bodyHtml}
         fileType: item.fileType,
         count: item._count,
       })),
+    };
+  }
+
+  // --- SOPs (Standard Operating Procedures) ---
+
+  /**
+   * Get SOPs - documents tagged with 'sop' or having category 'sop'
+   */
+  async getSOPs(
+    actor: AuthenticatedUser,
+    opts: { status?: string; module?: string }
+  ) {
+    const where: any = {
+      companyId: actor.companyId,
+      OR: [
+        { tags: { has: "sop" } },
+        { category: "sop" },
+        { importedToType: "sop" },
+      ],
+    };
+
+    // Filter by status: 'draft' = unpublished, 'published' = published
+    if (opts.status === "draft") {
+      where.status = StagedDocumentStatus.ACTIVE;
+    } else if (opts.status === "published") {
+      where.status = StagedDocumentStatus.PUBLISHED;
+    }
+
+    // Filter by module tag if provided
+    if (opts.module) {
+      where.tags = { hasEvery: ["sop", opts.module] };
+    }
+
+    const docs = await this.prisma.stagedDocument.findMany({
+      where,
+      orderBy: [
+        { updatedAt: "desc" },
+        { displayTitle: "asc" },
+      ],
+      include: {
+        publishedBy: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+
+    // Parse frontmatter-style metadata from displayDescription or infer from tags
+    return {
+      items: docs.map((doc) => {
+        // Extract module from tags (first tag that isn't 'sop')
+        const moduleName = doc.tags.find((t) => t !== "sop") || "general";
+        // Extract revision from revisionNotes or default
+        const revision = doc.revisionNumber?.toString() || "1.0";
+
+        return {
+          id: doc.id,
+          title: doc.displayTitle || doc.fileName.replace(/\.[^/.]+$/, ""),
+          module: moduleName,
+          revision: revision,
+          tags: doc.tags,
+          status: doc.status === StagedDocumentStatus.PUBLISHED ? "published" : "draft",
+          created: doc.createdAt.toISOString(),
+          updated: doc.updatedAt.toISOString(),
+          fileName: doc.fileName,
+          description: doc.displayDescription,
+          publishedAt: doc.publishedAt?.toISOString() || null,
+          publishedBy: doc.publishedBy,
+        };
+      }),
+      total: docs.length,
+    };
+  }
+
+  /**
+   * Publish an SOP with optional role visibility settings
+   */
+  async publishSOP(
+    actor: AuthenticatedUser,
+    documentId: string,
+    opts?: { category?: string; visibleToRoles?: string[] }
+  ) {
+    const doc = await this.prisma.stagedDocument.findFirst({
+      where: {
+        id: documentId,
+        companyId: actor.companyId,
+        OR: [
+          { tags: { has: "sop" } },
+          { category: "sop" },
+          { importedToType: "sop" },
+        ],
+      },
+    });
+
+    if (!doc) {
+      throw new NotFoundException("SOP not found");
+    }
+
+    // Ensure 'sop' tag is present
+    const tags = new Set(doc.tags);
+    tags.add("sop");
+    if (opts?.visibleToRoles) {
+      opts.visibleToRoles.forEach((role) => tags.add(`role:${role}`));
+    }
+
+    const updated = await this.prisma.stagedDocument.update({
+      where: { id: documentId },
+      data: {
+        status: StagedDocumentStatus.PUBLISHED,
+        publishedAt: new Date(),
+        publishedByUserId: actor.userId,
+        importedToType: "sop",
+        category: opts?.category || doc.category || "sop",
+        tags: Array.from(tags),
+      },
+    });
+
+    return {
+      ...updated,
+      fileSize: updated.fileSize.toString(),
+      message: "SOP published successfully",
     };
   }
 }

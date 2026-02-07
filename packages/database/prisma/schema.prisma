@@ -4251,6 +4251,16 @@ enum HtmlConversionStatus {
   SKIPPED       // For unsupported file types
 }
 
+/// AI-guessed document type based on filename and content analysis
+enum DocumentTypeGuess {
+  LIKELY_PROCEDURE    // Steps, numbered lists, SOP indicators
+  LIKELY_POLICY       // Policy/compliance language
+  LIKELY_FORM         // Forms, templates, checklists
+  REFERENCE_DOC       // General reference material
+  UNLIKELY_PROCEDURE  // Plain paragraphs, no structure
+  UNKNOWN             // Unable to classify
+}
+
 /// Job record for scanning external file systems for documents
 model DocumentScanJob {
   id                  String                 @id @default(cuid())
@@ -4311,6 +4321,11 @@ model StagedDocument {
   revisionDate        DateTime?              // Date of current revision
   revisionNotes       String?                // Notes about what changed in this revision
   revisionHistory     Json?                  // JSON array of previous revision info
+  
+  // Document classification (AI-guessed)
+  documentTypeGuess   DocumentTypeGuess?     // Auto-classified document type
+  classificationScore Float?                 // Confidence score (0-1)
+  classificationReason String?               // Why it was classified this way
   
   // Publishing workflow
   publishedAt         DateTime?              // When document was published

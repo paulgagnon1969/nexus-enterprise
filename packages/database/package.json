@@ -31,7 +31,8 @@
     "inspect:state-oes": "ts-node src/scripts/inspect-state-oes.ts",
     "seed:base-locations": "ts-node src/scripts/seed-base-locations.ts",
     "seed:maintenance-templates": "ts-node src/scripts/seed-maintenance-templates.ts",
-    "maintenance:scheduler": "ts-node src/scripts/run-maintenance-scheduler.ts"
+    "maintenance:scheduler": "ts-node src/scripts/run-maintenance-scheduler.ts",
+    "seed:sops": "ts-node src/seed-sops.ts"
   },
   "dependencies": {
     "@prisma/client": "^7.0.0",
