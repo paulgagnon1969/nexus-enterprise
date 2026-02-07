@@ -80,7 +80,11 @@ export default function NavDropdown({
       <button
         type="button"
         className={"app-nav-link" + (active ? " app-nav-link-active" : "")}
-        onClick={() => setOpen(v => !v)}
+        onClick={() => {
+          console.time('[PERF] NavDropdown toggle');
+          setOpen(v => !v);
+          console.timeEnd('[PERF] NavDropdown toggle');
+        }}
         style={{
           border: "none",
           background: "transparent",

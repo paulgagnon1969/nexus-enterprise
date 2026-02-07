@@ -1007,7 +1007,11 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
     <div ref={containerRef} style={{ position: "relative" }}>
       <button
         type="button"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => {
+          console.time('[PERF] UserMenu toggle');
+          setOpen(o => !o);
+          console.timeEnd('[PERF] UserMenu toggle');
+        }}
         style={{
           width: 32,
           height: 32,
