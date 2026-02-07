@@ -8979,7 +8979,7 @@ export class ProjectService {
 
       linesToCreate.push(baseLine);
 
-      // Line-tied reconciliation entries (supplements / client-pay COs)
+      // Line-tied reconciliation entries (supplements, change orders, adds, credits)
       const parentReconEntries = reconByParent.get(s.id) ?? [];
       if (parentReconEntries.length > 0) {
         const root = s.sourceLineNo ?? s.lineNo;
@@ -8989,8 +8989,11 @@ export class ProjectService {
           const isChangeOrder =
             e.kind === PetlReconciliationEntryKind.CHANGE_ORDER_CLIENT_PAY ||
             e.tag === PetlReconciliationEntryTag.CHANGE_ORDER;
+          const isAdd = e.kind === PetlReconciliationEntryKind.ADD;
+          const isCredit = e.kind === PetlReconciliationEntryKind.CREDIT;
 
-          if (!isSupplement && !isChangeOrder) continue;
+          // Skip NOTE_ONLY entries (no monetary value)
+          if (e.kind === PetlReconciliationEntryKind.NOTE_ONLY) continue;
 
           const subIndex = nextLineSubIndex(root);
           const displayLineNo = `${root}.${subIndex.toString().padStart(3, "0")}`;
@@ -9006,9 +9009,12 @@ export class ProjectService {
           const earnedOp = contractOp * reconPct;
           const earnedTotal = contractTotal * reconPct;
 
+          // Determine billing tag based on entry type
           const reconBillingTag = isSupplement
             ? ProjectInvoicePetlLineBillingTag.SUPPLEMENT
-            : ProjectInvoicePetlLineBillingTag.CHANGE_ORDER;
+            : isChangeOrder
+              ? ProjectInvoicePetlLineBillingTag.CHANGE_ORDER
+              : ProjectInvoicePetlLineBillingTag.PETL_LINE_ITEM;
 
           const reconKey = `${e.parentSowItemId}:${root}:${subIndex}:${reconBillingTag}`;
           const reconPrev = prevReconByKey?.get(reconKey) ?? { item: 0, tax: 0, op: 0, total: 0 };
@@ -9364,6 +9370,55 @@ export class ProjectService {
       await this.prisma.projectInvoiceLineItem.delete({ where: { id: existing.id } });
       await this.recomputeInvoiceTotal(invoice.id);
       return this.getProjectInvoice(projectId, invoice.id, actor);
+    } catch (err: any) {
+      if (this.isBillingTableMissingError(err)) {
+        this.throwBillingTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
+  async deleteDraftInvoice(
+    projectId: string,
+    invoiceId: string,
+    actor: AuthenticatedUser,
+  ) {
+    this.ensureBillingModelsAvailable();
+
+    try {
+      const { invoice } = await this.getInvoiceOrThrow(projectId, invoiceId, actor);
+
+      if (invoice.status !== ProjectInvoiceStatus.DRAFT) {
+        throw new BadRequestException("Only draft invoices can be deleted");
+      }
+
+      // Check if the invoice has any dollar amount
+      const total = await this.recomputeInvoiceTotal(invoice.id);
+      if (total !== 0) {
+        throw new BadRequestException(
+          "Cannot delete an invoice with a non-zero total. Remove all line items first or void the invoice after issuing.",
+        );
+      }
+
+      // Delete PETL lines first (if they exist)
+      if (this.invoicePetlModelsAvailable()) {
+        try {
+          const p: any = this.prisma as any;
+          await p.projectInvoicePetlLine.deleteMany({ where: { invoiceId: invoice.id } });
+        } catch (err: any) {
+          if (!this.isMissingPrismaTableError(err, "ProjectInvoicePetlLine")) {
+            throw err;
+          }
+        }
+      }
+
+      // Delete manual line items
+      await this.prisma.projectInvoiceLineItem.deleteMany({ where: { invoiceId: invoice.id } });
+
+      // Delete the invoice
+      await this.prisma.projectInvoice.delete({ where: { id: invoice.id } });
+
+      return { deleted: true, invoiceId: invoice.id };
     } catch (err: any) {
       if (this.isBillingTableMissingError(err)) {
         this.throwBillingTablesNotMigrated();

@@ -1219,25 +1219,26 @@ export default function ProjectDetailPage({
 
   // Invoice printing - field definitions for customizable print
   const INVOICE_PRINT_FIELD_DEFS = useMemo(() => [
-    { key: "lineNo", label: "Line #", defaultOn: true },
-    { key: "categoryCode", label: "Task", defaultOn: true },
-    { key: "selectionCode", label: "Selection Code", defaultOn: false },
-    { key: "description", label: "Description", defaultOn: true },
-    { key: "room", label: "Room", defaultOn: false },
-    { key: "unit", label: "Unit", defaultOn: false },
-    { key: "building", label: "Building", defaultOn: false },
-    { key: "percentComplete", label: "% Complete", defaultOn: false },
-    { key: "earnedTotal", label: "Earned Total", defaultOn: false },
-    { key: "prevBilledTotal", label: "Previously Billed", defaultOn: false },
-    { key: "thisInvTotal", label: "This Invoice", defaultOn: true },
-    { key: "billingTag", label: "Billing Tag", defaultOn: false },
+    { key: "lineNo", label: "Line #" },
+    { key: "categoryCode", label: "CAT" },
+    { key: "selectionCode", label: "SEL" },
+    { key: "description", label: "Description" },
+    { key: "room", label: "Room" },
+    { key: "unit", label: "Unit" },
+    { key: "building", label: "Building" },
+    { key: "percentComplete", label: "% Complete" },
+    { key: "earnedTotal", label: "Earned Total" },
+    { key: "prevBilledTotal", label: "Previously Billed" },
+    { key: "thisInvTotal", label: "This Invoice" },
+    { key: "billingTag", label: "Billing Tag" },
   ], []);
 
   // State for line exclusion modal
   const [invoiceLineExclusionModalOpen, setInvoiceLineExclusionModalOpen] = useState(false);
 
-  const DEFAULT_PRINT_FIELDS = useMemo(
-    () => new Set(INVOICE_PRINT_FIELD_DEFS.filter(f => f.defaultOn).map(f => f.key)),
+  // Default: ALL fields selected. User's last selection persists globally.
+  const ALL_PRINT_FIELDS = useMemo(
+    () => new Set(INVOICE_PRINT_FIELD_DEFS.map(f => f.key)),
     [INVOICE_PRINT_FIELD_DEFS]
   );
 
@@ -1247,21 +1248,22 @@ export default function ProjectDetailPage({
   const [invoicePrintGroups, setInvoicePrintGroups] = useState<"KEEP" | "COLLAPSE_ALL" | "EXPAND_ALL">("KEEP");
   const [invoicePrintBusy, setInvoicePrintBusy] = useState(false);
 
-  // Customizable print fields
-  const printFieldsKey = `invoicePrintFields:v1:${id}`;
+  // Customizable print fields - persisted GLOBALLY (not per-project) so user's
+  // last selection carries across projects
+  const printFieldsKey = "invoicePrintFields:v2:global";
   const [invoicePrintFields, setInvoicePrintFields] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return DEFAULT_PRINT_FIELDS;
+    if (typeof window === "undefined") return ALL_PRINT_FIELDS;
     try {
       const raw = localStorage.getItem(printFieldsKey);
-      if (!raw) return DEFAULT_PRINT_FIELDS;
+      if (!raw) return ALL_PRINT_FIELDS;
       const arr = JSON.parse(raw);
-      return Array.isArray(arr) ? new Set(arr) : DEFAULT_PRINT_FIELDS;
+      return Array.isArray(arr) && arr.length > 0 ? new Set(arr) : ALL_PRINT_FIELDS;
     } catch {
-      return DEFAULT_PRINT_FIELDS;
+      return ALL_PRINT_FIELDS;
     }
   });
 
-  // Persist print fields to localStorage
+  // Persist print fields to localStorage (global)
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -1269,7 +1271,7 @@ export default function ProjectDetailPage({
     } catch {
       // ignore
     }
-  }, [printFieldsKey, invoicePrintFields]);
+  }, [invoicePrintFields]);
 
   // Lines to exclude from print (per invoice, not persisted)
   const [invoicePrintExcludedLines, setInvoicePrintExcludedLines] = useState<Set<string>>(() => new Set());
@@ -1279,8 +1281,8 @@ export default function ProjectDetailPage({
     setInvoicePrintExcludedLines(new Set());
   }, [activeInvoice?.id]);
 
-  // Group by field for print
-  const printGroupByKey = `invoicePrintGroupBy:v1:${id}`;
+  // Group by field for print - supports multi-level hierarchy
+  const printGroupByKey = `invoicePrintGroupBy:v2:${id}`;
   const [invoicePrintGroupBy, setInvoicePrintGroupBy] = useState<"none" | "room" | "unit" | "building" | "category">(() => {
     if (typeof window === "undefined") return "none";
     try {
@@ -1301,6 +1303,30 @@ export default function ProjectDetailPage({
       // ignore
     }
   }, [printGroupByKey, invoicePrintGroupBy]);
+
+  // Consolidate by description - merges lines with same description, sums totals
+  const printConsolidateKey = "invoicePrintConsolidate:v1:global";
+  const [invoicePrintConsolidate, setInvoicePrintConsolidate] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(printConsolidateKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  // Persist consolidate setting
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(printConsolidateKey, invoicePrintConsolidate ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [invoicePrintConsolidate]);
+
+  // Fields to hide when consolidating (they vary per line so don't make sense)
+  const CONSOLIDATE_HIDDEN_FIELDS = new Set(["lineNo", "room", "unit", "building", "billingTag"]);
 
   // Toggle a print field on/off
   const togglePrintField = (fieldKey: string) => {
@@ -1384,7 +1410,21 @@ export default function ProjectDetailPage({
 
   const activeInvoicePetlLines = useMemo(() => {
     const lines = activeInvoice?.petlLines;
-    return Array.isArray(lines) ? lines : [];
+    if (!Array.isArray(lines)) return [];
+    // Sort by displayLineNo for consistent display (handles 1, 1.1, 1.2, 2, etc.)
+    return [...lines].sort((a: any, b: any) => {
+      const aDisplay = String(a?.displayLineNo ?? a?.sourceLineNoSnapshot ?? a?.lineNoSnapshot ?? "0");
+      const bDisplay = String(b?.displayLineNo ?? b?.sourceLineNoSnapshot ?? b?.lineNoSnapshot ?? "0");
+      // Parse as version-like strings: "1" < "1.1" < "1.2" < "2"
+      const aParts = aDisplay.split(".").map((p: string) => Number(p) || 0);
+      const bParts = bDisplay.split(".").map((p: string) => Number(p) || 0);
+      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+        const aVal = aParts[i] ?? 0;
+        const bVal = bParts[i] ?? 0;
+        if (aVal !== bVal) return aVal - bVal;
+      }
+      return 0;
+    });
   }, [activeInvoice]);
 
   // Roll up invoiced/paid/outstanding for the Financial Overview.
@@ -3016,21 +3056,34 @@ ${htmlBody}
 
     const groups: Group[] = [];
 
+    // Helper to parse displayLineNo for sorting (handles "1", "1.001", "2", etc.)
+    const parseDisplayLineNo = (li: any): number[] => {
+      const display = String(li?.displayLineNo ?? li?.lineNoSnapshot ?? "0");
+      return display.split(".").map(p => Number(p) || 0);
+    };
+
+    const compareDisplayLineNo = (a: any, b: any): number => {
+      const aParts = parseDisplayLineNo(a);
+      const bParts = parseDisplayLineNo(b);
+      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+        const aVal = aParts[i] ?? 0;
+        const bVal = bParts[i] ?? 0;
+        if (aVal !== bVal) return aVal - bVal;
+      }
+      // Fallback to kind for ties
+      const ka = String(a?.kind ?? "");
+      const kb = String(b?.kind ?? "");
+      return ka.localeCompare(kb);
+    };
+
     for (const [groupKey, lines] of byGroup.entries()) {
-      // Sort lines within each group by line number
-      const sorted = [...lines].sort((a, b) => {
-        const la = Number(a?.lineNoSnapshot ?? 0);
-        const lb = Number(b?.lineNoSnapshot ?? 0);
-        if (la !== lb) return la - lb;
-        const ka = String(a?.kind ?? "");
-        const kb = String(b?.kind ?? "");
-        return ka.localeCompare(kb);
-      });
+      // Sort lines within each group by displayLineNo (1, 1.001, 1.002, 2, etc.)
+      const sorted = [...lines].sort(compareDisplayLineNo);
 
       const subtotal = sorted.reduce((sum, x) => sum + (Number(x?.thisInvTotal ?? 0) || 0), 0);
 
       // Track the minimum line number in this group for sorting groups
-      const minLineNo = sorted.length > 0 ? Number(sorted[0]?.lineNoSnapshot ?? 0) : 0;
+      const minLineNo = sorted.length > 0 ? parseDisplayLineNo(sorted[0])[0] : 0;
 
       groups.push({ groupKey, groupLabel: groupKey, lines: sorted, subtotal, minLineNo } as any);
     }
@@ -3461,6 +3514,40 @@ ${htmlBody}
     buildings: any[];
     units: any[];
   } | null>(null);
+
+  // Compute which hierarchy levels are available based on the project structure
+  // (used for dynamic invoice print grouping options)
+  const invoicePrintHierarchyLevels = useMemo(() => {
+    const levels: { key: "building" | "unit" | "room"; label: string; count: number }[] = [];
+    if (!hierarchy) return levels;
+
+    // Count buildings
+    const buildingCount = hierarchy.buildings?.length ?? 0;
+    if (buildingCount > 0) {
+      levels.push({ key: "building", label: "Building", count: buildingCount });
+    }
+
+    // Count units (from buildings + standalone)
+    const buildingUnits = (hierarchy.buildings ?? []).reduce((sum: number, b: any) => sum + (b.units?.length ?? 0), 0);
+    const standaloneUnits = hierarchy.units?.length ?? 0;
+    const unitCount = buildingUnits + standaloneUnits;
+    if (unitCount > 0) {
+      levels.push({ key: "unit", label: "Unit", count: unitCount });
+    }
+
+    // Count rooms/particles
+    const buildingRooms = (hierarchy.buildings ?? []).reduce((sum: number, b: any) => {
+      const unitRooms = (b.units ?? []).reduce((s: number, u: any) => s + (u.particles?.length ?? 0), 0);
+      return sum + unitRooms + (b.particles?.length ?? 0);
+    }, 0);
+    const standaloneUnitRooms = (hierarchy.units ?? []).reduce((sum: number, u: any) => sum + (u.particles?.length ?? 0), 0);
+    const roomCount = buildingRooms + standaloneUnitRooms;
+    if (roomCount > 0) {
+      levels.push({ key: "room", label: "Room", count: roomCount });
+    }
+
+    return levels;
+  }, [hierarchy]);
 
   // Precompute a breadcrumb label for each room particle so click handlers don't
   // have to walk/flatten the hierarchy tree (helps INP on PETL buttons).
@@ -6069,10 +6156,13 @@ ${htmlBody}
     };
   }, [project, activeTab, isPmOrAbove, pendingPetlReloadTick]);
 
-  // Load hierarchy lazily when STRUCTURE tab is opened
+  // Load hierarchy lazily when STRUCTURE or FINANCIAL tab is opened
+  // (FINANCIAL needs it for dynamic invoice grouping options)
   useEffect(() => {
     if (!project) return;
-    if (activeTab !== "STRUCTURE") return;
+    if (activeTab !== "STRUCTURE" && activeTab !== "FINANCIAL") return;
+    // Skip if already loaded (avoid re-fetching when switching between these tabs)
+    if (hierarchy) return;
     const token = localStorage.getItem("accessToken");
     if (!token) return;
 
@@ -6097,7 +6187,7 @@ ${htmlBody}
     return () => {
       cancelled = true;
     };
-  }, [project, activeTab]);
+  }, [project, activeTab, hierarchy]);
 
   // Load import structuring room buckets when STRUCTURE tab is opened
   useEffect(() => {
@@ -11089,7 +11179,36 @@ ${htmlBody}
               marginBottom: 8,
             }}
           >
-            <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Financial Overview</h2>
+            {activeInvoice ? (
+              <button
+                type="button"
+                className="no-print"
+                onClick={() => {
+                  setActiveInvoice(null);
+                  if (invoiceFullscreen) {
+                    router.push(`/projects/${id}?tab=FINANCIAL`);
+                  }
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: 0,
+                  margin: 0,
+                  border: "none",
+                  background: "none",
+                  color: "#2563eb",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <span style={{ fontSize: 16 }}>←</span>
+                Back to Financial Overview
+              </button>
+            ) : (
+              <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>Financial Overview</h2>
+            )}
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <button
                 type="button"
@@ -13253,6 +13372,7 @@ ${htmlBody}
                             <th style={{ textAlign: "right", padding: "6px 8px" }}>Paid</th>
                             <th style={{ textAlign: "right", padding: "6px 8px" }}>Balance</th>
                             <th style={{ textAlign: "left", padding: "6px 8px" }}>Issued</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}></th>
                           </tr>
                         </thead>
                         <tbody>
@@ -13347,6 +13467,62 @@ ${htmlBody}
                               </td>
                               <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
                                 {inv.issuedAt ? new Date(inv.issuedAt).toLocaleDateString() : "—"}
+                              </td>
+                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                {inv.status === "DRAFT" && (inv.totalAmount ?? 0) === 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      if (!project) return;
+                                      const ok = window.confirm(
+                                        "Delete this empty draft invoice?\n\nThis action cannot be undone.",
+                                      );
+                                      if (!ok) return;
+
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) {
+                                        setInvoiceMessage("Missing access token.");
+                                        return;
+                                      }
+                                      setInvoiceMessage(null);
+                                      try {
+                                        const res = await fetch(
+                                          `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
+                                          {
+                                            method: "DELETE",
+                                            headers: {
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                          },
+                                        );
+                                        if (!res.ok) {
+                                          const text = await res.text().catch(() => "");
+                                          setInvoiceMessage(
+                                            `Delete failed (${res.status}) ${text}`,
+                                          );
+                                          return;
+                                        }
+                                        setProjectInvoices(null);
+                                        setInvoiceMessage("Draft invoice deleted.");
+                                      } catch (err: any) {
+                                        setInvoiceMessage(err?.message ?? "Delete failed.");
+                                      }
+                                    }}
+                                    style={{
+                                      padding: "3px 8px",
+                                      borderRadius: 4,
+                                      border: "1px solid #dc2626",
+                                      background: "#fef2f2",
+                                      color: "#b91c1c",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    Delete $0 Draft
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))}
@@ -13744,21 +13920,81 @@ ${htmlBody}
       )}
 
       {invoicePrintDialogOpen && (() => {
-        // Compute preview data
-        const previewLines = (activeInvoicePetlLines as any[]).filter((li: any) => {
-          const lineId = String(li?.id ?? "");
-          return !invoicePrintExcludedLines.has(lineId);
-        });
+        // Compute preview data - filter excluded lines
+        // Sort by displayLineNo to match PETL view (1, 1.1, 1.2, 2, 2.1, etc.)
+        const previewLines = (activeInvoicePetlLines as any[])
+          .filter((li: any) => {
+            const lineId = String(li?.id ?? "");
+            return !invoicePrintExcludedLines.has(lineId);
+          })
+          .sort((a: any, b: any) => {
+            // Use displayLineNo for sorting (handles 1, 1.1, 1.2, 2, etc.)
+            const aDisplay = String(a?.displayLineNo ?? a?.sourceLineNoSnapshot ?? a?.lineNoSnapshot ?? "0");
+            const bDisplay = String(b?.displayLineNo ?? b?.sourceLineNoSnapshot ?? b?.lineNoSnapshot ?? "0");
+            // Parse as version-like strings: "1" < "1.1" < "1.2" < "2"
+            const aParts = aDisplay.split(".").map(p => Number(p) || 0);
+            const bParts = bDisplay.split(".").map(p => Number(p) || 0);
+            for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+              const aVal = aParts[i] ?? 0;
+              const bVal = bParts[i] ?? 0;
+              if (aVal !== bVal) return aVal - bVal;
+            }
+            return 0;
+          });
         const previewTotal = previewLines.reduce((sum: number, li: any) => sum + (Number(li?.thisInvTotal ?? 0) || 0), 0);
-        const enabledFieldsPreview = INVOICE_PRINT_FIELD_DEFS.filter(f => invoicePrintFields.has(f.key));
+        
+        // Filter fields: hide certain columns when consolidating
+        const enabledFieldsPreview = INVOICE_PRINT_FIELD_DEFS.filter(f => {
+          if (!invoicePrintFields.has(f.key)) return false;
+          if (invoicePrintConsolidate && CONSOLIDATE_HIDDEN_FIELDS.has(f.key)) return false;
+          return true;
+        });
+
+        // Helper to get display line number (matches PETL view)
+        const getDisplayLineNo = (li: any): string => {
+          if (li?.displayLineNo != null && String(li.displayLineNo).trim()) {
+            return String(li.displayLineNo).trim();
+          }
+          return String(li?.sourceLineNoSnapshot ?? li?.lineNoSnapshot ?? "");
+        };
+
+        // Check if line is a child (has parentLineId, anchorKind LINE_TIED, or displayLineNo like "1.1")
+        const isChildLine = (li: any): boolean => {
+          if (li?.parentLineId) return true;
+          if (li?.anchorKind === "LINE_TIED") return true;
+          if (li?.kind === "ACV_HOLDBACK_CREDIT") return true;
+          const displayNo = getDisplayLineNo(li);
+          return displayNo.includes(".");
+        };
 
         // Helper to get field value for preview
         const getPreviewFieldValue = (li: any, fieldKey: string): string => {
+          const isChild = isChildLine(li);
+          const displayNo = getDisplayLineNo(li);
+          
           switch (fieldKey) {
-            case "lineNo": return String(li?.sourceLineNoSnapshot ?? li?.lineNoSnapshot ?? "");
+            case "lineNo": 
+              // Add arrow prefix for child lines
+              return isChild ? `↳ ${displayNo}` : displayNo;
             case "categoryCode": return String(li?.categoryCodeSnapshot ?? "");
             case "selectionCode": return String(li?.selectionCodeSnapshot ?? "");
-            case "description": return String(li?.descriptionSnapshot ?? "");
+            case "description": {
+              // For child lines, show kind indicator
+              const kind = String(li?.kind ?? "");
+              const anchorKind = String(li?.anchorKind ?? "");
+              const billingTag = String(li?.billingTag ?? "");
+              const desc = String(li?.descriptionSnapshot ?? "");
+              // ACV credits (80% rebate)
+              if (kind === "ACV_HOLDBACK_CREDIT") return "[CREDIT] " + desc;
+              // Line-tied reconciliation entries
+              if (anchorKind === "LINE_TIED") {
+                if (billingTag === "SUPPLEMENT") return "[SUPP] " + desc;
+                if (billingTag === "CHANGE_ORDER") return "[CO] " + desc;
+                // Regular ADD/CREDIT/etc
+                return "[ADD] " + desc;
+              }
+              return desc;
+            }
             case "room": return String(li?.projectParticleLabelSnapshot ?? "");
             case "unit": return String(li?.projectUnitLabelSnapshot ?? "");
             case "building": return String(li?.projectBuildingLabelSnapshot ?? "");
@@ -13782,6 +14018,49 @@ ${htmlBody}
           }
         };
 
+        // Consolidate lines by description - merges lines with same description, aggregates values
+        const consolidateLines = (lines: any[]): any[] => {
+          if (!invoicePrintConsolidate) return lines;
+          
+          const map = new Map<string, any>();
+          for (const li of lines) {
+            const desc = String(li?.descriptionSnapshot ?? "").trim();
+            const existing = map.get(desc);
+            if (!existing) {
+              // First occurrence - clone the line
+              map.set(desc, {
+                ...li,
+                _consolidated: true,
+                _lineCount: 1,
+                earnedTotal: Number(li?.earnedTotal ?? 0) || 0,
+                prevBilledTotal: Number(li?.prevBilledTotal ?? 0) || 0,
+                thisInvTotal: Number(li?.thisInvTotal ?? 0) || 0,
+                _weightedPercentSum: (Number(li?.percentCompleteSnapshot ?? 0) || 0) * (Number(li?.earnedTotal ?? 0) || 0),
+                _earnedForWeighting: Number(li?.earnedTotal ?? 0) || 0,
+              });
+            } else {
+              // Merge into existing
+              existing._lineCount += 1;
+              existing.earnedTotal += Number(li?.earnedTotal ?? 0) || 0;
+              existing.prevBilledTotal += Number(li?.prevBilledTotal ?? 0) || 0;
+              existing.thisInvTotal += Number(li?.thisInvTotal ?? 0) || 0;
+              existing._weightedPercentSum += (Number(li?.percentCompleteSnapshot ?? 0) || 0) * (Number(li?.earnedTotal ?? 0) || 0);
+              existing._earnedForWeighting += Number(li?.earnedTotal ?? 0) || 0;
+            }
+          }
+          
+          // Calculate weighted average % complete
+          for (const li of map.values()) {
+            if (li._earnedForWeighting > 0) {
+              li.percentCompleteSnapshot = li._weightedPercentSum / li._earnedForWeighting;
+            } else {
+              li.percentCompleteSnapshot = 0;
+            }
+          }
+          
+          return Array.from(map.values());
+        };
+
         const previewGrouped = invoicePrintGroupBy !== "none" ? (() => {
           const map = new Map<string, any[]>();
           for (const li of previewLines) {
@@ -13791,13 +14070,21 @@ ${htmlBody}
             map.set(gk, bucket);
           }
           return Array.from(map.entries())
-            .map(([key, lines]) => ({
-              key,
-              lines: lines.sort((a, b) => Number(a?.lineNoSnapshot ?? 0) - Number(b?.lineNoSnapshot ?? 0)),
-              subtotal: lines.reduce((s, l) => s + (Number(l?.thisInvTotal ?? 0) || 0), 0),
-            }))
+            .map(([key, lines]) => {
+              const consolidated = consolidateLines(lines);
+              return {
+                key,
+                lines: consolidated.sort((a, b) => Number(a?.lineNoSnapshot ?? 0) - Number(b?.lineNoSnapshot ?? 0)),
+                subtotal: consolidated.reduce((s, l) => s + (Number(l?.thisInvTotal ?? 0) || 0), 0),
+              };
+            })
             .sort((a, b) => Number(a.lines[0]?.lineNoSnapshot ?? 0) - Number(b.lines[0]?.lineNoSnapshot ?? 0));
         })() : null;
+        
+        // For flat view (no grouping) with consolidation
+        const previewLinesForDisplay = invoicePrintGroupBy === "none" && invoicePrintConsolidate
+          ? consolidateLines(previewLines)
+          : previewLines;
 
         return (
         <div
@@ -13876,54 +14163,52 @@ ${htmlBody}
                   background: "#fafafa",
                 }}
               >
-                {/* Settings row - all controls inline */}
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 24, flexWrap: "wrap" }}>
-                  {/* Field Selection */}
-                  <div style={{ flex: "1 1 auto", minWidth: 300 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                      Columns
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                      {INVOICE_PRINT_FIELD_DEFS.map((field) => (
-                        <label
-                          key={field.key}
-                          style={{
-                            display: "flex",
-                            gap: 4,
-                            alignItems: "center",
-                            fontSize: 11,
-                            padding: "4px 8px",
-                            borderRadius: 4,
-                            background: invoicePrintFields.has(field.key) ? "#dbeafe" : "#ffffff",
-                            border: `1px solid ${invoicePrintFields.has(field.key) ? "#3b82f6" : "#d1d5db"}`,
-                            cursor: "pointer",
-                            userSelect: "none",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={invoicePrintFields.has(field.key)}
-                            onChange={() => togglePrintField(field.key)}
-                            style={{ margin: 0, width: 12, height: 12 }}
-                          />
-                          {field.label}
-                        </label>
-                      ))}
-                    </div>
+                {/* Row 1: Columns */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Columns
                   </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {INVOICE_PRINT_FIELD_DEFS.map((field) => (
+                      <label
+                        key={field.key}
+                        style={{
+                          display: "flex",
+                          gap: 4,
+                          alignItems: "center",
+                          fontSize: 11,
+                          padding: "4px 8px",
+                          borderRadius: 4,
+                          background: invoicePrintFields.has(field.key) ? "#dbeafe" : "#ffffff",
+                          border: `1px solid ${invoicePrintFields.has(field.key) ? "#3b82f6" : "#d1d5db"}`,
+                          cursor: "pointer",
+                          userSelect: "none",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={invoicePrintFields.has(field.key)}
+                          onChange={() => togglePrintField(field.key)}
+                          style={{ margin: 0, width: 12, height: 12 }}
+                        />
+                        {field.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
 
-                  {/* Grouping */}
-                  <div style={{ flexShrink: 0 }}>
+                {/* Row 2: Group By + Actions */}
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24 }}>
+                  {/* Grouping - Dynamic hierarchy levels */}
+                  <div>
                     <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.5px" }}>
                       Group By
                     </div>
-                    <div style={{ display: "flex", gap: 4 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      {/* Base options: None + CAT */}
                       {[
                         { value: "none", label: "None" },
-                        { value: "category", label: "Task" },
-                        { value: "room", label: "Room" },
-                        { value: "unit", label: "Unit" },
-                        { value: "building", label: "Bldg" },
+                        { value: "category", label: "CAT" },
                       ].map((opt) => (
                         <label
                           key={opt.value}
@@ -13950,11 +14235,72 @@ ${htmlBody}
                           {opt.label}
                         </label>
                       ))}
+                      {/* Separator if hierarchy levels exist */}
+                      {invoicePrintHierarchyLevels.length > 0 && (
+                        <span style={{ color: "#d1d5db", fontSize: 11 }}>|</span>
+                      )}
+                      {/* Location hierarchy levels */}
+                      {invoicePrintHierarchyLevels.map((level) => (
+                        <label
+                          key={level.key}
+                          style={{
+                            display: "flex",
+                            gap: 4,
+                            alignItems: "center",
+                            fontSize: 11,
+                            padding: "4px 8px",
+                            borderRadius: 4,
+                            background: invoicePrintGroupBy === level.key ? "#dbeafe" : "#ffffff",
+                            border: `1px solid ${invoicePrintGroupBy === level.key ? "#3b82f6" : "#d1d5db"}`,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <input
+                            type="radio"
+                            name="invoicePrintGroupBy"
+                            value={level.key}
+                            checked={invoicePrintGroupBy === level.key}
+                            onChange={() => setInvoicePrintGroupBy(level.key)}
+                            style={{ margin: 0, width: 12, height: 12 }}
+                          />
+                          {level.label}
+                          <span style={{ fontSize: 9, color: "#6b7280" }}>({level.count})</span>
+                        </label>
+                      ))}
+                      {invoicePrintHierarchyLevels.length === 0 && (
+                        <span style={{ fontSize: 10, color: "#9ca3af", fontStyle: "italic" }}>
+                          (Set up structure in STRUCTURE tab for location grouping)
+                        </span>
+                      )}
+                      {/* Separator before consolidate */}
+                      <span style={{ color: "#d1d5db", fontSize: 11, marginLeft: 8 }}>|</span>
+                      {/* Consolidate toggle */}
+                      <label
+                        style={{
+                          display: "flex",
+                          gap: 4,
+                          alignItems: "center",
+                          fontSize: 11,
+                          padding: "4px 8px",
+                          borderRadius: 4,
+                          background: invoicePrintConsolidate ? "#fef3c7" : "#ffffff",
+                          border: `1px solid ${invoicePrintConsolidate ? "#f59e0b" : "#d1d5db"}`,
+                          cursor: "pointer",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={invoicePrintConsolidate}
+                          onChange={() => setInvoicePrintConsolidate(prev => !prev)}
+                          style={{ margin: 0, width: 12, height: 12 }}
+                        />
+                        Consolidate by Description
+                      </label>
                     </div>
                   </div>
 
-                  {/* Line Item Exclusion + Actions */}
-                  <div style={{ flexShrink: 0, display: "flex", alignItems: "flex-end", gap: 8 }}>
+                  {/* Actions */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                     <button
                       type="button"
                       onClick={() => setInvoiceLineExclusionModalOpen(true)}
@@ -13968,7 +14314,6 @@ ${htmlBody}
                         display: "flex",
                         alignItems: "center",
                         gap: 6,
-                        marginTop: 20,
                       }}
                     >
                       Exclude line item/s
@@ -13990,8 +14335,9 @@ ${htmlBody}
                     <button
                       type="button"
                       onClick={() => {
-                        setInvoicePrintFields(DEFAULT_PRINT_FIELDS);
+                        setInvoicePrintFields(ALL_PRINT_FIELDS);
                         setInvoicePrintGroupBy("none");
+                        setInvoicePrintConsolidate(false);
                         setInvoicePrintExcludedLines(new Set());
                       }}
                       style={{
@@ -14002,7 +14348,6 @@ ${htmlBody}
                         cursor: "pointer",
                         fontSize: 11,
                         color: "#6b7280",
-                        marginTop: 20,
                       }}
                     >
                       Reset
@@ -14034,7 +14379,6 @@ ${htmlBody}
                         cursor: invoicePrintBusy || invoicePrintFields.size === 0 ? "default" : "pointer",
                         fontSize: 11,
                         fontWeight: 600,
-                        marginTop: 20,
                       }}
                     >
                       {invoicePrintBusy ? "Preparing…" : "Print / Save PDF"}
@@ -14068,15 +14412,18 @@ ${htmlBody}
                       <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>#{activeInvoice?.invoiceNumber ?? "—"}</div>
                     </div>
                     <div style={{ textAlign: "right", fontSize: 12, color: "#4b5563" }}>
-                      <div style={{ fontWeight: 600 }}>{project?.company?.name || "Your Company"}</div>
+                      <div style={{ fontWeight: 600 }}>Nexus Fortified Structures LLC</div>
                       <div style={{ color: "#6b7280" }}>{new Date().toLocaleDateString()}</div>
                     </div>
                   </div>
 
                   {/* Preview summary */}
                   <div style={{ marginBottom: 16, fontSize: 12, color: "#6b7280" }}>
-                    {previewLines.length} line{previewLines.length !== 1 ? "s" : ""} · {enabledFieldsPreview.length} column{enabledFieldsPreview.length !== 1 ? "s" : ""}
+                    {previewLines.length} line{previewLines.length !== 1 ? "s" : ""}
+                    {invoicePrintConsolidate && ` → ${previewGrouped ? previewGrouped.reduce((sum, g) => sum + g.lines.length, 0) : previewLinesForDisplay.length} consolidated`}
+                    {" · "}{enabledFieldsPreview.length} column{enabledFieldsPreview.length !== 1 ? "s" : ""}
                     {invoicePrintGroupBy !== "none" && ` · Grouped by ${invoicePrintGroupBy}`}
+                    {invoicePrintConsolidate && " · Consolidated by description"}
                   </div>
 
                   {/* Preview Table */}
@@ -14167,27 +14514,38 @@ ${htmlBody}
                             </React.Fragment>
                           ))
                         ) : (
-                          // Flat view - show all lines
-                          previewLines.map((li: any, idx: number) => (
-                            <tr key={li?.id ?? idx} style={{ background: idx % 2 === 1 ? "#fafafa" : "transparent" }}>
-                              {enabledFieldsPreview.map((f) => (
-                                <td
-                                  key={f.key}
-                                  style={{
-                                    padding: "6px 10px",
-                                    textAlign: ["earnedTotal", "prevBilledTotal", "thisInvTotal", "percentComplete"].includes(f.key) ? "right" : "left",
-                                    borderBottom: "1px solid #f3f4f6",
-                                    maxWidth: f.key === "description" ? 280 : undefined,
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                    whiteSpace: "nowrap",
-                                  }}
-                                >
-                                  {getPreviewFieldValue(li, f.key)}
-                                </td>
-                              ))}
-                            </tr>
-                          ))
+                          // Flat view - show all lines (or consolidated lines)
+                          previewLinesForDisplay.map((li: any, idx: number) => {
+                            const isChild = isChildLine(li);
+                            return (
+                              <tr 
+                                key={li?.id ?? `consolidated-${idx}`} 
+                                style={{ 
+                                  background: isChild ? "#fefce8" : (idx % 2 === 1 ? "#fafafa" : "transparent"),
+                                }}
+                              >
+                                {enabledFieldsPreview.map((f) => (
+                                  <td
+                                    key={f.key}
+                                    style={{
+                                      padding: "6px 10px",
+                                      paddingLeft: isChild && f.key === "lineNo" ? 20 : 10,
+                                      textAlign: ["earnedTotal", "prevBilledTotal", "thisInvTotal", "percentComplete"].includes(f.key) ? "right" : "left",
+                                      borderBottom: "1px solid #f3f4f6",
+                                      maxWidth: f.key === "description" ? 280 : undefined,
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                      fontSize: isChild ? 11 : 12,
+                                      color: isChild ? "#6b7280" : undefined,
+                                    }}
+                                  >
+                                    {getPreviewFieldValue(li, f.key)}
+                                  </td>
+                                ))}
+                              </tr>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
@@ -14752,70 +15110,22 @@ ${htmlBody}
                                             Number(li.thisInvTotal ?? 0) === 0 &&
                                             Number(li.contractTotal ?? 0) !== 0;
 
-                                          const isReconDebug =
-                                            isAdminOrAbove &&
-                                            li.anchorKind === "LINE_TIED" &&
-                                            (effectiveTag === "SUPPLEMENT" || effectiveTag === "CHANGE_ORDER");
-
-                                          const debugFragment = (() => {
-                                            if (!isReconDebug) return null;
-                                            const pctLabel =
-                                              li.percentCompleteSnapshot != null
-                                                ? `${Number(li.percentCompleteSnapshot).toFixed(0)}%`
-                                                : "—";
-                                            const targetDelta =
-                                              Number(li.earnedTotal ?? 0) - Number(li.prevBilledTotal ?? 0);
+                                          if (isRejectedSupplement) {
                                             return (
                                               <span
                                                 style={{
-                                                  display: "block",
-                                                  marginTop: 2,
-                                                  fontSize: 10,
-                                                  color: "#6b7280",
-                                                  fontWeight: 400,
+                                                  fontWeight: 700,
+                                                  color: "#b91c1c",
+                                                  fontSize: 11,
+                                                  letterSpacing: "0.08em",
                                                 }}
                                               >
-                                                p {pctLabel} · e {formatMoney(li.earnedTotal)} · prev {formatMoney(li.prevBilledTotal)} · tgt {formatMoney(targetDelta)}
+                                                REJECTED
                                               </span>
-                                            );
-                                          })();
-
-                                          if (isRejectedSupplement) {
-                                            return (
-                                              <div
-                                                style={{
-                                                  display: "flex",
-                                                  flexDirection: "column",
-                                                  alignItems: "flex-end",
-                                                }}
-                                              >
-                                                <span
-                                                  style={{
-                                                    fontWeight: 700,
-                                                    color: "#b91c1c",
-                                                    fontSize: 11,
-                                                    letterSpacing: "0.08em",
-                                                  }}
-                                                >
-                                                  REJECTED
-                                                </span>
-                                                {debugFragment}
-                                              </div>
                                             );
                                           }
 
-                                          return (
-                                            <div
-                                              style={{
-                                                display: "flex",
-                                                flexDirection: "column",
-                                                alignItems: "flex-end",
-                                              }}
-                                            >
-                                              <span>{formatMoney(li.thisInvTotal)}</span>
-                                              {debugFragment}
-                                            </div>
-                                          );
+                                          return formatMoney(li.thisInvTotal);
                                         })()}
                                       </td>
                                     </tr>,
@@ -14827,12 +15137,16 @@ ${htmlBody}
                             ) : (
                               [...visibleInvoicePetlLines]
                                 .sort((a, b) => {
-                                  const pa = String(a?.projectTreePathSnapshot ?? "");
-                                  const pb = String(b?.projectTreePathSnapshot ?? "");
-                                  if (pa !== pb) return pa.localeCompare(pb);
-                                  const la = Number(a?.lineNoSnapshot ?? 0);
-                                  const lb = Number(b?.lineNoSnapshot ?? 0);
-                                  if (la !== lb) return la - lb;
+                                  // Sort by displayLineNo for PETL-like ordering (1, 1.001, 1.002, 2, etc.)
+                                  const aDisplay = String(a?.displayLineNo ?? a?.lineNoSnapshot ?? "0");
+                                  const bDisplay = String(b?.displayLineNo ?? b?.lineNoSnapshot ?? "0");
+                                  const aParts = aDisplay.split(".").map((p: string) => Number(p) || 0);
+                                  const bParts = bDisplay.split(".").map((p: string) => Number(p) || 0);
+                                  for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+                                    const aVal = aParts[i] ?? 0;
+                                    const bVal = bParts[i] ?? 0;
+                                    if (aVal !== bVal) return aVal - bVal;
+                                  }
                                   const ka = String(a?.kind ?? "");
                                   const kb = String(b?.kind ?? "");
                                   return ka.localeCompare(kb);
@@ -15039,70 +15353,22 @@ ${htmlBody}
                                             Number(li.thisInvTotal ?? 0) === 0 &&
                                             Number(li.contractTotal ?? 0) !== 0;
 
-                                          const isReconDebug =
-                                            isAdminOrAbove &&
-                                            li.anchorKind === "LINE_TIED" &&
-                                            (effectiveTag === "SUPPLEMENT" || effectiveTag === "CHANGE_ORDER");
-
-                                          const debugFragment = (() => {
-                                            if (!isReconDebug) return null;
-                                            const pctLabel =
-                                              li.percentCompleteSnapshot != null
-                                                ? `${Number(li.percentCompleteSnapshot).toFixed(0)}%`
-                                                : "—";
-                                            const targetDelta =
-                                              Number(li.earnedTotal ?? 0) - Number(li.prevBilledTotal ?? 0);
+                                          if (isRejectedSupplement) {
                                             return (
                                               <span
                                                 style={{
-                                                  display: "block",
-                                                  marginTop: 2,
-                                                  fontSize: 10,
-                                                  color: "#6b7280",
-                                                  fontWeight: 400,
+                                                  fontWeight: 700,
+                                                  color: "#b91c1c",
+                                                  fontSize: 11,
+                                                  letterSpacing: "0.08em",
                                                 }}
                                               >
-                                                p {pctLabel} · e {formatMoney(li.earnedTotal)} · prev {formatMoney(li.prevBilledTotal)} · tgt {formatMoney(targetDelta)}
+                                                REJECTED
                                               </span>
-                                            );
-                                          })();
-
-                                          if (isRejectedSupplement) {
-                                            return (
-                                              <div
-                                                style={{
-                                                  display: "flex",
-                                                  flexDirection: "column",
-                                                  alignItems: "flex-end",
-                                                }}
-                                              >
-                                                <span
-                                                  style={{
-                                                    fontWeight: 700,
-                                                    color: "#b91c1c",
-                                                    fontSize: 11,
-                                                    letterSpacing: "0.08em",
-                                                  }}
-                                                >
-                                                  REJECTED
-                                                </span>
-                                                {debugFragment}
-                                              </div>
                                             );
                                           }
 
-                                          return (
-                                            <div
-                                              style={{
-                                                display: "flex",
-                                                flexDirection: "column",
-                                                alignItems: "flex-end",
-                                              }}
-                                            >
-                                              <span>{formatMoney(li.thisInvTotal)}</span>
-                                              {debugFragment}
-                                            </div>
-                                          );
+                                          return formatMoney(li.thisInvTotal);
                                         })()}
                                       </td>
                                     </tr>
@@ -15786,36 +16052,200 @@ ${htmlBody}
       {activeTab === "STRUCTURE" && (
         <div style={{ marginTop: 8, marginBottom: 16 }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
-            Project Organization (Room Buckets)
+            Project Organization
           </h2>
-          <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 8 }}>
-            These buckets come directly from the latest Xactimate RAW import by
-            combining <strong>Group Code</strong> and <strong>Group Description</strong>.
-            Use this view to group buckets into Units and later Buildings.
+          <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 12 }}>
+            Organize your project structure: <strong>Property → Buildings → Units → Rooms</strong>.
+            Assign imported room buckets to units to build the hierarchy.
           </p>
 
-          {importRoomBucketsLoading && (
-            <p style={{ fontSize: 12, color: "#6b7280" }}>Loading room buckets…</p>
-          )}
+          {/* Real-time Hierarchy Tree */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "320px 1fr",
+              gap: 16,
+              marginBottom: 16,
+            }}
+          >
+            {/* Left: Hierarchy Tree */}
+            <div
+              style={{
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                background: "#ffffff",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  padding: "8px 12px",
+                  background: "#f3f4f6",
+                  borderBottom: "1px solid #e5e7eb",
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                Hierarchy Tree
+              </div>
+              <div style={{ padding: 12, fontSize: 12, maxHeight: 400, overflow: "auto" }}>
+                {/* Property (Project) - Root */}
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "#1f2937" }}>
+                    <span style={{ fontSize: 14 }}>🏠</span>
+                    <span>{project?.name || "Project"}</span>
+                  </div>
+                  {project?.addressLine1 && (
+                    <div style={{ marginLeft: 22, fontSize: 11, color: "#6b7280" }}>
+                      {project.addressLine1}
+                      {project.city && `, ${project.city}`}
+                      {project.state && `, ${project.state}`}
+                    </div>
+                  )}
+                </div>
 
-          {!importRoomBucketsLoading && importRoomBucketsError && (
-            <p style={{ fontSize: 12, color: "#b91c1c" }}>{importRoomBucketsError}</p>
-          )}
+                {/* Buildings with their units */}
+                {hierarchy?.buildings && hierarchy.buildings.length > 0 && (
+                  <div style={{ marginLeft: 12, borderLeft: "2px solid #e5e7eb", paddingLeft: 12 }}>
+                    {hierarchy.buildings.map((b: any) => (
+                      <div key={b.id} style={{ marginBottom: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "#4338ca" }}>
+                          <span style={{ fontSize: 13 }}>🏢</span>
+                          <span>{b.code ? `${b.code} - ` : ""}{b.name || "Building"}</span>
+                        </div>
+                        {/* Units in this building */}
+                        {b.units && b.units.length > 0 && (
+                          <div style={{ marginLeft: 12, borderLeft: "2px solid #c7d2fe", paddingLeft: 12, marginTop: 4 }}>
+                            {b.units.map((u: any) => (
+                              <div key={u.id} style={{ marginBottom: 6 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 500, color: "#0891b2" }}>
+                                  <span style={{ fontSize: 12 }}>📦</span>
+                                  <span>{u.label}{typeof u.floor === "number" ? ` (Floor ${u.floor})` : ""}</span>
+                                </div>
+                                {/* Rooms in this unit */}
+                                {u.particles && u.particles.length > 0 && (
+                                  <div style={{ marginLeft: 12, marginTop: 2 }}>
+                                    {u.particles.map((p: any) => (
+                                      <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, color: "#6b7280", fontSize: 11, marginBottom: 2 }}>
+                                        <span>📍</span>
+                                        <span>{p.name || p.fullLabel || "Room"}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* Rooms directly in building (no unit) */}
+                        {b.particles && b.particles.length > 0 && (
+                          <div style={{ marginLeft: 12, marginTop: 4 }}>
+                            {b.particles.map((p: any) => (
+                              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, color: "#6b7280", fontSize: 11, marginBottom: 2 }}>
+                                <span>📍</span>
+                                <span>{p.name || p.fullLabel || "Room"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
-          {!importRoomBucketsLoading &&
-            !importRoomBucketsError &&
-            importRoomBuckets &&
-            importRoomBuckets.length === 0 && (
-              <p style={{ fontSize: 12, color: "#6b7280" }}>
-                No RAW Xactimate imports found for this project yet.
-              </p>
-            )}
+                {/* Standalone Units (no building) */}
+                {hierarchy?.units && hierarchy.units.length > 0 && (
+                  <div style={{ marginLeft: 12, borderLeft: "2px solid #e5e7eb", paddingLeft: 12 }}>
+                    {hierarchy.units.map((u: any) => (
+                      <div key={u.id} style={{ marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 500, color: "#0891b2" }}>
+                          <span style={{ fontSize: 12 }}>📦</span>
+                          <span>{u.label}{typeof u.floor === "number" ? ` (Floor ${u.floor})` : ""}</span>
+                          <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 400 }}>(no building)</span>
+                        </div>
+                        {/* Rooms in this unit */}
+                        {u.particles && u.particles.length > 0 && (
+                          <div style={{ marginLeft: 12, marginTop: 2 }}>
+                            {u.particles.map((p: any) => (
+                              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, color: "#6b7280", fontSize: 11, marginBottom: 2 }}>
+                                <span>📍</span>
+                                <span>{p.name || p.fullLabel || "Room"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
-          {!importRoomBucketsLoading &&
-            !importRoomBucketsError &&
-            importRoomBuckets &&
-            importRoomBuckets.length > 0 && (
-              <>
+                {/* Empty state */}
+                {(!hierarchy || ((!hierarchy.buildings || hierarchy.buildings.length === 0) && (!hierarchy.units || hierarchy.units.length === 0))) && (
+                  <div style={{ marginLeft: 12, color: "#9ca3af", fontStyle: "italic" }}>
+                    No buildings or units yet. Assign room buckets below to create the structure.
+                  </div>
+                )}
+
+                {/* Summary stats */}
+                {hierarchy && (
+                  <div style={{ marginTop: 12, paddingTop: 8, borderTop: "1px solid #e5e7eb", fontSize: 11, color: "#6b7280" }}>
+                    <div>Buildings: {hierarchy.buildings?.length || 0}</div>
+                    <div>Units: {(hierarchy.buildings?.reduce((sum: number, b: any) => sum + (b.units?.length || 0), 0) || 0) + (hierarchy.units?.length || 0)}</div>
+                    <div>Rooms: {
+                      (hierarchy.buildings?.reduce((sum: number, b: any) => {
+                        const unitRooms = (b.units || []).reduce((s: number, u: any) => s + (u.particles?.length || 0), 0);
+                        return sum + unitRooms + (b.particles?.length || 0);
+                      }, 0) || 0) +
+                      (hierarchy.units?.reduce((sum: number, u: any) => sum + (u.particles?.length || 0), 0) || 0)
+                    }</div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right: Assignment Panel */}
+            <div
+              style={{
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                background: "#ffffff",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  padding: "8px 12px",
+                  background: "#f3f4f6",
+                  borderBottom: "1px solid #e5e7eb",
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                Room Buckets (from Xactimate Import)
+              </div>
+              <div style={{ padding: 12 }}>
+                {importRoomBucketsLoading && (
+                  <p style={{ fontSize: 12, color: "#6b7280" }}>Loading room buckets…</p>
+                )}
+
+                {!importRoomBucketsLoading && importRoomBucketsError && (
+                  <p style={{ fontSize: 12, color: "#b91c1c" }}>{importRoomBucketsError}</p>
+                )}
+
+                {!importRoomBucketsLoading &&
+                  !importRoomBucketsError &&
+                  importRoomBuckets &&
+                  importRoomBuckets.length === 0 && (
+                    <p style={{ fontSize: 12, color: "#6b7280" }}>
+                      No RAW Xactimate imports found for this project yet.
+                    </p>
+                  )}
+
+                {!importRoomBucketsLoading &&
+                  !importRoomBucketsError &&
+                  importRoomBuckets &&
+                  importRoomBuckets.length > 0 && (
+                    <>
                 {/* Assignment controls */}
                 <div
                   style={{
@@ -16005,20 +16435,28 @@ ${htmlBody}
 
                           setAssignMessage("Assigned buckets to unit.");
                           setImportRoomBucketsSelection(new Set());
-                          // Refresh buckets so assignedUnitLabel updates
+                          // Refresh buckets and hierarchy so the tree updates in real-time
                           try {
                             setImportRoomBucketsLoading(true);
-                            const bucketsRes = await fetch(
-                              `${API_BASE}/projects/${id}/import-structure/room-buckets`,
-                              {
-                                headers: { Authorization: `Bearer ${token}` },
-                              },
-                            );
+                            const [bucketsRes, hierarchyRes] = await Promise.all([
+                              fetch(
+                                `${API_BASE}/projects/${id}/import-structure/room-buckets`,
+                                { headers: { Authorization: `Bearer ${token}` } },
+                              ),
+                              fetch(
+                                `${API_BASE}/projects/${id}/hierarchy`,
+                                { headers: { Authorization: `Bearer ${token}` } },
+                              ),
+                            ]);
                             if (bucketsRes.ok) {
                               const json: any = await bucketsRes.json();
                               setImportRoomBuckets(
                                 Array.isArray(json.buckets) ? json.buckets : [],
                               );
+                            }
+                            if (hierarchyRes.ok) {
+                              const hierarchyJson: any = await hierarchyRes.json();
+                              setHierarchy(hierarchyJson);
                             }
                           } finally {
                             setImportRoomBucketsLoading(false);
@@ -16554,6 +16992,9 @@ ${htmlBody}
                 </div>
               </>
             )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

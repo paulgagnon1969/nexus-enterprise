@@ -1248,6 +1248,17 @@ export class ProjectController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Delete(":id/invoices/:invoiceId")
+  deleteDraftInvoice(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.deleteDraftInvoice(projectId, invoiceId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post(":id/invoices/:invoiceId/issue")
   issueInvoice(
     @Req() req: any,
