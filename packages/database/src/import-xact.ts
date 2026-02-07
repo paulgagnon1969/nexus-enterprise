@@ -507,31 +507,98 @@ export async function updateTenantGoldenFromPetl(options: {
     return { updatedCount: 0 };
   }
 
+  // Extended SOW item type for cost book enrichment (when cost components are available)
+  type ExtendedSowItem = {
+    categoryCode: string | null;
+    selectionCode: string | null;
+    unitCost: number | null;
+    description?: string | null;
+    unit?: string | null;
+    activity?: string | null;
+    workersWage?: number | null;
+    laborBurden?: number | null;
+    laborOverhead?: number | null;
+    material?: number | null;
+    equipment?: number | null;
+  };
+
+  const extendedItems = sowItems as ExtendedSowItem[];
+
   type Agg = {
     cat: string;
     sel: string | null;
     totalUnitCost: number;
     count: number;
+    // Keep the best (most recent/complete) record for enrichment data
+    bestDescription: string | null;
+    bestUnit: string | null;
+    bestActivity: string | null;
+    // Accumulate cost components for averaging
+    totalWorkersWage: number;
+    totalLaborBurden: number;
+    totalLaborOverhead: number;
+    totalMaterial: number;
+    totalEquipment: number;
+    costComponentCount: number;
   };
 
   const byKey = new Map<string, Agg>();
 
-  for (const item of sowItems) {
+  for (const item of extendedItems) {
     if (!item.categoryCode || item.unitCost == null) continue;
     const cat = item.categoryCode.trim().toUpperCase();
     if (!cat) continue;
     const sel = item.selectionCode ? item.selectionCode.trim().toUpperCase() : null;
     const key = `${cat}::${sel ?? ""}`;
     const existing = byKey.get(key);
+
+    // Check if this item has cost component data
+    const hasCostComponents =
+      item.workersWage != null ||
+      item.laborBurden != null ||
+      item.laborOverhead != null ||
+      item.material != null ||
+      item.equipment != null;
+
     if (existing) {
       existing.totalUnitCost += item.unitCost ?? 0;
       existing.count += 1;
+
+      // Accumulate cost components if present
+      if (hasCostComponents) {
+        existing.totalWorkersWage += item.workersWage ?? 0;
+        existing.totalLaborBurden += item.laborBurden ?? 0;
+        existing.totalLaborOverhead += item.laborOverhead ?? 0;
+        existing.totalMaterial += item.material ?? 0;
+        existing.totalEquipment += item.equipment ?? 0;
+        existing.costComponentCount += 1;
+      }
+
+      // Update best description/unit/activity if this item has them and previous didn't
+      if (item.description && !existing.bestDescription) {
+        existing.bestDescription = item.description;
+      }
+      if (item.unit && !existing.bestUnit) {
+        existing.bestUnit = item.unit;
+      }
+      if (item.activity && !existing.bestActivity) {
+        existing.bestActivity = item.activity;
+      }
     } else {
       byKey.set(key, {
         cat,
         sel,
         totalUnitCost: item.unitCost ?? 0,
         count: 1,
+        bestDescription: item.description ?? null,
+        bestUnit: item.unit ?? null,
+        bestActivity: item.activity ?? null,
+        totalWorkersWage: item.workersWage ?? 0,
+        totalLaborBurden: item.laborBurden ?? 0,
+        totalLaborOverhead: item.laborOverhead ?? 0,
+        totalMaterial: item.material ?? 0,
+        totalEquipment: item.equipment ?? 0,
+        costComponentCount: hasCostComponents ? 1 : 0,
       });
     }
   }
@@ -585,6 +652,17 @@ export async function updateTenantGoldenFromPetl(options: {
     cat: string;
     sel: string | null;
     canonicalKeyHash: string | null;
+    // Enrichment fields for new items
+    description: string | null;
+    unit: string | null;
+    activity: string | null;
+    costComponents: {
+      workersWage: number | null;
+      laborBurden: number | null;
+      laborOverhead: number | null;
+      material: number | null;
+      equipment: number | null;
+    } | null;
   }[] = [];
 
   for (const [key, agg] of byKey.entries()) {
@@ -595,10 +673,28 @@ export async function updateTenantGoldenFromPetl(options: {
     const oldPrice = existing?.unitPrice ?? null;
     const newPrice = avgUnitCost;
 
-    if (oldPrice != null && Math.abs(newPrice - oldPrice) < 0.005) {
-      continue; // effectively unchanged
+    // Calculate averaged cost components if we have any
+    let costComponents: {
+      workersWage: number | null;
+      laborBurden: number | null;
+      laborOverhead: number | null;
+      material: number | null;
+      equipment: number | null;
+    } | null = null;
+
+    if (agg.costComponentCount > 0) {
+      const divisor = agg.costComponentCount;
+      costComponents = {
+        workersWage: agg.totalWorkersWage / divisor,
+        laborBurden: agg.totalLaborBurden / divisor,
+        laborOverhead: agg.totalLaborOverhead / divisor,
+        material: agg.totalMaterial / divisor,
+        equipment: agg.totalEquipment / divisor,
+      };
     }
 
+    // Always include items - we want to update existing items with latest data
+    // (cost components, source tracking, etc.) even if price hasn't changed much
     updates.push({
       id: existing?.id ?? "",
       oldPrice,
@@ -606,6 +702,10 @@ export async function updateTenantGoldenFromPetl(options: {
       cat: agg.cat,
       sel: agg.sel,
       canonicalKeyHash: existing?.canonicalKeyHash ?? null,
+      description: agg.bestDescription,
+      unit: agg.bestUnit,
+      activity: agg.bestActivity,
+      costComponents,
     });
   }
 
@@ -624,16 +724,36 @@ export async function updateTenantGoldenFromPetl(options: {
     await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       for (const u of chunk) {
         if (u.id) {
-          // Existing item – update price fields and freshness metadata.
+          // Existing item – update with latest data (price, cost components, source tracking).
           const updated = await tx.companyPriceListItem.update({
             where: { id: u.id },
             data: {
+              // Update price tracking
               lastKnownUnitPrice: u.oldPrice ?? undefined,
               unitPrice: u.newPrice,
               lastPriceChangedAt: now,
               lastPriceChangedByUserId: changedByUserId,
               lastPriceChangedSourceImportJobId: null,
               lastPriceChangedSource: source,
+              // Update enrichment fields if we have them
+              ...(u.description ? { description: u.description } : {}),
+              ...(u.unit ? { unit: u.unit } : {}),
+              ...(u.activity ? { activity: u.activity } : {}),
+              // Update cost components (use dedicated fields, not rawJson)
+              ...(u.costComponents
+                ? {
+                    workersWage: u.costComponents.workersWage,
+                    laborBurden: u.costComponents.laborBurden,
+                    laborOverhead: u.costComponents.laborOverhead,
+                    materialCost: u.costComponents.material,
+                    equipmentCost: u.costComponents.equipment,
+                  }
+                : {}),
+              // Update source tracking
+              sourceProjectId: projectId,
+              sourceEstimateVersionId: estimateVersionId,
+              sourceVendor: "PETL_AUTO_IMPORT",
+              sourceDate: now,
             },
           });
 
@@ -646,18 +766,36 @@ export async function updateTenantGoldenFromPetl(options: {
             canonicalKeyHash: updated.canonicalKeyHash ?? null,
           });
         } else {
-          // No existing tenant item for this Cat/Sel – create a new one.
+          // No existing tenant item for this Cat/Sel – create a new one with full enrichment.
           const created = await tx.companyPriceListItem.create({
             data: {
               companyPriceListId: companyPriceList.id,
               cat: u.cat,
               sel: u.sel,
+              description: u.description,
+              unit: u.unit,
+              activity: u.activity,
               unitPrice: u.newPrice,
               lastKnownUnitPrice: null,
               lastPriceChangedAt: now,
               lastPriceChangedByUserId: changedByUserId,
               lastPriceChangedSourceImportJobId: null,
               lastPriceChangedSource: source,
+              sourceVendor: "PETL_AUTO_IMPORT",
+              sourceDate: now,
+              // Store cost components in dedicated fields
+              ...(u.costComponents
+                ? {
+                    workersWage: u.costComponents.workersWage,
+                    laborBurden: u.costComponents.laborBurden,
+                    laborOverhead: u.costComponents.laborOverhead,
+                    materialCost: u.costComponents.material,
+                    equipmentCost: u.costComponents.equipment,
+                  }
+                : {}),
+              // Track source project and estimate
+              sourceProjectId: projectId,
+              sourceEstimateVersionId: estimateVersionId,
             },
           });
 
@@ -1543,20 +1681,48 @@ export async function importXactCsvForProject(options: {
 
   // Load SOW items from the database so we can update the tenant cost book
   // (Tenant Golden PETL) based on observed unit costs in this estimate.
+  // Include RawXactRow cost components for full cost book enrichment.
   const sowItems = await prisma.sowItem.findMany({
     where: { sowId: sow.id },
     select: {
       categoryCode: true,
       selectionCode: true,
       unitCost: true,
+      description: true,
+      unit: true,
+      activity: true,
+      rawRow: {
+        select: {
+          workersWage: true,
+          laborBurden: true,
+          laborOverhead: true,
+          material: true,
+          equipment: true,
+        },
+      },
     },
   });
+
+  // Transform to flat structure expected by updateTenantGoldenFromPetl
+  const sowItemsForCostBook = sowItems.map((item: typeof sowItems[number]) => ({
+    categoryCode: item.categoryCode,
+    selectionCode: item.selectionCode,
+    unitCost: item.unitCost,
+    description: item.description,
+    unit: item.unit,
+    activity: item.activity,
+    workersWage: item.rawRow?.workersWage ?? null,
+    laborBurden: item.rawRow?.laborBurden ?? null,
+    laborOverhead: item.rawRow?.laborOverhead ?? null,
+    material: item.rawRow?.material ?? null,
+    equipment: item.rawRow?.equipment ?? null,
+  }));
 
   await updateTenantGoldenFromPetl({
     companyId: project.companyId,
     projectId,
     estimateVersionId: estimateVersion.id,
-    sowItems,
+    sowItems: sowItemsForCostBook,
     changedByUserId: importedByUserId,
     source: "PROJECT_PETL_IMPORT",
   });

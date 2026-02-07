@@ -40,9 +40,9 @@ export function CostBookModal(props: {
   // CAT multi-select (stateful)
   const [catFilters, setCatFilters] = useState<string[]>([]);
   const catFiltersRef = useRef<string[]>([]);
-  const [catDropdownOpen, setCatDropdownOpen] = useState(false);
-  const [catDropdownQuery, setCatDropdownQuery] = useState<string>("");
-  const catDropdownRef = useRef<HTMLDivElement | null>(null);
+  const [catPanelWidth, setCatPanelWidth] = useState(180);
+  const [catFilterQuery, setCatFilterQuery] = useState<string>("");
+  const catPanelResizing = useRef(false);
 
   // Uncontrolled search inputs (for smooth typing)
   const selInputRef = useRef<HTMLInputElement | null>(null);
@@ -73,22 +73,25 @@ export function CostBookModal(props: {
     catFiltersRef.current = catFilters;
   }, [catFilters]);
 
-  // Close dropdown when clicking outside.
+  // Handle CAT panel resize via mouse drag
   useEffect(() => {
-    if (!catDropdownOpen) return;
-
-    const onDocMouseDown = (e: MouseEvent) => {
-      const el = catDropdownRef.current;
-      const target = e.target as Node | null;
-      if (el && target && el.contains(target)) return;
-      setCatDropdownOpen(false);
+    const onMouseMove = (e: MouseEvent) => {
+      if (!catPanelResizing.current) return;
+      const newWidth = Math.max(120, Math.min(400, e.clientX - 16));
+      setCatPanelWidth(newWidth);
     };
-
-    document.addEventListener("mousedown", onDocMouseDown);
+    const onMouseUp = () => {
+      catPanelResizing.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
     return () => {
-      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
     };
-  }, [catDropdownOpen]);
+  }, []);
 
   const catOptions = useMemo(() => {
     const raw = Array.from(
@@ -103,16 +106,10 @@ export function CostBookModal(props: {
   }, [allCats, baselineCat, results]);
 
   const filteredCatOptions = useMemo(() => {
-    const q = catDropdownQuery.trim().toUpperCase();
+    const q = catFilterQuery.trim().toUpperCase();
     if (!q) return catOptions;
     return catOptions.filter((c) => c.includes(q));
-  }, [catDropdownQuery, catOptions]);
-
-  const catSelectionLabel = useMemo(() => {
-    if (catFilters.length === 0) return "(any)";
-    if (catFilters.length <= 3) return catFilters.join(", ");
-    return `${catFilters.slice(0, 3).join(", ")} +${catFilters.length - 3}`;
-  }, [catFilters]);
+  }, [catFilterQuery, catOptions]);
 
   const loadCats = useCallback(async () => {
     const token = localStorage.getItem("accessToken");
@@ -230,8 +227,7 @@ export function CostBookModal(props: {
     const initialCats = baselineCat ? [baselineCat] : [];
 
     setCatFilters(initialCats);
-    setCatDropdownQuery("");
-    setCatDropdownOpen(false);
+    setCatFilterQuery("");
 
     setResults([]);
     setSearchError(null);
@@ -332,351 +328,278 @@ export function CostBookModal(props: {
           </button>
         </div>
 
-        <div
-          style={{
-            padding: 12,
-            overflow: "hidden",
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-            flex: 1,
-          }}
-        >
+        {/* Main content area: CAT sidebar + results */}
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+          {/* CAT Filter Sidebar - full height, resizable */}
           <div
             style={{
-              border: "1px solid #e5e7eb",
-              borderRadius: 10,
-              padding: 10,
+              width: catPanelWidth,
+              minWidth: 120,
+              maxWidth: 400,
+              borderRight: "1px solid #e5e7eb",
+              display: "flex",
+              flexDirection: "column",
               background: "#f9fafb",
-              marginBottom: 12,
+              flexShrink: 0,
             }}
           >
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
-              Current line (baseline)
-            </div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "90px 1fr 90px 1fr",
-                gap: 8,
-                fontSize: 12,
-              }}
-            >
-              <div style={{ color: "#6b7280" }}>CAT</div>
-              <div style={{ fontWeight: 600 }}>{baseline.cat ?? ""}</div>
-              <div style={{ color: "#6b7280" }}>SEL</div>
-              <div style={{ fontWeight: 600 }}>{baseline.sel ?? ""}</div>
-              <div style={{ color: "#6b7280" }}>Description</div>
-              <div style={{ gridColumn: "span 3", fontWeight: 600 }}>
-                {baseline.description ?? ""}
-              </div>
-              <div style={{ color: "#6b7280" }}>Qty</div>
-              <div style={{ fontWeight: 600 }}>{baseline.qty ?? ""}</div>
-              <div style={{ color: "#6b7280" }}>Unit Cost</div>
-              <div style={{ fontWeight: 600 }}>{baseline.unitCost ?? ""}</div>
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "200px 200px 1fr 110px 110px",
-              gap: 8,
-              alignItems: "end",
-              marginBottom: 10,
-            }}
-          >
-            <div>
-              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
-                CAT
-                <span style={{ marginLeft: 6, color: "#9ca3af" }}>
-                  ({allCats.length || "?"})
+            <div style={{ padding: "8px 10px", borderBottom: "1px solid #e5e7eb" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
+                CAT Filter
+                <span style={{ marginLeft: 6, fontWeight: 400, color: "#9ca3af" }}>
+                  ({filteredCatOptions.length})
                 </span>
               </div>
-
-              <div
-                ref={catDropdownRef}
-                style={{ position: "relative" }}
-                onMouseDown={(e) => e.stopPropagation()}
-              >
+              <input
+                value={catFilterQuery}
+                onChange={(e) => setCatFilterQuery(e.target.value)}
+                placeholder="Search CATs…"
+                style={{
+                  width: "100%",
+                  padding: "6px 8px",
+                  borderRadius: 6,
+                  border: "1px solid #d1d5db",
+                  fontSize: 11,
+                }}
+              />
+              <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setCatDropdownOpen((prev) => !prev);
+                  onClick={() => {
+                    setCatFilters([]);
+                    void runSearch("auto", []);
                   }}
                   style={{
-                    width: "100%",
-                    // +20px taller hit-area vs the other inputs.
-                    padding: "16px 8px",
-                    borderRadius: 8,
+                    flex: 1,
+                    padding: "4px 6px",
+                    borderRadius: 6,
                     border: "1px solid #d1d5db",
-                    fontSize: 12,
                     background: "#ffffff",
-                    textAlign: "left",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 8,
                     cursor: "pointer",
+                    fontSize: 10,
                   }}
-                  aria-haspopup="listbox"
-                  aria-expanded={catDropdownOpen}
                 >
-                  <span
-                    style={{
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {catSelectionLabel}
-                  </span>
-                  <span style={{ color: "#6b7280" }}>
-                    {catDropdownOpen ? "▴" : "▾"}
-                  </span>
+                  Clear
                 </button>
-
-                {catDropdownOpen && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "calc(100% + 6px)",
-                      left: 0,
-                      right: 0,
-                      zIndex: 50,
-                      background: "#ffffff",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: 10,
-                      boxShadow: "0 12px 32px rgba(15,23,42,0.18)",
-                      overflow: "hidden",
-                    }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                  >
-                    <div
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCatFilters([...filteredCatOptions]);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "4px 6px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 10,
+                  }}
+                >
+                  All
+                </button>
+              </div>
+            </div>
+            <div style={{ flex: 1, overflow: "auto", padding: "4px 0" }}>
+              {filteredCatOptions.length === 0 ? (
+                <div style={{ padding: "12px 10px", fontSize: 11, color: "#6b7280" }}>
+                  No CATs match.
+                </div>
+              ) : (
+                filteredCatOptions.map((cat) => {
+                  const checked = catFilters.includes(cat);
+                  return (
+                    <label
+                      key={cat}
                       style={{
-                        padding: 8,
-                        borderBottom: "1px solid #e5e7eb",
-                        background: "#f9fafb",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "6px 10px",
+                        cursor: "pointer",
+                        background: checked ? "#dbeafe" : "transparent",
+                        borderLeft: checked ? "3px solid #2563eb" : "3px solid transparent",
+                        fontSize: 12,
                       }}
                     >
                       <input
-                        value={catDropdownQuery}
-                        onChange={(e) => setCatDropdownQuery(e.target.value)}
-                        placeholder="Filter CATs…"
-                        style={{
-                          width: "100%",
-                          padding: "6px 8px",
-                          borderRadius: 8,
-                          border: "1px solid #d1d5db",
-                          fontSize: 12,
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const nextChecked = e.target.checked;
+                          setCatFilters((prev) => {
+                            const next = new Set(prev);
+                            if (nextChecked) next.add(cat);
+                            else next.delete(cat);
+                            return Array.from(next).sort();
+                          });
                         }}
+                        style={{ accentColor: "#2563eb" }}
                       />
-
-                      <div
+                      <span
                         style={{
-                          display: "flex",
-                          gap: 8,
-                          justifyContent: "space-between",
-                          marginTop: 8,
-                          fontSize: 11,
+                          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                          fontWeight: checked ? 600 : 400,
                         }}
                       >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCatFilters([]);
-                            setCatDropdownQuery("");
-                          }}
-                          style={{
-                            padding: "4px 8px",
-                            borderRadius: 999,
-                            border: "1px solid #d1d5db",
-                            background: "#ffffff",
-                            cursor: "pointer",
-                          }}
-                        >
-                          Clear
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCatFilters([...filteredCatOptions]);
-                          }}
-                          style={{
-                            padding: "4px 8px",
-                            borderRadius: 999,
-                            border: "1px solid #d1d5db",
-                            background: "#ffffff",
-                            cursor: "pointer",
-                          }}
-                        >
-                          Select filtered
-                        </button>
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        maxHeight: 520,
-                        overflow: "auto",
-                        padding: 8,
-                        background: "#ffffff",
-                      }}
-                    >
-                      {filteredCatOptions.length === 0 ? (
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>
-                          No CATs match.
-                        </div>
-                      ) : (
-                        <div
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 4,
-                          }}
-                        >
-                          {filteredCatOptions.map((cat) => {
-                            const checked = catFilters.includes(cat);
-                            return (
-                              <label
-                                key={cat}
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 8,
-                                  // +20px taller row for easier clicking.
-                                  padding: "12px 4px",
-                                  borderRadius: 6,
-                                  cursor: "pointer",
-                                }}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={(e) => {
-                                    const nextChecked = e.target.checked;
-                                    setCatFilters((prev) => {
-                                      const next = new Set(prev);
-                                      if (nextChecked) next.add(cat);
-                                      else next.delete(cat);
-                                      return Array.from(next).sort();
-                                    });
-                                  }}
-                                />
-                                <span
-                                  style={{
-                                    fontFamily:
-                                      "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-                                  }}
-                                >
-                                  {cat}
-                                </span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+                        {cat}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
             </div>
-
-            <div>
-              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>SEL</div>
-              <input
-                ref={selInputRef}
-                onKeyDown={handleSearchKeyDown}
-                placeholder="(any)"
-                list="costbook-sel-options"
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 8,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                }}
-              />
-            </div>
-
-            <div>
-              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
-                Description
-              </div>
-              <input
-                ref={descInputRef}
-                onKeyDown={handleSearchKeyDown}
-                placeholder="Search description"
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 8,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                }}
-              />
-            </div>
-
-            <div>
-              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Qty</div>
-              <input
-                value={qtyStr}
-                onChange={(e) => setQtyStr(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 8,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                }}
-              />
-            </div>
-
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                onClick={() => void runSearch("user")}
-                disabled={searching}
-                style={{
-                  flex: 1,
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  border: "1px solid #d1d5db",
-                  background: "#ffffff",
-                  cursor: searching ? "default" : "pointer",
-                  fontSize: 12,
-                  opacity: searching ? 0.7 : 1,
-                }}
-              >
-                {searching ? "Searching..." : "Search"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setCatFilters(baselineCat ? [baselineCat] : []);
-                  setCatDropdownQuery("");
-                  setCatDropdownOpen(false);
-                  if (selInputRef.current) selInputRef.current.value = "";
-                  if (descInputRef.current) descInputRef.current.value = "";
-                  void runSearch("auto", baselineCat ? [baselineCat] : []);
-                }}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  border: "1px solid #d1d5db",
-                  background: "#ffffff",
-                  cursor: "pointer",
-                  fontSize: 12,
-                }}
-              >
-                Reset
-              </button>
+            <div style={{ padding: "6px 10px", borderTop: "1px solid #e5e7eb", fontSize: 10, color: "#6b7280" }}>
+              {catFilters.length > 0 ? `${catFilters.length} selected` : "All CATs"}
             </div>
           </div>
+
+          {/* Resize handle */}
+          <div
+            onMouseDown={() => {
+              catPanelResizing.current = true;
+              document.body.style.cursor = "col-resize";
+              document.body.style.userSelect = "none";
+            }}
+            style={{
+              width: 6,
+              cursor: "col-resize",
+              background: "#e5e7eb",
+              flexShrink: 0,
+            }}
+            title="Drag to resize CAT panel"
+          />
+
+          {/* Right side: baseline + filters + results */}
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              padding: 12,
+              gap: 10,
+            }}
+          >
+            {/* Baseline info - compact */}
+            <div
+              style={{
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+                padding: 8,
+                background: "#f9fafb",
+                fontSize: 11,
+              }}
+            >
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                <div><span style={{ color: "#6b7280" }}>CAT:</span> <strong>{baseline.cat ?? ""}</strong></div>
+                <div><span style={{ color: "#6b7280" }}>SEL:</span> <strong>{baseline.sel ?? ""}</strong></div>
+                <div><span style={{ color: "#6b7280" }}>Qty:</span> <strong>{baseline.qty ?? ""}</strong></div>
+                <div><span style={{ color: "#6b7280" }}>Unit:</span> <strong>{baseline.unitCost ?? ""}</strong></div>
+                <div style={{ flex: 1 }}><span style={{ color: "#6b7280" }}>Desc:</span> <strong>{baseline.description ?? ""}</strong></div>
+              </div>
+            </div>
+
+            {/* Search filters row */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr 80px 140px",
+                gap: 8,
+                alignItems: "end",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>SEL</div>
+                <input
+                  ref={selInputRef}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="(any)"
+                  list="costbook-sel-options"
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+
+              <div>
+                <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>Description</div>
+                <input
+                  ref={descInputRef}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Search description"
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+
+              <div>
+                <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>Qty</div>
+                <input
+                  value={qtyStr}
+                  onChange={(e) => setQtyStr(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => void runSearch("user")}
+                  disabled={searching}
+                  style={{
+                    flex: 1,
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    border: "1px solid #2563eb",
+                    background: "#2563eb",
+                    color: "#ffffff",
+                    cursor: searching ? "default" : "pointer",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    opacity: searching ? 0.7 : 1,
+                  }}
+                >
+                  {searching ? "…" : "Search"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCatFilters(baselineCat ? [baselineCat] : []);
+                    setCatFilterQuery("");
+                    if (selInputRef.current) selInputRef.current.value = "";
+                    if (descInputRef.current) descInputRef.current.value = "";
+                    void runSearch("auto", baselineCat ? [baselineCat] : []);
+                  }}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
 
           <datalist id="costbook-sel-options">
             {Array.from(
@@ -711,14 +634,15 @@ export function CostBookModal(props: {
             </div>
           )}
 
-          <CostBookResultsTable
-            items={results}
-            qty={Number.isFinite(qty) ? qty : 0}
-            baselineCat={baselineCat}
-            baselineSel={baselineSel}
-            onSelect={handleSelect}
-            autoScrollRequestId={`${baselineCat}:${baselineSel}:${searchSeq}`}
-          />
+            <CostBookResultsTable
+              items={results}
+              qty={Number.isFinite(qty) ? qty : 0}
+              baselineCat={baselineCat}
+              baselineSel={baselineSel}
+              onSelect={handleSelect}
+              autoScrollRequestId={`${baselineCat}:${baselineSel}:${searchSeq}`}
+            />
+          </div>
         </div>
       </div>
     </div>

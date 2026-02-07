@@ -23,6 +23,10 @@ interface PetlItem {
     name: string;
     fullLabel: string;
   } | null;
+  // Standalone Change Order fields
+  isStandaloneChangeOrder?: boolean;
+  coSequenceNo?: number | null;
+  coSourceLineNo?: number | null;
 }
 
 interface ReconEntry {
@@ -89,8 +93,10 @@ const PetlRow = memo(function PetlRow({
       ? "#e0f2fe"
       : "transparent";
 
-  const displayLineNo =
-    item.sourceLineNo && item.sourceLineNo > 0 ? item.sourceLineNo : item.lineNo;
+  // Display CO line number format (e.g., "15-CO1") for standalone change orders
+  const displayLineNo = item.isStandaloneChangeOrder && item.coSequenceNo != null && item.coSourceLineNo != null
+    ? `${item.coSourceLineNo}-CO${item.coSequenceNo}`
+    : item.sourceLineNo && item.sourceLineNo > 0 ? item.sourceLineNo : item.lineNo;
 
   const reconSeqById = new Map<string, number>();
   reconFinancial.forEach((e, idx) => {
@@ -469,7 +475,7 @@ interface FlatRow {
   item: PetlItem;
   reconEntry?: ReconEntry;
   reconSeq?: number;
-  displayLineNo: number;
+  displayLineNo: string | number; // Can be string for CO format like "15-CO1"
 }
 
 export interface PetlVirtualizedTableProps {
@@ -492,7 +498,7 @@ export interface PetlVirtualizedTableProps {
   onEditDraftChange: (value: string) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
-  onPercentChange: (sowItemId: string, displayLineNo: number, newPercent: number, isAcvOnly: boolean) => void;
+  onPercentChange: (sowItemId: string, displayLineNo: string | number, newPercent: number, isAcvOnly: boolean) => void;
 }
 
 const ROW_HEIGHT = 36;
@@ -518,7 +524,7 @@ interface VirtualizedRowProps {
   onEditDraftChange: (value: string) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
-  onPercentChange: (sowItemId: string, displayLineNo: number, newPercent: number, isAcvOnly: boolean) => void;
+  onPercentChange: (sowItemId: string, displayLineNo: string | number, newPercent: number, isAcvOnly: boolean) => void;
 }
 
 // react-window v2 row component - must be a plain function component for rowComponent prop
@@ -562,7 +568,7 @@ function VirtualizedRow({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
           <tbody>
             <tr style={{ backgroundColor: "#f8fafc", color: isCredit ? "#b91c1c" : "#111827" }}>
-              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, fontFamily: "monospace" }}>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 120, fontFamily: "monospace" }}>
                 <span style={{ paddingLeft: 18 }}>↳ {lineLabel}</span>
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 220 }} />
@@ -616,7 +622,7 @@ function VirtualizedRow({
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
         <tbody>
           <tr style={{ backgroundColor: bg }}>
-            <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, whiteSpace: "nowrap" }}>
+            <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 120, whiteSpace: "nowrap" }}>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 {reconFinancial.length > 0 ? (
                   <button
@@ -761,7 +767,10 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
   const flatRows = useMemo(() => {
     const rows: FlatRow[] = [];
     for (const item of items) {
-      const displayLineNo = item.sourceLineNo && item.sourceLineNo > 0 ? item.sourceLineNo : item.lineNo;
+      // Display CO line number format (e.g., "15-CO1") for standalone change orders
+      const displayLineNo = item.isStandaloneChangeOrder && item.coSequenceNo != null && item.coSourceLineNo != null
+        ? `${item.coSourceLineNo}-CO${item.coSequenceNo}`
+        : item.sourceLineNo && item.sourceLineNo > 0 ? item.sourceLineNo : item.lineNo;
       rows.push({ type: "item", item, displayLineNo });
 
       if (expandedIds.has(item.id)) {
@@ -823,7 +832,7 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
           <thead>
             <tr>
-              <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>Line</th>
+              <th style={{ textAlign: "left", padding: "6px 8px", width: 120 }}>Line</th>
               <th style={{ textAlign: "left", padding: "6px 8px", width: 220 }}>Room</th>
               <th style={{ textAlign: "left", padding: "6px 8px" }}>Task</th>
               <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>Qty</th>

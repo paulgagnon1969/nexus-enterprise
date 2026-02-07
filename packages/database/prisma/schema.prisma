@@ -984,6 +984,9 @@ model Project {
   scheduleTasks      ProjectScheduleTask[]
   scheduleChangeLogs ProjectScheduleChangeLog[]
 
+  // Cost book items sourced from this project's PETL imports
+  costBookItemsSourced CompanyPriceListItem[] @relation("CostBookSourceProject")
+
   @@index([companyId, groupId], map: "Project_company_group_idx")
 }
 
@@ -1762,6 +1765,9 @@ model EstimateVersion {
   scheduleTasks      ProjectScheduleTask[]
   scheduleChangeLogs ProjectScheduleChangeLog[]
 
+  // Cost book items sourced from this estimate version
+  costBookItemsSourced CompanyPriceListItem[] @relation("CostBookSourceEstimate")
+
   @@index([projectId, sequenceNo], map: "EstimateVersion_project_sequence_idx")
 }
 
@@ -2022,6 +2028,11 @@ model SowItem {
   updatedAt            DateTime                 @updatedAt
   isAcvOnly            Boolean                  @default(false)
 
+  /// Standalone Change Order (CO) identification - not part of original POL
+  isStandaloneChangeOrder Boolean              @default(false)
+  coSequenceNo            Int?                 // 1, 2, 3... for CO items from same source line
+  coSourceLineNo          Int?                 // Original parent line number (for "15-CO1" display)
+
   /// Field reconciliation (PUDL / Daily Log) – quantity audits
   qtyFlaggedIncorrect  Boolean                  @default(false)
   qtyFieldReported     Float?
@@ -2215,6 +2226,16 @@ enum PetlReconciliationEntryStatus {
   REJECTED
 }
 
+enum PetlActivity {
+  REMOVE_AND_REPLACE   // R&R (&) - full labor + material + equipment
+  REMOVE               // Remove (-) - labor only
+  REPLACE              // Replace (+) - labor + equipment
+  DETACH_AND_RESET     // D&R (R) - labor only
+  MATERIALS            // Material Only (M) - material cost only
+  REPAIR               // Repair (F) - labor + material (reduced)
+  INSTALL_ONLY         // Install Only (I) - labor + equipment
+}
+
 model PetlReconciliationCase {
   id                String                      @id @default(cuid())
   projectId         String
@@ -2282,6 +2303,19 @@ model PetlReconciliationEntry {
 
   // Notes / placeholder semantics (rcvAmount null excludes from rollups)
   note             String?
+
+  // Cost component breakdown (for activity-based splits)
+  workersWage        Float?
+  laborBurden        Float?
+  laborOverhead      Float?
+  materialCost       Float?
+  equipmentCost      Float?
+  activity           PetlActivity?
+  sourceActivity     String?           // Original activity before modification
+
+  // Standalone Change Order (CO) identification - not part of original POL
+  isStandaloneChangeOrder Boolean @default(false)
+  coSequenceNo            Int?              // 1, 2, 3... for CO items under same parent line
 
   createdByUserId    String?
   approvedByUserId   String?
@@ -2768,7 +2802,7 @@ model CompanyPriceList {
 }
 
 /// Individual tenant-level price list items that start from Golden but can
-/// diverge per organization over time.
+/// diverge per organization over time. Enriched automatically from PETL imports.
 model CompanyPriceListItem {
   id                 String            @id @default(cuid())
   companyPriceListId String
@@ -2792,6 +2826,19 @@ model CompanyPriceListItem {
   updatedAt          DateTime          @updatedAt
   lastKnownUnitPrice Float?
 
+  /// Xactimate cost component breakdown (auto-populated from PETL imports)
+  workersWage        Float?
+  laborBurden        Float?
+  laborOverhead      Float?
+  materialCost       Float?
+  equipmentCost      Float?
+
+  /// Source tracking for PETL auto-import
+  sourceProjectId         String?
+  sourceEstimateVersionId String?
+  sourceProject           Project?         @relation("CostBookSourceProject", fields: [sourceProjectId], references: [id])
+  sourceEstimateVersion   EstimateVersion? @relation("CostBookSourceEstimate", fields: [sourceEstimateVersionId], references: [id])
+
   /// Metadata for UI freshness and price history
   lastPriceChangedAt              DateTime?
   lastPriceChangedByUserId        String?
@@ -2806,6 +2853,7 @@ model CompanyPriceListItem {
 
   @@index([companyPriceListId, canonicalKeyHash])
   @@index([companyPriceListId, cat, sel])
+  @@index([sourceProjectId])
 }
 
 enum LocationType {
