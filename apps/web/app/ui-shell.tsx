@@ -499,13 +499,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             items={
               globalRole === "SUPER_ADMIN" || companyRole === "OWNER" || companyRole === "ADMIN"
                 ? [
-                    { label: "Document Control", href: "/admin/documents" },
+                    { label: "Unpublished eDocs", href: "/admin/documents" },
+                    { label: "Published eDocs", href: "/documents" },
                     { label: "Templates", href: "/documents/templates" },
-                    { label: "Approved Documents", href: "/documents" },
                   ]
                 : [
+                    { label: "Published eDocs", href: "/documents" },
                     { label: "Templates", href: "/documents/templates" },
-                    { label: "Approved Documents", href: "/documents" },
                   ]
             }
           />

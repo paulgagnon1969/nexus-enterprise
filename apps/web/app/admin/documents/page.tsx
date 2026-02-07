@@ -28,11 +28,21 @@ interface StagedDocument {
   fileType: string;
   fileSize: string;
   mimeType?: string;
-  status: "ACTIVE" | "ARCHIVED" | "IMPORTED";
+  status: "ACTIVE" | "ARCHIVED" | "PUBLISHED";
   scannedAt: string;
   archivedAt?: string;
-  importedAt?: string;
+  publishedAt?: string;
   scanJob?: { id: string; scanPath: string };
+  // Tagging & categorization
+  tags?: string[];
+  category?: string;
+  subcategory?: string;
+  displayTitle?: string;
+  displayDescription?: string;
+  // Revision control
+  revisionNumber?: number;
+  revisionDate?: string;
+  revisionNotes?: string;
 }
 
 interface PaginatedResponse<T> {
@@ -294,7 +304,7 @@ export default function DocumentImportPage() {
   if (loading) {
     return (
       <PageCard>
-        <p style={{ fontSize: 14, color: "#6b7280" }}>Loading document import system...</p>
+        <p style={{ fontSize: 14, color: "#6b7280" }}>Loading eDocs...</p>
       </PageCard>
     );
   }
@@ -302,7 +312,7 @@ export default function DocumentImportPage() {
   if (error) {
     return (
       <PageCard>
-        <h1 style={{ marginTop: 0, fontSize: 20 }}>Document Import</h1>
+        <h1 style={{ marginTop: 0, fontSize: 20 }}>Unpublished eDocs</h1>
         <p style={{ color: "#b91c1c" }}>{error}</p>
       </PageCard>
     );
@@ -313,9 +323,9 @@ export default function DocumentImportPage() {
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {/* Header */}
         <header>
-          <h1 style={{ margin: 0, fontSize: 22 }}>Document Import</h1>
+          <h1 style={{ margin: 0, fontSize: 22 }}>Unpublished eDocs</h1>
           <p style={{ marginTop: 4, marginBottom: 0, fontSize: 14, color: "#4b5563" }}>
-            Scan external drives for documents and stage them for import into the documentation library.
+            Browse and upload documents, tag them for organization, and publish to your team.
           </p>
         </header>
 
@@ -367,15 +377,15 @@ export default function DocumentImportPage() {
             }}
           >
             <StatBox label="Total" value={stats.total} />
-            <StatBox label="Active" value={stats.byStatus.ACTIVE ?? 0} color="#16a34a" />
+            <StatBox label="Unpublished" value={stats.byStatus.ACTIVE ?? 0} color="#f59e0b" />
             <StatBox label="Archived" value={stats.byStatus.ARCHIVED ?? 0} color="#6b7280" />
-            <StatBox label="Imported" value={stats.byStatus.IMPORTED ?? 0} color="#2563eb" />
+            <StatBox label="Published" value={stats.byStatus.PUBLISHED ?? 0} color="#16a34a" />
           </div>
         )}
 
         {/* Toolbar */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
-          {/* Scan Button */}
+          {/* Browse/Upload Button */}
           <button
             type="button"
             onClick={() => setShowScanModal(true)}
@@ -393,7 +403,7 @@ export default function DocumentImportPage() {
               gap: 6,
             }}
           >
-            📁 Scan Folder
+            📁 Browse & Upload
           </button>
 
           {/* Search */}
@@ -444,7 +454,7 @@ export default function DocumentImportPage() {
                   fontWeight: statusFilter === status ? 600 : 400,
                 }}
               >
-                {status === "ALL" ? "View All" : status === "ACTIVE" ? "Active" : "Archived"}
+                {status === "ALL" ? "View All" : status === "ACTIVE" ? "Unpublished" : "Archived"}
               </button>
             ))}
           </div>
@@ -553,14 +563,14 @@ export default function DocumentImportPage() {
               style={{
                 padding: "4px 10px",
                 fontSize: 12,
-                backgroundColor: "#2563eb",
+                backgroundColor: "#16a34a",
                 color: "#ffffff",
                 border: "none",
                 borderRadius: 4,
                 cursor: "pointer",
               }}
             >
-              📥 Import Selected
+              🚀 Publish Selected
             </button>
             <button
               type="button"
@@ -594,8 +604,8 @@ export default function DocumentImportPage() {
             <div style={{ fontSize: 48, marginBottom: 12 }}>📂</div>
             <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 4 }}>No documents found</div>
             <div style={{ fontSize: 14 }}>
-              {total === 0
-                ? "Click 'Scan Folder' to import documents from an external drive"
+          {total === 0
+                ? "Click 'Browse & Upload' to add documents from your computer"
                 : "Try adjusting your filters"}
             </div>
           </div>
