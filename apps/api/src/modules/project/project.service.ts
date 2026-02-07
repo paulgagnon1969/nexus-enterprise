@@ -8979,7 +8979,7 @@ export class ProjectService {
 
       linesToCreate.push(baseLine);
 
-      // Line-tied reconciliation entries (supplements / client-pay COs)
+      // Line-tied reconciliation entries (supplements, change orders, adds, credits)
       const parentReconEntries = reconByParent.get(s.id) ?? [];
       if (parentReconEntries.length > 0) {
         const root = s.sourceLineNo ?? s.lineNo;
@@ -8989,8 +8989,11 @@ export class ProjectService {
           const isChangeOrder =
             e.kind === PetlReconciliationEntryKind.CHANGE_ORDER_CLIENT_PAY ||
             e.tag === PetlReconciliationEntryTag.CHANGE_ORDER;
+          const isAdd = e.kind === PetlReconciliationEntryKind.ADD;
+          const isCredit = e.kind === PetlReconciliationEntryKind.CREDIT;
 
-          if (!isSupplement && !isChangeOrder) continue;
+          // Skip NOTE_ONLY entries (no monetary value)
+          if (e.kind === PetlReconciliationEntryKind.NOTE_ONLY) continue;
 
           const subIndex = nextLineSubIndex(root);
           const displayLineNo = `${root}.${subIndex.toString().padStart(3, "0")}`;
@@ -9006,9 +9009,12 @@ export class ProjectService {
           const earnedOp = contractOp * reconPct;
           const earnedTotal = contractTotal * reconPct;
 
+          // Determine billing tag based on entry type
           const reconBillingTag = isSupplement
             ? ProjectInvoicePetlLineBillingTag.SUPPLEMENT
-            : ProjectInvoicePetlLineBillingTag.CHANGE_ORDER;
+            : isChangeOrder
+              ? ProjectInvoicePetlLineBillingTag.CHANGE_ORDER
+              : ProjectInvoicePetlLineBillingTag.PETL_LINE_ITEM;
 
           const reconKey = `${e.parentSowItemId}:${root}:${subIndex}:${reconBillingTag}`;
           const reconPrev = prevReconByKey?.get(reconKey) ?? { item: 0, tax: 0, op: 0, total: 0 };
