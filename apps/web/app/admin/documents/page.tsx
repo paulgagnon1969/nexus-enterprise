@@ -691,9 +691,16 @@ export default function DocumentImportPage() {
         )}
       </div>
 
-      {/* Scan Modal */}
+      {/* Browse Folder Modal */}
       {showScanModal && (
-        <ScanModal onClose={() => setShowScanModal(false)} onStart={handleStartScan} />
+        <BrowseFolderModal
+          onClose={() => setShowScanModal(false)}
+          onFilesUploaded={() => {
+            loadDocuments();
+            loadStats();
+            loadScanJobs();
+          }}
+        />
       )}
 
       {/* QuickLook Modal */}
@@ -925,125 +932,358 @@ function DocumentCard({ document, selected, onSelect, onQuickLook, onToggleStatu
   );
 }
 
-// --- Scan Modal Component ---
+// --- Browse Folder Modal with File System Access API ---
 
-interface ScanModalProps {
-  onClose: () => void;
-  onStart: (path: string) => void;
+const SUPPORTED_EXTENSIONS = new Set([
+  "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+  "odt", "ods", "odp", "rtf", "txt", "csv",
+  "jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "webp", "svg",
+  "md", "markdown", "json", "xml", "yaml", "yml", "html", "htm",
+]);
+
+interface ScannedFile {
+  name: string;
+  path: string[];
+  size: number;
+  type: string;
+  file: File;
 }
 
-function ScanModal({ onClose, onStart }: ScanModalProps) {
-  const [scanPath, setScanPath] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+interface FolderNode {
+  name: string;
+  files: ScannedFile[];
+  children: Map<string, FolderNode>;
+}
 
-  const handleSubmit = async () => {
-    if (!scanPath.trim()) return;
-    setIsSubmitting(true);
-    await onStart(scanPath.trim());
-    setIsSubmitting(false);
+interface BrowseFolderModalProps {
+  onClose: () => void;
+  onFilesUploaded: () => void;
+}
+
+function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps) {
+  const [folderName, setFolderName] = useState<string | null>(null);
+  const [folderHandle, setFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
+  const [scannedFiles, setScannedFiles] = useState<ScannedFile[]>([]);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanComplete, setScanComplete] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
+  const [error, setError] = useState<string | null>(null);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+
+  const isSupported = typeof window !== "undefined" && "showDirectoryPicker" in window;
+
+  // Build folder tree from flat file list
+  const folderTree = useMemo(() => {
+    const root: FolderNode = { name: folderName || "Root", files: [], children: new Map() };
+    
+    for (const file of scannedFiles) {
+      let current = root;
+      // Skip root folder name, process intermediate folders
+      const folders = file.path.slice(1, -1);
+      
+      for (const folder of folders) {
+        if (!current.children.has(folder)) {
+          current.children.set(folder, { name: folder, files: [], children: new Map() });
+        }
+        current = current.children.get(folder)!;
+      }
+      current.files.push(file);
+    }
+    
+    return root;
+  }, [scannedFiles, folderName]);
+
+  const handleBrowse = async () => {
+    if (!isSupported) {
+      setError("Your browser doesn't support folder selection. Please use Chrome or Edge.");
+      return;
+    }
+    try {
+      // @ts-ignore
+      const handle = await window.showDirectoryPicker({ mode: "read" });
+      setFolderHandle(handle);
+      setFolderName(handle.name);
+      setScannedFiles([]);
+      setScanComplete(false);
+      setConfirmed(false);
+      setError(null);
+      setExpandedFolders(new Set());
+    } catch (err: any) {
+      if (err.name !== "AbortError") {
+        setError("Failed to select folder.");
+      }
+    }
   };
+
+  const scanFolder = async () => {
+    if (!folderHandle || !confirmed) return;
+    setIsScanning(true);
+    setError(null);
+    const files: ScannedFile[] = [];
+
+    async function scanDir(dirHandle: FileSystemDirectoryHandle, path: string[]) {
+      try {
+        // @ts-ignore
+        for await (const entry of dirHandle.values()) {
+          if (entry.kind === "file") {
+            const ext = entry.name.split(".").pop()?.toLowerCase() || "";
+            if (SUPPORTED_EXTENSIONS.has(ext)) {
+              try {
+                // @ts-ignore
+                const file = await entry.getFile();
+                files.push({ name: entry.name, path: [...path, entry.name], size: file.size, type: ext, file });
+              } catch {}
+            }
+          } else if (entry.kind === "directory" && !entry.name.startsWith(".")) {
+            // @ts-ignore
+            await scanDir(entry, [...path, entry.name]);
+          }
+        }
+      } catch {}
+    }
+
+    await scanDir(folderHandle, [folderHandle.name]);
+    setScannedFiles(files);
+    setIsScanning(false);
+    setScanComplete(true);
+    // Auto-expand root
+    setExpandedFolders(new Set([folderHandle.name]));
+  };
+
+  const handleUpload = async () => {
+    if (scannedFiles.length === 0) return;
+    setIsUploading(true);
+    setUploadProgress({ current: 0, total: scannedFiles.length });
+    const token = localStorage.getItem("accessToken");
+
+    try {
+      let scanJobId: string | null = null;
+
+      for (let i = 0; i < scannedFiles.length; i++) {
+        const sf = scannedFiles[i];
+        const formData = new FormData();
+        formData.append("file", sf.file);
+        formData.append("fileName", sf.name);
+        formData.append("breadcrumb", JSON.stringify(sf.path));
+        formData.append("fileType", sf.type);
+        formData.append("folderName", folderName || "Upload");
+        // Reuse scanJobId from first upload so all files are grouped together
+        if (scanJobId) {
+          formData.append("scanJobId", scanJobId);
+        }
+
+        const res = await fetch(`${API_BASE}/document-import/upload`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        });
+
+        if (!res.ok) {
+          throw new Error(`Upload failed for ${sf.name}`);
+        }
+
+        const result = await res.json();
+        // Capture scanJobId from first upload response
+        if (!scanJobId && result.scanJobId) {
+          scanJobId = result.scanJobId;
+        }
+
+        setUploadProgress({ current: i + 1, total: scannedFiles.length });
+      }
+      onFilesUploaded();
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || "Upload failed");
+      setIsUploading(false);
+    }
+  };
+
+  const toggleFolder = (path: string) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  };
+
+  // Recursive folder tree renderer
+  const renderFolderTree = (node: FolderNode, depth: number = 0, pathKey: string = node.name) => {
+    const isExpanded = expandedFolders.has(pathKey);
+    const hasChildren = node.children.size > 0 || node.files.length > 0;
+    const totalFiles = countFiles(node);
+
+    return (
+      <div key={pathKey} style={{ marginLeft: depth * 16 }}>
+        <div
+          onClick={() => hasChildren && toggleFolder(pathKey)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "4px 8px",
+            cursor: hasChildren ? "pointer" : "default",
+            borderRadius: 4,
+            backgroundColor: depth === 0 ? "#f0f9ff" : "transparent",
+          }}
+        >
+          <span style={{ fontSize: 12, color: "#6b7280", width: 16 }}>
+            {hasChildren ? (isExpanded ? "▼" : "▶") : ""}
+          </span>
+          <span style={{ fontSize: 14 }}>📁</span>
+          <span style={{ fontSize: 13, fontWeight: depth === 0 ? 600 : 400, color: "#374151" }}>
+            {node.name}
+          </span>
+          <span style={{ fontSize: 11, color: "#9ca3af" }}>({totalFiles})</span>
+        </div>
+        
+        {isExpanded && (
+          <div>
+            {/* Child folders */}
+            {[...node.children.values()].map(child => 
+              renderFolderTree(child, depth + 1, `${pathKey}/${child.name}`)
+            )}
+            {/* Files in this folder */}
+            {node.files.map((f, i) => (
+              <div
+                key={`${pathKey}/${f.name}-${i}`}
+                style={{
+                  marginLeft: (depth + 1) * 16 + 22,
+                  padding: "3px 8px",
+                  fontSize: 12,
+                  color: "#4b5563",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <span>{getFileIcon(f.type)}</span>
+                <span style={{ flex: 1 }}>{f.name}</span>
+                <span style={{ color: "#9ca3af", fontSize: 11 }}>{formatSize(f.size)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  function countFiles(node: FolderNode): number {
+    let count = node.files.length;
+    for (const child of node.children.values()) {
+      count += countFiles(child);
+    }
+    return count;
+  }
+
+  function getFileIcon(type: string) {
+    const icons: Record<string, string> = {
+      pdf: "📕", doc: "📘", docx: "📘", xls: "📗", xlsx: "📗",
+      ppt: "📙", pptx: "📙", txt: "📄", md: "📝", csv: "📊",
+      jpg: "🖼️", jpeg: "🖼️", png: "🖼️", gif: "🖼️",
+    };
+    return icons[type] ?? "📄";
+  }
+
+  function formatSize(bytes: number) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
 
   return (
     <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        backgroundColor: "rgba(0, 0, 0, 0.5)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1000,
-      }}
+      style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
       onClick={onClose}
     >
       <div
-        style={{
-          backgroundColor: "#ffffff",
-          borderRadius: 12,
-          padding: 24,
-          width: "100%",
-          maxWidth: 500,
-          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
-        }}
-        onClick={(e) => e.stopPropagation()}
+        style={{ backgroundColor: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 600, maxHeight: "85vh", overflow: "auto", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}
+        onClick={e => e.stopPropagation()}
       >
-        <h2 style={{ margin: 0, fontSize: 18 }}>Scan Folder for Documents</h2>
+        <h2 style={{ margin: 0, fontSize: 18 }}>Browse for Documents</h2>
         <p style={{ marginTop: 8, marginBottom: 16, fontSize: 14, color: "#6b7280" }}>
-          Enter the full path to a folder on an external drive or local filesystem. All supported
-          document types will be discovered and staged for import.
+          Select a folder on your computer to scan for documents.
         </p>
 
+        {error && (
+          <div style={{ padding: 12, backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, marginBottom: 16 }}>
+            <p style={{ margin: 0, fontSize: 13, color: "#b91c1c" }}>{error}</p>
+          </div>
+        )}
+
+        {/* Browse Button */}
         <div style={{ marginBottom: 16 }}>
-          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
-            Folder Path
-          </label>
-          <input
-            type="text"
-            value={scanPath}
-            onChange={(e) => setScanPath(e.target.value)}
-            placeholder="/Volumes/ExternalDrive/Documents"
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              fontSize: 14,
-              border: "1px solid #d1d5db",
-              borderRadius: 6,
-            }}
-            autoFocus
-          />
-          <p style={{ marginTop: 4, fontSize: 12, color: "#9ca3af" }}>
-            Example: /Volumes/4T Data/Company Documents
-          </p>
-        </div>
-
-        <div
-          style={{
-            padding: 12,
-            backgroundColor: "#fef3c7",
-            border: "1px solid #fcd34d",
-            borderRadius: 6,
-            marginBottom: 16,
-          }}
-        >
-          <p style={{ margin: 0, fontSize: 13, color: "#92400e" }}>
-            <strong>⚠️ Note:</strong> This will scan the folder recursively and may take several
-            minutes for large directories. Supported formats: PDF, DOCX, XLSX, TXT, MD, images, and more.
-          </p>
-        </div>
-
-        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
           <button
             type="button"
-            onClick={onClose}
-            style={{
-              padding: "8px 16px",
-              fontSize: 14,
-              backgroundColor: "#ffffff",
-              color: "#374151",
-              border: "1px solid #d1d5db",
-              borderRadius: 6,
-              cursor: "pointer",
-            }}
+            onClick={handleBrowse}
+            disabled={isScanning || isUploading}
+            style={{ padding: "12px 20px", fontSize: 14, fontWeight: 500, backgroundColor: "#2563eb", color: "#fff", border: "none", borderRadius: 6, cursor: isScanning || isUploading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 8 }}
           >
+            📁 Browse...
+          </button>
+          {folderName && (
+            <p style={{ marginTop: 8, fontSize: 14, color: "#16a34a", fontWeight: 500 }}>✓ Selected: {folderName}</p>
+          )}
+        </div>
+
+        {/* Confirmation Checkbox */}
+        {folderName && !scanComplete && (
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: 12, backgroundColor: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} style={{ marginTop: 2 }} />
+              <span style={{ fontSize: 13, color: "#0c4a6e", lineHeight: 1.5 }}>
+                Search your storage device or folder for documents to import. After you make the selections on which documents to import to your organization, the import will begin.
+              </span>
+            </label>
+            <button
+              type="button"
+              onClick={scanFolder}
+              disabled={!confirmed || isScanning}
+              style={{ marginTop: 12, padding: "10px 20px", fontSize: 14, fontWeight: 500, backgroundColor: !confirmed || isScanning ? "#9ca3af" : "#16a34a", color: "#fff", border: "none", borderRadius: 6, cursor: !confirmed || isScanning ? "not-allowed" : "pointer" }}
+            >
+              {isScanning ? "🔄 Scanning..." : "🔍 Scan Folder"}
+            </button>
+          </div>
+        )}
+
+        {/* Folder Tree Results */}
+        {scanComplete && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ padding: 12, backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, marginBottom: 12 }}>
+              <p style={{ margin: 0, fontSize: 14, color: "#166534", fontWeight: 500 }}>
+                ✓ Found {scannedFiles.length} document{scannedFiles.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+
+            {scannedFiles.length > 0 && (
+              <div style={{ border: "1px solid #e5e7eb", borderRadius: 6, maxHeight: 300, overflow: "auto", padding: 8 }}>
+                {renderFolderTree(folderTree)}
+              </div>
+            )}
+
+            {isUploading && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 13, color: "#374151", marginBottom: 4 }}>Uploading... {uploadProgress.current} of {uploadProgress.total}</div>
+                <div style={{ height: 8, backgroundColor: "#e5e7eb", borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${(uploadProgress.current / uploadProgress.total) * 100}%`, backgroundColor: "#2563eb", transition: "width 0.2s" }} />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+          <button type="button" onClick={onClose} disabled={isUploading} style={{ padding: "8px 16px", fontSize: 14, backgroundColor: "#fff", color: "#374151", border: "1px solid #d1d5db", borderRadius: 6, cursor: isUploading ? "not-allowed" : "pointer" }}>
             Cancel
           </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!scanPath.trim() || isSubmitting}
-            style={{
-              padding: "8px 16px",
-              fontSize: 14,
-              fontWeight: 500,
-              backgroundColor: !scanPath.trim() || isSubmitting ? "#9ca3af" : "#2563eb",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: 6,
-              cursor: !scanPath.trim() || isSubmitting ? "not-allowed" : "pointer",
-            }}
-          >
-            {isSubmitting ? "Starting..." : "Start Scan"}
-          </button>
+          {scanComplete && scannedFiles.length > 0 && (
+            <button type="button" onClick={handleUpload} disabled={isUploading} style={{ padding: "8px 16px", fontSize: 14, fontWeight: 500, backgroundColor: isUploading ? "#9ca3af" : "#2563eb", color: "#fff", border: "none", borderRadius: 6, cursor: isUploading ? "not-allowed" : "pointer" }}>
+              {isUploading ? "Uploading..." : `Upload ${scannedFiles.length} Document${scannedFiles.length !== 1 ? "s" : ""}`}
+            </button>
+          )}
         </div>
       </div>
     </div>

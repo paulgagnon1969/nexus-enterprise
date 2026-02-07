@@ -10,8 +10,10 @@ import {
   Res,
   UseGuards,
   StreamableFile,
+  BadRequestException,
 } from "@nestjs/common";
-import { Response } from "express";
+import { Response, Request } from "express";
+import { FastifyRequest } from "fastify";
 import { JwtAuthGuard, RolesGuard, Roles, Role } from "../auth/auth.guards";
 import { DocumentImportService } from "./document-import.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
@@ -24,6 +26,7 @@ import {
 } from "./dto/document-import.dto";
 import { StagedDocumentStatus, DocumentScanJobStatus } from "@prisma/client";
 import * as fs from "fs";
+import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller("document-import")
@@ -41,6 +44,52 @@ export class DocumentImportController {
   async createScanJob(@Req() req: any, @Body() body: CreateScanJobDto) {
     const actor = req.user as AuthenticatedUser;
     return this.documentImport.createScanJob(actor, body.scanPath);
+  }
+
+  // ==================== File Upload (Browser-Based) ====================
+
+  /**
+   * Upload a document file from the browser
+   * POST /document-import/upload
+   * Expects multipart/form-data with:
+   *   - file: the document file
+   *   - fileName: original file name
+   *   - breadcrumb: JSON array of folder path segments
+   *   - fileType: file extension
+   *   - folderName: name of the scanned folder (used for scan job)
+   *   - scanJobId: (optional) existing scan job ID to add to
+   */
+  @Roles(Role.ADMIN, Role.OWNER)
+  @Post("upload")
+  async uploadDocument(@Req() req: FastifyRequest) {
+    const actor = (req as any).user as AuthenticatedUser;
+
+    const { file, fields } = await readSingleFileFromMultipart(req, {
+      fieldName: "file",
+      captureFields: ["fileName", "breadcrumb", "fileType", "folderName", "scanJobId"],
+    });
+
+    const fileName = fields.fileName;
+    const breadcrumb = fields.breadcrumb ? JSON.parse(fields.breadcrumb) : [];
+    const fileType = fields.fileType || "unknown";
+    const folderName = fields.folderName || "Browser Upload";
+    const scanJobId = fields.scanJobId;
+
+    if (!fileName) {
+      throw new BadRequestException("fileName is required");
+    }
+
+    const fileBuffer = await file.toBuffer();
+
+    return this.documentImport.uploadDocument(actor, {
+      fileName,
+      fileBuffer,
+      mimeType: file.mimetype,
+      breadcrumb,
+      fileType,
+      folderName,
+      scanJobId,
+    });
   }
 
   /**

@@ -11,6 +11,11 @@ import { PDFParse } from "pdf-parse";
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
 const readFile = promisify(fs.readFile);
+const writeFile = promisify(fs.writeFile);
+const mkdir = promisify(fs.mkdir);
+
+// Base uploads directory for documents
+const UPLOADS_DIR = path.join(__dirname, "../../../uploads/documents");
 
 // Supported document extensions
 const DOCUMENT_EXTENSIONS = new Set([
@@ -126,6 +131,101 @@ export class DocumentImportService {
     if (!job) throw new NotFoundException("Scan job not found");
 
     return job;
+  }
+
+  // --- Browser-Based Upload ---
+
+  /**
+   * Upload a document file from the browser (File System Access API).
+   * Creates a scan job if needed and saves the file to local storage.
+   */
+  async uploadDocument(
+    actor: AuthenticatedUser,
+    data: {
+      fileName: string;
+      fileBuffer: Buffer;
+      mimeType: string;
+      breadcrumb: string[];
+      fileType: string;
+      folderName: string;
+      scanJobId?: string;
+    }
+  ) {
+    // Get or create scan job for this upload session
+    let scanJob;
+
+    if (data.scanJobId) {
+      scanJob = await this.prisma.documentScanJob.findFirst({
+        where: { id: data.scanJobId, companyId: actor.companyId },
+      });
+    }
+
+    if (!scanJob) {
+      // Create a new scan job for browser uploads
+      scanJob = await this.prisma.documentScanJob.create({
+        data: {
+          companyId: actor.companyId,
+          scanPath: `Browser Upload: ${data.folderName}`,
+          status: DocumentScanJobStatus.COMPLETED,
+          createdByUserId: actor.userId,
+          startedAt: new Date(),
+          completedAt: new Date(),
+          documentsFound: 0,
+          documentsProcessed: 0,
+        },
+      });
+    }
+
+    // Create company-specific upload directory
+    const companyDir = path.join(UPLOADS_DIR, actor.companyId);
+    const jobDir = path.join(companyDir, scanJob.id);
+    await mkdir(jobDir, { recursive: true });
+
+    // Generate unique filename to avoid collisions
+    const timestamp = Date.now();
+    const safeFileName = data.fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
+    const storedFileName = `${timestamp}_${safeFileName}`;
+    const filePath = path.join(jobDir, storedFileName);
+
+    // Write file to disk
+    await writeFile(filePath, data.fileBuffer);
+
+    // Get MIME type from extension if not provided
+    const ext = data.fileType.toLowerCase();
+    const mimeType = data.mimeType || MIME_TYPES[ext] || "application/octet-stream";
+
+    // Create staged document record
+    const doc = await this.prisma.stagedDocument.create({
+      data: {
+        companyId: actor.companyId,
+        scanJobId: scanJob.id,
+        fileName: data.fileName,
+        filePath,
+        breadcrumb: data.breadcrumb,
+        fileType: ext,
+        fileSize: BigInt(data.fileBuffer.length),
+        mimeType,
+        status: StagedDocumentStatus.ACTIVE,
+        scannedByUserId: actor.userId,
+      },
+    });
+
+    // Update scan job counts
+    await this.prisma.documentScanJob.update({
+      where: { id: scanJob.id },
+      data: {
+        documentsFound: { increment: 1 },
+        documentsProcessed: { increment: 1 },
+      },
+    });
+
+    this.logger.log(`Uploaded document: ${data.fileName} to ${filePath}`);
+
+    return {
+      ...doc,
+      fileSize: doc.fileSize.toString(),
+      scanJobId: scanJob.id,
+    };
   }
 
   // --- Staged Documents ---
