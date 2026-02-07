@@ -421,6 +421,164 @@ export class DocumentImportService {
     }
   }
 
+  // --- Import Workflow ---
+
+  async importDocument(
+    actor: AuthenticatedUser,
+    documentId: string,
+    importData: {
+      importToType: string; // "safety" | "bkm"
+      importToCategory: string; // e.g., "ppe", "general-safety"
+      displayTitle?: string;
+      displayDescription?: string;
+      oshaReference?: string;
+      sortOrder?: number;
+    }
+  ) {
+    const doc = await this.prisma.stagedDocument.findFirst({
+      where: { id: documentId, companyId: actor.companyId },
+    });
+
+    if (!doc) throw new NotFoundException("Document not found");
+    if (doc.status === StagedDocumentStatus.IMPORTED) {
+      throw new Error("Document is already imported");
+    }
+
+    const updated = await this.prisma.stagedDocument.update({
+      where: { id: documentId },
+      data: {
+        status: StagedDocumentStatus.IMPORTED,
+        importedAt: new Date(),
+        importedByUserId: actor.userId,
+        importedToType: importData.importToType,
+        importedToCategory: importData.importToCategory,
+        displayTitle: importData.displayTitle?.trim() || null,
+        displayDescription: importData.displayDescription?.trim() || null,
+        oshaReference: importData.oshaReference?.trim() || null,
+        sortOrder: importData.sortOrder ?? null,
+      },
+    });
+
+    return { ...updated, fileSize: updated.fileSize.toString() };
+  }
+
+  async bulkImportDocuments(
+    actor: AuthenticatedUser,
+    documentIds: string[],
+    importData: {
+      importToType: string;
+      importToCategory: string;
+    }
+  ) {
+    // Verify all documents belong to this company and are not already imported
+    const docs = await this.prisma.stagedDocument.findMany({
+      where: {
+        id: { in: documentIds },
+        companyId: actor.companyId,
+        status: { not: StagedDocumentStatus.IMPORTED },
+      },
+      select: { id: true },
+    });
+
+    const validIds = docs.map((d) => d.id);
+
+    await this.prisma.stagedDocument.updateMany({
+      where: { id: { in: validIds } },
+      data: {
+        status: StagedDocumentStatus.IMPORTED,
+        importedAt: new Date(),
+        importedByUserId: actor.userId,
+        importedToType: importData.importToType,
+        importedToCategory: importData.importToCategory,
+      },
+    });
+
+    return { imported: validIds.length, skipped: documentIds.length - validIds.length };
+  }
+
+  async unimportDocument(actor: AuthenticatedUser, documentId: string) {
+    const doc = await this.prisma.stagedDocument.findFirst({
+      where: { id: documentId, companyId: actor.companyId },
+    });
+
+    if (!doc) throw new NotFoundException("Document not found");
+    if (doc.status !== StagedDocumentStatus.IMPORTED) {
+      throw new Error("Document is not imported");
+    }
+
+    const updated = await this.prisma.stagedDocument.update({
+      where: { id: documentId },
+      data: {
+        status: StagedDocumentStatus.ACTIVE,
+        importedAt: null,
+        importedByUserId: null,
+        importedToType: null,
+        importedToCategory: null,
+        displayTitle: null,
+        displayDescription: null,
+        oshaReference: null,
+        sortOrder: null,
+      },
+    });
+
+    return { ...updated, fileSize: updated.fileSize.toString() };
+  }
+
+  // --- Imported Documents Query (for Safety Manual, BKMs, etc.) ---
+
+  async getImportedDocuments(
+    actor: AuthenticatedUser,
+    opts: {
+      importToType: string;
+      importToCategory?: string;
+    }
+  ) {
+    const where: any = {
+      companyId: actor.companyId,
+      status: StagedDocumentStatus.IMPORTED,
+      importedToType: opts.importToType,
+      ...(opts.importToCategory && { importedToCategory: opts.importToCategory }),
+    };
+
+    const docs = await this.prisma.stagedDocument.findMany({
+      where,
+      orderBy: [
+        { sortOrder: { sort: "asc", nulls: "last" } },
+        { displayTitle: "asc" },
+        { fileName: "asc" },
+      ],
+      include: {
+        importedBy: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+
+    return docs.map((doc) => ({
+      ...doc,
+      fileSize: doc.fileSize.toString(),
+      // Provide display-friendly values
+      title: doc.displayTitle || doc.fileName.replace(/\.[^/.]+$/, ""),
+      description: doc.displayDescription || `Imported from ${doc.breadcrumb.join(" / ")}`,
+    }));
+  }
+
+  async getImportedCategories(actor: AuthenticatedUser, importToType: string) {
+    const categories = await this.prisma.stagedDocument.groupBy({
+      by: ["importedToCategory"],
+      where: {
+        companyId: actor.companyId,
+        status: StagedDocumentStatus.IMPORTED,
+        importedToType: importToType,
+        importedToCategory: { not: null },
+      },
+      _count: true,
+    });
+
+    return categories.map((c) => ({
+      category: c.importedToCategory,
+      count: c._count,
+    }));
+  }
+
   // --- Statistics ---
 
   async getDocumentStats(actor: AuthenticatedUser, scanJobId?: string) {
