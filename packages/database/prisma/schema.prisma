@@ -4331,6 +4331,10 @@ model StagedDocument {
   publishedAt         DateTime?              // When document was published
   publishedByUserId   String?                // Who published it
   
+  // Text extraction (for search and classification)
+  textContent         String?                @db.Text  // Extracted plain text for search/classification
+  originalPath        String?                // Original path where file lives (source of truth)
+  
   // HTML conversion fields
   htmlContent         String?                @db.Text  // Converted HTML content
   conversionStatus    HtmlConversionStatus?  // Status of HTML conversion

@@ -1222,8 +1222,66 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   // Scan progress state
   const [scanProgress, setScanProgress] = useState({ filesFound: 0, currentPath: "" });
+  // Selection state - track selected files by their path key (e.g., "Root/Safety/file.pdf")
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
 
   const isSupported = typeof window !== "undefined" && "showDirectoryPicker" in window;
+  
+  // Get file path key for selection tracking
+  const getFileKey = (file: ScannedFile) => file.path.join("/");
+  
+  // Get all file keys under a folder path
+  const getFilesUnderPath = (pathPrefix: string): string[] => {
+    return scannedFiles
+      .filter(f => getFileKey(f).startsWith(pathPrefix + "/") || getFileKey(f) === pathPrefix)
+      .map(getFileKey);
+  };
+  
+  // Check folder selection state: 'all' | 'some' | 'none'
+  const getFolderSelectionState = (pathKey: string): 'all' | 'some' | 'none' => {
+    const filesUnder = getFilesUnderPath(pathKey);
+    if (filesUnder.length === 0) return 'none';
+    const selectedCount = filesUnder.filter(f => selectedFiles.has(f)).length;
+    if (selectedCount === 0) return 'none';
+    if (selectedCount === filesUnder.length) return 'all';
+    return 'some';
+  };
+  
+  // Toggle folder selection - selects/deselects all children
+  const toggleFolderSelection = (pathKey: string) => {
+    const state = getFolderSelectionState(pathKey);
+    const filesUnder = getFilesUnderPath(pathKey);
+    
+    setSelectedFiles(prev => {
+      const next = new Set(prev);
+      if (state === 'all') {
+        // Deselect all
+        filesUnder.forEach(f => next.delete(f));
+      } else {
+        // Select all
+        filesUnder.forEach(f => next.add(f));
+      }
+      return next;
+    });
+  };
+  
+  // Toggle individual file selection
+  const toggleFileSelection = (fileKey: string) => {
+    setSelectedFiles(prev => {
+      const next = new Set(prev);
+      if (next.has(fileKey)) next.delete(fileKey);
+      else next.add(fileKey);
+      return next;
+    });
+  };
+  
+  // Select all / deselect all
+  const selectAll = () => {
+    setSelectedFiles(new Set(scannedFiles.map(getFileKey)));
+  };
+  const deselectAll = () => {
+    setSelectedFiles(new Set());
+  };
 
   // Build folder tree from flat file list
   const folderTree = useMemo(() => {
@@ -1261,6 +1319,7 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
       setConfirmed(false);
       setError(null);
       setExpandedFolders(new Set());
+      setSelectedFiles(new Set());
     } catch (err: any) {
       if (err.name !== "AbortError") {
         setError("Failed to select folder.");
@@ -1306,21 +1365,27 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
     setScannedFiles(files);
     setIsScanning(false);
     setScanComplete(true);
-    // Auto-expand root
+    // Auto-expand root and select all files by default
     setExpandedFolders(new Set([folderHandle.name]));
+    setSelectedFiles(new Set(files.map(f => f.path.join("/"))));
   };
 
   const handleUpload = async () => {
-    if (scannedFiles.length === 0) return;
+    // Only upload selected files
+    const filesToUpload = scannedFiles.filter(f => selectedFiles.has(getFileKey(f)));
+    if (filesToUpload.length === 0) {
+      setError("Please select at least one file to index.");
+      return;
+    }
     setIsUploading(true);
-    setUploadProgress({ current: 0, total: scannedFiles.length });
+    setUploadProgress({ current: 0, total: filesToUpload.length });
     const token = localStorage.getItem("accessToken");
 
     try {
       let scanJobId: string | null = null;
 
-      for (let i = 0; i < scannedFiles.length; i++) {
-        const sf = scannedFiles[i];
+      for (let i = 0; i < filesToUpload.length; i++) {
+        const sf = filesToUpload[i];
         const formData = new FormData();
         formData.append("file", sf.file);
         formData.append("fileName", sf.name);
@@ -1348,7 +1413,7 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
           scanJobId = result.scanJobId;
         }
 
-        setUploadProgress({ current: i + 1, total: scannedFiles.length });
+        setUploadProgress({ current: i + 1, total: filesToUpload.length });
       }
       onFilesUploaded();
       onClose();
@@ -1372,29 +1437,50 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
     const isExpanded = expandedFolders.has(pathKey);
     const hasChildren = node.children.size > 0 || node.files.length > 0;
     const totalFiles = countFiles(node);
+    const selectionState = getFolderSelectionState(pathKey);
+    const selectedCount = getFilesUnderPath(pathKey).filter(f => selectedFiles.has(f)).length;
 
     return (
       <div key={pathKey} style={{ marginLeft: depth * 16 }}>
         <div
-          onClick={() => hasChildren && toggleFolder(pathKey)}
           style={{
             display: "flex",
             alignItems: "center",
             gap: 6,
             padding: "4px 8px",
-            cursor: hasChildren ? "pointer" : "default",
             borderRadius: 4,
             backgroundColor: depth === 0 ? "#f0f9ff" : "transparent",
           }}
         >
-          <span style={{ fontSize: 12, color: "#6b7280", width: 16 }}>
+          {/* Folder checkbox - tri-state */}
+          <input
+            type="checkbox"
+            checked={selectionState === 'all'}
+            ref={(el) => { if (el) el.indeterminate = selectionState === 'some'; }}
+            onChange={() => toggleFolderSelection(pathKey)}
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 16, height: 16, cursor: "pointer", accentColor: "#2563eb" }}
+          />
+          {/* Expand/collapse toggle */}
+          <span
+            onClick={() => hasChildren && toggleFolder(pathKey)}
+            style={{ fontSize: 12, color: "#6b7280", width: 16, cursor: hasChildren ? "pointer" : "default" }}
+          >
             {hasChildren ? (isExpanded ? "▼" : "▶") : ""}
           </span>
-          <span style={{ fontSize: 14 }}>📁</span>
-          <span style={{ fontSize: 13, fontWeight: depth === 0 ? 600 : 400, color: "#374151" }}>
+          <span
+            onClick={() => hasChildren && toggleFolder(pathKey)}
+            style={{ fontSize: 14, cursor: hasChildren ? "pointer" : "default" }}
+          >📁</span>
+          <span
+            onClick={() => hasChildren && toggleFolder(pathKey)}
+            style={{ fontSize: 13, fontWeight: depth === 0 ? 600 : 400, color: "#374151", cursor: hasChildren ? "pointer" : "default", flex: 1 }}
+          >
             {node.name}
           </span>
-          <span style={{ fontSize: 11, color: "#9ca3af" }}>({totalFiles})</span>
+          <span style={{ fontSize: 11, color: selectionState === 'all' ? "#16a34a" : selectionState === 'some' ? "#d97706" : "#9ca3af" }}>
+            {selectedCount}/{totalFiles} selected
+          </span>
         </div>
         
         {isExpanded && (
@@ -1404,24 +1490,39 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
               renderFolderTree(child, depth + 1, `${pathKey}/${child.name}`)
             )}
             {/* Files in this folder */}
-            {node.files.map((f, i) => (
-              <div
-                key={`${pathKey}/${f.name}-${i}`}
-                style={{
-                  marginLeft: (depth + 1) * 16 + 22,
-                  padding: "3px 8px",
-                  fontSize: 12,
-                  color: "#4b5563",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                <span>{getFileIcon(f.type)}</span>
-                <span style={{ flex: 1 }}>{f.name}</span>
-                <span style={{ color: "#9ca3af", fontSize: 11 }}>{formatSize(f.size)}</span>
-              </div>
-            ))}
+            {node.files.map((f, i) => {
+              const fileKey = getFileKey(f);
+              const isSelected = selectedFiles.has(fileKey);
+              return (
+                <div
+                  key={`${pathKey}/${f.name}-${i}`}
+                  onClick={() => toggleFileSelection(fileKey)}
+                  style={{
+                    marginLeft: (depth + 1) * 16,
+                    padding: "3px 8px",
+                    fontSize: 12,
+                    color: isSelected ? "#374151" : "#9ca3af",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    cursor: "pointer",
+                    backgroundColor: isSelected ? "#f0fdf4" : "transparent",
+                    borderRadius: 4,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleFileSelection(fileKey)}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ width: 14, height: 14, cursor: "pointer", accentColor: "#16a34a" }}
+                  />
+                  <span>{getFileIcon(f.type)}</span>
+                  <span style={{ flex: 1 }}>{f.name}</span>
+                  <span style={{ color: "#9ca3af", fontSize: 11 }}>{formatSize(f.size)}</span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -1527,10 +1628,32 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
         {/* Folder Tree Results */}
         {scanComplete && (
           <div style={{ marginBottom: 16 }}>
-            <div style={{ padding: 12, backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, marginBottom: 12 }}>
+            <div style={{ padding: 12, backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <p style={{ margin: 0, fontSize: 14, color: "#166534", fontWeight: 500 }}>
                 ✓ Found {scannedFiles.length} document{scannedFiles.length !== 1 ? "s" : ""}
+                {selectedFiles.size > 0 && selectedFiles.size !== scannedFiles.length && (
+                  <span style={{ color: "#15803d", fontWeight: 400 }}> • {selectedFiles.size} selected</span>
+                )}
               </p>
+              {/* Select All / Deselect All buttons */}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={selectAll}
+                  disabled={selectedFiles.size === scannedFiles.length}
+                  style={{ padding: "4px 10px", fontSize: 12, backgroundColor: selectedFiles.size === scannedFiles.length ? "#e5e7eb" : "#dbeafe", color: selectedFiles.size === scannedFiles.length ? "#9ca3af" : "#1d4ed8", border: "none", borderRadius: 4, cursor: selectedFiles.size === scannedFiles.length ? "default" : "pointer" }}
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  onClick={deselectAll}
+                  disabled={selectedFiles.size === 0}
+                  style={{ padding: "4px 10px", fontSize: 12, backgroundColor: selectedFiles.size === 0 ? "#e5e7eb" : "#fee2e2", color: selectedFiles.size === 0 ? "#9ca3af" : "#b91c1c", border: "none", borderRadius: 4, cursor: selectedFiles.size === 0 ? "default" : "pointer" }}
+                >
+                  Deselect All
+                </button>
+              </div>
             </div>
 
             {scannedFiles.length > 0 && (
@@ -1556,8 +1679,27 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
             Cancel
           </button>
           {scanComplete && scannedFiles.length > 0 && (
-            <button type="button" onClick={handleUpload} disabled={isUploading} style={{ padding: "8px 16px", fontSize: 14, fontWeight: 500, backgroundColor: isUploading ? "#9ca3af" : "#2563eb", color: "#fff", border: "none", borderRadius: 6, cursor: isUploading ? "not-allowed" : "pointer" }}>
-              {isUploading ? "Uploading..." : `Upload ${scannedFiles.length} Document${scannedFiles.length !== 1 ? "s" : ""}`}
+            <button
+              type="button"
+              onClick={handleUpload}
+              disabled={isUploading || selectedFiles.size === 0}
+              style={{
+                padding: "8px 16px",
+                fontSize: 14,
+                fontWeight: 500,
+                backgroundColor: isUploading || selectedFiles.size === 0 ? "#9ca3af" : "#2563eb",
+                color: "#fff",
+                border: "none",
+                borderRadius: 6,
+                cursor: isUploading || selectedFiles.size === 0 ? "not-allowed" : "pointer",
+              }}
+            >
+              {isUploading
+                ? `Indexing... ${uploadProgress.current}/${uploadProgress.total}`
+                : selectedFiles.size === 0
+                ? "Select files to index"
+                : `📥 Index ${selectedFiles.size} Document${selectedFiles.size !== 1 ? "s" : ""}`
+              }
             </button>
           )}
         </div>

@@ -389,13 +389,72 @@ export class DocumentImportService {
     return job;
   }
 
-  // --- Browser-Based Upload ---
+  // --- Browser-Based Document Indexing ---
 
   /**
-   * Upload a document file from the browser (File System Access API).
-   * Creates a scan job if needed and saves the file to local storage.
+   * Extract text content from a file buffer.
+   * Supports: .docx (via mammoth), .pdf (via pdf-parse), .txt/.md (direct)
    */
-  async uploadDocument(
+  async extractTextFromBuffer(buffer: Buffer, fileType: string): Promise<{ text: string; html: string } | null> {
+    const ext = fileType.toLowerCase();
+    
+    try {
+      if (ext === "docx") {
+        // Word documents - extract both text and HTML
+        const result = await mammoth.convertToHtml({ buffer }, {
+          styleMap: [
+            "p[style-name='Heading 1'] => h1:fresh",
+            "p[style-name='Heading 2'] => h2:fresh",
+            "p[style-name='Heading 3'] => h3:fresh",
+          ],
+        });
+        const text = result.value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+        return { text, html: result.value };
+      } else if (ext === "pdf") {
+        // PDF - text extraction (write to temp file, then parse)
+        // The PDFParse library works better with file paths
+        const tempPath = path.join("/tmp", `pdf_${Date.now()}.pdf`);
+        await writeFile(tempPath, buffer);
+        try {
+          const pdfParser = new PDFParse({ url: tempPath });
+          const textResult = await pdfParser.getText();
+          const text = textResult?.text || "";
+          // Create simple HTML from text
+          const paragraphs = text.split(/\n\s*\n/).filter((p: string) => p.trim());
+          const html = paragraphs.map((p: string) => `<p>${this.escapeHtml(p.trim())}</p>`).join("\n");
+          // Clean up temp file
+          fs.unlink(tempPath, () => {});
+          return { text, html };
+        } catch (pdfErr) {
+          // Clean up temp file on error
+          fs.unlink(tempPath, () => {});
+          throw pdfErr;
+        }
+      } else if (["txt", "md", "markdown", "csv", "json", "xml", "yaml", "yml"].includes(ext)) {
+        // Plain text formats
+        const text = buffer.toString("utf-8");
+        const html = `<pre style="white-space: pre-wrap;">${this.escapeHtml(text)}</pre>`;
+        return { text, html };
+      } else if (ext === "html" || ext === "htm") {
+        // HTML - extract text
+        const html = buffer.toString("utf-8");
+        const text = html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+        return { text, html };
+      }
+      // Unsupported format
+      return null;
+    } catch (err) {
+      this.logger.warn(`Text extraction failed for ${ext}: ${err}`);
+      return null;
+    }
+  }
+
+  /**
+   * Index a document from the browser (File System Access API).
+   * Extracts text and metadata - does NOT store the binary file.
+   * The original file stays where it is on the user's machine.
+   */
+  async indexDocument(
     actor: AuthenticatedUser,
     data: {
       fileName: string;
@@ -407,7 +466,7 @@ export class DocumentImportService {
       scanJobId?: string;
     }
   ) {
-    // Get or create scan job for this upload session
+    // Get or create scan job for this index session
     let scanJob;
 
     if (data.scanJobId) {
@@ -421,7 +480,7 @@ export class DocumentImportService {
       scanJob = await this.prisma.documentScanJob.create({
         data: {
           companyId: actor.companyId,
-          scanPath: `Browser Upload: ${data.folderName}`,
+          scanPath: `Index: ${data.folderName}`,
           status: DocumentScanJobStatus.COMPLETED,
           createdByUserId: actor.userId,
           startedAt: new Date(),
@@ -432,41 +491,47 @@ export class DocumentImportService {
       });
     }
 
-    // Create company-specific upload directory
-    const companyDir = path.join(UPLOADS_DIR, actor.companyId);
-    const jobDir = path.join(companyDir, scanJob.id);
-    await mkdir(jobDir, { recursive: true });
-
-    // Generate unique filename to avoid collisions
-    const timestamp = Date.now();
-    const safeFileName = data.fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
-    const storedFileName = `${timestamp}_${safeFileName}`;
-    const filePath = path.join(jobDir, storedFileName);
-
-    // Write file to disk
-    await writeFile(filePath, data.fileBuffer);
-
     // Get MIME type from extension if not provided
     const ext = data.fileType.toLowerCase();
     const mimeType = data.mimeType || MIME_TYPES[ext] || "application/octet-stream";
 
-    // Classify document by filename
-    const classification = this.classifyByFilename(data.fileName);
+    // Extract text and HTML from buffer (no disk write!)
+    const extracted = await this.extractTextFromBuffer(data.fileBuffer, ext);
+    
+    // Classify document by filename first
+    let classification = this.classifyByFilename(data.fileName);
+    
+    // If we extracted text, do content-based classification (more accurate)
+    if (extracted?.text && extracted.text.length > 50) {
+      const contentClassification = this.classifyByContent(extracted.text);
+      if (contentClassification.score > classification.score) {
+        classification = contentClassification;
+      }
+    }
 
-    // Create staged document record
+    // Build the original path from breadcrumb (this is where the file lives on user's machine)
+    const originalPath = data.breadcrumb.join("/");
+
+    // Create staged document record with extracted content
     const doc = await this.prisma.stagedDocument.create({
       data: {
         companyId: actor.companyId,
         scanJobId: scanJob.id,
         fileName: data.fileName,
-        filePath,
+        filePath: originalPath, // Use original path instead of server storage path
+        originalPath, // Also store explicitly
         breadcrumb: data.breadcrumb,
         fileType: ext,
         fileSize: BigInt(data.fileBuffer.length),
         mimeType,
         status: StagedDocumentStatus.ACTIVE,
         scannedByUserId: actor.userId,
-        // Document classification from filename
+        // Extracted content
+        textContent: extracted?.text || null,
+        htmlContent: extracted ? this.wrapHtmlContent(extracted.html, data.fileName) : null,
+        conversionStatus: extracted ? HtmlConversionStatus.COMPLETED : HtmlConversionStatus.SKIPPED,
+        convertedAt: extracted ? new Date() : null,
+        // Document classification
         documentTypeGuess: classification.type,
         classificationScore: classification.score,
         classificationReason: classification.reason,
@@ -482,13 +547,29 @@ export class DocumentImportService {
       },
     });
 
-    this.logger.log(`Uploaded document: ${data.fileName} to ${filePath}`);
+    this.logger.log(`Indexed document: ${data.fileName} (${(data.fileBuffer.length / 1024).toFixed(1)} KB text extracted)`);
 
     return {
       ...doc,
       fileSize: doc.fileSize.toString(),
       scanJobId: scanJob.id,
     };
+  }
+
+  // Alias for backward compatibility
+  async uploadDocument(
+    actor: AuthenticatedUser,
+    data: {
+      fileName: string;
+      fileBuffer: Buffer;
+      mimeType: string;
+      breadcrumb: string[];
+      fileType: string;
+      folderName: string;
+      scanJobId?: string;
+    }
+  ) {
+    return this.indexDocument(actor, data);
   }
 
   // --- Staged Documents ---
