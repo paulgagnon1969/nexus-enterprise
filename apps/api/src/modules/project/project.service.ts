@@ -3350,16 +3350,24 @@ export class ProjectService {
 
     const sowItem = await this.prisma.sowItem.findUnique({
       where: { id: sowItemId },
-      select: { logicalItemId: true },
+      select: {
+        logicalItemId: true,
+        lineNo: true,
+        rawRow: { select: { lineNo: true } },
+      },
     });
 
     if (!sowItem) {
       return null;
     }
 
-    try {
-      // Preferred path: include attachments when the table exists.
-      return await this.prisma.petlReconciliationCase.findFirst({
+    // The source line number (Xact "#") is what users recognize and what we
+    // preserve in originLineNo when carrying forward entries across versions.
+    const sourceLineNo = sowItem.rawRow?.lineNo ?? sowItem.lineNo;
+
+    const findCase = async (includeAttachments: boolean) => {
+      // First try: direct match by sowItemId or logicalItemId
+      const directMatch = await this.prisma.petlReconciliationCase.findFirst({
         where: {
           projectId,
           OR: [
@@ -3367,16 +3375,59 @@ export class ProjectService {
             { logicalItemId: sowItem.logicalItemId },
           ],
         },
-        include: {
-          entries: {
-            orderBy: { createdAt: "asc" },
-            include: {
-              attachments: { orderBy: { createdAt: "asc" } },
+        include: includeAttachments
+          ? {
+              entries: {
+                orderBy: { createdAt: "asc" },
+                include: { attachments: { orderBy: { createdAt: "asc" } } },
+              },
+              events: { orderBy: { createdAt: "asc" } },
+            }
+          : {
+              entries: { orderBy: { createdAt: "asc" } },
+              events: { orderBy: { createdAt: "asc" } },
             },
-          },
-          events: { orderBy: { createdAt: "asc" } },
-        },
       });
+
+      if (directMatch) return directMatch;
+
+      // Fallback: find case via entries that reference this source line number.
+      // This handles cases where the logicalItemId changed between versions
+      // but the entries still have originLineNo pointing to the same line.
+      if (sourceLineNo != null) {
+        const entryWithOriginLine = await this.prisma.petlReconciliationEntry.findFirst({
+          where: {
+            projectId,
+            originLineNo: sourceLineNo,
+          },
+          select: { caseId: true },
+        });
+
+        if (entryWithOriginLine) {
+          return this.prisma.petlReconciliationCase.findFirst({
+            where: { id: entryWithOriginLine.caseId, projectId },
+            include: includeAttachments
+              ? {
+                  entries: {
+                    orderBy: { createdAt: "asc" },
+                    include: { attachments: { orderBy: { createdAt: "asc" } } },
+                  },
+                  events: { orderBy: { createdAt: "asc" } },
+                }
+              : {
+                  entries: { orderBy: { createdAt: "asc" } },
+                  events: { orderBy: { createdAt: "asc" } },
+                },
+          });
+        }
+      }
+
+      return null;
+    };
+
+    try {
+      // Preferred path: include attachments when the table exists.
+      return await findCase(true);
     } catch (err: any) {
       // Backwards-compatible: in environments where the PetlReconciliationAttachment
       // table/migration is missing, fall back to loading the case without
@@ -3385,19 +3436,7 @@ export class ProjectService {
         throw err;
       }
 
-      return this.prisma.petlReconciliationCase.findFirst({
-        where: {
-          projectId,
-          OR: [
-            { sowItemId },
-            { logicalItemId: sowItem.logicalItemId },
-          ],
-        },
-        include: {
-          entries: { orderBy: { createdAt: "asc" } },
-          events: { orderBy: { createdAt: "asc" } },
-        },
-      });
+      return findCase(false);
     }
   }
 
