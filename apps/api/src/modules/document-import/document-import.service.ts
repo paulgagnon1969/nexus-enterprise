@@ -1,13 +1,16 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { StagedDocumentStatus, DocumentScanJobStatus } from "@prisma/client";
+import { StagedDocumentStatus, DocumentScanJobStatus, HtmlConversionStatus } from "@prisma/client";
 import * as fs from "fs";
 import * as path from "path";
 import { promisify } from "util";
+import * as mammoth from "mammoth";
+import { PDFParse } from "pdf-parse";
 
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
+const readFile = promisify(fs.readFile);
 
 // Supported document extensions
 const DOCUMENT_EXTENSIONS = new Set([
@@ -421,6 +424,212 @@ export class DocumentImportService {
     }
   }
 
+  // --- HTML Conversion ---
+
+  /**
+   * Convert a document to HTML for fast rendering.
+   * Supports: .docx (via mammoth), .pdf (via pdf-parse), .txt/.md (direct)
+   */
+  async convertToHtml(documentId: string): Promise<{ success: boolean; error?: string }> {
+    const doc = await this.prisma.stagedDocument.findUnique({ where: { id: documentId } });
+    if (!doc) return { success: false, error: "Document not found" };
+
+    // Mark as converting
+    await this.prisma.stagedDocument.update({
+      where: { id: documentId },
+      data: { conversionStatus: HtmlConversionStatus.CONVERTING },
+    });
+
+    try {
+      // Check file exists
+      await stat(doc.filePath);
+
+      let html: string;
+      const ext = doc.fileType.toLowerCase();
+
+      if (ext === "docx") {
+        // Word documents - excellent conversion
+        const result = await mammoth.convertToHtml({ path: doc.filePath }, {
+          styleMap: [
+            "p[style-name='Heading 1'] => h1:fresh",
+            "p[style-name='Heading 2'] => h2:fresh",
+            "p[style-name='Heading 3'] => h3:fresh",
+            "p[style-name='Title'] => h1.doc-title:fresh",
+          ],
+        });
+        html = this.wrapHtmlContent(result.value, doc.displayTitle || doc.fileName);
+        if (result.messages.length > 0) {
+          this.logger.warn(`Conversion warnings for ${doc.fileName}: ${result.messages.map(m => m.message).join(", ")}`);
+        }
+      } else if (ext === "pdf") {
+        // PDF - text extraction, wrap in HTML
+        const pdfParser = new PDFParse({ url: doc.filePath });
+        const textResult = await pdfParser.getText();
+        const pdfText = textResult.text || "";
+        html = this.convertPdfTextToHtml(pdfText, doc.displayTitle || doc.fileName);
+      } else if (ext === "txt" || ext === "md" || ext === "markdown") {
+        // Plain text - wrap directly
+        const content = await readFile(doc.filePath, "utf-8");
+        html = this.wrapTextContent(content, doc.displayTitle || doc.fileName, ext === "md" || ext === "markdown");
+      } else if (ext === "doc") {
+        // Old .doc format - not supported by mammoth, skip
+        await this.prisma.stagedDocument.update({
+          where: { id: documentId },
+          data: {
+            conversionStatus: HtmlConversionStatus.SKIPPED,
+            conversionError: "Legacy .doc format not supported. Please convert to .docx",
+          },
+        });
+        return { success: false, error: "Legacy .doc format not supported" };
+      } else {
+        // Unsupported format
+        await this.prisma.stagedDocument.update({
+          where: { id: documentId },
+          data: {
+            conversionStatus: HtmlConversionStatus.SKIPPED,
+            conversionError: `File type .${ext} not supported for HTML conversion`,
+          },
+        });
+        return { success: false, error: `Unsupported file type: ${ext}` };
+      }
+
+      // Save HTML content
+      await this.prisma.stagedDocument.update({
+        where: { id: documentId },
+        data: {
+          htmlContent: html,
+          conversionStatus: HtmlConversionStatus.COMPLETED,
+          conversionError: null,
+          convertedAt: new Date(),
+        },
+      });
+
+      this.logger.log(`Successfully converted ${doc.fileName} to HTML`);
+      return { success: true };
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`HTML conversion failed for ${doc.fileName}: ${errorMsg}`);
+
+      await this.prisma.stagedDocument.update({
+        where: { id: documentId },
+        data: {
+          conversionStatus: HtmlConversionStatus.FAILED,
+          conversionError: errorMsg,
+        },
+      });
+
+      return { success: false, error: errorMsg };
+    }
+  }
+
+  private wrapHtmlContent(bodyHtml: string, title: string): string {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>${this.escapeHtml(title)}</title>
+  <style>
+    body { font-family: 'Georgia', 'Times New Roman', serif; line-height: 1.6; color: #1a1a1a; max-width: 8.5in; margin: 0 auto; padding: 1in; }
+    h1 { font-size: 24px; margin-top: 0; border-bottom: 2px solid #dc2626; padding-bottom: 8px; }
+    h2 { font-size: 20px; margin-top: 24px; color: #374151; }
+    h3 { font-size: 16px; margin-top: 20px; color: #4b5563; }
+    p { margin: 12px 0; text-align: justify; }
+    ul, ol { margin: 12px 0; padding-left: 24px; }
+    li { margin: 6px 0; }
+    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+    th, td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
+    th { background: #f3f4f6; font-weight: 600; }
+    strong, b { font-weight: 600; }
+    .doc-title { font-size: 28px; text-align: center; border-bottom: none; }
+    @media print { body { padding: 0.5in; } }
+  </style>
+</head>
+<body>
+${bodyHtml}
+</body>
+</html>`;
+  }
+
+  private convertPdfTextToHtml(text: string, title: string): string {
+    // Split by double newlines to find paragraphs
+    const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim());
+    
+    const bodyHtml = paragraphs.map(p => {
+      const trimmed = p.trim();
+      // Simple heuristic: ALL CAPS lines might be headings
+      if (trimmed === trimmed.toUpperCase() && trimmed.length < 100 && !trimmed.includes(".")) {
+        return `<h2>${this.escapeHtml(trimmed)}</h2>`;
+      }
+      // Preserve line breaks within paragraphs for lists/structured content
+      const withBreaks = trimmed.replace(/\n/g, "<br>");
+      return `<p>${this.escapeHtml(withBreaks).replace(/&lt;br&gt;/g, "<br>")}</p>`;
+    }).join("\n");
+
+    return this.wrapHtmlContent(`<h1>${this.escapeHtml(title)}</h1>\n${bodyHtml}`, title);
+  }
+
+  private wrapTextContent(text: string, title: string, isMarkdown: boolean): string {
+    // For now, treat markdown as plain text with preserved whitespace
+    // Could integrate a markdown parser later
+    const escaped = this.escapeHtml(text);
+    const formatted = isMarkdown 
+      ? `<pre style="font-family: inherit; white-space: pre-wrap;">${escaped}</pre>`
+      : `<pre style="font-family: inherit; white-space: pre-wrap;">${escaped}</pre>`;
+    
+    return this.wrapHtmlContent(`<h1>${this.escapeHtml(title)}</h1>\n${formatted}`, title);
+  }
+
+  private escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  /**
+   * Get HTML content for a document. Returns null if not converted.
+   */
+  async getDocumentHtml(actor: AuthenticatedUser, documentId: string) {
+    const doc = await this.prisma.stagedDocument.findFirst({
+      where: { id: documentId, companyId: actor.companyId },
+      select: {
+        id: true,
+        fileName: true,
+        displayTitle: true,
+        htmlContent: true,
+        conversionStatus: true,
+        conversionError: true,
+        filePath: true,
+      },
+    });
+
+    if (!doc) throw new NotFoundException("Document not found");
+
+    return {
+      id: doc.id,
+      title: doc.displayTitle || doc.fileName,
+      htmlContent: doc.htmlContent,
+      conversionStatus: doc.conversionStatus,
+      conversionError: doc.conversionError,
+      hasOriginal: true, // Can always fall back to original file
+      originalPath: doc.filePath,
+    };
+  }
+
+  /**
+   * Re-convert a document (e.g., if source changed or conversion improved)
+   */
+  async reconvertDocument(actor: AuthenticatedUser, documentId: string) {
+    const doc = await this.prisma.stagedDocument.findFirst({
+      where: { id: documentId, companyId: actor.companyId },
+    });
+
+    if (!doc) throw new NotFoundException("Document not found");
+
+    return this.convertToHtml(documentId);
+  }
+
   // --- Import Workflow ---
 
   async importDocument(
@@ -456,7 +665,13 @@ export class DocumentImportService {
         displayDescription: importData.displayDescription?.trim() || null,
         oshaReference: importData.oshaReference?.trim() || null,
         sortOrder: importData.sortOrder ?? null,
+        conversionStatus: HtmlConversionStatus.PENDING,
       },
+    });
+
+    // Trigger HTML conversion in background
+    this.convertToHtml(documentId).catch((err) => {
+      this.logger.error(`Background conversion failed for ${documentId}: ${err.message}`);
     });
 
     return { ...updated, fileSize: updated.fileSize.toString() };

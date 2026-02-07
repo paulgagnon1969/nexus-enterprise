@@ -16,6 +16,7 @@ interface SafetyDocument {
   status: "published" | "coming-soon" | "imported";
   oshaRef?: string; // OSHA standard reference (e.g., "29 CFR 1910.134")
   isImported?: boolean;
+  importedDocId?: string; // Database ID for imported docs (for viewer navigation)
   sourcePath?: string; // Original file path for imported docs
 }
 
@@ -291,10 +292,11 @@ export default function SafetyManualPage() {
             description: doc.description || doc.displayDescription || `Imported from ${doc.breadcrumb.slice(0, -1).join(" / ")}`,
             category: doc.importedToCategory || "general-safety",
             lastUpdated: new Date(doc.importedAt).toLocaleDateString("en-US", { month: "long", year: "numeric" }),
-            path: `${API_BASE}/document-import/documents/${doc.id}/preview`,
+            path: `/learning/safety/view/${doc.id}`, // Navigate to HTML viewer
             status: "imported" as const,
             oshaRef: doc.oshaReference,
             isImported: true,
+            importedDocId: doc.id, // Full database ID for navigation
             sourcePath: doc.breadcrumb.join(" / "),
           }));
           setImportedDocs(transformed);
@@ -687,11 +689,7 @@ function SafetyCard({ document, searchQuery, onClick }: SafetyCardProps) {
   const isClickable = !isComingSoon;
 
   const handleClick = () => {
-    if (isImported) {
-      // Open imported documents in new tab with auth token
-      const token = localStorage.getItem("accessToken");
-      window.open(`${document.path}?token=${token}`, "_blank");
-    } else if (onClick) {
+    if (onClick) {
       onClick();
     }
   };
@@ -790,7 +788,7 @@ function SafetyCard({ document, searchQuery, onClick }: SafetyCardProps) {
         </div>
         {isClickable && (
           <span style={{ fontSize: 18, color: isImported ? "#3b82f6" : "#9ca3af", marginLeft: 12 }}>
-            {isImported ? "↗" : "→"}
+            →
           </span>
         )}
       </div>
