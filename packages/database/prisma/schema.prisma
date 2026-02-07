@@ -126,6 +126,10 @@ model Company {
 
   // PnP (Policy & Procedure) library documents
   tenantPnpDocuments TenantPnpDocument[]
+
+  // Document Import System
+  documentScanJobs   DocumentScanJob[]
+  stagedDocuments    StagedDocument[]
 }
 
 model OrganizationTemplate {
@@ -376,6 +380,12 @@ model User {
 
   // Global, confidential personal contacts for this user (per-profile, not per-tenant)
   personalContacts PersonalContact[]
+
+  // Document Import System
+  documentScanJobsCreated    DocumentScanJob[]
+  stagedDocumentsScanned     StagedDocument[] @relation("StagedDocumentScannedBy")
+  stagedDocumentsArchived    StagedDocument[] @relation("StagedDocumentArchivedBy")
+  stagedDocumentsImported    StagedDocument[] @relation("StagedDocumentImportedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -4210,4 +4220,82 @@ model TenantPnpDocumentVersion {
 
   @@unique([documentId, versionNo], name: "TenantPnpDocVersion_doc_version_key")
   @@index([documentId], map: "TenantPnpDocVersion_doc_idx")
+}
+
+// =============================================================================
+// Document Import System (Staging & Archive)
+// =============================================================================
+
+/// Status of a document scan job
+enum DocumentScanJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+/// Status of a staged document
+enum StagedDocumentStatus {
+  ACTIVE
+  ARCHIVED
+  IMPORTED
+}
+
+/// Job record for scanning external file systems for documents
+model DocumentScanJob {
+  id                  String                 @id @default(cuid())
+  companyId           String
+  scanPath            String                 // Root path being scanned
+  status              DocumentScanJobStatus  @default(PENDING)
+  documentsFound      Int                    @default(0)
+  documentsProcessed  Int                    @default(0)
+  errorMessage        String?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  createdByUserId     String
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  company             Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy           User                   @relation(fields: [createdByUserId], references: [id])
+  stagedDocuments     StagedDocument[]
+
+  @@index([companyId, status], map: "DocumentScanJob_company_status_idx")
+  @@index([createdByUserId], map: "DocumentScanJob_user_idx")
+}
+
+/// Staged document discovered during a scan, awaiting import decision
+model StagedDocument {
+  id                  String                 @id @default(cuid())
+  companyId           String
+  scanJobId           String
+  fileName            String
+  filePath            String                 // Full path to the file
+  breadcrumb          String[]               // Path segments for display
+  fileType            String                 // Extension (pdf, docx, etc.)
+  fileSize            BigInt                 // Size in bytes
+  mimeType            String?
+  thumbnailUrl        String?
+  status              StagedDocumentStatus   @default(ACTIVE)
+  scannedAt           DateTime               @default(now())
+  scannedByUserId     String
+  archivedAt          DateTime?
+  archivedByUserId    String?
+  importedAt          DateTime?
+  importedByUserId    String?
+  importedToType      String?                // e.g. "safety", "bkm"
+  importedToId        String?                // ID of the imported document
+  metadata            Json?                  // Additional file metadata
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  company             Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  scanJob             DocumentScanJob        @relation(fields: [scanJobId], references: [id], onDelete: Cascade)
+  scannedBy           User                   @relation("StagedDocumentScannedBy", fields: [scannedByUserId], references: [id])
+  archivedBy          User?                  @relation("StagedDocumentArchivedBy", fields: [archivedByUserId], references: [id])
+  importedBy          User?                  @relation("StagedDocumentImportedBy", fields: [importedByUserId], references: [id])
+
+  @@index([companyId, status], map: "StagedDocument_company_status_idx")
+  @@index([scanJobId], map: "StagedDocument_job_idx")
+  @@index([companyId, fileType], map: "StagedDocument_company_type_idx")
 }
