@@ -1571,6 +1571,7 @@ export async function importXactCsvForProject(options: {
       // the same line item numbers users see in the source CSV.
       sourceLineNo: raw.lineNo && raw.lineNo > 0 ? raw.lineNo : null,
       description: cleanText(getCol(record, "Desc", "Description", "Item Description")) || "",
+      itemNote: raw.note1 || null,
       qty: toNumber(getCol(record, "Qty", "Quantity", "QTY")),
       unit: getCol(record, "Unit", "UOM", "U/M") || null,
       unitCost: toNumber(getCol(record, "Unit Cost", "UnitCost", "Unit Price", "UnitPrice")),

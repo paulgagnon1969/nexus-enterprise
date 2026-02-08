@@ -9,6 +9,7 @@ interface PetlItem {
   lineNo: number;
   sourceLineNo?: number | null;
   description: string | null;
+  itemNote?: string | null;
   qty: number | null;
   unit: string | null;
   itemAmount: number | null;
@@ -641,8 +642,31 @@ function VirtualizedRow({
             <td title={item.projectParticle?.fullLabel ?? ""} style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {item.projectParticle?.fullLabel ?? item.projectParticle?.name ?? ""}
             </td>
-            <td title={item.description ?? ""} style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {item.description ?? ""}
+            <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span title={item.description ?? ""}>{item.description ?? ""}</span>
+                {item.itemNote && (
+                  <span
+                    title={`V0 Note: ${item.itemNote}`}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 18,
+                      height: 18,
+                      borderRadius: "50%",
+                      background: "#fef3c7",
+                      color: "#92400e",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      cursor: "help",
+                      flexShrink: 0,
+                    }}
+                  >
+                    📝
+                  </span>
+                )}
+              </div>
             </td>
             <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>
               {isPmOrAbove && isEditingQty ? (

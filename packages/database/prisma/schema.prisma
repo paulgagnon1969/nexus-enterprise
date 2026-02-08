@@ -2016,6 +2016,8 @@ model SowItem {
   /// Original line number from the source estimate export (e.g. Xactimate "#").
   sourceLineNo         Int?
   description          String
+  /// Item note from Xactimate (Note 1 column)
+  itemNote             String?
 
   /// Quantities
   qty                  Float?
