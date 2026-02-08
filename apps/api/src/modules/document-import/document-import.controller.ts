@@ -72,24 +72,30 @@ export class DocumentImportController {
     const fileName = fields.fileName;
     const breadcrumb = fields.breadcrumb ? JSON.parse(fields.breadcrumb) : [];
     const fileType = fields.fileType || "unknown";
-    const folderName = fields.folderName || "Browser Upload";
+    const folderName = fields.folderName || "Index";
     const scanJobId = fields.scanJobId;
 
     if (!fileName) {
       throw new BadRequestException("fileName is required");
     }
 
-    const fileBuffer = await file.toBuffer();
+    try {
+      const fileBuffer = await file.toBuffer();
 
-    return this.documentImport.uploadDocument(actor, {
-      fileName,
-      fileBuffer,
-      mimeType: file.mimetype,
-      breadcrumb,
-      fileType,
-      folderName,
-      scanJobId,
-    });
+      return await this.documentImport.uploadDocument(actor, {
+        fileName,
+        fileBuffer,
+        mimeType: file.mimetype,
+        breadcrumb,
+        fileType,
+        folderName,
+        scanJobId,
+      });
+    } catch (err: any) {
+      // Log the error but return a structured error response
+      console.error(`Index failed for ${fileName}:`, err?.message || err);
+      throw new BadRequestException(`Failed to index ${fileName}: ${err?.message || 'Unknown error'}`);
+    }
   }
 
   /**

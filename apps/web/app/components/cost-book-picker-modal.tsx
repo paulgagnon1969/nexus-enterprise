@@ -61,9 +61,10 @@ export function CostBookPickerModal({
   const [activities, setActivities] = useState<string[]>([]);
   const [activitiesError, setActivitiesError] = useState<string | null>(null);
 
-  const [catDropdownOpen, setCatDropdownOpen] = useState(false);
-  const [catDropdownQuery, setCatDropdownQuery] = useState("");
+  const [catFilterQuery, setCatFilterQuery] = useState("");
   const [selectedCats, setSelectedCats] = useState<string[]>(() => initialCats ?? []);
+  const [catPanelWidth, setCatPanelWidth] = useState(180);
+  const catPanelResizing = useRef(false);
 
   const [sel, setSel] = useState<string>(initialSel ?? "");
   const [activity, setActivity] = useState<string>(initialActivity ?? "");
@@ -76,21 +77,14 @@ export function CostBookPickerModal({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [qtyById, setQtyById] = useState<Record<string, string>>({});
 
-  const dropdownRef = useRef<HTMLDivElement | null>(null);
   const descriptionInputRef = useRef<HTMLInputElement | null>(null);
   const draggable = useDraggable();
 
   const filteredCats = useMemo(() => {
-    const q = catDropdownQuery.trim().toUpperCase();
+    const q = catFilterQuery.trim().toUpperCase();
     if (!q) return cats;
     return cats.filter((c) => c.toUpperCase().includes(q));
-  }, [cats, catDropdownQuery]);
-
-  const selectedCatLabel = useMemo(() => {
-    if (selectedCats.length === 0) return "(any)";
-    if (selectedCats.length <= 3) return selectedCats.join(", ");
-    return `${selectedCats.slice(0, 3).join(", ")} +${selectedCats.length - 3}`;
-  }, [selectedCats]);
+  }, [cats, catFilterQuery]);
 
   const selectedCount = selectedIds.size;
 
@@ -149,19 +143,25 @@ export function CostBookPickerModal({
     };
   }, []);
 
+  // Handle CAT panel resize via mouse drag
   useEffect(() => {
-    if (!catDropdownOpen) return;
-
-    const onDocMouseDown = (e: MouseEvent) => {
-      const el = dropdownRef.current;
-      const target = e.target as Node | null;
-      if (el && target && el.contains(target)) return;
-      setCatDropdownOpen(false);
+    const onMouseMove = (e: MouseEvent) => {
+      if (!catPanelResizing.current) return;
+      const newWidth = Math.max(120, Math.min(400, e.clientX - 16));
+      setCatPanelWidth(newWidth);
     };
-
-    document.addEventListener("mousedown", onDocMouseDown);
-    return () => document.removeEventListener("mousedown", onDocMouseDown);
-  }, [catDropdownOpen]);
+    const onMouseUp = () => {
+      catPanelResizing.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
 
   const toggleCat = (cat: string) => {
     setSelectedCats((prev) => {
@@ -346,333 +346,344 @@ export function CostBookPickerModal({
           </button>
         </div>
 
-        <div
-          style={{
-            padding: 12,
-            overflow: "hidden",
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
-            flex: 1,
-          }}
-        >
-          {noteText && noteText.trim() && (
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 700,
-                color: "#0f172a",
-                marginBottom: 4,
-              }}
-            >
-              {noteText}
-            </div>
-          )}
-
+        {/* Main content area: CAT sidebar + results */}
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+          {/* CAT Filter Sidebar - full height, resizable */}
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "260px 160px 240px 1fr 140px",
-              gap: 8,
-              alignItems: "end",
+              width: catPanelWidth,
+              minWidth: 120,
+              maxWidth: 400,
+              borderRight: "1px solid #e5e7eb",
+              display: "flex",
+              flexDirection: "column",
+              background: "#f9fafb",
+              flexShrink: 0,
             }}
           >
-            <div ref={dropdownRef} style={{ position: "relative" }}>
-              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>CAT (multi)</div>
-              <button
-                type="button"
-                onClick={() => setCatDropdownOpen((p) => !p)}
+            <div style={{ padding: "8px 10px", borderBottom: "1px solid #e5e7eb" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
+                CAT Filter
+                <span style={{ marginLeft: 6, fontWeight: 400, color: "#9ca3af" }}>
+                  ({filteredCats.length})
+                </span>
+              </div>
+              <input
+                value={catFilterQuery}
+                onChange={(e) => setCatFilterQuery(e.target.value)}
+                placeholder="Search CATs…"
                 style={{
                   width: "100%",
                   padding: "6px 8px",
-                  borderRadius: 8,
+                  borderRadius: 6,
                   border: "1px solid #d1d5db",
-                  background: "#ffffff",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  textAlign: "left",
+                  fontSize: 11,
                 }}
-              >
-                {selectedCatLabel}
-              </button>
-
-              {catDropdownOpen && (
-                <div
+              />
+              <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCats([])}
                   style={{
-                    position: "absolute",
-                    top: "calc(100% + 6px)",
-                    left: 0,
-                    zIndex: 50,
-                    width: "min(520px, 92vw)",
-                    border: "1px solid #e5e7eb",
+                    flex: 1,
+                    padding: "4px 6px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
                     background: "#ffffff",
-                    borderRadius: 10,
-                    boxShadow: "0 12px 32px rgba(15,23,42,0.18)",
-                    padding: 10,
+                    cursor: "pointer",
+                    fontSize: 10,
                   }}
                 >
-                  <input
-                    value={catDropdownQuery}
-                    onChange={(e) => setCatDropdownQuery(e.target.value)}
-                    placeholder="Filter CATs"
-                    style={{
-                      width: "100%",
-                      padding: "6px 8px",
-                      borderRadius: 8,
-                      border: "1px solid #d1d5db",
-                      fontSize: 12,
-                      marginBottom: 8,
-                    }}
-                  />
-
-                  <div
-                    style={{
-                      maxHeight: 480,
-                      overflow: "auto",
-                      display: "grid",
-                      gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-                      gap: 6,
-                    }}
-                  >
-                    {filteredCats.slice(0, 400).map((cat) => {
-                      const checked = selectedCats.includes(cat);
-                      return (
-                        <label
-                          key={cat}
-                          style={{
-                            display: "flex",
-                            gap: 6,
-                            alignItems: "center",
-                            fontSize: 12,
-                          }}
-                        >
-                          <input type="checkbox" checked={checked} onChange={() => toggleCat(cat)} />
-                          <span
-                            style={{
-                              fontFamily:
-                                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-                            }}
-                          >
-                            {cat}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-
-                  <div style={{ marginTop: 8, display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedCats([])}
-                      style={{
-                        padding: "6px 10px",
-                        borderRadius: 8,
-                        border: "1px solid #d1d5db",
-                        background: "#ffffff",
-                        cursor: "pointer",
-                        fontSize: 12,
-                      }}
-                    >
-                      Clear
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCatDropdownOpen(false)}
-                      style={{
-                        padding: "6px 10px",
-                        borderRadius: 8,
-                        border: "1px solid #0f172a",
-                        background: "#0f172a",
-                        color: "#f9fafb",
-                        cursor: "pointer",
-                        fontSize: 12,
-                      }}
-                    >
-                      Done
-                    </button>
-                  </div>
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCats([...filteredCats])}
+                  style={{
+                    flex: 1,
+                    padding: "4px 6px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 10,
+                  }}
+                >
+                  All
+                </button>
+              </div>
+            </div>
+            <div style={{ flex: 1, overflow: "auto", padding: "4px 0" }}>
+              {filteredCats.length === 0 ? (
+                <div style={{ padding: "12px 10px", fontSize: 11, color: "#6b7280" }}>
+                  No CATs match.
                 </div>
+              ) : (
+                filteredCats.map((cat) => {
+                  const checked = selectedCats.includes(cat);
+                  return (
+                    <label
+                      key={cat}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "6px 10px",
+                        cursor: "pointer",
+                        background: checked ? "#dbeafe" : "transparent",
+                        borderLeft: checked ? "3px solid #2563eb" : "3px solid transparent",
+                        fontSize: 12,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleCat(cat)}
+                        style={{ accentColor: "#2563eb" }}
+                      />
+                      <span
+                        style={{
+                          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                          fontWeight: checked ? 600 : 400,
+                        }}
+                      >
+                        {cat}
+                      </span>
+                    </label>
+                  );
+                })
               )}
             </div>
-
-            <div>
-              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>SEL</div>
-              <input
-                value={sel}
-                onChange={(e) => setSel(e.target.value)}
-                onKeyDown={handleSearchKeyDown}
-                placeholder="(any)"
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 8,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                }}
-              />
-            </div>
-
-            <div>
-              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Activity</div>
-              <input
-                value={activity}
-                onChange={(e) => setActivity(e.target.value)}
-                onKeyDown={handleSearchKeyDown}
-                placeholder="(any)"
-                list="costbook-activity-options"
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 8,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                }}
-              />
-              <datalist id="costbook-activity-options">
-                {activities.slice(0, 500).map((a) => (
-                  <option key={a} value={a} />
-                ))}
-              </datalist>
-            </div>
-
-            <div>
-              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Description</div>
-              <input
-                ref={descriptionInputRef}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={handleSearchKeyDown}
-                placeholder="Search description"
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 8,
-                  border: autoFocusDescription ? "1px solid #2563eb" : "1px solid #d1d5db",
-                  background: autoFocusDescription ? "#eff6ff" : "#ffffff",
-                  fontSize: 12,
-                }}
-              />
-            </div>
-
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                onClick={() => void runSearch()}
-                disabled={searching}
-                style={{
-                  flex: 1,
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  border: "1px solid #d1d5db",
-                  background: "#ffffff",
-                  cursor: searching ? "default" : "pointer",
-                  fontSize: 12,
-                  opacity: searching ? 0.7 : 1,
-                }}
-              >
-                {searching ? "Searching..." : "Search"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedCats([]);
-                  setCatDropdownQuery("");
-                  setCatDropdownOpen(false);
-                  setSel("");
-                  setActivity("");
-                  setQuery("");
-                  void runSearch();
-                }}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  border: "1px solid #d1d5db",
-                  background: "#ffffff",
-                  cursor: "pointer",
-                  fontSize: 12,
-                }}
-              >
-                Reset
-              </button>
+            <div style={{ padding: "6px 10px", borderTop: "1px solid #e5e7eb", fontSize: 10, color: "#6b7280" }}>
+              {selectedCats.length > 0 ? `${selectedCats.length} selected` : "All CATs"}
             </div>
           </div>
 
-          {catsError && <div style={{ color: "#b91c1c", fontSize: 12 }}>{catsError}</div>}
-          {activitiesError && <div style={{ color: "#b91c1c", fontSize: 12 }}>{activitiesError}</div>}
-          {searchError && <div style={{ color: "#b91c1c", fontSize: 12 }}>{searchError}</div>}
+          {/* Resize handle */}
+          <div
+            onMouseDown={() => {
+              catPanelResizing.current = true;
+              document.body.style.cursor = "col-resize";
+              document.body.style.userSelect = "none";
+            }}
+            style={{
+              width: 6,
+              cursor: "col-resize",
+              background: "#e5e7eb",
+              flexShrink: 0,
+            }}
+            title="Drag to resize CAT panel"
+          />
 
+          {/* Right side: filters + results */}
           <div
             style={{
+              flex: 1,
               display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: 8,
-              fontSize: 12,
-              color: "#4b5563",
+              flexDirection: "column",
+              overflow: "hidden",
+              padding: 12,
+              gap: 10,
             }}
           >
-            <div>
-              Results: <strong>{results.length}</strong>
-              {selectedCount > 0 ? (
-                <>
-                  {" "}· Selected: <strong>{selectedCount}</strong>
-                </>
-              ) : null}
-            </div>
-
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedIds(new Set());
-                  setQtyById({});
-                }}
-                disabled={selectedCount === 0}
+            {noteText && noteText.trim() && (
+              <div
                 style={{
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  border: "1px solid #d1d5db",
-                  background: "#ffffff",
-                  cursor: selectedCount === 0 ? "default" : "pointer",
                   fontSize: 12,
-                  opacity: selectedCount === 0 ? 0.6 : 1,
+                  fontWeight: 700,
+                  color: "#0f172a",
+                  marginBottom: 4,
                 }}
               >
-                Clear selection
-              </button>
+                {noteText}
+              </div>
+            )}
 
-              {onConfirm && (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "140px 200px 1fr 140px",
+                gap: 8,
+                alignItems: "end",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>SEL</div>
+                <input
+                  value={sel}
+                  onChange={(e) => setSel(e.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="(any)"
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 8,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Activity</div>
+                <input
+                  value={activity}
+                  onChange={(e) => setActivity(e.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="(any)"
+                  list="costbook-picker-activity-options"
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 8,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+                <datalist id="costbook-picker-activity-options">
+                  {activities.slice(0, 500).map((a) => (
+                    <option key={a} value={a} />
+                  ))}
+                </datalist>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Description</div>
+                <input
+                  ref={descriptionInputRef}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Search description"
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 8,
+                    border: autoFocusDescription ? "1px solid #2563eb" : "1px solid #d1d5db",
+                    background: autoFocusDescription ? "#eff6ff" : "#ffffff",
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: 8 }}>
                 <button
                   type="button"
-                  onClick={() => void confirm()}
-                  disabled={!!confirmDisabled || selectedCount === 0}
+                  onClick={() => void runSearch()}
+                  disabled={searching}
+                  style={{
+                    flex: 1,
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    cursor: searching ? "default" : "pointer",
+                    fontSize: 12,
+                    opacity: searching ? 0.7 : 1,
+                  }}
+                >
+                  {searching ? "Searching..." : "Search"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCats([]);
+                    setCatFilterQuery("");
+                    setSel("");
+                    setActivity("");
+                    setQuery("");
+                    void runSearch();
+                  }}
                   style={{
                     padding: "6px 10px",
                     borderRadius: 8,
-                    border: "1px solid #0f172a",
-                    background: confirmDisabled || selectedCount === 0 ? "#e5e7eb" : "#0f172a",
-                    color: confirmDisabled || selectedCount === 0 ? "#4b5563" : "#f9fafb",
-                    cursor: confirmDisabled || selectedCount === 0 ? "default" : "pointer",
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    cursor: "pointer",
                     fontSize: 12,
                   }}
                 >
-                  {confirmLabel}
+                  Reset
                 </button>
-              )}
+              </div>
             </div>
-          </div>
 
-          <div
-            style={{
-              border: "1px solid #e5e7eb",
-              borderRadius: 10,
-              overflow: "auto",
-              flex: 1,
-              minHeight: 360,
-              paddingRight: 18,
-              paddingBottom: 6,
-            }}
-          >
+            {catsError && <div style={{ color: "#b91c1c", fontSize: 12 }}>{catsError}</div>}
+            {activitiesError && <div style={{ color: "#b91c1c", fontSize: 12 }}>{activitiesError}</div>}
+            {searchError && <div style={{ color: "#b91c1c", fontSize: 12 }}>{searchError}</div>}
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+                color: "#4b5563",
+              }}
+            >
+              <div>
+                Results: <strong>{results.length}</strong>
+                {selectedCount > 0 ? (
+                  <>
+                    {" "}· Selected: <strong>{selectedCount}</strong>
+                  </>
+                ) : null}
+              </div>
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedIds(new Set());
+                    setQtyById({});
+                  }}
+                  disabled={selectedCount === 0}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    cursor: selectedCount === 0 ? "default" : "pointer",
+                    fontSize: 12,
+                    opacity: selectedCount === 0 ? 0.6 : 1,
+                  }}
+                >
+                  Clear selection
+                </button>
+
+                {onConfirm && (
+                  <button
+                    type="button"
+                    onClick={() => void confirm()}
+                    disabled={!!confirmDisabled || selectedCount === 0}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 8,
+                      border: "1px solid #0f172a",
+                      background: confirmDisabled || selectedCount === 0 ? "#e5e7eb" : "#0f172a",
+                      color: confirmDisabled || selectedCount === 0 ? "#4b5563" : "#f9fafb",
+                      cursor: confirmDisabled || selectedCount === 0 ? "default" : "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    {confirmLabel}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: "1px solid #e5e7eb",
+                borderRadius: 10,
+                overflow: "auto",
+                flex: 1,
+                minHeight: 360,
+                paddingRight: 18,
+                paddingBottom: 6,
+              }}
+            >
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr style={{ background: "#f9fafb" }}>
@@ -787,7 +798,8 @@ export function CostBookPickerModal({
                   );
                 })}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         </div>
       </div>
