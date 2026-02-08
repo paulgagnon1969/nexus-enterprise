@@ -1371,28 +1371,31 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
   };
 
   const handleUpload = async () => {
-    // Only upload selected files
-    const filesToUpload = scannedFiles.filter(f => selectedFiles.has(getFileKey(f)));
-    if (filesToUpload.length === 0) {
+    // Only index selected files
+    const filesToIndex = scannedFiles.filter(f => selectedFiles.has(getFileKey(f)));
+    if (filesToIndex.length === 0) {
       setError("Please select at least one file to index.");
       return;
     }
     setIsUploading(true);
-    setUploadProgress({ current: 0, total: filesToUpload.length });
+    setUploadProgress({ current: 0, total: filesToIndex.length });
+    setError(null);
     const token = localStorage.getItem("accessToken");
 
-    try {
-      let scanJobId: string | null = null;
+    let scanJobId: string | null = null;
+    let successCount = 0;
+    const failedFiles: string[] = [];
 
-      for (let i = 0; i < filesToUpload.length; i++) {
-        const sf = filesToUpload[i];
+    for (let i = 0; i < filesToIndex.length; i++) {
+      const sf = filesToIndex[i];
+      try {
         const formData = new FormData();
         formData.append("file", sf.file);
         formData.append("fileName", sf.name);
         formData.append("breadcrumb", JSON.stringify(sf.path));
         formData.append("fileType", sf.type);
-        formData.append("folderName", folderName || "Upload");
-        // Reuse scanJobId from first upload so all files are grouped together
+        formData.append("folderName", folderName || "Index");
+        // Reuse scanJobId so all files are grouped together
         if (scanJobId) {
           formData.append("scanJobId", scanJobId);
         }
@@ -1404,22 +1407,40 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
         });
 
         if (!res.ok) {
-          throw new Error(`Upload failed for ${sf.name}`);
+          // Log but continue with other files
+          console.warn(`Failed to index ${sf.name}:`, await res.text());
+          failedFiles.push(sf.name);
+        } else {
+          const result = await res.json();
+          // Capture scanJobId from first successful response
+          if (!scanJobId && result.scanJobId) {
+            scanJobId = result.scanJobId;
+          }
+          successCount++;
         }
-
-        const result = await res.json();
-        // Capture scanJobId from first upload response
-        if (!scanJobId && result.scanJobId) {
-          scanJobId = result.scanJobId;
-        }
-
-        setUploadProgress({ current: i + 1, total: filesToUpload.length });
+      } catch (err) {
+        console.warn(`Error indexing ${sf.name}:`, err);
+        failedFiles.push(sf.name);
       }
+
+      setUploadProgress({ current: i + 1, total: filesToIndex.length });
+    }
+
+    // Show results
+    if (failedFiles.length > 0 && successCount === 0) {
+      // All failed
+      setError(`Failed to index all ${failedFiles.length} files. Check console for details.`);
+      setIsUploading(false);
+    } else if (failedFiles.length > 0) {
+      // Some failed - show warning but close modal
+      console.warn(`Failed files (${failedFiles.length}):`, failedFiles);
+      alert(`Indexed ${successCount} documents successfully.\n\n${failedFiles.length} file(s) could not be indexed (unsupported format or extraction error).`);
       onFilesUploaded();
       onClose();
-    } catch (err: any) {
-      setError(err?.message || "Upload failed");
-      setIsUploading(false);
+    } else {
+      // All succeeded
+      onFilesUploaded();
+      onClose();
     }
   };
 
