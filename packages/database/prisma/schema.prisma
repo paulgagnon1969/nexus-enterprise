@@ -47,6 +47,10 @@ model Company {
   /// (e.g. federal EIN, default state unemployment account, overtime rules).
   defaultPayrollConfig Json?
 
+  /// Default O&P rate for cost book extrapolation (bootstrap mode)
+  /// Used when no PETL data is available yet. Defaults to 20% (0.20).
+  defaultOPRate Float? @default(0.20)
+
   // Trial / subscription metadata (optional; used for self-serve demos and billing).
   isTrial     Boolean             @default(false)
   trialEndsAt DateTime?
@@ -130,6 +134,9 @@ model Company {
   // Document Import System
   documentScanJobs   DocumentScanJob[]
   stagedDocuments    StagedDocument[]
+
+  // Local price extrapolation (tax config per project)
+  projectTaxConfigs  ProjectTaxConfig[]
 }
 
 model OrganizationTemplate {
@@ -987,6 +994,10 @@ model Project {
   // Cost book items sourced from this project's PETL imports
   costBookItemsSourced CompanyPriceListItem[] @relation("CostBookSourceProject")
 
+  // Local price extrapolation
+  regionalFactors ProjectRegionalFactors?
+  taxConfig       ProjectTaxConfig?
+
   @@index([companyId, groupId], map: "Project_company_group_idx")
 }
 
@@ -1768,6 +1779,9 @@ model EstimateVersion {
   // Cost book items sourced from this estimate version
   costBookItemsSourced CompanyPriceListItem[] @relation("CostBookSourceEstimate")
 
+  // Regional factors learned from this estimate
+  regionalFactorsLearned ProjectRegionalFactors[]
+
   @@index([projectId, sequenceNo], map: "EstimateVersion_project_sequence_idx")
 }
 
@@ -1818,6 +1832,7 @@ model RawXactRow {
   sowItems           SowItem[]
 
   @@index([estimateVersionId, lineNo], map: "RawXactRow_estimate_line_idx")
+  @@index([estimateVersionId, cat, sel], map: "RawXactRow_estimate_cat_sel_idx")
 }
 
 model RawComponentRow {
@@ -2854,6 +2869,104 @@ model CompanyPriceListItem {
   @@index([companyPriceListId, canonicalKeyHash])
   @@index([companyPriceListId, cat, sel])
   @@index([sourceProjectId])
+}
+
+/// Project-level regional pricing factors learned from PETL imports.
+/// Used to extrapolate accurate local pricing when adding cost book items.
+model ProjectRegionalFactors {
+  id                String   @id @default(cuid())
+  projectId         String   @unique
+  estimateVersionId String   // The estimate we learned from
+  
+  // Aggregate rates learned from PETL
+  aggregateTaxRate  Float    // e.g., 0.0825 for 8.25% (learned from RawXactRow)
+  aggregateOPRate   Float    // e.g., 0.20 for 20% O&P
+  
+  // Optional: component breakdowns
+  avgLaborRatio     Float?
+  avgMaterialRatio  Float?
+  avgEquipmentRatio Float?
+  
+  // Metadata
+  totalItemAmount   Float    // Total $ analyzed
+  totalLineItems    Int      // Number of PETL lines analyzed
+  confidence        Float    // 0-1 score based on sample size
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  project           Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceEstimate    EstimateVersion @relation(fields: [estimateVersionId], references: [id], onDelete: Cascade)
+  categoryAdjustments ProjectCategoryAdjustment[]
+  
+  @@index([projectId])
+  @@index([estimateVersionId])
+}
+
+/// Category-level price adjustment factors learned from matching PETL to cost book.
+model ProjectCategoryAdjustment {
+  id                    String   @id @default(cuid())
+  regionalFactorsId     String
+  
+  categoryCode          String   // e.g., "PLB", "FRM", "ELE"
+  activity              String?  // e.g., "R&R", "Remove", "Install"
+  
+  // Adjustment factors
+  avgPriceVariance      Float    // Mean variance
+  medianPriceVariance   Float    // Median variance (more robust)
+  sampleSize            Int      // Number of matched items
+  
+  // Optional: granular factors
+  laborAdjustment       Float?
+  materialAdjustment    Float?
+  equipmentAdjustment   Float?
+  
+  createdAt             DateTime @default(now())
+  
+  regionalFactors       ProjectRegionalFactors @relation(fields: [regionalFactorsId], references: [id], onDelete: Cascade)
+  
+  @@unique([regionalFactorsId, categoryCode, activity])
+  @@index([regionalFactorsId])
+}
+
+/// Project-level tax configuration learned from PETL imports.
+/// Tax rates are extrapolated from actual estimate data (RawXactRow).
+model ProjectTaxConfig {
+  id           String   @id @default(cuid())
+  projectId    String   @unique
+  companyId    String
+  
+  // Location for tax lookup
+  taxZipCode   String?  // Primary project ZIP
+  taxCity      String?
+  taxState     String?
+  
+  // Learned tax rate from PETL
+  learnedTaxRate      Float?   // Combined rate (e.g., 0.0825 for 8.25%)
+  learnedFromEstimateId String? // Which estimate we learned from
+  
+  // Deprecated: API-based fields (kept for future use)
+  cachedStateTaxRate  Float?
+  cachedCountyTaxRate Float?
+  cachedCityTaxRate   Float?
+  
+  // Source tracking
+  taxRateSource       String?  // "learned-from-petl", "manual-override", etc.
+  taxRateLastUpdated  DateTime?
+  taxRateConfidence   Float?   // 0-1 based on sample size
+  
+  // Manual override (if user wants to override API)
+  manualTaxRateOverride Float?
+  useManualTaxRate      Boolean @default(false)
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  @@index([projectId])
+  @@index([companyId])
 }
 
 enum LocationType {
