@@ -1575,26 +1575,45 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
 
   return (
     <div
-      style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+        padding: "10vh 24px", // 10% top/bottom margin
+      }}
       onClick={onClose}
     >
       <div
-        style={{ backgroundColor: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 600, maxHeight: "85vh", overflow: "auto", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}
+        style={{
+          backgroundColor: "#fff",
+          borderRadius: 12,
+          padding: 24,
+          width: "100%",
+          maxWidth: 900,
+          height: "100%", // Fill the 80% space (100% of parent which has 10vh padding top/bottom)
+          display: "flex",
+          flexDirection: "column",
+          boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)",
+        }}
         onClick={e => e.stopPropagation()}
       >
-        <h2 style={{ margin: 0, fontSize: 18 }}>Browse for Documents</h2>
-        <p style={{ marginTop: 8, marginBottom: 16, fontSize: 14, color: "#6b7280" }}>
+        <h2 style={{ margin: 0, fontSize: 18, flexShrink: 0 }}>Browse for Documents</h2>
+        <p style={{ marginTop: 8, marginBottom: 16, fontSize: 14, color: "#6b7280", flexShrink: 0 }}>
           Select a folder on your computer to scan for documents.
         </p>
 
         {error && (
-          <div style={{ padding: 12, backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, marginBottom: 16 }}>
+          <div style={{ padding: 12, backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, marginBottom: 16, flexShrink: 0 }}>
             <p style={{ margin: 0, fontSize: 13, color: "#b91c1c" }}>{error}</p>
           </div>
         )}
 
         {/* Browse Button */}
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 16, flexShrink: 0 }}>
           <button
             type="button"
             onClick={handleBrowse}
@@ -1610,7 +1629,7 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
 
         {/* Confirmation Checkbox */}
         {folderName && !scanComplete && (
-          <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 16, flexShrink: 0 }}>
             <label style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: 12, backgroundColor: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 6, cursor: "pointer" }}>
               <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} style={{ marginTop: 2 }} />
               <span style={{ fontSize: 13, color: "#0c4a6e", lineHeight: 1.5 }}>
@@ -1630,7 +1649,7 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
 
         {/* Real-time Scan Progress */}
         {isScanning && (
-          <div style={{ marginBottom: 16, padding: 16, backgroundColor: "#eff6ff", border: "1px solid #93c5fd", borderRadius: 8 }}>
+          <div style={{ marginBottom: 16, padding: 16, backgroundColor: "#eff6ff", border: "1px solid #93c5fd", borderRadius: 8, flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
               <div style={{ width: 20, height: 20, border: "3px solid #3b82f6", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
               <span style={{ fontSize: 16, fontWeight: 600, color: "#1e40af" }}>
@@ -1646,10 +1665,10 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
           </div>
         )}
 
-        {/* Folder Tree Results */}
+        {/* Folder Tree Results - Scrollable area */}
         {scanComplete && (
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ padding: 12, backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, marginBottom: 16 }}>
+            <div style={{ padding: 12, backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 6, marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
               <p style={{ margin: 0, fontSize: 14, color: "#166534", fontWeight: 500 }}>
                 ✓ Found {scannedFiles.length} document{scannedFiles.length !== 1 ? "s" : ""}
                 {selectedFiles.size > 0 && selectedFiles.size !== scannedFiles.length && (
@@ -1678,14 +1697,14 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
             </div>
 
             {scannedFiles.length > 0 && (
-              <div style={{ border: "1px solid #e5e7eb", borderRadius: 6, maxHeight: 300, overflow: "auto", padding: 8 }}>
+              <div style={{ flex: 1, border: "1px solid #e5e7eb", borderRadius: 6, overflow: "auto", padding: 8 }}>
                 {renderFolderTree(folderTree)}
               </div>
             )}
 
             {isUploading && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 13, color: "#374151", marginBottom: 4 }}>Uploading... {uploadProgress.current} of {uploadProgress.total}</div>
+              <div style={{ marginTop: 12, flexShrink: 0 }}>
+                <div style={{ fontSize: 13, color: "#374151", marginBottom: 4 }}>Indexing... {uploadProgress.current} of {uploadProgress.total}</div>
                 <div style={{ height: 8, backgroundColor: "#e5e7eb", borderRadius: 4, overflow: "hidden" }}>
                   <div style={{ height: "100%", width: `${(uploadProgress.current / uploadProgress.total) * 100}%`, backgroundColor: "#2563eb", transition: "width 0.2s" }} />
                 </div>
@@ -1694,8 +1713,8 @@ function BrowseFolderModal({ onClose, onFilesUploaded }: BrowseFolderModalProps)
           </div>
         )}
 
-        {/* Actions */}
-        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+        {/* Actions - Fixed at bottom */}
+        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", flexShrink: 0, paddingTop: 8, borderTop: "1px solid #e5e7eb" }}>
           <button type="button" onClick={onClose} disabled={isUploading} style={{ padding: "8px 16px", fontSize: 14, backgroundColor: "#fff", color: "#374151", border: "1px solid #d1d5db", borderRadius: 6, cursor: isUploading ? "not-allowed" : "pointer" }}>
             Cancel
           </button>
