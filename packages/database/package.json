@@ -34,7 +34,8 @@
     "maintenance:scheduler": "ts-node src/scripts/run-maintenance-scheduler.ts",
     "seed:sops": "ts-node src/seed-sops.ts",
     "export:cost-book": "ts-node src/export-cost-book.ts",
-    "analyze:petl-extrapolation": "ts-node src/scripts/analyze-petl-for-extrapolation.ts"
+    "analyze:petl-extrapolation": "ts-node src/scripts/analyze-petl-for-extrapolation.ts",
+    "test:extrapolation": "ts-node src/scripts/test-extrapolation.ts"
   },
   "dependencies": {
     "@prisma/client": "^7.0.0",
