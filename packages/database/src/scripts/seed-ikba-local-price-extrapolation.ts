@@ -271,7 +271,7 @@ export async function seedIKBAToTenant(companyId: string) {
   // Check if tenant already has this document
   const existingTenantDoc = await prisma.tenantPnpDocument.findUnique({
     where: {
-      companyId_code: {
+      TenantPnpDocument_company_code_key: {
         companyId,
         code: 'OPERATIONS-LOCAL-PRICE-EXTRAPOLATION',
       },
