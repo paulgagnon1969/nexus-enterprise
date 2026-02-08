@@ -32,6 +32,24 @@ export default function DocumentsHomePage() {
               Create and manage reusable HTML templates and print them to PDF.
             </div>
           </Link>
+
+          <Link
+            href="/documents/pnp"
+            style={{
+              flex: "1 1 280px",
+              border: "1px solid #e5e7eb",
+              borderRadius: 8,
+              padding: 12,
+              background: "#ffffff",
+              textDecoration: "none",
+              color: "#111827",
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Policies & Procedures</div>
+            <div style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
+              View and manage internal knowledge base articles, SOPs, and procedures.
+            </div>
+          </Link>
         </div>
       </div>
     </PageCard>
