@@ -17,7 +17,7 @@ async function seedLocalPriceExtrapolationIKBA() {
   // Read the markdown IKBA file
   const ikbaPath = path.join(
     __dirname,
-    '../../../docs/internal/ikba-local-price-extrapolation.md'
+    '../../../../docs/internal/ikba-local-price-extrapolation.md'
   );
 
   if (!fs.existsSync(ikbaPath)) {
