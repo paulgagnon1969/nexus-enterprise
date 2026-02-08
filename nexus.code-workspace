@@ -1,0 +1,202 @@
+{
+  "folders": [
+    {
+      "name": "🏠 Root",
+      "path": "."
+    },
+    {
+      "name": "🌐 Web App",
+      "path": "apps/web"
+    },
+    {
+      "name": "🔌 API",
+      "path": "apps/api"
+    },
+    {
+      "name": "🗄️ Database",
+      "path": "packages/database"
+    },
+    {
+      "name": "📦 Packages",
+      "path": "packages"
+    },
+    {
+      "name": "📚 Documentation",
+      "path": "docs"
+    }
+  ],
+  "settings": {
+    // TypeScript
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "typescript.enablePromptUseWorkspaceTsdk": true,
+    "typescript.preferences.importModuleSpecifier": "relative",
+    
+    // Formatting
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    },
+    
+    // File associations
+    "files.associations": {
+      "*.css": "tailwindcss",
+      ".env*": "dotenv"
+    },
+    
+    // Exclude from search
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/dist": true,
+      "**/build": true,
+      "**/.next": true,
+      "**/coverage": true,
+      "**/.turbo": true
+    },
+    
+    // Prisma
+    "[prisma]": {
+      "editor.defaultFormatter": "Prisma.prisma",
+      "editor.formatOnSave": true
+    },
+    
+    // Tailwind CSS
+    "tailwindCSS.experimental.classRegex": [
+      ["cva\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
+      ["cn\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"]
+    ],
+    
+    // ESLint
+    "eslint.workingDirectories": [
+      "apps/web",
+      "apps/api",
+      "packages/database"
+    ],
+    
+    // Git
+    "git.ignoreLimitWarning": true,
+    "gitlens.codeLens.enabled": true,
+    
+    // Terminal
+    "terminal.integrated.defaultProfile.osx": "zsh",
+    "terminal.integrated.env.osx": {
+      "DATABASE_URL": "postgresql://nexus_user:nexus_password@127.0.0.1:5433/nexus_db"
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      // TypeScript/JavaScript
+      "ms-vscode.vscode-typescript-next",
+      "esbenp.prettier-vscode",
+      "dbaeumer.vscode-eslint",
+      
+      // React/Next.js
+      "dsznajder.es7-react-js-snippets",
+      "bradlc.vscode-tailwindcss",
+      
+      // Database
+      "prisma.prisma",
+      "mtxr.sqltools",
+      "mtxr.sqltools-driver-pg",
+      
+      // Git
+      "eamodio.gitlens",
+      "github.vscode-pull-request-github",
+      
+      // AI Assistance
+      "github.copilot",
+      "github.copilot-chat",
+      
+      // Docker/DevContainers
+      "ms-azuretools.vscode-docker",
+      "ms-vscode-remote.remote-containers",
+      
+      // Utilities
+      "usernamehw.errorlens",
+      "oderwat.indent-rainbow",
+      "gruntfuggly.todo-tree",
+      "streetsidesoftware.code-spell-checker",
+      
+      // Testing
+      "orta.vscode-jest"
+    ]
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "🌐 Debug Web (Next.js)",
+        "type": "node",
+        "request": "launch",
+        "cwd": "${workspaceFolder}/apps/web",
+        "runtimeExecutable": "npm",
+        "runtimeArgs": ["run", "dev"],
+        "console": "integratedTerminal",
+        "skipFiles": ["<node_internals>/**"]
+      },
+      {
+        "name": "🔌 Debug API (NestJS)",
+        "type": "node",
+        "request": "launch",
+        "cwd": "${workspaceFolder}/apps/api",
+        "runtimeExecutable": "npm",
+        "runtimeArgs": ["run", "dev"],
+        "console": "integratedTerminal",
+        "skipFiles": ["<node_internals>/**"]
+      },
+      {
+        "name": "🧪 Debug Current Test File",
+        "type": "node",
+        "request": "launch",
+        "program": "${workspaceFolder}/node_modules/jest/bin/jest",
+        "args": ["${file}", "--runInBand"],
+        "console": "integratedTerminal"
+      }
+    ],
+    "compounds": [
+      {
+        "name": "🚀 Debug Full Stack",
+        "configurations": ["🌐 Debug Web (Next.js)", "🔌 Debug API (NestJS)"]
+      }
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "🚀 Start All (Turbo)",
+        "type": "shell",
+        "command": "npm run dev",
+        "group": "build",
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated"
+        }
+      },
+      {
+        "label": "🗄️ Prisma Generate",
+        "type": "shell",
+        "command": "npm run prisma:generate",
+        "options": {
+          "cwd": "${workspaceFolder}/packages/database"
+        },
+        "group": "build"
+      },
+      {
+        "label": "🔄 Prisma Migrate Dev",
+        "type": "shell",
+        "command": "npm run prisma:migrate",
+        "options": {
+          "cwd": "${workspaceFolder}/packages/database"
+        },
+        "group": "build"
+      },
+      {
+        "label": "🧹 Clean All",
+        "type": "shell",
+        "command": "find . -name 'node_modules' -type d -prune -exec rm -rf '{}' + && find . -name '.next' -type d -prune -exec rm -rf '{}' + && find . -name 'dist' -type d -prune -exec rm -rf '{}' +",
+        "group": "build"
+      }
+    ]
+  }
+}
