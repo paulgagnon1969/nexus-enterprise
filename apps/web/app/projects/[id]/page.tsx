@@ -7275,6 +7275,10 @@ ${htmlBody}
   }, []);
 
   // Memoized percent change handler for virtualized table
+  const handleVirtualEditReconEntry = useCallback((entry: any) => {
+    openReconEntryEdit(entry);
+  }, []);
+
   const handleVirtualPercentChange = useCallback(
     async (sowItemId: string, displayLineNo: string | number, newPercent: number, isAcvOnly: boolean) => {
       const token = localStorage.getItem("accessToken");
@@ -7514,7 +7518,7 @@ ${htmlBody}
             onSaveEdit={savePetlInlineEdit}
             onCancelEdit={cancelPetlCellEditor}
             onPercentChange={handleVirtualPercentChange}
-            onEditReconEntry={openReconEntryEdit}
+            onEditReconEntry={handleVirtualEditReconEntry}
           />
         ) : (
         <div
