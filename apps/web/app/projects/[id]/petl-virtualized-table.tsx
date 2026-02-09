@@ -450,7 +450,7 @@ const PetlRow = memo(function PetlRow({
           const note = String(e?.note ?? "").trim();
           const rcvAmt = typeof e?.rcvAmount === "number" ? e.rcvAmount : null;
           const isCredit = kind === "CREDIT" || (rcvAmt != null && rcvAmt < 0);
-          const pct = e?.isPercentCompleteLocked ? 0 : (e?.percentComplete ?? 0);
+          const pct = e?.percentComplete ?? 0;
 
           return (
             <tr
@@ -673,7 +673,7 @@ function VirtualizedRow({
                 {rcvAmt != null ? rcvAmt.toLocaleString(undefined, { maximumFractionDigits: 2 }) : ""}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 60, textAlign: "right" }}>
-                {e?.isPercentCompleteLocked ? 0 : (e?.percentComplete ?? 0)}%
+                {e?.percentComplete ?? 0}%
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80 }} />
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80 }} />
