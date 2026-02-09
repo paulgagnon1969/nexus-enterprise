@@ -23443,6 +23443,7 @@ ${htmlBody}
         const rcv = item?.rcvAmount ?? 0;
         
         const step = reconWorkflowModal.step;
+        const [useNoteAsDescription, setUseNoteAsDescription] = React.useState(itemNote ? true : false);
         const closeModal = () => setReconWorkflowModal(null);
         
         const createReconEntry = async (params: {
@@ -23450,6 +23451,7 @@ ${htmlBody}
           kind: 'ADD' | 'CREDIT';
           isStandaloneChangeOrder: boolean;
           acvPercent?: number;
+          useNoteAsDescription?: boolean;
         }) => {
           const token = localStorage.getItem("accessToken");
           if (!token) {
@@ -23465,6 +23467,9 @@ ${htmlBody}
                 rcvAmount = -(item.rcvAmount * (params.acvPercent / 100));
               }
               
+              // If user chose to use the note, put it in description field
+              const description = params.useNoteAsDescription && itemNote ? itemNote : "";
+              
               const res = await fetch(
                 `${API_BASE}/projects/${id}/petl/${reconWorkflowModal.sowItemId}/reconciliation/add-manual`,
                 {
@@ -23478,7 +23483,7 @@ ${htmlBody}
                     kind: params.kind,
                     isStandaloneChangeOrder: params.isStandaloneChangeOrder,
                     rcvAmount,
-                    description: "",
+                    description,
                     note: "",
                   }),
                 }
@@ -23584,9 +23589,28 @@ ${htmlBody}
                         <div style={{ fontSize: 11, fontWeight: 600, color: "#92400e", marginBottom: 4 }}>
                           📌 Line Item Note
                         </div>
-                        <div style={{ fontSize: 12, color: "#78350f", whiteSpace: "pre-wrap" }}>
+                        <div style={{ fontSize: 12, color: "#78350f", whiteSpace: "pre-wrap", marginBottom: 8 }}>
                           {itemNote}
                         </div>
+                        <label
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            fontSize: 11,
+                            color: "#92400e",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={useNoteAsDescription}
+                            onChange={(e) => setUseNoteAsDescription(e.target.checked)}
+                            style={{ cursor: "pointer" }}
+                          />
+                          Use this note as the entry description
+                        </label>
                       </div>
                     )}
                     
@@ -23679,7 +23703,7 @@ ${htmlBody}
                     <div style={{ display: "flex", gap: 12 }}>
                       <button
                         type="button"
-                        onClick={() => createReconEntry({ tag: 'SUPPLEMENT', kind: 'ADD', isStandaloneChangeOrder: false })}
+                        onClick={() => createReconEntry({ tag: 'SUPPLEMENT', kind: 'ADD', isStandaloneChangeOrder: false, useNoteAsDescription })}
                         style={{
                           flex: 1,
                           padding: 16,
@@ -23699,7 +23723,7 @@ ${htmlBody}
                       
                       <button
                         type="button"
-                        onClick={() => createReconEntry({ tag: 'SUPPLEMENT', kind: 'CREDIT', isStandaloneChangeOrder: false })}
+                        onClick={() => createReconEntry({ tag: 'SUPPLEMENT', kind: 'CREDIT', isStandaloneChangeOrder: false, useNoteAsDescription })}
                         style={{
                           flex: 1,
                           padding: 16,
@@ -23756,7 +23780,7 @@ ${htmlBody}
                       <div style={{ display: "flex", gap: 12 }}>
                         <button
                           type="button"
-                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'ADD', isStandaloneChangeOrder: false })}
+                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'ADD', isStandaloneChangeOrder: false, useNoteAsDescription })}
                           style={{
                             flex: 1,
                             padding: 14,
@@ -23776,7 +23800,7 @@ ${htmlBody}
                         
                         <button
                           type="button"
-                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'CREDIT', isStandaloneChangeOrder: false })}
+                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'CREDIT', isStandaloneChangeOrder: false, useNoteAsDescription })}
                           style={{
                             flex: 1,
                             padding: 14,
@@ -23798,7 +23822,7 @@ ${htmlBody}
                       <div style={{ display: "flex", gap: 12 }}>
                         <button
                           type="button"
-                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'ADD', isStandaloneChangeOrder: true })}
+                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'ADD', isStandaloneChangeOrder: true, useNoteAsDescription })}
                           style={{
                             flex: 1,
                             padding: 14,
@@ -23818,7 +23842,7 @@ ${htmlBody}
                         
                         <button
                           type="button"
-                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'CREDIT', isStandaloneChangeOrder: true })}
+                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'CREDIT', isStandaloneChangeOrder: true, useNoteAsDescription })}
                           style={{
                             flex: 1,
                             padding: 14,
@@ -23839,7 +23863,7 @@ ${htmlBody}
                       
                       <button
                         type="button"
-                        onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'CREDIT', isStandaloneChangeOrder: true, acvPercent: 80 })}
+                        onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'CREDIT', isStandaloneChangeOrder: true, acvPercent: 80, useNoteAsDescription })}
                         style={{
                           padding: 14,
                           borderRadius: 8,
