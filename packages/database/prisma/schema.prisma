@@ -2767,7 +2767,8 @@ model Division {
   sortOrder             Int                    @default(0)
   catMappings           CatDivision[]
   priceListItems        PriceListItem[]
-  companyPriceListItems CompanyPriceListItem[] @relation("CompanyPriceListItemDivision")
+  // TODO: Re-enable CompanyPriceListItem relation once Prisma client generation issue is resolved
+  // companyPriceListItems CompanyPriceListItem[] @relation("CompanyPriceListItemDivision")
 }
 
 /// Global mapping from Xactimate Cat codes (e.g. DRY, PLM) to
@@ -2868,7 +2869,8 @@ model CompanyPriceListItem {
 
   companyPriceList   CompanyPriceList  @relation(fields: [companyPriceListId], references: [id])
   priceListItem      PriceListItem?    @relation(fields: [priceListItemId], references: [id])
-  division           Division?         @relation("CompanyPriceListItemDivision", fields: [divisionCode], references: [code])
+  // TODO: Re-enable division relation once Prisma client generation issue is resolved
+  // division           Division?         @relation("CompanyPriceListItemDivision", fields: [divisionCode], references: [code])
   priceUpdates       TenantPriceUpdateLog[]
   petlReconciliationEntries PetlReconciliationEntry[]
   invoiceLineItems          ProjectInvoiceLineItem[] @relation("InvoiceLineItemCostBookItem")
