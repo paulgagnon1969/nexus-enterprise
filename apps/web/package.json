@@ -15,11 +15,13 @@
     "next-intl": "^4.7.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
+    "react-virtualized": "^9.22.5",
     "react-window": "^2.2.6"
   },
   "devDependencies": {
     "@types/react": "18.2.37",
     "@types/react-dom": "18.2.15",
+    "@types/react-virtualized": "^9.21.30",
     "@types/react-window": "^1.8.8",
     "typescript": "^5.5.0"
   }
