@@ -3408,6 +3408,7 @@ ${htmlBody}
     sowItem: any | null;
     step: 'initial' | 'supplement' | 'changeOrder';
   } | null>(null);
+  const [reconWorkflowUseNote, setReconWorkflowUseNote] = useState(false);
 
   const [costBookModalOpen, setCostBookModalOpen] = useState(false);
   const [petlCostBookPickerBusy, setPetlCostBookPickerBusy] = useState(false);
@@ -7211,6 +7212,7 @@ ${htmlBody}
   const openPetlReconciliation = async (sowItemId: string) => {
     // Find the SOW item to display context in the workflow modal
     const sowItem = petlItems.find(it => it.id === sowItemId) ?? null;
+    const itemNote = String(sowItem?.itemNote ?? "");
     
     // Open the new guided workflow modal instead of the old reconciliation drawer
     setReconWorkflowModal({
@@ -7219,6 +7221,9 @@ ${htmlBody}
       sowItem,
       step: 'initial',
     });
+    
+    // Initialize note checkbox state (default to true if note exists)
+    setReconWorkflowUseNote(itemNote ? true : false);
   };
 
   // The line-sequence PETL table can be very large. Memoize its JSX so opening the
@@ -23443,7 +23448,8 @@ ${htmlBody}
         const rcv = item?.rcvAmount ?? 0;
         
         const step = reconWorkflowModal.step;
-        const [useNoteAsDescription, setUseNoteAsDescription] = React.useState(itemNote ? true : false);
+        const useNoteAsDescription = reconWorkflowUseNote;
+        const setUseNoteAsDescription = setReconWorkflowUseNote;
         const closeModal = () => setReconWorkflowModal(null);
         
         const createReconEntry = async (params: {
