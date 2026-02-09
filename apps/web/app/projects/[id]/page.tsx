@@ -9303,6 +9303,9 @@ ${htmlBody}
         return;
       }
 
+      // Give backend a moment to process and commit the changes
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
       // Refresh PETL items and reconciliation data
       setPetlReloadTick((t) => t + 1);
       
