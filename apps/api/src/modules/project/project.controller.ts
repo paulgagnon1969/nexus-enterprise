@@ -888,6 +888,8 @@ export class ProjectController {
       rcvAmount?: number | null;
       tag?: string | null;
       note?: string | null;
+      kind?: string | null;
+      isStandaloneChangeOrder?: boolean | null;
     }
   ) {
     const user = req.user as AuthenticatedUser;

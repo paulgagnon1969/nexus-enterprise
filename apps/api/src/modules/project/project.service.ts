@@ -4702,6 +4702,8 @@ export class ProjectService {
       rcvAmount?: number | null;
       tag?: string | null;
       note?: string | null;
+      kind?: string | null;
+      isStandaloneChangeOrder?: boolean | null;
     },
   ) {
     const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
@@ -4746,6 +4748,17 @@ export class ProjectService {
       throw new BadRequestException("Invalid reconciliation entry tag");
     })();
 
+    // Validate kind if provided, default to ADD
+    const kindRaw = body.kind ?? 'ADD';
+    let kind: PetlReconciliationEntryKind = PetlReconciliationEntryKind.ADD;
+    if (kindRaw === 'CREDIT') {
+      kind = PetlReconciliationEntryKind.CREDIT;
+    } else if (kindRaw === 'ADD') {
+      kind = PetlReconciliationEntryKind.ADD;
+    }
+
+    const isStandaloneChangeOrder = body.isStandaloneChangeOrder ?? false;
+
     const entry = await this.prisma.petlReconciliationEntry.create({
       data: {
         projectId,
@@ -4753,9 +4766,10 @@ export class ProjectService {
         caseId: theCase.id,
         parentSowItemId: sowItemId,
         projectParticleId: sowItem.projectParticleId,
-        kind: PetlReconciliationEntryKind.ADD,
+        kind,
         tag,
         status: PetlReconciliationEntryStatus.APPROVED,
+        isStandaloneChangeOrder,
         description: body.description ?? sowItem.description,
         categoryCode: body.categoryCode ?? null,
         selectionCode: body.selectionCode ?? null,

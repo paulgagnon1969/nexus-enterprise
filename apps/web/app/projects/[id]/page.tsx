@@ -3401,6 +3401,14 @@ ${htmlBody}
   const reconEditDraggable = useDraggable();
   const reconPanelDraggable = useDraggable();
 
+  // Reconciliation workflow modal state
+  const [reconWorkflowModal, setReconWorkflowModal] = useState<{
+    open: boolean;
+    sowItemId: string | null;
+    sowItem: any | null;
+    step: 'initial' | 'supplement' | 'changeOrder';
+  } | null>(null);
+
   const [costBookModalOpen, setCostBookModalOpen] = useState(false);
   const [petlCostBookPickerBusy, setPetlCostBookPickerBusy] = useState(false);
 
@@ -7201,28 +7209,16 @@ ${htmlBody}
     }
   };
   const openPetlReconciliation = async (sowItemId: string) => {
-    // Keep this click feeling instant: open the drawer first (cheap render), then
-    // fetch details in the background.
-    setReconNote("");
-    setReconCreditComponents({ itemAmount: true, salesTaxAmount: true, opAmount: true });
-    setReconPlaceholderKind("NOTE_ONLY");
-    setCostBookModalOpen(false);
-    setPetlCostBookPickerBusy(false);
-
-    // Ensure the drawer shows immediately, even if the fetch takes time.
-    setPetlReconPanel(prev => ({
-      ...prev,
+    // Find the SOW item to display context in the workflow modal
+    const sowItem = petlItems.find(it => it.id === sowItemId) ?? null;
+    
+    // Open the new guided workflow modal instead of the old reconciliation drawer
+    setReconWorkflowModal({
       open: true,
       sowItemId,
-      loading: true,
-      error: null,
-      data: null,
-    }));
-
-    // Kick the network fetch to the next tick so the open-state paint can happen first.
-    window.setTimeout(() => {
-      void loadPetlReconciliation(sowItemId);
-    }, 0);
+      sowItem,
+      step: 'initial',
+    });
   };
 
   // The line-sequence PETL table can be very large. Memoize its JSX so opening the
@@ -23428,6 +23424,438 @@ ${htmlBody}
 
         </div>
       )}
+
+      {/* Reconciliation Workflow Modal */}
+      {reconWorkflowModal?.open && (() => {
+        const item = reconWorkflowModal.sowItem;
+        const itemNote = String(item?.itemNote ?? "");
+        const lineNo = item?.lineNo ?? "?";
+        const desc = String(item?.description ?? "");
+        const qty = item?.qty;
+        const unit = item?.unit ?? "";
+        const rcv = item?.rcvAmount ?? 0;
+        
+        const step = reconWorkflowModal.step;
+        const closeModal = () => setReconWorkflowModal(null);
+        
+        const createReconEntry = async (params: {
+          tag: 'SUPPLEMENT' | 'CHANGE_ORDER';
+          kind: 'ADD' | 'CREDIT';
+          isStandaloneChangeOrder: boolean;
+          acvPercent?: number;
+        }) => {
+          const token = localStorage.getItem("accessToken");
+          if (!token) {
+            alert("Missing access token; please log in again.");
+            return;
+          }
+          
+          try {
+            await busyOverlay.run("Creating reconciliation entry...", async () => {
+              // Calculate ACV if applicable
+              let rcvAmount = null;
+              if (params.acvPercent && item?.rcvAmount) {
+                rcvAmount = -(item.rcvAmount * (params.acvPercent / 100));
+              }
+              
+              const res = await fetch(
+                `${API_BASE}/projects/${id}/petl/${reconWorkflowModal.sowItemId}/reconciliation/add-manual`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({
+                    tag: params.tag,
+                    kind: params.kind,
+                    isStandaloneChangeOrder: params.isStandaloneChangeOrder,
+                    rcvAmount,
+                    description: "",
+                    note: "",
+                  }),
+                }
+              );
+              
+              if (!res.ok) {
+                const text = await res.text().catch(() => "");
+                alert(`Failed to create entry (${res.status}) ${text}`);
+                return;
+              }
+              
+              const entry = await res.json();
+              
+              // Close workflow modal
+              closeModal();
+              
+              // Refresh PETL
+              setPetlReloadTick(t => t + 1);
+              
+              // Open entry in edit mode
+              openReconEntryEdit(entry);
+            });
+          } catch (err: any) {
+            alert(err?.message ?? "Failed to create reconciliation entry");
+          }
+        };
+        
+        return (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 70,
+              background: "rgba(15,23,42,0.65)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 20,
+            }}
+            onClick={closeModal}
+          >
+            <div
+              style={{
+                width: 600,
+                maxWidth: "95vw",
+                background: "#ffffff",
+                borderRadius: 12,
+                border: "1px solid #e5e7eb",
+                boxShadow: "0 25px 60px rgba(15,23,42,0.45)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                style={{
+                  padding: "14px 18px",
+                  borderBottom: "1px solid #e5e7eb",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  background: "#f8fafc",
+                  borderTopLeftRadius: 12,
+                  borderTopRightRadius: 12,
+                }}
+              >
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>
+                    Reconcile Line {lineNo}
+                  </span>
+                  <span style={{ fontSize: 11, color: "#6b7280" }}>
+                    {desc}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    fontSize: 20,
+                    lineHeight: 1,
+                    color: "#6b7280",
+                  }}
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+              
+              <div style={{ padding: 20 }}>
+                {step === 'initial' && (
+                  <>
+                    {itemNote && (
+                      <div
+                        style={{
+                          marginBottom: 20,
+                          padding: 12,
+                          borderRadius: 8,
+                          background: "#fef3c7",
+                          border: "1px solid #fbbf24",
+                        }}
+                      >
+                        <div style={{ fontSize: 11, fontWeight: 600, color: "#92400e", marginBottom: 4 }}>
+                          📌 Line Item Note
+                        </div>
+                        <div style={{ fontSize: 12, color: "#78350f", whiteSpace: "pre-wrap" }}>
+                          {itemNote}
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div style={{ marginBottom: 20 }}>
+                      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
+                        <strong>Original line:</strong> {qty} {unit} @ ${(rcv / (qty || 1)).toFixed(2)} = ${rcv.toFixed(2)}
+                      </div>
+                    </div>
+                    
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: "#374151" }}>
+                      What type of transaction is this?
+                    </div>
+                    
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      <button
+                        type="button"
+                        onClick={() => setReconWorkflowModal(prev => prev ? { ...prev, step: 'supplement' } : null)}
+                        style={{
+                          padding: 16,
+                          borderRadius: 8,
+                          border: "2px solid #2563eb",
+                          background: "#eff6ff",
+                          cursor: "pointer",
+                          textAlign: "left",
+                        }}
+                      >
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1d4ed8", marginBottom: 4 }}>
+                          📊 SUPPLEMENT
+                        </div>
+                        <div style={{ fontSize: 11, color: "#1e40af" }}>
+                          Alteration to this line item • Carrier-visible • Attached to line {lineNo}
+                        </div>
+                      </button>
+                      
+                      <button
+                        type="button"
+                        onClick={() => setReconWorkflowModal(prev => prev ? { ...prev, step: 'changeOrder' } : null)}
+                        style={{
+                          padding: 16,
+                          borderRadius: 8,
+                          border: "2px solid #7c3aed",
+                          background: "#f5f3ff",
+                          cursor: "pointer",
+                          textAlign: "left",
+                        }}
+                      >
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#6d28d9", marginBottom: 4 }}>
+                          📝 CHANGE ORDER
+                        </div>
+                        <div style={{ fontSize: 11, color: "#5b21b6" }}>
+                          Client transaction • Not visible to carrier • Separate financial accounting
+                        </div>
+                      </button>
+                    </div>
+                  </>
+                )}
+                
+                {step === 'supplement' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setReconWorkflowModal(prev => prev ? { ...prev, step: 'initial' } : null)}
+                      style={{
+                        marginBottom: 16,
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #d1d5db",
+                        background: "#ffffff",
+                        cursor: "pointer",
+                        fontSize: 11,
+                        color: "#6b7280",
+                      }}
+                    >
+                      ← Back
+                    </button>
+                    
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#1d4ed8", marginBottom: 4 }}>
+                        Supplement - Line {lineNo}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6b7280" }}>
+                        Always attached to line {lineNo} • Carrier-visible
+                      </div>
+                    </div>
+                    
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: "#374151" }}>
+                      Is this a charge or credit?
+                    </div>
+                    
+                    <div style={{ display: "flex", gap: 12 }}>
+                      <button
+                        type="button"
+                        onClick={() => createReconEntry({ tag: 'SUPPLEMENT', kind: 'ADD', isStandaloneChangeOrder: false })}
+                        style={{
+                          flex: 1,
+                          padding: 16,
+                          borderRadius: 8,
+                          border: "2px solid #059669",
+                          background: "#ecfdf5",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#047857" }}>
+                          ➕ Charge
+                        </div>
+                        <div style={{ fontSize: 11, color: "#065f46" }}>
+                          Add cost to line
+                        </div>
+                      </button>
+                      
+                      <button
+                        type="button"
+                        onClick={() => createReconEntry({ tag: 'SUPPLEMENT', kind: 'CREDIT', isStandaloneChangeOrder: false })}
+                        style={{
+                          flex: 1,
+                          padding: 16,
+                          borderRadius: 8,
+                          border: "2px solid #dc2626",
+                          background: "#fef2f2",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#b91c1c" }}>
+                          ➖ Credit
+                        </div>
+                        <div style={{ fontSize: 11, color: "#991b1b" }}>
+                          Reduce cost
+                        </div>
+                      </button>
+                    </div>
+                  </>
+                )}
+                
+                {step === 'changeOrder' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setReconWorkflowModal(prev => prev ? { ...prev, step: 'initial' } : null)}
+                      style={{
+                        marginBottom: 16,
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #d1d5db",
+                        background: "#ffffff",
+                        cursor: "pointer",
+                        fontSize: 11,
+                        color: "#6b7280",
+                      }}
+                    >
+                      ← Back
+                    </button>
+                    
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#6d28d9", marginBottom: 4 }}>
+                        Change Order
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6b7280" }}>
+                        Client transaction • Not visible to carrier
+                      </div>
+                    </div>
+                    
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: "#374151" }}>
+                      Attachment & Transaction Type
+                    </div>
+                    
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      <div style={{ display: "flex", gap: 12 }}>
+                        <button
+                          type="button"
+                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'ADD', isStandaloneChangeOrder: false })}
+                          style={{
+                            flex: 1,
+                            padding: 14,
+                            borderRadius: 8,
+                            border: "2px solid #059669",
+                            background: "#ecfdf5",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#047857" }}>
+                            ⚓ Attached Charge
+                          </div>
+                          <div style={{ fontSize: 10, color: "#065f46" }}>
+                            {lineNo}-CO1
+                          </div>
+                        </button>
+                        
+                        <button
+                          type="button"
+                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'CREDIT', isStandaloneChangeOrder: false })}
+                          style={{
+                            flex: 1,
+                            padding: 14,
+                            borderRadius: 8,
+                            border: "2px solid #dc2626",
+                            background: "#fef2f2",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#b91c1c" }}>
+                            ⚓ Attached Credit
+                          </div>
+                          <div style={{ fontSize: 10, color: "#991b1b" }}>
+                            {lineNo}-CO1
+                          </div>
+                        </button>
+                      </div>
+                      
+                      <div style={{ display: "flex", gap: 12 }}>
+                        <button
+                          type="button"
+                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'ADD', isStandaloneChangeOrder: true })}
+                          style={{
+                            flex: 1,
+                            padding: 14,
+                            borderRadius: 8,
+                            border: "2px solid #059669",
+                            background: "#f0fdf4",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#047857" }}>
+                            🆕 Standalone Charge
+                          </div>
+                          <div style={{ fontSize: 10, color: "#065f46" }}>
+                            Room-level CO
+                          </div>
+                        </button>
+                        
+                        <button
+                          type="button"
+                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'CREDIT', isStandaloneChangeOrder: true })}
+                          style={{
+                            flex: 1,
+                            padding: 14,
+                            borderRadius: 8,
+                            border: "2px solid #dc2626",
+                            background: "#fef2f2",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#b91c1c" }}>
+                            🆕 Standalone Credit
+                          </div>
+                          <div style={{ fontSize: 10, color: "#991b1b" }}>
+                            Room-level CO
+                          </div>
+                        </button>
+                      </div>
+                      
+                      <button
+                        type="button"
+                        onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'CREDIT', isStandaloneChangeOrder: true, acvPercent: 80 })}
+                        style={{
+                          padding: 14,
+                          borderRadius: 8,
+                          border: "2px solid #ea580c",
+                          background: "#fff7ed",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#c2410c" }}>
+                          📊 ACV Credit (80%)
+                        </div>
+                        <div style={{ fontSize: 10, color: "#9a3412" }}>
+                          Work not done • ${(rcv * 0.8).toFixed(2)} credit
+                        </div>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* PETL Diagnostics modal (opened from Edit Project) */}
       {petlDiagnosticsModalOpen && (
