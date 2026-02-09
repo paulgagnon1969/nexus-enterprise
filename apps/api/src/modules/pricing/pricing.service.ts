@@ -516,7 +516,8 @@ export async function getCurrentGoldenPriceListTable() {
       },
     }),
     prisma.catDivision.findMany({
-      include: { division: true },
+      // TODO: Re-enable division include once Prisma client issue is resolved
+      // include: { division: true },
     }),
   ]);
 
@@ -525,7 +526,7 @@ export async function getCurrentGoldenPriceListTable() {
     const key = row.cat.trim().toUpperCase();
     byCat.set(key, {
       divisionCode: row.divisionCode,
-      divisionName: row.division?.name ?? null,
+      divisionName: null, // TODO: Re-enable when division include is restored
     });
   }
 
