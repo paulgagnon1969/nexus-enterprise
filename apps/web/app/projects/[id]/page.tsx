@@ -9078,9 +9078,11 @@ ${htmlBody}
       return;
     }
     
+    // Warn if Activity is missing but allow save (backend will handle validation)
     if (!reconEntryEdit.draft.activity) {
-      alert("Activity is required to identify the scope of work.");
-      return;
+      if (!window.confirm("Activity is not set. This helps identify the scope of work. Continue saving anyway?")) {
+        return;
+      }
     }
 
     const token = localStorage.getItem("accessToken");
