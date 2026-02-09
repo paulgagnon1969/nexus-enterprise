@@ -1965,13 +1965,19 @@ export class ProjectService {
     companyId: string,
     actor: AuthenticatedUser
   ) {
-    const project = await this.prisma.project.findFirst({
-      where: { id: projectId, companyId }
-    });
+    try {
+      console.log('[getPetlForProject] START', { projectId, companyId, userId: actor.userId });
+      
+      const project = await this.prisma.project.findFirst({
+        where: { id: projectId, companyId }
+      });
 
-    if (!project) {
-      throw new NotFoundException("Project not found in this company");
-    }
+      if (!project) {
+        console.log('[getPetlForProject] Project not found');
+        throw new NotFoundException("Project not found in this company");
+      }
+      
+      console.log('[getPetlForProject] Project found:', project.name);
 
     // Same access rules as other PETL endpoints
     if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
@@ -2061,13 +2067,25 @@ export class ProjectService {
       projectParticle: particleById.get(e.projectParticleId) ?? null,
     }));
 
-    return {
-      projectId,
-      estimateVersionId: latestVersion.id,
-      items,
-      reconciliationEntries,
-      reconciliationActivitySowItemIds,
-    };
+      console.log('[getPetlForProject] SUCCESS', { itemCount: items.length, estimateVersionId: latestVersion.id });
+      
+      return {
+        projectId,
+        estimateVersionId: latestVersion.id,
+        items,
+        reconciliationEntries,
+        reconciliationActivitySowItemIds,
+      };
+    } catch (error: any) {
+      console.error('[getPetlForProject] ERROR:', {
+        message: error.message,
+        code: error.code,
+        stack: error.stack?.split('\n').slice(0, 5),
+        projectId,
+        companyId
+      });
+      throw error;
+    }
   }
 
   private assertAdminOrAbove(actor: AuthenticatedUser) {
