@@ -6,6 +6,16 @@
     "declarationMap": true
   },
   "include": ["src", "prisma"],
+  "exclude": [
+    "src/**/*.spec.ts",
+    "src/**/*.test.ts",
+    "src/test-*.ts",
+    "src/**/test-*.ts",
+    "src/scripts/**/*",
+    "src/renumber-*.ts",
+    "src/find-*.ts",
+    "src/verify-*.ts"
+  ],
   "ts-node": {
     "transpileOnly": true
   }
