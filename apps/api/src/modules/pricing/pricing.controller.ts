@@ -807,13 +807,14 @@ export class PricingController {
 
     const catMappingsRaw = await this.prisma.catDivision.findMany({
       orderBy: { cat: "asc" },
-      include: { division: true },
+      // TODO: Re-enable division include once Prisma client issue is resolved
+      // include: { division: true },
     });
 
     const catMappings = catMappingsRaw.map((row) => ({
       cat: row.cat,
       divisionCode: row.divisionCode,
-      divisionName: row.division?.name ?? null,
+      divisionName: null, // TODO: Re-enable when division include is restored
     }));
 
     return { divisions, catMappings };
@@ -855,7 +856,8 @@ export class PricingController {
     const items = await this.prisma.priceListItem.findMany({
       where,
       include: {
-        division: true,
+        // TODO: Re-enable division include once Prisma client issue is resolved
+        // division: true,
         components: true,
       },
       orderBy: [
