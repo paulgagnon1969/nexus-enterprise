@@ -23545,54 +23545,88 @@ ${htmlBody}
           }
           
           try {
-            await busyOverlay.run("Creating reconciliation entry...", async () => {
-              // Calculate ACV if applicable
-              let rcvAmount = null;
-              if (params.acvPercent && item?.rcvAmount) {
-                rcvAmount = -(item.rcvAmount * (params.acvPercent / 100));
-              }
-              
-              // If user chose to use the note, put it in description field
-              const description = params.useNoteAsDescription && itemNote ? itemNote : "";
-              
-              const res = await fetch(
-                `${API_BASE}/projects/${id}/petl/${reconWorkflowModal.sowItemId}/reconciliation/add-manual`,
-                {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
-                  },
-                  body: JSON.stringify({
-                    tag: params.tag,
-                    kind: params.kind,
-                    isStandaloneChangeOrder: params.isStandaloneChangeOrder,
-                    rcvAmount,
-                    description,
-                    note: "",
-                  }),
+            // If editing an existing entry, update it instead of creating new
+            if (isEditing) {
+              await busyOverlay.run("Updating reconciliation entry...", async () => {
+                const res = await fetch(
+                  `${API_BASE}/projects/${id}/petl-reconciliation/entries/${existingEntry.id}`,
+                  {
+                    method: "PATCH",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                      tag: params.tag,
+                      kind: params.kind,
+                    }),
+                  }
+                );
+                
+                if (!res.ok) {
+                  const text = await res.text().catch(() => "");
+                  alert(`Failed to update entry (${res.status}) ${text}`);
+                  return;
                 }
-              );
-              
-              if (!res.ok) {
-                const text = await res.text().catch(() => "");
-                alert(`Failed to create entry (${res.status}) ${text}`);
-                return;
-              }
-              
-              const entry = await res.json();
-              
-              // Close workflow modal
-              closeModal();
-              
-              // Refresh PETL
-              setPetlReloadTick(t => t + 1);
-              
-              // Open entry in edit mode
-              openReconEntryEdit(entry);
-            });
+                
+                // Close workflow modal
+                closeModal();
+                
+                // Refresh PETL
+                setPetlReloadTick(t => t + 1);
+                showPetlToast("Reconciliation entry updated");
+              });
+            } else {
+              // Creating a new entry
+              await busyOverlay.run("Creating reconciliation entry...", async () => {
+                // Calculate ACV if applicable
+                let rcvAmount = null;
+                if (params.acvPercent && item?.rcvAmount) {
+                  rcvAmount = -(item.rcvAmount * (params.acvPercent / 100));
+                }
+                
+                // If user chose to use the note, put it in description field
+                const description = params.useNoteAsDescription && itemNote ? itemNote : "";
+                
+                const res = await fetch(
+                  `${API_BASE}/projects/${id}/petl/${reconWorkflowModal.sowItemId}/reconciliation/add-manual`,
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                      tag: params.tag,
+                      kind: params.kind,
+                      isStandaloneChangeOrder: params.isStandaloneChangeOrder,
+                      rcvAmount,
+                      description,
+                      note: "",
+                    }),
+                  }
+                );
+                
+                if (!res.ok) {
+                  const text = await res.text().catch(() => "");
+                  alert(`Failed to create entry (${res.status}) ${text}`);
+                  return;
+                }
+                
+                const entry = await res.json();
+                
+                // Close workflow modal
+                closeModal();
+                
+                // Refresh PETL
+                setPetlReloadTick(t => t + 1);
+                
+                // Open entry in edit mode
+                openReconEntryEdit(entry);
+              });
+            }
           } catch (err: any) {
-            alert(err?.message ?? "Failed to create reconciliation entry");
+            alert(err?.message ?? isEditing ? "Failed to update reconciliation entry" : "Failed to create reconciliation entry");
           }
         };
         
