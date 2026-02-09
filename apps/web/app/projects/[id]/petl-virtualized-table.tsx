@@ -455,13 +455,10 @@ const PetlRow = memo(function PetlRow({
           return (
             <tr
               key={`${item.id}::recon::${entryId}`}
-              onClick={() => onEditReconEntry?.(e)}
               style={{
                 backgroundColor: "#f8fafc",
                 color: isCredit ? "#b91c1c" : "#111827",
-                cursor: "pointer",
               }}
-              title="Click to edit this entry"
             >
               <td
                 style={{
@@ -473,6 +470,7 @@ const PetlRow = memo(function PetlRow({
               >
                 <span style={{ paddingLeft: 18 }}>↳ {lineLabel}</span>
               </td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
               <td
                 title={`${kind}: ${desc || note}`}
@@ -502,7 +500,49 @@ const PetlRow = memo(function PetlRow({
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
                 {pct}%
               </td>
-              <td colSpan={3} style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", whiteSpace: "nowrap" }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => onEditReconEntry?.(e)}
+                    style={{
+                      padding: "2px 6px",
+                      borderRadius: 999,
+                      border: "1px solid #2563eb",
+                      background: "#eff6ff",
+                      fontSize: 11,
+                      cursor: "pointer",
+                      color: "#1d4ed8",
+                    }}
+                  >
+                    Edit
+                  </button>
+                  {isAdminOrAbove && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm("Delete this reconciliation entry?")) {
+                          // TODO: Wire up delete handler
+                          console.log("Delete entry:", entryId);
+                        }
+                      }}
+                      style={{
+                        padding: "2px 6px",
+                        borderRadius: 999,
+                        border: "1px solid #b91c1c",
+                        background: "#fff1f2",
+                        fontSize: 11,
+                        cursor: "pointer",
+                        color: "#b91c1c",
+                      }}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </td>
             </tr>
           );
         })}
