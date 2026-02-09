@@ -3406,7 +3406,7 @@ ${htmlBody}
     open: boolean;
     sowItemId: string | null;
     sowItem: any | null;
-    step: 'initial' | 'supplement' | 'changeOrder';
+    step: 'selectSource' | 'initial' | 'supplement' | 'changeOrder';
   } | null>(null);
   const [reconWorkflowUseNote, setReconWorkflowUseNote] = useState(false);
 
@@ -7214,16 +7214,20 @@ ${htmlBody}
     const sowItem = petlItems.find(it => it.id === sowItemId) ?? null;
     const itemNote = String(sowItem?.itemNote ?? "");
     
-    // Open the new guided workflow modal instead of the old reconciliation drawer
+    // If note exists, start at selectSource step to let user choose note vs line item
+    // Otherwise go directly to supplement/change order selection
+    const initialStep = itemNote ? 'selectSource' : 'initial';
+    
+    // Open the new guided workflow modal
     setReconWorkflowModal({
       open: true,
       sowItemId,
       sowItem,
-      step: 'initial',
+      step: initialStep,
     });
     
-    // Initialize note checkbox state (default to true if note exists)
-    setReconWorkflowUseNote(itemNote ? true : false);
+    // Initialize note checkbox state
+    setReconWorkflowUseNote(false);
   };
 
   // The line-sequence PETL table can be very large. Memoize its JSX so opening the
@@ -23580,9 +23584,68 @@ ${htmlBody}
               </div>
               
               <div style={{ padding: 20 }}>
+                {step === 'selectSource' && (
+                  <>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 16, color: "#374151" }}>
+                      What would you like to reconcile?
+                    </div>
+                    
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUseNoteAsDescription(false);
+                          setReconWorkflowModal(prev => prev ? { ...prev, step: 'initial' } : null);
+                        }}
+                        style={{
+                          padding: 16,
+                          borderRadius: 8,
+                          border: "2px solid #2563eb",
+                          background: "#eff6ff",
+                          cursor: "pointer",
+                          textAlign: "left",
+                        }}
+                      >
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1d4ed8", marginBottom: 4 }}>
+                          📋 The Line Item
+                        </div>
+                        <div style={{ fontSize: 11, color: "#1e40af" }}>
+                          {desc}
+                        </div>
+                        <div style={{ fontSize: 10, color: "#60a5fa", marginTop: 4 }}>
+                          {qty} {unit} @ ${(rcv / (qty || 1)).toFixed(2)} = ${rcv.toFixed(2)}
+                        </div>
+                      </button>
+                      
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUseNoteAsDescription(true);
+                          setReconWorkflowModal(prev => prev ? { ...prev, step: 'initial' } : null);
+                        }}
+                        style={{
+                          padding: 16,
+                          borderRadius: 8,
+                          border: "2px solid #f59e0b",
+                          background: "#fef3c7",
+                          cursor: "pointer",
+                          textAlign: "left",
+                        }}
+                      >
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#92400e", marginBottom: 4 }}>
+                          📌 The Note
+                        </div>
+                        <div style={{ fontSize: 11, color: "#78350f", whiteSpace: "pre-wrap", maxHeight: 80, overflow: "auto" }}>
+                          {itemNote}
+                        </div>
+                      </button>
+                    </div>
+                  </>
+                )}
+                
                 {step === 'initial' && (
                   <>
-                    {itemNote && (
+                    {useNoteAsDescription && itemNote && (
                       <div
                         style={{
                           marginBottom: 20,
@@ -23593,38 +23656,24 @@ ${htmlBody}
                         }}
                       >
                         <div style={{ fontSize: 11, fontWeight: 600, color: "#92400e", marginBottom: 4 }}>
-                          📌 Line Item Note
+                          📌 Reconciling the Note
                         </div>
-                        <div style={{ fontSize: 12, color: "#78350f", whiteSpace: "pre-wrap", marginBottom: 8 }}>
+                        <div style={{ fontSize: 12, color: "#78350f", whiteSpace: "pre-wrap" }}>
                           {itemNote}
                         </div>
-                        <label
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                            fontSize: 11,
-                            color: "#92400e",
-                            cursor: "pointer",
-                            fontWeight: 600,
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={useNoteAsDescription}
-                            onChange={(e) => setUseNoteAsDescription(e.target.checked)}
-                            style={{ cursor: "pointer" }}
-                          />
-                          Use this note as the entry description
-                        </label>
                       </div>
                     )}
                     
-                    <div style={{ marginBottom: 20 }}>
-                      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
-                        <strong>Original line:</strong> {qty} {unit} @ ${(rcv / (qty || 1)).toFixed(2)} = ${rcv.toFixed(2)}
+                    {!useNoteAsDescription && (
+                      <div style={{ marginBottom: 20 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 4 }}>
+                          📋 Reconciling the Line Item
+                        </div>
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>
+                          {qty} {unit} @ ${(rcv / (qty || 1)).toFixed(2)} = ${rcv.toFixed(2)}
+                        </div>
                       </div>
-                    </div>
+                    )}
                     
                     <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: "#374151" }}>
                       What type of transaction is this?
