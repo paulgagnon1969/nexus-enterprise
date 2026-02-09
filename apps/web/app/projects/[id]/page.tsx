@@ -7227,9 +7227,8 @@ ${htmlBody}
 
   // The line-sequence PETL table can be very large. Memoize its JSX so opening the
   // reconciliation drawer doesn't force React to rebuild thousands of rows.
-  // TODO: react-window v2 virtualization is broken - using high threshold to force non-virtualized table
-  // Original threshold was 50, restore once react-window v2 API issues are resolved
-  const VIRTUALIZATION_THRESHOLD = 99999;
+  // Lowered threshold from 100 to 50 for better paint performance on medium-sized PETLs.
+  const VIRTUALIZATION_THRESHOLD = 50;
   const useVirtualizedTable = petlFlatItems.length > VIRTUALIZATION_THRESHOLD;
 
   // Callbacks for virtualized table
