@@ -430,6 +430,7 @@ interface PetlItem {
   /// Original line number from the source estimate export (e.g. Xactimate "#")
   sourceLineNo?: number | null;
   description: string | null;
+  itemNote?: string | null;
   qty: number | null;
   unit: string | null;
   itemAmount: number | null;
@@ -439,6 +440,7 @@ interface PetlItem {
   payerType: string;
   categoryCode: string | null;
   selectionCode: string | null;
+  activity: string | null;
   projectParticle?: {
     id: string;
     name: string;
@@ -3362,6 +3364,7 @@ ${htmlBody}
     | {
         entry: any;
         draft: {
+          kind: string;
           tag: ReconEntryTag;
           description: string;
           note: string;
@@ -7224,8 +7227,9 @@ ${htmlBody}
 
   // The line-sequence PETL table can be very large. Memoize its JSX so opening the
   // reconciliation drawer doesn't force React to rebuild thousands of rows.
-  // Lowered threshold from 100 to 50 for better paint performance on medium-sized PETLs.
-  const VIRTUALIZATION_THRESHOLD = 50;
+  // TODO: react-window v2 virtualization is broken - using high threshold to force non-virtualized table
+  // Original threshold was 50, restore once react-window v2 API issues are resolved
+  const VIRTUALIZATION_THRESHOLD = 99999;
   const useVirtualizedTable = petlFlatItems.length > VIRTUALIZATION_THRESHOLD;
 
   // Callbacks for virtualized table
@@ -8759,6 +8763,7 @@ ${htmlBody}
     setReconEntryEdit({
       entry,
       draft: {
+        kind: String(entry?.kind ?? "ADD"),
         tag: draftTag,
         description: String(entry?.description ?? ""),
         note: String(entry?.note ?? ""),
@@ -9018,6 +9023,10 @@ ${htmlBody}
       const n = Number(s);
       return Number.isFinite(n) ? n : NaN;
     };
+
+    const nextKind = d.kind || "ADD";
+    const prevKind = entry?.kind ?? "ADD";
+    if (nextKind !== prevKind) patch.kind = nextKind;
 
     const nextTag = d.tag || null;
     const prevTag = entry?.tag ?? null;
@@ -21882,6 +21891,36 @@ ${htmlBody}
                 >
                   Use Cost Book Fields
                 </button>
+              </div>
+
+              {/* Kind Selector (Credit/Add/etc.) */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Type</div>
+                <select
+                  value={reconEntryEdit.draft.kind}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setReconEntryEdit((prev) =>
+                      prev ? { ...prev, draft: { ...prev.draft, kind: v } } : prev,
+                    );
+                  }}
+                  style={{
+                    padding: "6px 8px",
+                    borderRadius: 8,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                    width: "100%",
+                  }}
+                >
+                  <option value="ADD">Add (Additional work)</option>
+                  <option value="CREDIT">Credit (Reduce amount)</option>
+                  <option value="CHANGE_ORDER_CLIENT_PAY">Change Order (Client pays)</option>
+                  <option value="REIMBURSE_OWNER">Reimburse Owner</option>
+                  <option value="NOTE_ONLY">Note Only</option>
+                </select>
+                <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>
+                  Credit will reduce the line item total
+                </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>

@@ -913,7 +913,8 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
       </div>
       {/* Virtualized list - react-window v2 API */}
       <List
-        style={{ height: containerHeight - 40 }} // Subtract header height
+        style={{ height: Math.max(200, containerHeight - 40), width: "100%" }}
+        defaultHeight={400}
         rowCount={flatRows.length}
         rowHeight={getRowHeight}
         rowComponent={VirtualizedRow}

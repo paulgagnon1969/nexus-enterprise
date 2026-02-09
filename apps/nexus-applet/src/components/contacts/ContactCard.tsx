@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 interface ContactCardProps {
   contact: {
     id: string;
@@ -9,11 +11,11 @@ interface ContactCardProps {
   };
   isSelected: boolean;
   isSynced: boolean;
-  onToggle: () => void;
-  onReview?: () => void;
+  onToggle: (id: string) => void;
+  onReview?: (id: string) => void;
 }
 
-export function ContactCard({
+export const ContactCard = memo(function ContactCard({
   contact,
   isSelected,
   isSynced,
@@ -33,7 +35,7 @@ export function ContactCard({
 
   return (
     <div
-      onClick={isSynced ? undefined : onToggle}
+      onClick={isSynced ? undefined : () => onToggle(contact.id)}
       className={`flex items-center gap-3 px-4 py-3 border-b border-slate-100 last:border-b-0 transition-colors ${
         isSynced
           ? "bg-slate-50 cursor-default"
@@ -128,7 +130,7 @@ export function ContactCard({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onReview();
+            onReview(contact.id);
           }}
           className="flex-shrink-0 text-xs text-nexus-600 hover:text-nexus-700 bg-nexus-50 hover:bg-nexus-100 px-2 py-1 rounded transition-colors"
         >
@@ -144,4 +146,4 @@ export function ContactCard({
       )}
     </div>
   );
-}
+});

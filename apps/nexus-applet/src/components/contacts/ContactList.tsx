@@ -265,7 +265,7 @@ export function ContactList() {
     return false;
   };
 
-  const toggleSelect = (id: string) => {
+  const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -279,23 +279,23 @@ export function ContactList() {
       }
       return next;
     });
-  };
+  }, [settings.autoSyncEnabled, setSelectedContacts]);
 
-  const selectAll = () => {
+  const selectAll = useCallback(() => {
     const unsynced = filteredContacts.filter((c) => !isSynced(c));
     const newSelection = new Set(unsynced.map((c) => c.id));
     setSelectedIds(newSelection);
     if (settings.autoSyncEnabled) {
       setSelectedContacts(Array.from(newSelection));
     }
-  };
+  }, [filteredContacts, settings.autoSyncEnabled, setSelectedContacts]);
 
-  const deselectAll = () => {
+  const deselectAll = useCallback(() => {
     setSelectedIds(new Set());
     if (settings.autoSyncEnabled) {
       setSelectedContacts([]);
     }
-  };
+  }, [settings.autoSyncEnabled, setSelectedContacts]);
 
   // Check if any selected contacts have multiple emails/phones
   const selectedContactsWithMultiple = useMemo(() => {
@@ -305,6 +305,11 @@ export function ContactList() {
         (c.allEmails?.length > 1 || c.allPhones?.length > 1)
     );
   }, [contacts, selectedIds]);
+
+  // Memoized callback for review button
+  const handleReviewContact = useCallback((_id: string) => {
+    setShowReviewModal(true);
+  }, []);
 
   const handleReviewConfirm = (updates: Map<string, { email: string | null; phone: string | null }>) => {
     setPrimaryOverrides(updates);
@@ -575,10 +580,10 @@ export function ContactList() {
                     }}
                     isSelected={selectedIds.has(contact.id)}
                     isSynced={isSynced(contact)}
-                    onToggle={() => toggleSelect(contact.id)}
+                    onToggle={toggleSelect}
                     onReview={
                       contact.allEmails?.length > 1 || contact.allPhones?.length > 1
-                        ? () => setShowReviewModal(true)
+                        ? handleReviewContact
                         : undefined
                     }
                   />
