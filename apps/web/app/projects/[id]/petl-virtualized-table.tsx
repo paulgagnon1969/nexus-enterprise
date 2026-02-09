@@ -581,6 +581,7 @@ export interface PetlVirtualizedTableProps {
   onCancelEdit: () => void;
   onPercentChange: (sowItemId: string, displayLineNo: string | number, newPercent: number, isAcvOnly: boolean) => void;
   onEditReconEntry?: (entry: any) => void;
+  onDeleteReconEntry?: (entry: any) => void;
 }
 
 const ROW_HEIGHT = 36;
@@ -608,6 +609,7 @@ interface VirtualizedRowProps {
   onCancelEdit: () => void;
   onPercentChange: (sowItemId: string, displayLineNo: string | number, newPercent: number, isAcvOnly: boolean) => void;
   onEditReconEntry?: (entry: any) => void;
+  onDeleteReconEntry?: (entry: any) => void;
 }
 
 // react-window v2 row component
@@ -634,12 +636,14 @@ function VirtualizedRow({
   onCancelEdit,
   onPercentChange,
   onEditReconEntry,
+  onDeleteReconEntry,
 }: RowComponentProps<VirtualizedRowProps>): React.ReactElement | null {
   const row = flatRows[index];
   if (!row) return null;
 
   if (row.type === "recon") {
     const e = row.reconEntry!;
+    const parentItem = row.item;
     const kind = String(e?.kind ?? "").trim();
     const desc = String(e?.description ?? "").trim();
     const note = String(e?.note ?? "").trim();
@@ -677,7 +681,7 @@ function VirtualizedRow({
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <button
                     type="button"
-                    onClick={() => onEditReconEntry?.(e)}
+                    onClick={() => onEditReconEntry?.({ ...e, sowItemId: parentItem.id })}
                     style={{
                       padding: "2px 6px",
                       borderRadius: 999,
@@ -693,11 +697,7 @@ function VirtualizedRow({
                   {isAdminOrAbove && (
                     <button
                       type="button"
-                      onClick={() => {
-                        if (window.confirm("Delete this reconciliation entry?")) {
-                          console.log("Delete entry:", e?.id);
-                        }
-                      }}
+                      onClick={() => onDeleteReconEntry?.({ ...e, sowItemId: parentItem.id })}
                       style={{
                         padding: "2px 6px",
                         borderRadius: 999,
@@ -912,6 +912,7 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
   onCancelEdit,
   onPercentChange,
   onEditReconEntry,
+  onDeleteReconEntry,
 }: PetlVirtualizedTableProps) {
 
   // Build flat row list for virtualization
@@ -973,8 +974,9 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
       onCancelEdit,
       onPercentChange,
       onEditReconEntry,
+      onDeleteReconEntry,
     }),
-    [flatRows, reconEntriesBySowItemId, expandedIds, flaggedIds, reconActivityIds, isPmOrAbove, isAdminOrAbove, editingCell, editDraft, editSaving, onToggleExpand, onToggleFlag, onOpenReconciliation, onDeleteItem, onOpenCellEditor, onEditDraftChange, onSaveEdit, onCancelEdit, onPercentChange, onEditReconEntry]
+    [flatRows, reconEntriesBySowItemId, expandedIds, flaggedIds, reconActivityIds, isPmOrAbove, isAdminOrAbove, editingCell, editDraft, editSaving, onToggleExpand, onToggleFlag, onOpenReconciliation, onDeleteItem, onOpenCellEditor, onEditDraftChange, onSaveEdit, onCancelEdit, onPercentChange, onEditReconEntry, onDeleteReconEntry]
   );
 
   return (
