@@ -648,14 +648,6 @@ export class PricingController {
         { description: "asc" },
       ],
       take: limit,
-      include: {
-        division: {
-          select: {
-            code: true,
-            name: true,
-          },
-        },
-      },
     });
 
     return {
