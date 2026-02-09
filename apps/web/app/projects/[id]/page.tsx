@@ -23580,17 +23580,38 @@ ${htmlBody}
                   return;
                 }
                 
-                // Get updated entry from response
-                const updatedEntry = await res.json();
-                
                 // Close workflow modal
                 closeModal();
                 
-                // Refresh PETL
+                // Refresh PETL to get latest data
                 setPetlReloadTick(t => t + 1);
                 
-                // Open full edit panel with updated entry
-                openReconEntryEdit(updatedEntry);
+                // Wait a bit for state to update, then reload reconciliation data
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                if (petlReconPanel.sowItemId) {
+                  await loadPetlReconciliation(petlReconPanel.sowItemId);
+                }
+                
+                // Fetch the updated entry and open edit panel
+                const entryRes = await fetch(
+                  `${API_BASE}/projects/${id}/petl-reconciliation/entries/${existingEntry.id}`,
+                  {
+                    headers: { Authorization: `Bearer ${token}` },
+                  }
+                );
+                
+                if (entryRes.ok) {
+                  const updatedEntry = await entryRes.json();
+                  openReconEntryEdit(updatedEntry);
+                } else {
+                  // Fallback: use existing entry with updated fields
+                  openReconEntryEdit({
+                    ...existingEntry,
+                    tag: params.tag,
+                    kind: params.kind,
+                  });
+                }
               });
             } else {
               // Creating a new entry
