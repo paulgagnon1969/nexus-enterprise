@@ -1,14 +1,14 @@
 import { useState, useEffect } from "react";
 import { LoginForm } from "./components/LoginForm";
-import { ContactList } from "./components/ContactList";
+import { ContactList } from "./components/contacts/ContactList";
+import { DocumentsTab } from "./components/documents/DocumentsTab";
+import { TabNav, type TabId } from "./components/shared/TabNav";
 import { getStoredToken, clearToken } from "./lib/auth";
-
-type Tab = "contacts";
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<Tab>("contacts");
+  const [activeTab, setActiveTab] = useState<TabId>("contacts");
 
   useEffect(() => {
     // Check for existing token on mount
@@ -34,10 +34,6 @@ function App() {
     );
   }
 
-  const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: "contacts", label: "Contacts", icon: "👥" },
-  ];
-
   return (
     <div className="h-screen flex flex-col bg-slate-50">
       {/* Header */}
@@ -47,7 +43,7 @@ function App() {
             <div className="w-8 h-8 rounded-lg bg-nexus-600 flex items-center justify-center">
               <span className="text-white font-bold text-sm">N</span>
             </div>
-            <h1 className="font-semibold text-slate-900">Nexus Utilities</h1>
+            <h1 className="font-semibold text-slate-900">NEXUS Applet</h1>
           </div>
           {isAuthenticated && (
             <button
@@ -58,36 +54,21 @@ function App() {
             </button>
           )}
         </div>
-        
-        {/* Tabs */}
-        {isAuthenticated && (
-          <div className="px-4 flex gap-1 border-t border-slate-100">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab.id
-                    ? "border-nexus-600 text-nexus-600"
-                    : "border-transparent text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                <span className="mr-1.5">{tab.icon}</span>
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        )}
       </header>
 
+      {/* Tab Navigation - only show when authenticated */}
+      {isAuthenticated && (
+        <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
+      )}
+
       {/* Main content */}
-      <main className="flex-1 overflow-auto p-4">
+      <main className="flex-1 overflow-hidden p-4">
         {!isAuthenticated ? (
           <LoginForm onSuccess={handleLoginSuccess} />
+        ) : activeTab === "contacts" ? (
+          <ContactList />
         ) : (
-          <>
-            {activeTab === "contacts" && <ContactList />}
-          </>
+          <DocumentsTab />
         )}
       </main>
     </div>

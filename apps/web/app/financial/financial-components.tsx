@@ -1,6 +1,8 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useMemo, useRef } from "react";
+import { AutoSizer, List } from "react-virtualized";
+import "react-virtualized/styles.css";
 
 // Local copies of the core Financial types used by these helpers. Kept in sync
 // with the definitions in page.tsx.
@@ -197,6 +199,14 @@ export const GoldenPriceListTable = memo(function GoldenPriceListTable({
   loadingGoldenTable,
   goldenTableError,
 }: GoldenPriceListTableProps) {
+  const listRef = useRef<any>(null);
+  
+  const handleJumpToEnd = () => {
+    if (listRef.current && goldenRows.length > 0) {
+      listRef.current.scrollToRow(goldenRows.length - 1);
+    }
+  };
+  
   return (
     <div
       style={{
@@ -206,7 +216,7 @@ export const GoldenPriceListTable = memo(function GoldenPriceListTable({
         fontSize: 12,
         display: "flex",
         flexDirection: "column",
-        maxHeight: "70vh",
+        height: "75vh",
       }}
     >
       <div
@@ -225,12 +235,27 @@ export const GoldenPriceListTable = memo(function GoldenPriceListTable({
             view of the master Xactimate file.
           </div>
         </div>
-        <div style={{ fontSize: 11, color: "#6b7280" }}>
+        <div style={{ fontSize: 11, color: "#6b7280", display: "flex", gap: 8, alignItems: "center" }}>
           {loadingGoldenTable
             ? "Loading rows…"
             : goldenRows.length
             ? `${goldenRows.length.toLocaleString()} items`
             : "No rows loaded"}
+          {goldenRows.length > 0 && (
+            <button
+              onClick={handleJumpToEnd}
+              style={{
+                fontSize: 10,
+                padding: "2px 6px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                background: "#f9fafb",
+                cursor: "pointer",
+              }}
+            >
+              Jump to end
+            </button>
+          )}
         </div>
       </div>
 
@@ -256,132 +281,86 @@ export const GoldenPriceListTable = memo(function GoldenPriceListTable({
         <div
           style={{
             flex: 1,
-            overflow: "auto",
             borderTop: "1px solid #f3f4f6",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
           }}
         >
-          <table
-            style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              fontSize: 11,
-            }}
-          >
-            <thead style={{ position: "sticky", top: 0, background: "#f9fafb" }}>
-              <tr>
-                <th style={{ textAlign: "left", padding: "4px 6px", width: 60 }}>Line</th>
-                <th style={{ textAlign: "left", padding: "4px 6px", width: 70 }}>Cat</th>
-                <th style={{ textAlign: "left", padding: "4px 6px", width: 70 }}>Sel</th>
-                <th style={{ textAlign: "left", padding: "4px 6px" }}>Description</th>
-                <th style={{ textAlign: "left", padding: "4px 6px", width: 60 }}>Unit</th>
-                <th style={{ textAlign: "right", padding: "4px 6px", width: 90 }}>
-                  Last known price
-                </th>
-                <th style={{ textAlign: "right", padding: "4px 6px", width: 90 }}>
-                  Unit price
-                </th>
-                <th style={{ textAlign: "left", padding: "4px 6px", width: 80 }}>Division</th>
-                <th style={{ textAlign: "left", padding: "4px 6px", width: 180 }}>
-                  Division name
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {goldenRows.map((row) => (
-                <tr key={`${row.lineNo ?? 0}-${row.cat ?? ""}-${row.sel ?? ""}`}>
-                  <td
+          {/* Fixed header */}
+          <div style={{ background: "#f9fafb", fontSize: 11, display: "flex", borderBottom: "1px solid #e5e7eb", padding: "4px 0", flexShrink: 0 }}>
+            <div style={{ width: 60, padding: "0 6px", fontWeight: 600 }}>Line</div>
+            <div style={{ width: 70, padding: "0 6px", fontWeight: 600 }}>Cat</div>
+            <div style={{ width: 70, padding: "0 6px", fontWeight: 600 }}>Sel</div>
+            <div style={{ flex: 1, padding: "0 6px", fontWeight: 600 }}>Description</div>
+            <div style={{ width: 60, padding: "0 6px", fontWeight: 600 }}>Unit</div>
+            <div style={{ width: 90, padding: "0 6px", fontWeight: 600, textAlign: "right" }}>Last known</div>
+            <div style={{ width: 90, padding: "0 6px", fontWeight: 600, textAlign: "right" }}>Unit price</div>
+            <div style={{ width: 80, padding: "0 6px", fontWeight: 600 }}>Division</div>
+            <div style={{ width: 180, padding: "0 6px", fontWeight: 600 }}>Div name</div>
+          </div>
+
+          {/* Virtualized rows */}
+          <div style={{ flex: 1, width: "100%", position: "relative" }}>
+            <AutoSizer>
+              {({ height, width }) => (
+                <List
+                  ref={listRef}
+                  width={width}
+                  height={height}
+                  rowCount={goldenRows.length}
+                  rowHeight={24}
+                  style={{ outline: "none" }}
+              rowRenderer={({ index, key, style }) => {
+                const row = goldenRows[index];
+                return (
+                  <div
+                    key={key}
                     style={{
-                      padding: "4px 6px",
-                      borderTop: "1px solid #f3f4f6",
-                      whiteSpace: "nowrap",
-                      color: "#6b7280",
-                    }}
-                  >
-                    {row.lineNo ?? ""}
-                  </td>
-                  <td
-                    style={{
-                      padding: "4px 6px",
-                      borderTop: "1px solid #f3f4f6",
-                      fontWeight: 600,
-                    }}
-                  >
-                    {row.cat ?? ""}
-                  </td>
-                  <td
-                    style={{
-                      padding: "4px 6px",
+                      ...style,
+                      display: "flex",
+                      fontSize: 11,
                       borderTop: "1px solid #f3f4f6",
                     }}
                   >
-                    {row.sel ?? ""}
-                  </td>
-                  <td
-                    style={{
-                      padding: "4px 6px",
-                      borderTop: "1px solid #f3f4f6",
-                    }}
-                  >
-                    {row.description ?? ""}
-                  </td>
-                  <td
-                    style={{
-                      padding: "4px 6px",
-                      borderTop: "1px solid #f3f4f6",
-                    }}
-                  >
-                    {row.unit ?? ""}
-                  </td>
-                  <td
-                    style={{
-                      padding: "4px 6px",
-                      borderTop: "1px solid #f3f4f6",
-                      textAlign: "right",
-                      color: "#6b7280",
-                    }}
-                  >
-                    {row.lastKnownUnitPrice != null
-                      ? `$${row.lastKnownUnitPrice.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}`
-                      : ""}
-                  </td>
-                  <td
-                    style={{
-                      padding: "4px 6px",
-                      borderTop: "1px solid #f3f4f6",
-                      textAlign: "right",
-                    }}
-                  >
-                    {row.unitPrice != null
-                      ? `$${row.unitPrice.toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}`
-                      : ""}
-                  </td>
-                  <td
-                    style={{
-                      padding: "4px 6px",
-                      borderTop: "1px solid #f3f4f6",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {row.divisionCode ?? ""}
-                  </td>
-                  <td
-                    style={{
-                      padding: "4px 6px",
-                      borderTop: "1px solid #f3f4f6",
-                    }}
-                  >
-                    {row.divisionName ?? ""}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <div style={{ width: 60, padding: "0 6px", whiteSpace: "nowrap", color: "#6b7280", overflow: "hidden" }}>
+                      {row.lineNo ?? ""}
+                    </div>
+                    <div style={{ width: 70, padding: "0 6px", fontWeight: 600, overflow: "hidden" }}>
+                      {row.cat ?? ""}
+                    </div>
+                    <div style={{ width: 70, padding: "0 6px", overflow: "hidden" }}>
+                      {row.sel ?? ""}
+                    </div>
+                    <div style={{ flex: 1, padding: "0 6px", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {row.description ?? ""}
+                    </div>
+                    <div style={{ width: 60, padding: "0 6px", overflow: "hidden" }}>
+                      {row.unit ?? ""}
+                    </div>
+                    <div style={{ width: 90, padding: "0 6px", textAlign: "right", color: "#6b7280", overflow: "hidden" }}>
+                      {row.lastKnownUnitPrice != null
+                        ? `$${row.lastKnownUnitPrice.toFixed(2)}`
+                        : ""}
+                    </div>
+                    <div style={{ width: 90, padding: "0 6px", textAlign: "right", overflow: "hidden" }}>
+                      {row.unitPrice != null
+                        ? `$${row.unitPrice.toFixed(2)}`
+                        : ""}
+                    </div>
+                    <div style={{ width: 80, padding: "0 6px", whiteSpace: "nowrap", overflow: "hidden" }}>
+                      {row.divisionCode ?? ""}
+                    </div>
+                    <div style={{ width: 180, padding: "0 6px", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {row.divisionName ?? ""}
+                    </div>
+                  </div>
+                );
+              }}
+            />
+              )}
+            </AutoSizer>
+          </div>
         </div>
       )}
     </div>

@@ -131,17 +131,8 @@ export async function importPriceListFromFile(csvPath: string) {
       },
     });
 
-    const itemsData = records.map((record) => {
-      const rawLineNoValue =
-        (record["#"] as string | undefined) ??
-        (record["\u001b#"] as string | undefined) ??
-        ("﻿#" in record ? (record["﻿#"] as string | undefined) : undefined) ??
-        (record[Object.keys(record)[0] ?? ""] as string | undefined);
-
-      const parsedLineNo = rawLineNoValue
-        ? Number(String(rawLineNoValue).replace(/,/g, "")) || 0
-        : 0;
-
+    // Parse records and extract data (ignore original line numbers)
+    const parsedItems = records.map((record) => {
       const cat = cleanText(record["Cat"]);
       const sel = cleanText(record["Sel"]);
       const activity = cleanText(record["Activity"]);
@@ -152,12 +143,10 @@ export async function importPriceListFromFile(csvPath: string) {
         : null;
 
       const canonicalKeyHash = buildCanonicalKeyHash(cat, sel, activity, description);
-
       const previousUnitPrice = prevPriceByCanonicalHash.get(canonicalKeyHash) ?? null;
 
       return {
         priceListId: priceList.id,
-        lineNo: parsedLineNo,
         groupCode: cleanText(record["Group Code"]),
         groupDescription: cleanText(record["Group Description"]),
         description,
@@ -176,6 +165,31 @@ export async function importPriceListFromFile(csvPath: string) {
         divisionCode,
       };
     });
+
+    // Sort by Cat → Sel → Activity → Description for logical ordering
+    parsedItems.sort((a, b) => {
+      const catA = (a.cat ?? "").toUpperCase();
+      const catB = (b.cat ?? "").toUpperCase();
+      if (catA !== catB) return catA.localeCompare(catB);
+
+      const selA = (a.sel ?? "").toUpperCase();
+      const selB = (b.sel ?? "").toUpperCase();
+      if (selA !== selB) return selA.localeCompare(selB);
+
+      const actA = (a.activity ?? "").toUpperCase();
+      const actB = (b.activity ?? "").toUpperCase();
+      if (actA !== actB) return actA.localeCompare(actB);
+
+      const descA = (a.description ?? "").toUpperCase();
+      const descB = (b.description ?? "").toUpperCase();
+      return descA.localeCompare(descB);
+    });
+
+    // Assign sequential line numbers 1, 2, 3...
+    const itemsData = parsedItems.map((item, index) => ({
+      ...item,
+      lineNo: index + 1,
+    }));
 
     const chunkSize = 500;
     for (let i = 0; i < itemsData.length; i += chunkSize) {
@@ -253,6 +267,7 @@ export async function ensureCompanyPriceListForCompany(companyId: string) {
         owner: it.owner,
         sourceVendor: it.sourceVendor,
         sourceDate: it.sourceDate,
+        divisionCode: it.divisionCode,
         // rawJson is optional on CompanyPriceListItem; skip copying to avoid
         // createMany InputJsonValue typing friction.
         lastKnownUnitPrice: it.lastKnownUnitPrice,

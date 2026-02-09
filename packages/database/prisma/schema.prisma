@@ -2761,12 +2761,13 @@ model PriceListComponent {
 /// Standard CSI-style construction divisions (01–16) used for
 /// organizing revenue, cost, and work by building system.
 model Division {
-  id             String          @id @default(cuid())
-  code           String          @unique
-  name           String
-  sortOrder      Int             @default(0)
-  catMappings    CatDivision[]
-  priceListItems PriceListItem[]
+  id                    String                 @id @default(cuid())
+  code                  String                 @unique
+  name                  String
+  sortOrder             Int                    @default(0)
+  catMappings           CatDivision[]
+  priceListItems        PriceListItem[]
+  companyPriceListItems CompanyPriceListItem[] @relation("CompanyPriceListItemDivision")
 }
 
 /// Global mapping from Xactimate Cat codes (e.g. DRY, PLM) to
@@ -2850,6 +2851,9 @@ model CompanyPriceListItem {
   materialCost       Float?
   equipmentCost      Float?
 
+  /// Construction division code (derived from CAT during seeding)
+  divisionCode       String?
+
   /// Source tracking for PETL auto-import
   sourceProjectId         String?
   sourceEstimateVersionId String?
@@ -2864,12 +2868,14 @@ model CompanyPriceListItem {
 
   companyPriceList   CompanyPriceList  @relation(fields: [companyPriceListId], references: [id])
   priceListItem      PriceListItem?    @relation(fields: [priceListItemId], references: [id])
+  division           Division?         @relation("CompanyPriceListItemDivision", fields: [divisionCode], references: [code])
   priceUpdates       TenantPriceUpdateLog[]
   petlReconciliationEntries PetlReconciliationEntry[]
   invoiceLineItems          ProjectInvoiceLineItem[] @relation("InvoiceLineItemCostBookItem")
 
   @@index([companyPriceListId, canonicalKeyHash])
   @@index([companyPriceListId, cat, sel])
+  @@index([divisionCode])
   @@index([sourceProjectId])
 }
 

@@ -13,6 +13,15 @@ pub struct Contact {
     pub phone: Option<String>,       // Primary phone
     pub all_emails: Vec<String>,     // All emails from device
     pub all_phones: Vec<String>,     // All phones from device
+    // Address fields
+    pub street: Option<String>,
+    pub city: Option<String>,
+    pub state: Option<String>,
+    pub zip: Option<String>,
+    pub country: Option<String>,
+    // Organization
+    pub company: Option<String>,
+    pub job_title: Option<String>,
 }
 
 /// Contact structure from native helpers (Swift/PowerShell)
@@ -30,13 +39,22 @@ struct NativeContact {
     all_emails: Vec<String>,
     #[serde(default)]
     all_phones: Vec<String>,
+    // Address fields
+    street: Option<String>,
+    city: Option<String>,
+    state: Option<String>,
+    zip: Option<String>,
+    country: Option<String>,
+    // Organization
+    company: Option<String>,
+    job_title: Option<String>,
 }
 
 /// Get the path to the macOS Swift helper
 #[cfg(target_os = "macos")]
 fn get_macos_helper_path() -> Option<PathBuf> {
     // Use absolute path for development
-    let dev_path = PathBuf::from("/Users/pg/nexus-enterprise/apps/contact-sync/src-tauri/contacts_helper");
+    let dev_path = PathBuf::from("/Users/pg/nexus-enterprise/apps/nexus-applet/src-tauri/contacts_helper");
     if dev_path.exists() {
         return Some(dev_path);
     }
@@ -197,6 +215,13 @@ fn parse_native_contacts(json: &str) -> Result<Vec<Contact>, String> {
                 phone: c.phone,
                 all_emails: c.all_emails,
                 all_phones: c.all_phones,
+                street: c.street,
+                city: c.city,
+                state: c.state,
+                zip: c.zip,
+                country: c.country,
+                company: c.company,
+                job_title: c.job_title,
             }).collect();
             Ok(contacts)
         }
@@ -219,6 +244,85 @@ fn get_demo_contacts() -> Vec<Contact> {
             phone: Some("555-0001".to_string()),
             all_emails: vec!["demo@example.com".to_string(), "demo.alt@example.com".to_string()],
             all_phones: vec!["555-0001".to_string()],
+            street: Some("123 Demo St".to_string()),
+            city: Some("San Francisco".to_string()),
+            state: Some("CA".to_string()),
+            zip: Some("94102".to_string()),
+            country: Some("USA".to_string()),
+            company: Some("Demo Corp".to_string()),
+            job_title: Some("Engineer".to_string()),
         },
     ]
+}
+
+/// Response from the normalize operation
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NormalizeResponse {
+    updated: u32,
+    total: u32,
+}
+
+/// Result struct for normalize operation (matches lib.rs NormalizeResult)
+#[derive(Debug, Clone, Serialize)]
+pub struct NormalizeResult {
+    pub updated: u32,
+    pub total: u32,
+}
+
+/// Normalize state values in Apple Contacts (macOS only)
+#[cfg(target_os = "macos")]
+pub fn normalize_contacts() -> Result<NormalizeResult, String> {
+    let helper_path = match get_macos_helper_path() {
+        Some(p) => p,
+        None => {
+            return Err("macOS contacts helper not found".to_string());
+        }
+    };
+    
+    eprintln!("[contacts] Normalizing states using helper at: {:?}", helper_path);
+    
+    let output = Command::new(&helper_path)
+        .arg("normalize")
+        .output();
+    
+    match output {
+        Ok(result) => {
+            if !result.status.success() {
+                let stderr = String::from_utf8_lossy(&result.stderr);
+                eprintln!("[contacts] Normalize stderr: {}", stderr);
+                
+                if stderr.contains("denied") || stderr.contains("authorized") {
+                    return Err("Contacts access denied. Please grant permission in System Settings > Privacy & Security > Contacts.".to_string());
+                }
+                
+                return Err(format!("Failed to normalize contacts: {}", stderr));
+            }
+            
+            let stdout = String::from_utf8_lossy(&result.stdout);
+            eprintln!("[contacts] Normalize output: {}", stdout);
+            
+            // Parse the JSON response
+            match serde_json::from_str::<NormalizeResponse>(&stdout) {
+                Ok(resp) => Ok(NormalizeResult {
+                    updated: resp.updated,
+                    total: resp.total,
+                }),
+                Err(e) => {
+                    eprintln!("[contacts] Failed to parse normalize response: {}", e);
+                    Err(format!("Failed to parse normalize response: {}", e))
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("[contacts] Failed to run normalize: {}", e);
+            Err(format!("Failed to run normalize: {}", e))
+        }
+    }
+}
+
+/// Normalize contacts - stub for non-macOS platforms
+#[cfg(not(target_os = "macos"))]
+pub fn normalize_contacts() -> Result<NormalizeResult, String> {
+    Err("Contact normalization is only supported on macOS".to_string())
 }

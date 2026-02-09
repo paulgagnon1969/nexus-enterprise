@@ -776,10 +776,17 @@ export default function FinancialPage() {
           rows?: GoldenPriceListRow[];
         } | null;
 
+        console.log('[DEBUG] Golden table API response:', {
+          hasJson: !!json,
+          rowsLength: json?.rows?.length,
+          priceListItemCount: json?.priceList?.itemCount,
+        });
+
         if (!json) {
           setGoldenRows([]);
         } else {
           setGoldenRows(json.rows ?? []);
+          console.log('[DEBUG] Set goldenRows state to', json.rows?.length, 'items');
         }
       } catch (err: any) {
         setGoldenTableError(err?.message ?? "Failed to load Golden price list table.");

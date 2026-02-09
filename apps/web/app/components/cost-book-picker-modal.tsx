@@ -17,6 +17,8 @@ export type CostBookItem = {
   activity?: string | null;
   groupCode?: string | null;
   groupDescription?: string | null;
+  divisionCode?: string | null;
+  divisionName?: string | null;
 };
 
 export type CostBookSelection = {
@@ -230,7 +232,13 @@ export function CostBookPickerModal({
       }
 
       const json: any = await res.json();
-      const items = Array.isArray(json?.items) ? (json.items as CostBookItem[]) : [];
+      const items = Array.isArray(json?.items)
+        ? json.items.map((raw: any) => ({
+            ...raw,
+            divisionCode: raw.division?.code ?? raw.divisionCode ?? null,
+            divisionName: raw.division?.name ?? raw.divisionName ?? null,
+          }))
+        : [];
       setResults(items);
     } catch (err: any) {
       setSearchError(err?.message ?? "Search failed");
@@ -330,20 +338,35 @@ export function CostBookPickerModal({
               {subtitle ?? "Search and select tenant cost book line items."}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              border: "none",
-              background: "transparent",
-              cursor: "pointer",
-              fontSize: 18,
-              lineHeight: 1,
-            }}
-            aria-label="Close cost book modal"
-          >
-            ×
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {noteText && noteText.trim() && (
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "#0f172a",
+                  textAlign: "right",
+                  maxWidth: 400,
+                }}
+              >
+                Hint Note carried forward - {noteText}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                fontSize: 18,
+                lineHeight: 1,
+              }}
+              aria-label="Close cost book modal"
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         {/* Main content area: CAT sidebar + results */}
@@ -486,19 +509,6 @@ export function CostBookPickerModal({
               gap: 10,
             }}
           >
-            {noteText && noteText.trim() && (
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: "#0f172a",
-                  marginBottom: 4,
-                }}
-              >
-                {noteText}
-              </div>
-            )}
-
             <div
               style={{
                 display: "grid",
@@ -691,6 +701,7 @@ export function CostBookPickerModal({
                   <th style={{ textAlign: "left", padding: "8px 10px", width: 70 }}>CAT</th>
                   <th style={{ textAlign: "left", padding: "8px 10px", width: 70 }}>SEL</th>
                   <th style={{ textAlign: "left", padding: "8px 10px", width: 140 }}>Activity</th>
+                  <th style={{ textAlign: "left", padding: "8px 10px", width: 60 }}>Div</th>
                   <th style={{ textAlign: "left", padding: "8px 10px" }}>Description</th>
                   <th style={{ textAlign: "left", padding: "8px 10px", width: 70 }}>Unit</th>
                   <th style={{ textAlign: "right", padding: "8px 10px", width: 110 }}>Unit $</th>
@@ -749,6 +760,19 @@ export function CostBookPickerModal({
                         }}
                       >
                         {String(row.activity ?? "").trim()}
+                      </td>
+                      <td
+                        style={{
+                          padding: "6px 10px",
+                          borderTop: "1px solid #e5e7eb",
+                          color: "#059669",
+                          fontWeight: 600,
+                          whiteSpace: "nowrap",
+                          fontSize: 11,
+                        }}
+                        title={row.divisionName ?? ""}
+                      >
+                        {String(row.divisionCode ?? "").trim()}
                       </td>
                       <td style={{ padding: "6px 10px", borderTop: "1px solid #e5e7eb" }}>
                         {String(row.description ?? "").trim()}
