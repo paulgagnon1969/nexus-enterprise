@@ -63,6 +63,7 @@ interface PetlRowProps {
   onEditDraftChange: (value: string) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
+  onEditReconEntry?: (entry: any) => void;
 }
 
 // Memoized row component to prevent unnecessary re-renders
@@ -85,6 +86,7 @@ const PetlRow = memo(function PetlRow({
   onEditDraftChange,
   onSaveEdit,
   onCancelEdit,
+  onEditReconEntry,
 }: PetlRowProps) {
   const reconFinancial = reconEntries.filter((e) => e?.rcvAmount != null);
   const showSublines = isExpanded && reconFinancial.length > 0;
@@ -453,10 +455,13 @@ const PetlRow = memo(function PetlRow({
           return (
             <tr
               key={`${item.id}::recon::${entryId}`}
+              onClick={() => onEditReconEntry?.(e)}
               style={{
                 backgroundColor: "#f8fafc",
                 color: isCredit ? "#b91c1c" : "#111827",
+                cursor: "pointer",
               }}
+              title="Click to edit this entry"
             >
               <td
                 style={{
@@ -535,6 +540,7 @@ export interface PetlVirtualizedTableProps {
   onSaveEdit: () => void;
   onCancelEdit: () => void;
   onPercentChange: (sowItemId: string, displayLineNo: string | number, newPercent: number, isAcvOnly: boolean) => void;
+  onEditReconEntry?: (entry: any) => void;
 }
 
 const ROW_HEIGHT = 36;
@@ -561,9 +567,10 @@ interface VirtualizedRowProps {
   onSaveEdit: () => void;
   onCancelEdit: () => void;
   onPercentChange: (sowItemId: string, displayLineNo: string | number, newPercent: number, isAcvOnly: boolean) => void;
+  onEditReconEntry?: (entry: any) => void;
 }
 
-// react-window v2 row component - must be a plain function component for rowComponent prop
+// react-window v2 row component
 function VirtualizedRow({
   index,
   style,

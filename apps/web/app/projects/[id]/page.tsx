@@ -7514,6 +7514,7 @@ ${htmlBody}
             onSaveEdit={savePetlInlineEdit}
             onCancelEdit={cancelPetlCellEditor}
             onPercentChange={handleVirtualPercentChange}
+            onEditReconEntry={openReconEntryEdit}
           />
         ) : (
         <div
