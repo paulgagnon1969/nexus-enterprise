@@ -161,7 +161,6 @@ const PetlRow = memo(function PetlRow({
           {item.projectParticle?.fullLabel ?? item.projectParticle?.name ?? ""}
         </td>
         <td
-          title={item.description ?? ""}
           style={{
             padding: "4px 8px",
             borderTop: "1px solid #e5e7eb",
@@ -171,7 +170,30 @@ const PetlRow = memo(function PetlRow({
             maxWidth: 520,
           }}
         >
-          {item.description ?? ""}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span title={item.description ?? ""}>{item.description ?? ""}</span>
+            {item.itemNote && (
+              <span
+                title={`V0 Note: ${item.itemNote}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  background: "#fef3c7",
+                  color: "#92400e",
+                  fontSize: 9,
+                  fontWeight: 600,
+                  cursor: "help",
+                  flexShrink: 0,
+                  border: "1px solid #fbbf24",
+                }}
+              >
+                NOTE
+              </span>
+            )}
+          </div>
         </td>
         <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", whiteSpace: "nowrap" }}>
           {isPmOrAbove && isEditingQty ? (
@@ -652,18 +674,18 @@ function VirtualizedRow({
                       display: "inline-flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      width: 18,
-                      height: 18,
-                      borderRadius: "50%",
+                      padding: "2px 6px",
+                      borderRadius: 4,
                       background: "#fef3c7",
                       color: "#92400e",
-                      fontSize: 10,
+                      fontSize: 9,
                       fontWeight: 600,
                       cursor: "help",
                       flexShrink: 0,
+                      border: "1px solid #fbbf24",
                     }}
                   >
-                    📝
+                    NOTE
                   </span>
                 )}
               </div>
