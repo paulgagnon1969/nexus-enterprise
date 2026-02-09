@@ -915,7 +915,7 @@ export class PricingController {
         unitPrice: it.unitPrice,
         lastKnownUnitPrice: it.lastKnownUnitPrice,
         divisionCode: it.divisionCode,
-        divisionName: it.division?.name ?? null,
+        divisionName: null, // TODO: Re-enable when division include is restored
         components: it.components,
       })),
       lastComponentsUpload,

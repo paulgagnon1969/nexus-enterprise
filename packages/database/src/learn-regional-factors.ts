@@ -153,9 +153,9 @@ async function calculateAggregateRates(estimateVersionId: string): Promise<Aggre
     },
   });
 
-  const totalItemAmount = rawRows.reduce((sum, row) => sum + (row.itemAmount || 0), 0);
-  const totalSalesTax = rawRows.reduce((sum, row) => sum + (row.salesTax || 0), 0);
-  const totalRcv = rawRows.reduce((sum, row) => sum + (row.rcv || 0), 0);
+  const totalItemAmount = rawRows.reduce((sum: number, row: typeof rawRows[0]) => sum + (row.itemAmount || 0), 0);
+  const totalSalesTax = rawRows.reduce((sum: number, row: typeof rawRows[0]) => sum + (row.salesTax || 0), 0);
+  const totalRcv = rawRows.reduce((sum: number, row: typeof rawRows[0]) => sum + (row.rcv || 0), 0);
 
   // Tax rate = total tax / total item amount
   const taxRate = totalItemAmount > 0 ? totalSalesTax / totalItemAmount : 0;
