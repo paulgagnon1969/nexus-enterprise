@@ -21994,50 +21994,57 @@ ${htmlBody}
                 </div>
               </div>
 
-              <div
-                style={{
-                  transform: reconTagShake ? "translateX(-4px)" : "translateX(0)",
-                  transition: "transform 0.12s ease-in-out",
-                }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Tag</div>
-                <select
-                  ref={reconTagSelectRef}
-                  value={reconEntryEdit.draft.tag}
-                  onChange={(e) => {
-                    const v = e.target.value as ReconEntryTag;
-                    setReconEntryEdit((prev) =>
-                      prev ? { ...prev, draft: { ...prev.draft, tag: v } } : prev,
-                    );
-                  }}
-                  style={{
-                    padding: "6px 8px",
-                    borderRadius: 8,
-                    border: reconEntryEdit.draft.tag ? "1px solid #d1d5db" : "2px solid #f59e0b",
-                    fontSize: 12,
-                    width: "100%",
-                    backgroundColor: reconEntryEdit.draft.tag ? "#ffffff" : "#fffbeb",
-                  }}
-                >
-                  <option value="">—</option>
-                  <option value="SUPPLEMENT">Supplement</option>
-                  <option value="CHANGE_ORDER">Change order</option>
-                  <option value="OTHER">Other</option>
-                  <option value="WARRANTY">Warranty</option>
-                </select>
-                {!reconEntryEdit.draft.tag && (
-                  <div
-                    style={{
-                      marginTop: 4,
-                      fontSize: 16,
-                      color: "#b91c1c",
-                      textAlign: "center",
-                      fontVariant: "small-caps",
-                    }}
-                  >
-                    (mandatory field to save)
-                  </div>
-                )}
+              {/* Transaction Type - Read-only display (set from workflow) */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Transaction Type</div>
+                {(() => {
+                  const tag = reconEntryEdit.draft.tag;
+                  const isStandalone = reconEntryEdit.entry?.isStandaloneChangeOrder;
+                  const tagLabel = tag === "SUPPLEMENT" 
+                    ? "Supplement" 
+                    : tag === "CHANGE_ORDER" 
+                      ? isStandalone ? "Change Order (Standalone)" : "Change Order (Attached)"
+                      : tag === "OTHER" 
+                        ? "Other"
+                        : tag === "WARRANTY"
+                          ? "Warranty"
+                          : "Not set";
+                  const tagBg = tag === "SUPPLEMENT" 
+                    ? "#eff6ff" 
+                    : tag === "CHANGE_ORDER" 
+                      ? "#f5f3ff"
+                      : "#f9fafb";
+                  const tagColor = tag === "SUPPLEMENT" 
+                    ? "#1d4ed8" 
+                    : tag === "CHANGE_ORDER" 
+                      ? "#6d28d9"
+                      : "#6b7280";
+                  const tagIcon = tag === "SUPPLEMENT" 
+                    ? "📊" 
+                    : tag === "CHANGE_ORDER" 
+                      ? "📝"
+                      : "";
+                  return (
+                    <div
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        border: "1px solid #e5e7eb",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        background: tagBg,
+                        color: tagColor,
+                      }}
+                    >
+                      {tagIcon} {tagLabel}
+                    </div>
+                  );
+                })()}
+                <div style={{ fontSize: 10, color: "#6b7280", marginTop: 4 }}>
+                  {reconEntryEdit.draft.tag === "SUPPLEMENT" && "Carrier-visible • Attached to parent line"}
+                  {reconEntryEdit.draft.tag === "CHANGE_ORDER" && "Client-only • Not visible to carrier"}
+                  {!reconEntryEdit.draft.tag && "Transaction type set from reconciliation workflow"}
+                </div>
               </div>
 
               {/* Activity Selector */}
