@@ -2,7 +2,6 @@
 
 import { memo, useMemo, useRef } from "react";
 import { AutoSizer, List } from "react-virtualized";
-import "react-virtualized/styles.css";
 
 // Local copies of the core Financial types used by these helpers. Kept in sync
 // with the definitions in page.tsx.
