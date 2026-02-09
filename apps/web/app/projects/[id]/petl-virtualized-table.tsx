@@ -19,6 +19,7 @@ interface PetlItem {
   payerType: string;
   categoryCode: string | null;
   selectionCode: string | null;
+  activity: string | null;
   projectParticle?: {
     id: string;
     name: string;
@@ -159,6 +160,18 @@ const PetlRow = memo(function PetlRow({
           }}
         >
           {item.projectParticle?.fullLabel ?? item.projectParticle?.name ?? ""}
+        </td>
+        <td
+          style={{
+            padding: "4px 8px",
+            borderTop: "1px solid #e5e7eb",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            maxWidth: 100,
+          }}
+        >
+          {item.activity ?? ""}
         </td>
         <td
           style={{
@@ -595,6 +608,7 @@ function VirtualizedRow({
                 <span style={{ paddingLeft: 18 }}>↳ {lineLabel}</span>
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 220 }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100 }} />
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis" }}>
                 <span style={{ color: "#6b7280" }}>[{kind}]</span> {desc || note || ""}
               </td>
@@ -663,6 +677,9 @@ function VirtualizedRow({
             </td>
             <td title={item.projectParticle?.fullLabel ?? ""} style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {item.projectParticle?.fullLabel ?? item.projectParticle?.name ?? ""}
+            </td>
+            <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {item.activity ?? ""}
             </td>
             <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -880,6 +897,7 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
             <tr>
               <th style={{ textAlign: "left", padding: "6px 8px", width: 120 }}>Line</th>
               <th style={{ textAlign: "left", padding: "6px 8px", width: 220 }}>Room</th>
+              <th style={{ textAlign: "left", padding: "6px 8px", width: 100 }}>Activity</th>
               <th style={{ textAlign: "left", padding: "6px 8px" }}>Task</th>
               <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>Qty</th>
               <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>Unit</th>
