@@ -633,6 +633,7 @@ function VirtualizedRow({
   onSaveEdit,
   onCancelEdit,
   onPercentChange,
+  onEditReconEntry,
 }: RowComponentProps<VirtualizedRowProps>): React.ReactElement | null {
   const row = flatRows[index];
   if (!row) return null;
@@ -672,7 +673,46 @@ function VirtualizedRow({
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80 }} />
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80 }} />
-              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 180 }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 180 }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => onEditReconEntry?.(e)}
+                    style={{
+                      padding: "2px 6px",
+                      borderRadius: 999,
+                      border: "1px solid #2563eb",
+                      background: "#eff6ff",
+                      fontSize: 11,
+                      cursor: "pointer",
+                      color: "#1d4ed8",
+                    }}
+                  >
+                    Edit
+                  </button>
+                  {isAdminOrAbove && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm("Delete this reconciliation entry?")) {
+                          console.log("Delete entry:", e?.id);
+                        }
+                      }}
+                      style={{
+                        padding: "2px 6px",
+                        borderRadius: 999,
+                        border: "1px solid #b91c1c",
+                        background: "#fff1f2",
+                        fontSize: 11,
+                        cursor: "pointer",
+                        color: "#b91c1c",
+                      }}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -871,6 +911,7 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
   onSaveEdit,
   onCancelEdit,
   onPercentChange,
+  onEditReconEntry,
 }: PetlVirtualizedTableProps) {
 
   // Build flat row list for virtualization
@@ -931,8 +972,9 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
       onSaveEdit,
       onCancelEdit,
       onPercentChange,
+      onEditReconEntry,
     }),
-    [flatRows, reconEntriesBySowItemId, expandedIds, flaggedIds, reconActivityIds, isPmOrAbove, isAdminOrAbove, editingCell, editDraft, editSaving, onToggleExpand, onToggleFlag, onOpenReconciliation, onDeleteItem, onOpenCellEditor, onEditDraftChange, onSaveEdit, onCancelEdit, onPercentChange]
+    [flatRows, reconEntriesBySowItemId, expandedIds, flaggedIds, reconActivityIds, isPmOrAbove, isAdminOrAbove, editingCell, editDraft, editSaving, onToggleExpand, onToggleFlag, onOpenReconciliation, onDeleteItem, onOpenCellEditor, onEditDraftChange, onSaveEdit, onCancelEdit, onPercentChange, onEditReconEntry]
   );
 
   return (

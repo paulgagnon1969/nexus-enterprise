@@ -3407,6 +3407,7 @@ ${htmlBody}
     sowItemId: string | null;
     sowItem: any | null;
     step: 'selectSource' | 'initial' | 'supplement' | 'changeOrder';
+    existingEntry?: any; // Pass existing entry when editing to pre-fill modal
   } | null>(null);
   const [reconWorkflowUseNote, setReconWorkflowUseNote] = useState(false);
 
@@ -7274,10 +7275,32 @@ ${htmlBody}
     return () => window.removeEventListener("resize", updateHeight);
   }, []);
 
-  // Memoized percent change handler for virtualized table
+  // Memoized handler to edit reconciliation entry via workflow modal
   const handleVirtualEditReconEntry = useCallback((entry: any) => {
-    openReconEntryEdit(entry);
-  }, []);
+    // When editing an existing reconciliation entry, open the workflow modal
+    // so the user can review/change the transaction type (Supplement vs Change Order)
+    const sowItemId = String(entry?.sowItemId ?? "");
+    if (!sowItemId) {
+      console.error("Cannot edit reconciliation entry: missing sowItemId");
+      return;
+    }
+    
+    // Find the SOW item
+    const sowItem = petlItems.find(it => it.id === sowItemId) ?? null;
+    const itemNote = String(sowItem?.itemNote ?? "");
+    
+    // Always start at 'initial' step (Supplement vs Change Order choice)
+    // The user can change the transaction type if needed
+    setReconWorkflowModal({
+      open: true,
+      sowItemId,
+      sowItem,
+      step: 'initial',
+      existingEntry: entry, // Pass the existing entry so we can pre-fill values
+    });
+    
+    setReconWorkflowUseNote(false);
+  }, [petlItems]);
 
   const handleVirtualPercentChange = useCallback(
     async (sowItemId: string, displayLineNo: string | number, newPercent: number, isAcvOnly: boolean) => {
