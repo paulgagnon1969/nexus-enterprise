@@ -9303,9 +9303,32 @@ ${htmlBody}
         return;
       }
 
+      // Refresh PETL items and reconciliation data
       setPetlReloadTick((t) => t + 1);
+      
+      // Reload reconciliation panel if open
       if (petlReconPanel.sowItemId) {
         await loadPetlReconciliation(petlReconPanel.sowItemId);
+      }
+      
+      // Explicitly fetch fresh PETL items to show updated values
+      try {
+        const petlRes = await fetch(`${API_BASE}/projects/${id}/petl`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (petlRes.ok) {
+          const petl: any = await petlRes.json();
+          const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
+          setPetlItems(items);
+          
+          // Also update reconciliation entries
+          const recon: any[] = Array.isArray(petl.reconciliationEntries)
+            ? petl.reconciliationEntries
+            : [];
+          setPetlReconciliationEntries(recon);
+        }
+      } catch {
+        // Non-fatal - the reload tick will trigger refresh anyway
       }
 
       closeReconEntryEdit();
