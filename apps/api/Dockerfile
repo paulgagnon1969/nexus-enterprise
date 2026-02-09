@@ -22,8 +22,8 @@ RUN npm install
 # Copy the rest of the repo
 COPY . .
 
-# Generate Prisma Client with the latest schema
-RUN npm run --workspace=packages/database prisma:generate
+# Generate Prisma Client with the latest schema (explicit schema path to avoid caching issues)
+RUN cd /app/packages/database && npx prisma generate --schema=./prisma/schema.prisma
 
 # Build only the api (and its dependencies) via Turbo
 RUN npm run build -- --filter=api
