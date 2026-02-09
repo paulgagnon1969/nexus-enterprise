@@ -9077,6 +9077,11 @@ ${htmlBody}
       setReconTagShake(true);
       return;
     }
+    
+    if (!reconEntryEdit.draft.activity) {
+      alert("Activity is required to identify the scope of work.");
+      return;
+    }
 
     const token = localStorage.getItem("accessToken");
     if (!token) {
@@ -22126,7 +22131,9 @@ ${htmlBody}
 
               {/* Activity Selector */}
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Activity</div>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                  Activity <span style={{ color: "#dc2626" }}>*</span>
+                </div>
                 <select
                   value={reconEntryEdit.draft.activity || ""}
                   onChange={(e) => {
@@ -22190,13 +22197,13 @@ ${htmlBody}
                   style={{
                     padding: "6px 8px",
                     borderRadius: 8,
-                    border: "1px solid #d1d5db",
+                    border: reconEntryEdit.draft.activity ? "1px solid #d1d5db" : "2px solid #dc2626",
                     fontSize: 12,
                     width: "100%",
-                    backgroundColor: "#ffffff",
+                    backgroundColor: reconEntryEdit.draft.activity ? "#ffffff" : "#fef2f2",
                   }}
                 >
-                  <option value="">— Select activity —</option>
+                  <option value="">— Select activity (required) —</option>
                   <option value="REMOVE_AND_REPLACE">& R&R (Remove & Replace)</option>
                   <option value="REMOVE">- Remove</option>
                   <option value="REPLACE">+ Replace</option>
@@ -22205,8 +22212,10 @@ ${htmlBody}
                   <option value="REPAIR">F Repair</option>
                   <option value="INSTALL_ONLY">I Install Only</option>
                 </select>
-                <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>
-                  Controls which cost components contribute to the line total
+                <div style={{ fontSize: 10, color: reconEntryEdit.draft.activity ? "#6b7280" : "#dc2626", marginTop: 2 }}>
+                  {reconEntryEdit.draft.activity 
+                    ? "Controls which cost components contribute to the line total"
+                    : "⚠️ Activity is required to identify the scope of work"}
                 </div>
               </div>
 
@@ -23545,7 +23554,7 @@ ${htmlBody}
           }
           
           try {
-            // If editing an existing entry, update it instead of creating new
+            // If editing an existing entry, update it and then open full edit panel
             if (isEditing) {
               await busyOverlay.run("Updating reconciliation entry...", async () => {
                 const res = await fetch(
@@ -23569,12 +23578,17 @@ ${htmlBody}
                   return;
                 }
                 
+                // Get updated entry from response
+                const updatedEntry = await res.json();
+                
                 // Close workflow modal
                 closeModal();
                 
                 // Refresh PETL
                 setPetlReloadTick(t => t + 1);
-                showPetlToast("Reconciliation entry updated");
+                
+                // Open full edit panel with updated entry
+                openReconEntryEdit(updatedEntry);
               });
             } else {
               // Creating a new entry
