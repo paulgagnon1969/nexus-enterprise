@@ -5266,7 +5266,15 @@ export class ProjectService {
       if (body.activity === undefined) return undefined;
       if (body.activity == null || String(body.activity).trim() === "") return null;
       const raw = String(body.activity).trim();
-      const validActivities = ["REMOVE_AND_REPLACE", "REMOVE", "REPLACE", "DETACH_AND_RESET", "MATERIALS"];
+      const validActivities = [
+        "REMOVE_AND_REPLACE",
+        "REMOVE",
+        "REPLACE",
+        "DETACH_AND_RESET",
+        "MATERIALS",
+        "REPAIR",
+        "INSTALL_ONLY",
+      ];
       if (validActivities.includes(raw)) {
         return raw as PetlActivity;
       }

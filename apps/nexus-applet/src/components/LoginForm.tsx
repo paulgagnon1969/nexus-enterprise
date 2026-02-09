@@ -19,20 +19,15 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
     setError(null);
     setIsLoading(true);
 
-    console.log("[Login] Attempting login to:", apiUrl);
-
     try {
       // Save API URL first
       setApiUrl(apiUrl);
       
       const result = await login(email, password);
-      console.log("[Login] Success:", result);
       setStoredToken(result.token);
       onSuccess();
     } catch (err) {
-      console.error("[Login] Error:", err);
-      const message = err instanceof Error ? err.message : "Login failed";
-      setError(message || "Login failed - check console for details");
+      setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setIsLoading(false);
     }

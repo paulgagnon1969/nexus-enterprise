@@ -18,7 +18,7 @@ const DEFAULT_ENVIRONMENTS: Environment[] = [
   {
     id: "dev",
     name: "Development",
-    url: "http://localhost:8000",
+    url: "http://localhost:3001",
     color: "bg-amber-500",
   },
 ];
