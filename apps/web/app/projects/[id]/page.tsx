@@ -7302,6 +7302,45 @@ ${htmlBody}
     setReconWorkflowUseNote(false);
   }, [petlItems]);
 
+  // Memoized handler to delete reconciliation entry
+  const handleVirtualDeleteReconEntry = useCallback(async (entry: any) => {
+    if (!window.confirm("Delete this reconciliation entry?")) {
+      return;
+    }
+    
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token; please log in again.");
+      return;
+    }
+    
+    try {
+      await busyOverlay.run("Deleting reconciliation entry...", async () => {
+        const res = await fetch(
+          `${API_BASE}/projects/${id}/petl-reconciliation/entries/${entry.id}`,
+          {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+        
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          alert(`Delete failed (${res.status}) ${text}`);
+          return;
+        }
+        
+        // Refresh PETL to show updated data
+        setPetlReloadTick(t => t + 1);
+        showPetlToast("Reconciliation entry deleted");
+      });
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to delete reconciliation entry");
+    }
+  }, [id, busyOverlay, showPetlToast]);
+
   const handleVirtualPercentChange = useCallback(
     async (sowItemId: string, displayLineNo: string | number, newPercent: number, isAcvOnly: boolean) => {
       const token = localStorage.getItem("accessToken");
@@ -7542,6 +7581,7 @@ ${htmlBody}
             onCancelEdit={cancelPetlCellEditor}
             onPercentChange={handleVirtualPercentChange}
             onEditReconEntry={handleVirtualEditReconEntry}
+            onDeleteReconEntry={handleVirtualDeleteReconEntry}
           />
         ) : (
         <div
@@ -23472,12 +23512,19 @@ ${htmlBody}
       {/* Reconciliation Workflow Modal */}
       {reconWorkflowModal?.open && (() => {
         const item = reconWorkflowModal.sowItem;
+        const existingEntry = reconWorkflowModal.existingEntry;
+        const isEditing = !!existingEntry;
+        
+        // When editing an existing entry, show the entry's data in the header
+        // Otherwise show the parent line item's data
         const itemNote = String(item?.itemNote ?? "");
         const lineNo = item?.lineNo ?? "?";
-        const desc = String(item?.description ?? "");
-        const qty = item?.qty;
-        const unit = item?.unit ?? "";
-        const rcv = item?.rcvAmount ?? 0;
+        const desc = isEditing 
+          ? (String(existingEntry?.description ?? "") || String(existingEntry?.note ?? ""))
+          : String(item?.description ?? "");
+        const qty = isEditing ? existingEntry?.qty : item?.qty;
+        const unit = isEditing ? (existingEntry?.unit ?? "") : (item?.unit ?? "");
+        const rcv = isEditing ? (existingEntry?.rcvAmount ?? 0) : (item?.rcvAmount ?? 0);
         
         const step = reconWorkflowModal.step;
         const useNoteAsDescription = reconWorkflowUseNote;
@@ -23695,8 +23742,13 @@ ${htmlBody}
                     {!useNoteAsDescription && (
                       <div style={{ marginBottom: 20 }}>
                         <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 4 }}>
-                          📋 Reconciling the Line Item
+                          {isEditing ? "📝 Editing Entry" : "📋 Reconciling the Line Item"}
                         </div>
+                        {isEditing && desc ? (
+                          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6, whiteSpace: "pre-wrap" }}>
+                            {desc}
+                          </div>
+                        ) : null}
                         <div style={{ fontSize: 12, color: "#6b7280" }}>
                           {qty} {unit} @ ${(rcv / (qty || 1)).toFixed(2)} = ${rcv.toFixed(2)}
                         </div>
