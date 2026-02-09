@@ -648,14 +648,15 @@ export class PricingController {
         { description: "asc" },
       ],
       take: limit,
-      include: {
-        division: {
-          select: {
-            code: true,
-            name: true,
-          },
-        },
-      },
+      // TODO: Re-enable division include once Prisma client generation issue is resolved
+      // include: {
+      //   division: {
+      //     select: {
+      //       code: true,
+      //       name: true,
+      //     },
+      //   },
+      // },
     });
 
     return {
