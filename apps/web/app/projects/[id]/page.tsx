@@ -21912,14 +21912,18 @@ ${htmlBody}
                     width: "100%",
                   }}
                 >
-                  <option value="ADD">Add (Additional work)</option>
-                  <option value="CREDIT">Credit (Reduce amount)</option>
-                  <option value="CHANGE_ORDER_CLIENT_PAY">Change Order (Client pays)</option>
-                  <option value="REIMBURSE_OWNER">Reimburse Owner</option>
-                  <option value="NOTE_ONLY">Note Only</option>
+                  <option value="ADD">Add - Additional work (increases total)</option>
+                  <option value="CREDIT">Credit - Client refund (reduces total)</option>
+                  <option value="CHANGE_ORDER_CLIENT_PAY">Change Order - Client pays extra</option>
+                  <option value="REIMBURSE_OWNER">Reimburse - Return to owner</option>
+                  <option value="NOTE_ONLY">Note Only - No financial impact</option>
                 </select>
                 <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>
-                  Credit will reduce the line item total
+                  {reconEntryEdit.draft.kind === "CREDIT" && "⚠️ Credit will reduce the line total (use for client refunds)"}
+                  {reconEntryEdit.draft.kind === "ADD" && "✓ Will add to the line total"}
+                  {reconEntryEdit.draft.kind === "CHANGE_ORDER_CLIENT_PAY" && "💰 Client pays this amount separately"}
+                  {reconEntryEdit.draft.kind === "NOTE_ONLY" && "📝 No financial impact - documentation only"}
+                  {!reconEntryEdit.draft.kind && "Select the entry type"}
                 </div>
               </div>
 
