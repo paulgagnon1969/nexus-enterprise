@@ -7,6 +7,7 @@ status: draft
 created: 2026-02-08
 updated: 2026-02-08
 author: Warp
+featureId: local-price-extrapolation
 ---
 
 # Local Price Extrapolation
