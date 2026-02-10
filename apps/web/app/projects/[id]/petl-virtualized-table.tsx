@@ -668,7 +668,7 @@ function VirtualizedRow({
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 220 }} />
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, fontSize: 11, color: "#6b7280" }}>
-                {e?.activity ?? ""}
+                {parentItem?.activity ?? ""}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis" }}>
                 <span style={{ color: "#6b7280" }}>[{kind}]</span> {desc || note || ""}
