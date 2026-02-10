@@ -1348,6 +1348,17 @@ export class ProjectController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post(":id/invoices/:invoiceId/sync-from-petl")
+  syncDraftInvoiceFromPetl(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.syncDraftInvoiceFromPetl(projectId, invoiceId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post(":id/invoices/:invoiceId/payments")
   recordInvoicePayment(
     @Req() req: any,
