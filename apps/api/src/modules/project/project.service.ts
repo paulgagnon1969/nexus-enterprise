@@ -2019,12 +2019,14 @@ export class ProjectService {
     let reconciliationEntriesRaw: any[] = [];
     let reconciliationActivitySowItemIds: string[] = [];
     try {
-      const [reconMonetary, reconActivity] = await Promise.all([
+      // Fetch ALL reconciliation entries (including note-only with rcvAmount=null)
+      // so notes from CSV imports are visible in the PETL UI as subordinate items.
+      const [allEntries, reconActivity] = await Promise.all([
         this.prisma.petlReconciliationEntry.findMany({
           where: {
             projectId,
             estimateVersionId: latestVersion.id,
-            rcvAmount: { not: null },
+            parentSowItemId: { not: null },
           },
           orderBy: { createdAt: "asc" },
         }),
@@ -2039,7 +2041,7 @@ export class ProjectService {
         }),
       ]);
 
-      reconciliationEntriesRaw = reconMonetary;
+      reconciliationEntriesRaw = allEntries;
       reconciliationActivitySowItemIds = reconActivity
         .map((r: any) => r.parentSowItemId)
         .filter((v: any): v is string => typeof v === "string" && v.length > 0);
