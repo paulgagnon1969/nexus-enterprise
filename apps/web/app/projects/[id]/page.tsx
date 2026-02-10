@@ -24441,126 +24441,145 @@ ${htmlBody}
                       </div>
                     )}
                     
-                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: "#374151" }}>
-                      What type of transaction is this?
-                    </div>
-                    
-                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                      <button
-                        type="button"
-                        onClick={() => setReconWorkflowModal(prev => prev ? { ...prev, step: 'supplement' } : null)}
-                        style={{
-                          padding: 16,
-                          borderRadius: 8,
-                          border: "2px solid #2563eb",
-                          background: "#eff6ff",
-                          cursor: "pointer",
-                          textAlign: "left",
-                        }}
-                      >
-                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1d4ed8", marginBottom: 4 }}>
-                          📊 SUPPLEMENT
-                        </div>
-                        <div style={{ fontSize: 11, color: "#1e40af" }}>
-                          Alteration to this line item • Carrier-visible • Attached to line {lineNo}
-                        </div>
-                      </button>
-                      
-                      <button
-                        type="button"
-                        onClick={() => setReconWorkflowModal(prev => prev ? { ...prev, step: 'changeOrder' } : null)}
-                        style={{
-                          padding: 16,
-                          borderRadius: 8,
-                          border: "2px solid #7c3aed",
-                          background: "#f5f3ff",
-                          cursor: "pointer",
-                          textAlign: "left",
-                        }}
-                      >
-                        <div style={{ fontSize: 14, fontWeight: 600, color: "#6d28d9", marginBottom: 4 }}>
-                          📝 CHANGE ORDER
-                        </div>
-                        <div style={{ fontSize: 11, color: "#5b21b6" }}>
-                          Client transaction • Not visible to carrier • Separate financial accounting
-                        </div>
-                      </button>
-                    </div>
-                  </>
-                )}
-                
-                {step === 'supplement' && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setReconWorkflowModal(prev => prev ? { ...prev, step: 'initial' } : null)}
-                      style={{
-                        marginBottom: 16,
-                        padding: "4px 8px",
-                        borderRadius: 6,
-                        border: "1px solid #d1d5db",
-                        background: "#ffffff",
-                        cursor: "pointer",
-                        fontSize: 11,
-                        color: "#6b7280",
-                      }}
-                    >
-                      ← Back
-                    </button>
-                    
-                    <div style={{ marginBottom: 16 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "#1d4ed8", marginBottom: 4 }}>
-                        Supplement - Line {lineNo}
+                    {/* SUPPLEMENTS Section */}
+                    <div style={{ marginBottom: 20 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: "#1d4ed8", display: "flex", alignItems: "center", gap: 6 }}>
+                        📊 SUPPLEMENT
+                        <span style={{ fontSize: 10, fontWeight: 400, color: "#6b7280" }}>Carrier-visible • Attached to line {lineNo}</span>
                       </div>
-                      <div style={{ fontSize: 11, color: "#6b7280" }}>
-                        Always attached to line {lineNo} • Carrier-visible
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <button
+                          type="button"
+                          onClick={() => createReconEntry({ tag: 'SUPPLEMENT', kind: 'ADD', isStandaloneChangeOrder: false, useNoteAsDescription })}
+                          style={{
+                            flex: 1,
+                            padding: 14,
+                            borderRadius: 8,
+                            border: "2px solid #2563eb",
+                            background: "#eff6ff",
+                            cursor: "pointer",
+                            textAlign: "center",
+                          }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1d4ed8" }}>
+                            ➕ Supplement Charge
+                          </div>
+                          <div style={{ fontSize: 10, color: "#3b82f6", marginTop: 2 }}>
+                            Add to carrier scope
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => createReconEntry({ tag: 'SUPPLEMENT', kind: 'CREDIT', isStandaloneChangeOrder: false, useNoteAsDescription })}
+                          style={{
+                            flex: 1,
+                            padding: 14,
+                            borderRadius: 8,
+                            border: "2px solid #2563eb",
+                            background: "#dbeafe",
+                            cursor: "pointer",
+                            textAlign: "center",
+                          }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1e40af" }}>
+                            ➖ Supplement Credit
+                          </div>
+                          <div style={{ fontSize: 10, color: "#3b82f6", marginTop: 2 }}>
+                            Reduce carrier scope
+                          </div>
+                        </button>
                       </div>
                     </div>
                     
-                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: "#374151" }}>
-                      Is this a charge or credit?
-                    </div>
-                    
-                    <div style={{ display: "flex", gap: 12 }}>
-                      <button
-                        type="button"
-                        onClick={() => createReconEntry({ tag: 'SUPPLEMENT', kind: 'ADD', isStandaloneChangeOrder: false, useNoteAsDescription })}
-                        style={{
-                          flex: 1,
-                          padding: 16,
-                          borderRadius: 8,
-                          border: "2px solid #059669",
-                          background: "#ecfdf5",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <div style={{ fontSize: 14, fontWeight: 600, color: "#047857" }}>
-                          ➕ Charge
-                        </div>
-                        <div style={{ fontSize: 11, color: "#065f46" }}>
-                          Add cost to line
-                        </div>
-                      </button>
+                    {/* CHANGE ORDERS Section */}
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: "#7c3aed", display: "flex", alignItems: "center", gap: 6 }}>
+                        📝 CHANGE ORDER
+                        <span style={{ fontSize: 10, fontWeight: 400, color: "#6b7280" }}>Client transaction • Not visible to carrier</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+                        <button
+                          type="button"
+                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'ADD', isStandaloneChangeOrder: false, useNoteAsDescription })}
+                          style={{
+                            flex: 1,
+                            padding: 14,
+                            borderRadius: 8,
+                            border: "2px solid #7c3aed",
+                            background: "#f5f3ff",
+                            cursor: "pointer",
+                            textAlign: "center",
+                          }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#6d28d9" }}>
+                            ➕ CO Charge
+                          </div>
+                          <div style={{ fontSize: 10, color: "#8b5cf6", marginTop: 2 }}>
+                            Attached to {lineNo}
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'CREDIT', isStandaloneChangeOrder: false, useNoteAsDescription })}
+                          style={{
+                            flex: 1,
+                            padding: 14,
+                            borderRadius: 8,
+                            border: "2px solid #7c3aed",
+                            background: "#ede9fe",
+                            cursor: "pointer",
+                            textAlign: "center",
+                          }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#5b21b6" }}>
+                            ➖ CO Credit
+                          </div>
+                          <div style={{ fontSize: 10, color: "#8b5cf6", marginTop: 2 }}>
+                            Attached to {lineNo}
+                          </div>
+                        </button>
+                      </div>
                       
-                      <button
-                        type="button"
-                        onClick={() => createReconEntry({ tag: 'SUPPLEMENT', kind: 'CREDIT', isStandaloneChangeOrder: false, useNoteAsDescription })}
-                        style={{
-                          flex: 1,
-                          padding: 16,
-                          borderRadius: 8,
-                          border: "2px solid #dc2626",
-                          background: "#fef2f2",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <div style={{ fontSize: 14, fontWeight: 600, color: "#b91c1c" }}>
-                          ➖ Credit
-                        </div>
-                        <div style={{ fontSize: 11, color: "#991b1b" }}>
-                          Reduce cost
-                        </div>
-                      </button>
+                      {/* Standalone COs - secondary row */}
+                      <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6, marginTop: 12 }}>
+                        Or create a standalone CO (room-level, not attached to this line):
+                      </div>
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <button
+                          type="button"
+                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'ADD', isStandaloneChangeOrder: true, useNoteAsDescription })}
+                          style={{
+                            flex: 1,
+                            padding: 10,
+                            borderRadius: 6,
+                            border: "1px solid #a78bfa",
+                            background: "#faf5ff",
+                            cursor: "pointer",
+                            textAlign: "center",
+                          }}
+                        >
+                          <div style={{ fontSize: 11, fontWeight: 500, color: "#7c3aed" }}>
+                            🆕 Standalone Charge
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => createReconEntry({ tag: 'CHANGE_ORDER', kind: 'CREDIT', isStandaloneChangeOrder: true, useNoteAsDescription })}
+                          style={{
+                            flex: 1,
+                            padding: 10,
+                            borderRadius: 6,
+                            border: "1px solid #a78bfa",
+                            background: "#faf5ff",
+                            cursor: "pointer",
+                            textAlign: "center",
+                          }}
+                        >
+                          <div style={{ fontSize: 11, fontWeight: 500, color: "#7c3aed" }}>
+                            🆕 Standalone Credit
+                          </div>
+                        </button>
+                      </div>
                     </div>
                   </>
                 )}
