@@ -770,10 +770,10 @@ function VirtualizedRow({
                 )}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, fontSize: 11 }}>
-                {e?.categoryCode ?? ""}
+                {parentItem?.categoryCode ?? ""}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, fontSize: 11 }}>
-                {e?.selectionCode ?? ""}
+                {parentItem?.selectionCode ?? ""}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 180 }}>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
