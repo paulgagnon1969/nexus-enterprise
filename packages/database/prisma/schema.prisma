@@ -140,6 +140,9 @@ model Company {
 
   // Claim Journal (carrier negotiation tracking)
   carrierContacts CarrierContact[]
+
+  // Field-level security policies
+  fieldSecurityPolicies FieldSecurityPolicy[]
 }
 
 model OrganizationTemplate {
@@ -4658,4 +4661,58 @@ model ClaimJournalAttachment {
 
   @@index([journalEntryId], map: "ClaimJournalAttachment_entry_idx")
   @@index([uploadedById], map: "ClaimJournalAttachment_uploader_idx")
+}
+
+// =============================================================================
+// Field-Level Security System
+// =============================================================================
+
+/// Company-scoped field-level security policies.
+/// Each policy defines access rules for a specific "resourceKey" (e.g. "petl.rcvAmount").
+model FieldSecurityPolicy {
+  id          String   @id @default(cuid())
+  companyId   String
+  resourceKey String   // e.g. "petl.rcvAmount", "project.financial.payments"
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company     Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  permissions FieldSecurityPermission[]
+
+  @@unique([companyId, resourceKey], name: "FieldSecurityPolicy_company_resource_key")
+  @@index([companyId], map: "FieldSecurityPolicy_company_idx")
+}
+
+/// Role-based permissions for a field security policy.
+/// Tracks canView, canEdit, canExport per role code.
+model FieldSecurityPermission {
+  id        String  @id @default(cuid())
+  policyId  String
+  roleCode  String  // "CLIENT", "CREW", "FOREMAN", "SUPER", "PM", "ADMIN", "OWNER", "SUPER_ADMIN"
+  canView   Boolean @default(true)
+  canEdit   Boolean @default(false)
+  canExport Boolean @default(true)
+
+  policy FieldSecurityPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@unique([policyId, roleCode], name: "FieldSecurityPermission_policy_role_key")
+  @@index([policyId], map: "FieldSecurityPermission_policy_idx")
+}
+
+/// Audit log for field security policy changes.
+model FieldSecurityAuditLog {
+  id           String   @id @default(cuid())
+  companyId    String
+  policyId     String?
+  resourceKey  String
+  action       String   // "CREATE", "UPDATE", "DELETE"
+  actorUserId  String
+  actorEmail   String
+  previousJson Json?
+  newJson      Json?
+  createdAt    DateTime @default(now())
+
+  @@index([companyId, createdAt], map: "FieldSecurityAuditLog_company_created_idx")
+  @@index([policyId], map: "FieldSecurityAuditLog_policy_idx")
 }

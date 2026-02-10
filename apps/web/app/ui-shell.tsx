@@ -539,22 +539,33 @@ export function AppShell({ children }: { children: ReactNode }) {
             label={h.people}
             active={
               path.startsWith("/company/") ||
-              path.startsWith("/workers") ||
-              path.startsWith("/settings/roles")
+              path.startsWith("/settings/roles") ||
+              path.startsWith("/admin/security")
             }
-            items={[
-              { label: h.workerProfiles, href: "/company/users" },
-              {
-                label: h.prospectiveCandidates,
-                href: "/company/users?tab=candidates",
-              },
-              { label: h.openTradesProfile, href: "/company/trades" },
-              { label: h.clientProfiles, href: "/company/clients" },
-              { label: h.fieldWorkersBia, href: "/workers" },
-              // Tenant-level role configuration lives under People so admins can
-              // fine-tune who can view/edit/mark-for-deletion entities by role.
-              { label: "Roles & permissions", href: "/settings/roles" },
-            ]}
+            items={
+              globalRole === "SUPER_ADMIN" || companyRole === "OWNER" || companyRole === "ADMIN"
+                ? [
+                    { label: h.workerProfiles, href: "/company/users" },
+                    {
+                      label: h.prospectiveCandidates,
+                      href: "/company/users?tab=candidates",
+                    },
+                    { label: h.openTradesProfile, href: "/company/trades" },
+                    { label: h.clientProfiles, href: "/company/clients" },
+                    { label: "Roles & permissions", href: "/settings/roles" },
+                    { label: "Field Security", href: "/admin/security" },
+                  ]
+                : [
+                    { label: h.workerProfiles, href: "/company/users" },
+                    {
+                      label: h.prospectiveCandidates,
+                      href: "/company/users?tab=candidates",
+                    },
+                    { label: h.openTradesProfile, href: "/company/trades" },
+                    { label: h.clientProfiles, href: "/company/clients" },
+                    { label: "Roles & permissions", href: "/settings/roles" },
+                  ]
+            }
           />
           <Link
             href="/learning"
@@ -725,8 +736,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 }
 
-export function PageCard({ children }: { children: ReactNode }) {
-  return <div className="app-card">{children}</div>;
+export function PageCard({ children, style, className }: { children: ReactNode; style?: React.CSSProperties; className?: string }) {
+  return <div className={className ? `app-card ${className}` : "app-card"} style={style}>{children}</div>;
 }
 
 function CompanySwitcher() {

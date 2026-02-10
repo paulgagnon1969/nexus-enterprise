@@ -3,6 +3,7 @@
 import * as React from "react";
 import { memo, useCallback, useMemo } from "react";
 import { List, type RowComponentProps } from "react-window";
+import { RoleVisible } from "../../role-audit";
 
 interface PetlItem {
   id: string;
@@ -280,40 +281,44 @@ const PetlRow = memo(function PetlRow({
           )}
         </td>
         <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", whiteSpace: "nowrap" }}>
-          {(item.itemAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+          <RoleVisible minRole="SUPER">
+            {(item.itemAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+          </RoleVisible>
         </td>
         <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", whiteSpace: "nowrap" }}>
-          {isPmOrAbove && isEditingRcv ? (
-            <input
-              type="number"
-              value={editDraft}
-              autoFocus
-              onChange={(e) => onEditDraftChange(e.target.value)}
-              onBlur={onSaveEdit}
-              onKeyDown={handleKeyDown}
-              disabled={editSaving}
-              style={{ width: 80, padding: "2px 4px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 11 }}
-            />
-          ) : (
-            <button
-              type="button"
-              disabled={!isPmOrAbove}
-              onClick={() => onOpenCellEditor(item.id, "rcvAmount", item.rcvAmount)}
-              style={{
-                border: "none",
-                background: "transparent",
-                padding: 0,
-                margin: 0,
-                cursor: isPmOrAbove ? "pointer" : "default",
-                minWidth: 60,
-                textAlign: "right",
-                fontFamily: "inherit",
-                fontSize: 12,
-              }}
-            >
-              {(item.rcvAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </button>
-          )}
+          <RoleVisible minRole="SUPER">
+            {isPmOrAbove && isEditingRcv ? (
+              <input
+                type="number"
+                value={editDraft}
+                autoFocus
+                onChange={(e) => onEditDraftChange(e.target.value)}
+                onBlur={onSaveEdit}
+                onKeyDown={handleKeyDown}
+                disabled={editSaving}
+                style={{ width: 80, padding: "2px 4px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 11 }}
+              />
+            ) : (
+              <button
+                type="button"
+                disabled={!isPmOrAbove}
+                onClick={() => onOpenCellEditor(item.id, "rcvAmount", item.rcvAmount)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  padding: 0,
+                  margin: 0,
+                  cursor: isPmOrAbove ? "pointer" : "default",
+                  minWidth: 60,
+                  textAlign: "right",
+                  fontFamily: "inherit",
+                  fontSize: 12,
+                }}
+              >
+                {(item.rcvAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </button>
+            )}
+          </RoleVisible>
         </td>
         <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", whiteSpace: "nowrap" }}>
           {item.isAcvOnly ? (
@@ -393,55 +398,57 @@ const PetlRow = memo(function PetlRow({
           )}
         </td>
         <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", whiteSpace: "nowrap" }}>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <button
-              type="button"
-              onClick={() => onToggleFlag(item.id)}
-              style={{
-                padding: "2px 6px",
-                borderRadius: 999,
-                border: isFlagged ? "1px solid #b45309" : "1px solid #d1d5db",
-                background: isFlagged ? "#fffbeb" : "#ffffff",
-                fontSize: 11,
-                cursor: "pointer",
-                color: isFlagged ? "#92400e" : "#374151",
-              }}
-            >
-              {isFlagged ? "Needs review" : "Flag"}
-            </button>
-            <button
-              type="button"
-              onClick={() => onOpenReconciliation(item.id)}
-              style={{
-                padding: "2px 6px",
-                borderRadius: 999,
-                border: "1px solid #2563eb",
-                background: "#eff6ff",
-                fontSize: 11,
-                cursor: "pointer",
-                color: "#1d4ed8",
-              }}
-            >
-              Reconcile
-            </button>
-            {isAdminOrAbove && (
+          <RoleVisible minRole="SUPER">
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
               <button
                 type="button"
-                onClick={() => onDeleteItem(item)}
+                onClick={() => onToggleFlag(item.id)}
                 style={{
                   padding: "2px 6px",
                   borderRadius: 999,
-                  border: "1px solid #b91c1c",
-                  background: "#fff1f2",
+                  border: isFlagged ? "1px solid #b45309" : "1px solid #d1d5db",
+                  background: isFlagged ? "#fffbeb" : "#ffffff",
                   fontSize: 11,
                   cursor: "pointer",
-                  color: "#b91c1c",
+                  color: isFlagged ? "#92400e" : "#374151",
                 }}
               >
-                Delete
+                {isFlagged ? "Needs review" : "Flag"}
               </button>
-            )}
-          </div>
+              <button
+                type="button"
+                onClick={() => onOpenReconciliation(item.id)}
+                style={{
+                  padding: "2px 6px",
+                  borderRadius: 999,
+                  border: "1px solid #2563eb",
+                  background: "#eff6ff",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  color: "#1d4ed8",
+                }}
+              >
+                Reconcile
+              </button>
+              {isAdminOrAbove && (
+                <button
+                  type="button"
+                  onClick={() => onDeleteItem(item)}
+                  style={{
+                    padding: "2px 6px",
+                    borderRadius: 999,
+                    border: "1px solid #b91c1c",
+                    background: "#fff1f2",
+                    fontSize: 11,
+                    cursor: "pointer",
+                    color: "#b91c1c",
+                  }}
+                >
+                  Delete
+                </button>
+              )}
+            </div>
+          </RoleVisible>
         </td>
       </tr>
       {showSublines &&
@@ -564,6 +571,8 @@ interface FlatRow {
   reconEntry?: ReconEntry;
   reconSeq?: number | null; // null for note-only entries
   displayLineNo: string | number; // Can be string for CO format like "15-CO1"
+  movedToLabel?: string | null; // precomputed for note-only entries
+  isNoteOnly?: boolean; // fast path for rowHeight/render
 }
 
 export interface PetlVirtualizedTableProps {
@@ -664,23 +673,11 @@ function VirtualizedRow({
     const isCredit = kind === "CREDIT" || (rcvAmt != null && rcvAmt < 0);
     const isNoteOnly = rcvAmt == null && note;
     const lineLabel = row.reconSeq != null ? `${row.displayLineNo}.${row.reconSeq}` : `${row.displayLineNo}`;
-    
-    // For note-only entries, find if there's a linked financial entry to show "Moved to" label
-    let movedToLabel: string | null = null;
-    if (isNoteOnly) {
-      const siblingEntries = reconEntriesBySowItemId.get(parentItem.id) ?? [];
-      const financialEntries = siblingEntries.filter((sib) => sib?.rcvAmount != null && sib.id !== e.id);
-      if (financialEntries.length > 0) {
-        // Find the first financial entry (could be a CO or regular reconciliation)
-        const firstFinancial = financialEntries[0];
-        if (firstFinancial?.isStandaloneChangeOrder && firstFinancial?.coSequenceNo != null) {
-          movedToLabel = `${row.displayLineNo}-CO${firstFinancial.coSequenceNo}`;
-        } else {
-          // Find the sequence number of this financial entry
-          const seqIdx = financialEntries.findIndex((f) => f.id === firstFinancial.id);
-          movedToLabel = `${row.displayLineNo}.${seqIdx + 1}`;
-        }
-      }
+    const movedToLabel: string | null = row.movedToLabel ?? null;
+
+    // Fast path: render nothing for hidden note-only rows
+    if (isNoteOnly && (hideNotes as boolean)) {
+      return <div style={{ ...style, height: 0, overflow: "hidden" }} />;
     }
 
     return (
@@ -950,10 +947,10 @@ function VirtualizedRow({
                 </button>
               )}
             </td>
-            <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }}>
+            <td data-sec-key="petl.itemAmount" style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }}>
               {(item.itemAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
             </td>
-            <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }}>
+            <td data-sec-key="petl.rcvAmount" style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }}>
               {isPmOrAbove && isEditingRcv ? (
                 <input type="number" value={editDraft} autoFocus onChange={(e) => onEditDraftChange(e.target.value)} onBlur={onSaveEdit} onKeyDown={handleKeyDown} disabled={editSaving} style={{ width: 70, padding: "2px 4px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 11 }} />
               ) : (
@@ -962,7 +959,7 @@ function VirtualizedRow({
                 </button>
               )}
             </td>
-            <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>
+            <td data-sec-key="petl.percentComplete" style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>
               <select
                 value={item.isAcvOnly ? "ACV" : String(item.percentComplete)}
                 onChange={(e) => {
@@ -1067,45 +1064,47 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
 
       if (expandedIds.has(item.id)) {
         const reconEntries = reconEntriesBySowItemId.get(item.id) ?? [];
-        // Show ALL entries: financial (rcvAmount != null) get sequence numbers,
-        // note-only entries (rcvAmount == null) show as subordinated notes
-        const financial = reconEntries.filter((e) => e?.rcvAmount != null);
-        const noteOnly = reconEntries.filter((e) => e?.rcvAmount == null && e?.note);
-        
+        // Single pass split to avoid repeated filters per item
+        const financial: ReconEntry[] = [];
+        const noteOnly: ReconEntry[] = [];
+        for (const e of reconEntries) {
+          const rcv = typeof (e as any)?.rcvAmount === 'number' ? (e as any).rcvAmount : null;
+          if (rcv != null) financial.push(e);
+          else if (e?.note) noteOnly.push(e);
+        }
         // Financial entries first with sequence numbers
-        financial.forEach((entry, idx) => {
-          rows.push({
-            type: "recon",
-            item,
-            reconEntry: entry,
-            reconSeq: idx + 1,
-            displayLineNo,
-          });
-        });
-        
+        for (let idx = 0; idx < financial.length; idx++) {
+          const entry = financial[idx];
+          rows.push({ type: "recon", item, reconEntry: entry, reconSeq: idx + 1, displayLineNo });
+        }
         // Note-only entries as subordinated lines (no sequence number)
-        // Skip if hideNotes is true
-        if (!hideNotes) {
-          noteOnly.forEach((entry) => {
-            rows.push({
-              type: "recon",
-              item,
-              reconEntry: entry,
-              reconSeq: null, // No sequence for note-only
-              displayLineNo,
-            });
-          });
+        // Always include; we will hide via 0-height when hideNotes=true to avoid full rebuilds
+        const hasFinancial = financial.length > 0;
+        const firstFinancial = hasFinancial ? financial[0] : null;
+        const coSeq = (firstFinancial as any)?.coSequenceNo as number | null | undefined;
+        const isStandaloneCO = Boolean((firstFinancial as any)?.isStandaloneChangeOrder) && typeof coSeq === 'number';
+        const movedLabel = hasFinancial
+          ? (isStandaloneCO ? `${displayLineNo}-CO${coSeq}` : `${displayLineNo}.1`)
+          : null;
+        for (const entry of noteOnly) {
+          rows.push({ type: "recon", item, reconEntry: entry, reconSeq: null, displayLineNo, movedToLabel: movedLabel, isNoteOnly: true });
         }
       }
     }
     return rows;
-  }, [items, expandedIds, reconEntriesBySowItemId, hideNotes]);
+  }, [items, expandedIds, reconEntriesBySowItemId]);
 
   // Row height function for react-window v2
   const getRowHeight = useCallback(
     (index: number, rowProps: VirtualizedRowProps) => {
       const row = rowProps.flatRows[index];
-      return row?.type === "recon" ? RECON_ROW_HEIGHT : ROW_HEIGHT;
+      if (!row) return ROW_HEIGHT;
+      if (row.type === "recon") {
+        // Hide note-only rows by returning 0 height when hideNotes is active.
+        if (row.isNoteOnly && rowProps.hideNotes) return 0;
+        return RECON_ROW_HEIGHT;
+      }
+      return ROW_HEIGHT;
     },
     []
   );
@@ -1147,18 +1146,42 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
           <thead>
             <tr>
-              <th style={{ textAlign: "left", padding: "6px 8px", width: 120 }}>Line</th>
-              <th style={{ textAlign: "left", padding: "6px 8px", width: 220 }}>Room</th>
-              <th style={{ textAlign: "left", padding: "6px 8px", width: 100 }}>Activity</th>
-              <th style={{ textAlign: "left", padding: "6px 8px" }}>Task</th>
-              <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>Qty</th>
-              <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>Unit</th>
-              <th style={{ textAlign: "right", padding: "6px 8px", width: 100 }}>Total</th>
-              <th style={{ textAlign: "right", padding: "6px 8px", width: 100 }}>RCV</th>
-              <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>%</th>
-              <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>Cat</th>
-              <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>Sel</th>
-              <th style={{ textAlign: "left", padding: "6px 8px", width: 180 }}>Recon</th>
+              <th style={{ textAlign: "left", padding: "6px 8px", width: 120 }}>
+                <RoleVisible minRole="CLIENT">Line</RoleVisible>
+              </th>
+              <th style={{ textAlign: "left", padding: "6px 8px", width: 220 }}>
+                <RoleVisible minRole="CLIENT">Room</RoleVisible>
+              </th>
+              <th style={{ textAlign: "left", padding: "6px 8px", width: 100 }}>
+                <RoleVisible minRole="CLIENT">Activity</RoleVisible>
+              </th>
+              <th style={{ textAlign: "left", padding: "6px 8px" }}>
+                <RoleVisible minRole="CLIENT">Task</RoleVisible>
+              </th>
+              <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>
+                <RoleVisible minRole="CLIENT">Qty</RoleVisible>
+              </th>
+              <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>
+                <RoleVisible minRole="CLIENT">Unit</RoleVisible>
+              </th>
+              <th style={{ textAlign: "right", padding: "6px 8px", width: 100 }}>
+                <RoleVisible minRole="SUPER">Total</RoleVisible>
+              </th>
+              <th style={{ textAlign: "right", padding: "6px 8px", width: 100 }}>
+                <RoleVisible minRole="SUPER">RCV</RoleVisible>
+              </th>
+              <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>
+                <RoleVisible minRole="FOREMAN">%</RoleVisible>
+              </th>
+              <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>
+                <RoleVisible minRole="CLIENT">Cat</RoleVisible>
+              </th>
+              <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>
+                <RoleVisible minRole="CLIENT">Sel</RoleVisible>
+              </th>
+              <th style={{ textAlign: "left", padding: "6px 8px", width: 180 }}>
+                <RoleVisible minRole="SUPER">Recon</RoleVisible>
+              </th>
             </tr>
           </thead>
         </table>
@@ -1171,7 +1194,7 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
         rowHeight={getRowHeight}
         rowComponent={VirtualizedRow}
         rowProps={rowProps}
-        overscanCount={10}
+        overscanCount={4}
       />
     </div>
   );

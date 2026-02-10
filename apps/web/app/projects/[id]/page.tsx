@@ -23,6 +23,7 @@ import { PetlVirtualizedTable } from "./petl-virtualized-table";
 import { InvoicePetlVirtualizedTable } from "./invoice-petl-virtualized-table";
 import { useDraggable } from "../../hooks/use-draggable";
 import { JournalTab } from "./journal";
+import { RoleVisible } from "../../role-audit";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -10105,38 +10106,44 @@ ${htmlBody}
                   </span>
                 )}
               </div>
-              <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
-                Status: {project.status}
-              </p>
+              <RoleVisible minRole="CREW">
+                <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
+                  Status: {project.status}
+                </p>
+              </RoleVisible>
               {actorDisplayName && (
-                <p style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-                  You are logged in as {actorDisplayName}
-                  {actorProjectRoles && actorProjectRoles.length > 0 && (
+                <RoleVisible minRole="PM">
+                  <p style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                    You are logged in as {actorDisplayName}
+                    {actorProjectRoles && actorProjectRoles.length > 0 && (
+                      <>
+                        {" "}· Project role(s): {actorProjectRoles.join(", ")}
+                      </>
+                    )}
+                  </p>
+                </RoleVisible>
+              )}
+              <RoleVisible minRole="FOREMAN">
+                <p style={{ fontSize: 13, marginTop: 8 }}>
+                  {projectMapsUrl && projectAddress ? (
+                    <a
+                      href={projectMapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "#2563eb", textDecoration: "none" }}
+                    >
+                      {projectAddress}
+                    </a>
+                  ) : (
                     <>
-                      {" "}· Project role(s): {actorProjectRoles.join(", ")}
+                      {project.addressLine1}
+                      {project.addressLine2 ? `, ${project.addressLine2}` : ""}
+                      <br />
+                      {project.city}, {project.state}
                     </>
                   )}
                 </p>
-              )}
-              <p style={{ fontSize: 13, marginTop: 8 }}>
-                {projectMapsUrl && projectAddress ? (
-                  <a
-                    href={projectMapsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: "#2563eb", textDecoration: "none" }}
-                  >
-                    {projectAddress}
-                  </a>
-                ) : (
-                  <>
-                    {project.addressLine1}
-                    {project.addressLine2 ? `, ${project.addressLine2}` : ""}
-                    <br />
-                    {project.city}, {project.state}
-                  </>
-                )}
-              </p>
+              </RoleVisible>
             </>
           )}
 
@@ -10374,21 +10381,23 @@ ${htmlBody}
             }}
           >
             {!editProjectMode && (
-              <button
-                type="button"
-                onClick={beginEditProject}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 999,
-                  border: "1px solid #0f172a",
-                  background: "#0f172a",
-                  color: "#f9fafb",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                Edit project
-              </button>
+              <RoleVisible minRole="ADMIN">
+                <button
+                  type="button"
+                  onClick={beginEditProject}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    border: "1px solid #0f172a",
+                    background: "#0f172a",
+                    color: "#f9fafb",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  Edit project
+                </button>
+              </RoleVisible>
             )}
             {editProjectMode && (
               <div style={{ display: "flex", gap: 8 }}>
@@ -10682,22 +10691,28 @@ ${htmlBody}
                     : "All Items"}
                 </div>
                 <div style={{ fontSize: 11, lineHeight: 1.5 }}>
-                  <div>Progress: {selectionSummary.percentComplete.toFixed(2)}%</div>
+                  <RoleVisible minRole="CLIENT">
+                    <div>Progress: {selectionSummary.percentComplete.toFixed(2)}%</div>
+                  </RoleVisible>
                   {selectionSummary.totalAmount > 0 && (
-                    <div>
-                      Total: $
-                      {selectionSummary.totalAmount.toLocaleString(undefined, {
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
+                    <RoleVisible minRole="SUPER">
+                      <div>
+                        Total: $
+                        {selectionSummary.totalAmount.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                    </RoleVisible>
                   )}
                   {selectionSummary.completedAmount > 0 && (
-                    <div>
-                      Completed: $
-                      {selectionSummary.completedAmount.toLocaleString(undefined, {
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
+                    <RoleVisible minRole="SUPER">
+                      <div>
+                        Completed: $
+                        {selectionSummary.completedAmount.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                    </RoleVisible>
                   )}
                 </div>
               </>
@@ -10710,12 +10725,16 @@ ${htmlBody}
             <div style={{ fontSize: 11, lineHeight: 1.5 }}>
               {overallSummary && (
                 <>
-                  <div>
-                    Overall Progress: {overallSummary.percentComplete.toFixed(2)}%
-                    {overallSummary.totalAmount > 0 && (
-                      <> of ${overallSummary.totalAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</>
-                    )}
-                  </div>
+                  <RoleVisible minRole="CLIENT">
+                    <div>Overall Progress: {overallSummary.percentComplete.toFixed(2)}%</div>
+                  </RoleVisible>
+                  {overallSummary.totalAmount > 0 && (
+                    <RoleVisible minRole="SUPER">
+                      <div>
+                        Contract Value: ${overallSummary.totalAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </div>
+                    </RoleVisible>
+                  )}
                 </>
               )}
               {(() => {
@@ -10748,24 +10767,30 @@ ${htmlBody}
 
                 return (
                   <>
-                    <div>
-                      Supplements: $
-                      {projectSupplementTotal.toLocaleString(undefined, {
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
-                    <div>
-                      Change Orders: $
-                      {projectChangeOrderTotal.toLocaleString(undefined, {
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
-                    <div>
-                      ACV Rebate: $
-                      {projectAcvRebateTotal.toLocaleString(undefined, {
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
+                    <RoleVisible minRole="SUPER">
+                      <div>
+                        Supplements: $
+                        {projectSupplementTotal.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                    </RoleVisible>
+                    <RoleVisible minRole="SUPER">
+                      <div>
+                        Change Orders: $
+                        {projectChangeOrderTotal.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                    </RoleVisible>
+                    <RoleVisible minRole="SUPER">
+                      <div>
+                        ACV Rebate: $
+                        {projectAcvRebateTotal.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                    </RoleVisible>
                   </>
                 );
               })()}
@@ -10832,24 +10857,30 @@ ${htmlBody}
 
                 return (
                   <div style={{ fontSize: 11, lineHeight: 1.5 }}>
-                    <div>
-                      Supplements: $
-                      {filteredSupplementTotal.toLocaleString(undefined, {
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
-                    <div>
-                      Change Orders: $
-                      {filteredChangeOrderTotal.toLocaleString(undefined, {
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
-                    <div>
-                      ACV Rebate: $
-                      {filteredAcvRebateTotal.toLocaleString(undefined, {
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
+                    <RoleVisible minRole="SUPER">
+                      <div>
+                        Supplements: $
+                        {filteredSupplementTotal.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                    </RoleVisible>
+                    <RoleVisible minRole="SUPER">
+                      <div>
+                        Change Orders: $
+                        {filteredChangeOrderTotal.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                    </RoleVisible>
+                    <RoleVisible minRole="SUPER">
+                      <div>
+                        ACV Rebate: $
+                        {filteredAcvRebateTotal.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
+                      </div>
+                    </RoleVisible>
                   </div>
                 );
               })()}
@@ -10922,14 +10953,16 @@ ${htmlBody}
                 <div><strong>Projected Completion:</strong> N/A</div>
                 <div><strong>Actual Completion:</strong> N/A</div>
                 <div><strong>Permit #:</strong> N/A</div>
-                <div>
-                  <strong>Contract Price:</strong>{" "}
-                  {petlTotalAmount != null
-                    ? `$${petlTotalAmount.toLocaleString(undefined, {
-                        maximumFractionDigits: 2,
-                      })}`
-                    : "$0.00"}
-                </div>
+                <RoleVisible minRole="SUPER">
+                  <div>
+                    <strong>Contract Price:</strong>{" "}
+                    {petlTotalAmount != null
+                      ? `$${petlTotalAmount.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}`
+                      : "$0.00"}
+                  </div>
+                </RoleVisible>
               </div>
             </div>
           </div>
@@ -19643,7 +19676,7 @@ ${htmlBody}
             >
               <button
                 type="button"
-                onClick={() => setPetlHideNotes(true)}
+                onClick={() => startPetlTransition(() => setPetlHideNotes(true))}
                 style={{
                   padding: "5px 10px",
                   fontSize: 12,
@@ -19659,7 +19692,7 @@ ${htmlBody}
               </button>
               <button
                 type="button"
-                onClick={() => setPetlHideNotes(false)}
+                onClick={() => startPetlTransition(() => setPetlHideNotes(false))}
                 style={{
                   padding: "5px 10px",
                   fontSize: 12,

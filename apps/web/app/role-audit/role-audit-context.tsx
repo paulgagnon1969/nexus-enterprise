@@ -22,6 +22,33 @@ export const ROLE_HIERARCHY = [
 export type VisibilityRole = (typeof ROLE_HIERARCHY)[number];
 
 /**
+ * Map ViewRole (from view-as-role switcher) to VisibilityRole for filtering.
+ * ACTUAL means use the user's real permissions (no filtering).
+ */
+export const VIEW_ROLE_TO_VISIBILITY: Record<string, VisibilityRole | "ACTUAL"> = {
+  ACTUAL: "ACTUAL",
+  SUPER_ADMIN: "SUPER_ADMIN",
+  OWNER: "OWNER",
+  ADMIN: "ADMIN",
+  EXECUTIVE: "EXECUTIVE",
+  PM: "PM",
+  SUPER: "SUPER",
+  FOREMAN: "FOREMAN",
+  CREW: "CREW",
+  CLIENT: "CLIENT",
+};
+
+/**
+ * Check if a given visibility role can see content requiring minRole.
+ * Returns true if currentRole >= minRole in the hierarchy.
+ */
+export function canRoleSee(currentRole: VisibilityRole, minRole: VisibilityRole): boolean {
+  const currentIndex = ROLE_HIERARCHY.indexOf(currentRole);
+  const minIndex = ROLE_HIERARCHY.indexOf(minRole);
+  return currentIndex >= minIndex;
+}
+
+/**
  * Color scheme for role visibility - progresses from green (open) to red (restricted)
  */
 export const ROLE_COLORS: Record<VisibilityRole, { bg: string; border: string; text: string }> = {

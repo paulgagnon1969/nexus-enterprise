@@ -4,9 +4,12 @@ import React, { type ReactNode, type CSSProperties } from "react";
 import {
   ROLE_COLORS,
   ROLE_LABELS,
+  VIEW_ROLE_TO_VISIBILITY,
+  canRoleSee,
   useRoleAuditSafe,
   type VisibilityRole,
 } from "./role-audit-context";
+import { useViewRoleSafe } from "../view-as-role-context";
 
 interface RoleVisibleProps {
   /**
@@ -57,6 +60,19 @@ export function RoleVisible({
   style,
 }: RoleVisibleProps) {
   const { auditMode } = useRoleAuditSafe();
+  const { viewAs } = useViewRoleSafe();
+
+  // Check if we should hide this content based on viewAs role
+  const mappedRole = VIEW_ROLE_TO_VISIBILITY[viewAs] ?? "ACTUAL";
+  
+  if (mappedRole !== "ACTUAL") {
+    // We're simulating a different role - check if it can see this content
+    const canSee = canRoleSee(mappedRole as VisibilityRole, minRole);
+    if (!canSee) {
+      // Hide the content entirely when viewing as a role that can't see it
+      return null;
+    }
+  }
 
   if (!auditMode) {
     // When not in audit mode, just render children directly
@@ -69,18 +85,18 @@ export function RoleVisible({
 
   const baseStyles: CSSProperties = {
     background: colors.bg,
-    border: `2px solid ${colors.border}`,
-    borderRadius: 4,
+    border: `3px solid ${colors.border}`,
+    borderRadius: 6,
     position: "relative",
     ...style,
   };
 
   const displayStyles: CSSProperties = 
     display === "inline"
-      ? { display: "inline", padding: "1px 4px" }
+      ? { display: "inline", padding: "2px 8px" }
       : display === "field"
-        ? { display: "block", padding: "4px 6px" }
-        : { display: "block", padding: "2px 4px" };
+        ? { display: "block", padding: "8px 12px" }
+        : { display: "block", padding: "4px 8px" };
 
   return (
     <span
@@ -89,21 +105,22 @@ export function RoleVisible({
       data-role-audit={minRole}
     >
       {children}
-      {/* Small badge showing the role level */}
+      {/* Badge showing the role level - 2x size */}
       <span
         style={{
           position: "absolute",
-          top: -8,
-          right: -4,
+          top: -12,
+          right: -6,
           background: colors.border,
           color: "#ffffff",
-          fontSize: 8,
+          fontSize: 14,
           fontWeight: 700,
-          padding: "1px 4px",
-          borderRadius: 3,
+          padding: "2px 8px",
+          borderRadius: 6,
           whiteSpace: "nowrap",
           lineHeight: 1.2,
-          boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
+          boxShadow: "0 2px 4px rgba(0,0,0,0.25)",
+          zIndex: 10,
         }}
       >
         {roleLabel}

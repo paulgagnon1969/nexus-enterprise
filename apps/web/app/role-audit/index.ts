@@ -5,6 +5,8 @@ export {
   ROLE_HIERARCHY,
   ROLE_COLORS,
   ROLE_LABELS,
+  VIEW_ROLE_TO_VISIBILITY,
+  canRoleSee,
   type VisibilityRole,
 } from "./role-audit-context";
 

@@ -57,12 +57,15 @@ export function ViewRoleSwitcher() {
         const canAudit = globalRole === "SUPER_ADMIN" || isOwner || isAdmin;
         setCanRoleAudit(canAudit);
 
-        if (globalRole === "SUPER_ADMIN" || isOwner) {
-          roles.push("OWNER", "ADMIN", "MEMBER", "CLIENT");
+        // Full role hierarchy for testing (Admin+ can test all roles)
+        if (globalRole === "SUPER_ADMIN") {
+          roles.push("SUPER_ADMIN", "OWNER", "ADMIN", "EXECUTIVE", "PM", "SUPER", "FOREMAN", "CREW", "CLIENT");
+        } else if (isOwner) {
+          roles.push("OWNER", "ADMIN", "EXECUTIVE", "PM", "SUPER", "FOREMAN", "CREW", "CLIENT");
         } else if (isAdmin) {
-          roles.push("ADMIN", "MEMBER", "CLIENT");
+          roles.push("ADMIN", "EXECUTIVE", "PM", "SUPER", "FOREMAN", "CREW", "CLIENT");
         } else if (companyRole === "MEMBER") {
-          roles.push("MEMBER", "CLIENT");
+          roles.push("PM", "SUPER", "FOREMAN", "CREW", "CLIENT");
         } else if (companyRole === "CLIENT") {
           roles.push("CLIENT");
         }
@@ -119,13 +122,23 @@ export function ViewRoleSwitcher() {
   const labelFor = (role: ViewRole): string => {
     switch (role) {
       case "ACTUAL":
-        return "Actual";
+        return "👤 Actual (Your Role)";
+      case "SUPER_ADMIN":
+        return "⚡ Nexus Superuser";
       case "OWNER":
         return "Owner";
       case "ADMIN":
         return "Admin";
-      case "MEMBER":
-        return "Member";
+      case "EXECUTIVE":
+        return "Executive";
+      case "PM":
+        return "Project Manager";
+      case "SUPER":
+        return "Superintendent";
+      case "FOREMAN":
+        return "Foreman";
+      case "CREW":
+        return "Crew";
       case "CLIENT":
         return "Client";
       default:

@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { JournalEntryCard } from "./journal-entry-card";
 import { JournalEntryForm } from "./journal-entry-form";
+import { RoleVisible } from "../../../role-audit";
 import type {
   CarrierContact,
   ClaimJournalEntry,
@@ -246,25 +247,33 @@ export function JournalTab({ projectId, apiBase }: JournalTabProps) {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11 }}>
             <div>
               <span style={{ color: "#6b7280" }}>Total entries:</span>{" "}
-              <span style={{ fontWeight: 600 }}>{stats.entryCount}</span>
+              <RoleVisible minRole="PM" label="Entry Count">
+                <span style={{ fontWeight: 600 }}>{stats.entryCount}</span>
+              </RoleVisible>
             </div>
             <div>
               <span style={{ color: "#6b7280" }}>Disputed:</span>{" "}
-              <span style={{ fontWeight: 600, color: "#374151" }}>
-                ${stats.totalDisputed.toLocaleString()}
-              </span>
+              <RoleVisible minRole="ADMIN" label="Disputed Amount">
+                <span style={{ fontWeight: 600, color: "#374151" }}>
+                  ${stats.totalDisputed.toLocaleString()}
+                </span>
+              </RoleVisible>
             </div>
             <div>
               <span style={{ color: "#6b7280" }}>Approved:</span>{" "}
-              <span style={{ fontWeight: 600, color: "#166534" }}>
-                ${stats.totalApproved.toLocaleString()}
-              </span>
+              <RoleVisible minRole="EXECUTIVE" label="Approved Amount">
+                <span style={{ fontWeight: 600, color: "#166534" }}>
+                  ${stats.totalApproved.toLocaleString()}
+                </span>
+              </RoleVisible>
             </div>
             <div>
               <span style={{ color: "#6b7280" }}>Denied:</span>{" "}
-              <span style={{ fontWeight: 600, color: "#b91c1c" }}>
-                ${stats.totalDenied.toLocaleString()}
-              </span>
+              <RoleVisible minRole="OWNER" label="Denied Amount">
+                <span style={{ fontWeight: 600, color: "#b91c1c" }}>
+                  ${stats.totalDenied.toLocaleString()}
+                </span>
+              </RoleVisible>
             </div>
           </div>
         </div>

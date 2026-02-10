@@ -2,7 +2,17 @@
 
 import { createContext, useContext, useState, ReactNode } from "react";
 
-export type ViewRole = "ACTUAL" | "OWNER" | "ADMIN" | "MEMBER" | "CLIENT";
+export type ViewRole = 
+  | "ACTUAL" 
+  | "SUPER_ADMIN"
+  | "OWNER" 
+  | "ADMIN" 
+  | "EXECUTIVE"
+  | "PM"
+  | "SUPER"
+  | "FOREMAN"
+  | "CREW"
+  | "CLIENT";
 
 interface ViewRoleState {
   viewAs: ViewRole;
@@ -27,4 +37,12 @@ export function useViewRole(): ViewRoleState {
     throw new Error("useViewRole must be used within a ViewRoleProvider");
   }
   return ctx;
+}
+
+/**
+ * Safe version that returns defaults if outside provider
+ */
+export function useViewRoleSafe(): ViewRoleState {
+  const ctx = useContext(ViewRoleContext);
+  return ctx ?? { viewAs: "ACTUAL", setViewAs: () => {} };
 }

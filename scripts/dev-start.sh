@@ -185,8 +185,10 @@ for i in {1..10}; do
 done
 
 # Worker process
-if pgrep -f "apps/api.*src/worker.ts" >/dev/null 2>&1; then
+if pgrep -f "ts-node.*src/worker.ts" >/dev/null 2>&1; then
   WORKER_STATUS="OK (worker:dev)"
+elif pgrep -f "nodemon.*worker" >/dev/null 2>&1; then
+  WORKER_STATUS="OK (nodemon worker)"
 elif pgrep -f "dist/worker.js" >/dev/null 2>&1; then
   WORKER_STATUS="OK (dist/worker.js)"
 else
