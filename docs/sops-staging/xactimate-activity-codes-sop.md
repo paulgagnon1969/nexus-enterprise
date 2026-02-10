@@ -7,6 +7,7 @@ status: draft
 created: 2026-02-08
 updated: 2026-02-08
 author: Warp
+featureId: xactimate-activity-codes
 ---
 
 # Xactimate Activity Codes
