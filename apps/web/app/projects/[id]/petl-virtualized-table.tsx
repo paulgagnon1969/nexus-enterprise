@@ -735,62 +735,61 @@ function VirtualizedRow({
                 ) : (
                 <select
                   value={e?.percentComplete ?? 100}
-                  onChange={async (ev) => {
+                  onChange={(ev) => {
                     const newPct = Number(ev.target.value);
                     if (!Number.isFinite(newPct)) return;
-                    
-                    const token = localStorage.getItem("accessToken");
-                    if (!token) return;
                     
                     // Optimistic update FIRST so UI updates immediately
                     onReconPercentChanged?.(e.id, newPct);
                     
-                    // Then make the API call in the background
-                    const API_BASE = (window as any).__NEXT_PUBLIC_API_BASE_URL__ || process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-                    const projectId = window.location.pathname.split('/')[2];
-                    
-                    // If entry is locked, unlock it first (admin override)
-                    if (e?.isPercentCompleteLocked && isPmOrAbove) {
+                    // Defer all async work to avoid blocking the UI thread
+                    // This prevents INP issues from await calls in the handler
+                    queueMicrotask(async () => {
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) return;
+                      
+                      const API_BASE = (window as any).__NEXT_PUBLIC_API_BASE_URL__ || process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                      const projectId = window.location.pathname.split('/')[2];
+                      
+                      // If entry is locked, unlock it first (admin override)
+                      if (e?.isPercentCompleteLocked && isPmOrAbove) {
+                        try {
+                          const unlockRes = await fetch(`${API_BASE}/projects/${projectId}/petl-reconciliation/entries/${e.id}`, {
+                            method: 'PATCH',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'Authorization': `Bearer ${token}`,
+                            },
+                            body: JSON.stringify({ isPercentCompleteLocked: false }),
+                          });
+                          if (!unlockRes.ok) {
+                            console.error('Failed to unlock percent:', unlockRes.status);
+                            return;
+                          }
+                        } catch (err) {
+                          console.error('Failed to unlock percent:', err);
+                          return;
+                        }
+                      }
+                      
                       try {
-                        const unlockRes = await fetch(`${API_BASE}/projects/${projectId}/petl-reconciliation/entries/${e.id}`, {
-                          method: 'PATCH',
+                        const res = await fetch(`${API_BASE}/projects/${projectId}/petl-reconciliation/entries/${e.id}/percent`, {
+                          method: 'POST',
                           headers: {
                             'Content-Type': 'application/json',
                             'Authorization': `Bearer ${token}`,
                           },
-                          body: JSON.stringify({ isPercentCompleteLocked: false }),
+                          body: JSON.stringify({ newPercent: newPct }),
                         });
-                        if (!unlockRes.ok) {
-                          console.error('Failed to unlock percent:', unlockRes.status);
-                          return; // Don't proceed if unlock failed
+                        
+                        if (!res.ok) {
+                          const errorText = await res.text().catch(() => '');
+                          console.error('Failed to update percent:', res.status, errorText);
                         }
-                        // Wait a moment for the unlock to propagate
-                        await new Promise(resolve => setTimeout(resolve, 100));
                       } catch (err) {
-                        console.error('Failed to unlock percent:', err);
-                        return; // Don't proceed if unlock failed
+                        console.error('Failed to update percent:', err);
                       }
-                    }
-                    
-                    try {
-                      const res = await fetch(`${API_BASE}/projects/${projectId}/petl-reconciliation/entries/${e.id}/percent`, {
-                        method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                          'Authorization': `Bearer ${token}`,
-                        },
-                        body: JSON.stringify({ newPercent: newPct }),
-                      });
-                      
-                      if (!res.ok) {
-                        const errorText = await res.text().catch(() => '');
-                        console.error('Failed to update percent:', res.status, errorText);
-                        // Could revert optimistic update here if needed
-                      }
-                    } catch (err) {
-                      console.error('Failed to update percent:', err);
-                      // Could revert optimistic update here if needed
-                    }
+                    });
                   }}
                   style={{
                     width: 70,
