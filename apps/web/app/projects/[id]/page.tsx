@@ -24137,12 +24137,17 @@ ${htmlBody}
         // Otherwise show the parent line item's data
         const itemNote = String(item?.itemNote ?? "");
         const lineNo = item?.lineNo ?? "?";
+        // Always keep parent line item description available for context
+        const parentDesc = String(item?.description ?? "");
         const desc = isEditing 
           ? (String(existingEntry?.description ?? "") || String(existingEntry?.note ?? ""))
-          : String(item?.description ?? "");
+          : parentDesc;
         const qty = isEditing ? existingEntry?.qty : item?.qty;
         const unit = isEditing ? (existingEntry?.unit ?? "") : (item?.unit ?? "");
         const rcv = isEditing ? (existingEntry?.rcvAmount ?? 0) : (item?.rcvAmount ?? 0);
+        const parentQty = item?.qty ?? null;
+        const parentUnit = item?.unit ?? "";
+        const parentRcv = item?.rcvAmount ?? 0;
         
         const step = reconWorkflowModal.step;
         const useNoteAsDescription = reconWorkflowUseNote;
@@ -24398,37 +24403,40 @@ ${htmlBody}
                 
                 {step === 'initial' && (
                   <>
-                    {useNoteAsDescription && itemNote && (
+                    {/* Always show parent line item context */}
+                    <div
+                      style={{
+                        marginBottom: itemNote ? 12 : 20,
+                        padding: 12,
+                        borderRadius: 8,
+                        background: "#f0f9ff",
+                        border: "1px solid #bae6fd",
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#0369a1", marginBottom: 4 }}>
+                        📋 Line {lineNo}: {parentDesc}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#0c4a6e" }}>
+                        {parentQty} {parentUnit} • RCV: ${parentRcv.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    
+                    {/* Show note if present */}
+                    {itemNote && (
                       <div
                         style={{
                           marginBottom: 20,
                           padding: 12,
                           borderRadius: 8,
-                          background: "#fef3c7",
-                          border: "1px solid #fbbf24",
+                          background: useNoteAsDescription ? "#fef3c7" : "#fefce8",
+                          border: useNoteAsDescription ? "2px solid #f59e0b" : "1px solid #fde047",
                         }}
                       >
                         <div style={{ fontSize: 11, fontWeight: 600, color: "#92400e", marginBottom: 4 }}>
-                          📌 Reconciling the Note
+                          📌 Note {useNoteAsDescription ? "(selected for reconciliation)" : ""}
                         </div>
                         <div style={{ fontSize: 12, color: "#78350f", whiteSpace: "pre-wrap" }}>
                           {itemNote}
-                        </div>
-                      </div>
-                    )}
-                    
-                    {!useNoteAsDescription && (
-                      <div style={{ marginBottom: 20 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 4 }}>
-                          {isEditing ? "📝 Editing Entry" : "📋 Reconciling the Line Item"}
-                        </div>
-                        {isEditing && desc ? (
-                          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6, whiteSpace: "pre-wrap" }}>
-                            {desc}
-                          </div>
-                        ) : null}
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>
-                          {qty} {unit} @ ${(rcv / (qty || 1)).toFixed(2)} = ${rcv.toFixed(2)}
                         </div>
                       </div>
                     )}
