@@ -96,9 +96,9 @@ export function JournalEntryForm({
           occurredAt: new Date(occurredAt).toISOString(),
           summary: summary.trim(),
           details: details.trim() || null,
-          disputedAmount: disputedAmount ? parseFloat(disputedAmount) : null,
-          approvedAmount: approvedAmount ? parseFloat(approvedAmount) : null,
-          deniedAmount: deniedAmount ? parseFloat(deniedAmount) : null,
+          amountDisputed: disputedAmount ? parseFloat(disputedAmount) : null,
+          amountApproved: approvedAmount ? parseFloat(approvedAmount) : null,
+          amountDenied: deniedAmount ? parseFloat(deniedAmount) : null,
           tags: tags.length ? tags : undefined,
         };
 

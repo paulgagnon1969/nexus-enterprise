@@ -192,9 +192,9 @@ export function JournalTab({ projectId, apiBase }: JournalTabProps) {
     let totalDenied = 0;
 
     for (const entry of entries) {
-      if (entry.disputedAmount) totalDisputed += entry.disputedAmount;
-      if (entry.approvedAmount) totalApproved += entry.approvedAmount;
-      if (entry.deniedAmount) totalDenied += entry.deniedAmount;
+      if (entry.amountDisputed) totalDisputed += Number(entry.amountDisputed);
+      if (entry.amountApproved) totalApproved += Number(entry.amountApproved);
+      if (entry.amountDenied) totalDenied += Number(entry.amountDenied);
     }
 
     return { totalDisputed, totalApproved, totalDenied, entryCount: entries.length };
