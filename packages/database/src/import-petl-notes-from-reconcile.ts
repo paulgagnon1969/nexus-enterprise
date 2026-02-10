@@ -218,6 +218,7 @@ export async function importPetlNotesFromReconcileCsv(args: {
       projectParticleId: true,
       logicalItemId: true,
       estimateVersionId: true,
+      itemNote: true,
       rawRow: {
         select: {
           lineNo: true,
@@ -250,6 +251,7 @@ export async function importPetlNotesFromReconcileCsv(args: {
   let createdCases = 0;
   let createdEntries = 0;
   let skippedExisting = 0;
+  let updatedItemNotes = 0;
 
   for (const row of detailRows) {
     const sowItem = (
@@ -308,6 +310,38 @@ export async function importPetlNotesFromReconcileCsv(args: {
 
     if (notesToCreate.length === 0) {
       continue;
+    }
+
+    // Build a combined note string to persist on the SowItem.itemNote field.
+    // This ensures the note is visible directly on the PETL line and carries forward.
+    const combinedNoteLines: string[] = [];
+    if (row.reimburishOwnerNote) {
+      combinedNoteLines.push(`[RO] ${row.reimburishOwnerNote}`);
+    }
+    if (row.changeOrderCustomerPayNote) {
+      combinedNoteLines.push(`[CO] ${row.changeOrderCustomerPayNote}`);
+    }
+    if (row.addToPolNote) {
+      combinedNoteLines.push(`[POL] ${row.addToPolNote}`);
+    }
+
+    // Update sowItem.itemNote if there are notes to add
+    if (combinedNoteLines.length > 0 && !dryRun) {
+      const newNote = combinedNoteLines.join(" | ");
+      const existingNote = sowItem.itemNote ?? "";
+
+      // Append if not already present (avoid duplicating on re-import)
+      if (!existingNote.includes(newNote)) {
+        const updatedNote = existingNote
+          ? `${existingNote} | ${newNote}`
+          : newNote;
+
+        await prisma.sowItem.update({
+          where: { id: sowItem.id },
+          data: { itemNote: updatedNote },
+        });
+        updatedItemNotes += 1;
+      }
     }
 
     const existingCase = await prisma.petlReconciliationCase.findFirst({
@@ -409,6 +443,7 @@ export async function importPetlNotesFromReconcileCsv(args: {
     createdCases,
     createdEntries,
     skippedExisting,
+    updatedItemNotes,
     dryRun,
   };
 }

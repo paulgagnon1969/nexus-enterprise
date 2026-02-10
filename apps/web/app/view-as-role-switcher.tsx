@@ -133,7 +133,11 @@ export function ViewRoleSwitcher() {
         bottom: "1rem",
         left: "1rem",
         zIndex: 50,
-        fontSize: 12
+        fontSize: 12,
+        display: "flex",
+        flexDirection: "column-reverse",
+        alignItems: "flex-start",
+        gap: 8,
       }}
     >
       {/* Nexus-style subtle icon */}
@@ -150,7 +154,8 @@ export function ViewRoleSwitcher() {
           alignItems: "center",
           justifyContent: "center",
           cursor: "pointer",
-          padding: 0
+          padding: 0,
+          flexShrink: 0,
         }}
         title="View as role"
       >
@@ -164,12 +169,11 @@ export function ViewRoleSwitcher() {
       {open && (
         <div
           style={{
-            marginTop: 8,
             padding: 8,
             background: "#020617",
             border: "1px solid #1e293b",
             borderRadius: 4,
-            minWidth: 200
+            minWidth: 200,
           }}
         >
       <div style={{ marginBottom: 4, fontWeight: 600, color: "#f9fafb" }}>View as</div>

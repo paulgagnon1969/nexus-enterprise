@@ -42,6 +42,9 @@ interface ReconEntry {
   rcvAmount?: number | null;
   percentComplete?: number;
   isPercentCompleteLocked?: boolean;
+  // CO fields for "Moved to" label
+  isStandaloneChangeOrder?: boolean;
+  coSequenceNo?: number | null;
 }
 
 interface PetlRowProps {
@@ -559,7 +562,7 @@ interface FlatRow {
   type: "item" | "recon";
   item: PetlItem;
   reconEntry?: ReconEntry;
-  reconSeq?: number;
+  reconSeq?: number | null; // null for note-only entries
   displayLineNo: string | number; // Can be string for CO format like "15-CO1"
 }
 
@@ -656,33 +659,67 @@ function VirtualizedRow({
     const note = String(e?.note ?? "").trim();
     const rcvAmt = typeof e?.rcvAmount === "number" ? e.rcvAmount : null;
     const isCredit = kind === "CREDIT" || (rcvAmt != null && rcvAmt < 0);
-    const lineLabel = `${row.displayLineNo}.${row.reconSeq}`;
+    const isNoteOnly = rcvAmt == null && note;
+    const lineLabel = row.reconSeq != null ? `${row.displayLineNo}.${row.reconSeq}` : `${row.displayLineNo}`;
+    
+    // For note-only entries, find if there's a linked financial entry to show "Moved to" label
+    let movedToLabel: string | null = null;
+    if (isNoteOnly) {
+      const siblingEntries = reconEntriesBySowItemId.get(parentItem.id) ?? [];
+      const financialEntries = siblingEntries.filter((sib) => sib?.rcvAmount != null && sib.id !== e.id);
+      if (financialEntries.length > 0) {
+        // Find the first financial entry (could be a CO or regular reconciliation)
+        const firstFinancial = financialEntries[0];
+        if (firstFinancial?.isStandaloneChangeOrder && firstFinancial?.coSequenceNo != null) {
+          movedToLabel = `${row.displayLineNo}-CO${firstFinancial.coSequenceNo}`;
+        } else {
+          // Find the sequence number of this financial entry
+          const seqIdx = financialEntries.findIndex((f) => f.id === firstFinancial.id);
+          movedToLabel = `${row.displayLineNo}.${seqIdx + 1}`;
+        }
+      }
+    }
 
     return (
       <div style={{ ...style, display: "flex", alignItems: "stretch" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
           <tbody>
-            <tr style={{ backgroundColor: "#f8fafc", color: isCredit ? "#b91c1c" : "#111827" }}>
+            <tr style={{ backgroundColor: isNoteOnly ? "#fefce8" : "#f8fafc", color: isCredit ? "#b91c1c" : "#111827" }}>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 120, fontFamily: "monospace" }}>
-                <span style={{ paddingLeft: 18 }}>↳ {lineLabel}</span>
+                <span style={{ paddingLeft: 18, color: isNoteOnly ? "#ca8a04" : undefined }}>
+                  {isNoteOnly ? "↳ 📝" : `↳ ${lineLabel}`}
+                </span>
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 220 }} />
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, fontSize: 11, color: "#6b7280" }}>
                 {parentItem?.activity ?? ""}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis" }}>
-                <span style={{ color: "#6b7280" }}>[{kind}]</span> {desc || note || ""}
+                {isNoteOnly ? (
+                  <span>
+                    <span style={{ color: "#92400e", fontStyle: "italic" }}>{note}</span>
+                    {movedToLabel && (
+                      <span style={{ marginLeft: 8, color: "#2563eb", fontWeight: 500, fontSize: 11 }}>
+                        → Moved to {movedToLabel}
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  <><span style={{ color: "#6b7280" }}>[{kind}]</span> {desc || note || ""}</>
+                )}
               </td>
-              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>{e?.qty ?? ""}</td>
-              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>{e?.unit ?? ""}</td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>{isNoteOnly ? "" : (e?.qty ?? "")}</td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>{isNoteOnly ? "" : (e?.unit ?? "")}</td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }}>
-                {e?.itemAmount != null ? e.itemAmount.toLocaleString(undefined, { maximumFractionDigits: 2 }) : ""}
+                {isNoteOnly ? "" : (e?.itemAmount != null ? e.itemAmount.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "")}
               </td>
-              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }}>
-                {rcvAmt != null ? rcvAmt.toLocaleString(undefined, { maximumFractionDigits: 2 }) : ""}
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right", color: isNoteOnly ? "#9ca3af" : undefined }}>
+                {isNoteOnly ? "$0" : (rcvAmt != null ? rcvAmt.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "")}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>
-                {e?.isPercentCompleteLocked && !isPmOrAbove ? (
+                {isNoteOnly ? (
+                  <span style={{ fontSize: 11, color: "#9ca3af" }}>—</span>
+                ) : e?.isPercentCompleteLocked && !isPmOrAbove ? (
                   <span style={{ fontSize: 11, color: "#6b7280" }}>{e?.percentComplete ?? 0}%</span>
                 ) : (
                 <select
@@ -1026,13 +1063,29 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
 
       if (expandedIds.has(item.id)) {
         const reconEntries = reconEntriesBySowItemId.get(item.id) ?? [];
+        // Show ALL entries: financial (rcvAmount != null) get sequence numbers,
+        // note-only entries (rcvAmount == null) show as subordinated notes
         const financial = reconEntries.filter((e) => e?.rcvAmount != null);
+        const noteOnly = reconEntries.filter((e) => e?.rcvAmount == null && e?.note);
+        
+        // Financial entries first with sequence numbers
         financial.forEach((entry, idx) => {
           rows.push({
             type: "recon",
             item,
             reconEntry: entry,
             reconSeq: idx + 1,
+            displayLineNo,
+          });
+        });
+        
+        // Note-only entries as subordinated lines (no sequence number)
+        noteOnly.forEach((entry) => {
+          rows.push({
+            type: "recon",
+            item,
+            reconEntry: entry,
+            reconSeq: null, // No sequence for note-only
             displayLineNo,
           });
         });
