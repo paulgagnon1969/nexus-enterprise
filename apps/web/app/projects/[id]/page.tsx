@@ -22,6 +22,7 @@ import { AdminPetlTools } from "./admin-petl-tools";
 import { PetlVirtualizedTable } from "./petl-virtualized-table";
 import { InvoicePetlVirtualizedTable } from "./invoice-petl-virtualized-table";
 import { useDraggable } from "../../hooks/use-draggable";
+import { JournalTab } from "./journal";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -655,7 +656,8 @@ type TabKey =
   | "STRUCTURE"
   | "DAILY_LOGS"
   | "FILES"
-  | "FINANCIAL";
+  | "FINANCIAL"
+  | "JOURNAL";
 
 type PetlDisplayMode = "PROJECT_GROUPING" | "LINE_SEQUENCE" | "RECONCILIATION_ONLY";
 
@@ -10608,12 +10610,13 @@ ${htmlBody}
       {(
           [
             { key: "SUMMARY", label: "Summary" },
+            { key: "DAILY_LOGS", label: "Daily Logs" },
             { key: "SCHEDULE", label: "Schedule" },
             { key: "PETL", label: "PETL" },
             { key: "STRUCTURE", label: "Project Organization" },
-            { key: "DAILY_LOGS", label: "Daily Logs" },
-            { key: "FILES", label: "Files" },
+            ...(isAdminOrAbove ? [{ key: "JOURNAL" as TabKey, label: "Journal" }] : []),
             { key: "FINANCIAL", label: "Financial" },
+            { key: "FILES", label: "Files" },
           ] as { key: TabKey; label: string }[]
         ).map(tab => (
           <button
@@ -17752,6 +17755,17 @@ ${htmlBody}
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* JOURNAL tab content (Admin+ only) */}
+      {activeTab === "JOURNAL" && isAdminOrAbove && (
+        <div style={{ marginTop: 8, marginBottom: 16 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Claim Journal</h2>
+          <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
+            Track carrier negotiations, submissions, responses, and approvals in an append-only audit trail.
+          </p>
+          <JournalTab projectId={id} apiBase={API_BASE} />
         </div>
       )}
 
