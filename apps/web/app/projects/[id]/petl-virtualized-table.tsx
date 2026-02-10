@@ -348,7 +348,9 @@ const PetlRow = memo(function PetlRow({
                 fontSize: 12,
               }}
             >
-              {item.categoryCode ?? ""}
+              <span style={{ color: item.categoryCode ? "inherit" : "#d1d5db" }}>
+                {item.categoryCode || "—"}
+              </span>
             </button>
           )}
         </td>
@@ -381,7 +383,9 @@ const PetlRow = memo(function PetlRow({
                 fontSize: 12,
               }}
             >
-              {item.selectionCode ?? ""}
+              <span style={{ color: item.selectionCode ? "inherit" : "#d1d5db" }}>
+                {item.selectionCode || "—"}
+              </span>
             </button>
           )}
         </td>
@@ -582,6 +586,7 @@ export interface PetlVirtualizedTableProps {
   onPercentChange: (sowItemId: string, displayLineNo: string | number, newPercent: number, isAcvOnly: boolean) => void;
   onEditReconEntry?: (entry: any) => void;
   onDeleteReconEntry?: (entry: any) => void;
+  onReconPercentChanged?: (entryId: string, newPercent: number) => void;
 }
 
 const ROW_HEIGHT = 36;
@@ -610,6 +615,7 @@ interface VirtualizedRowProps {
   onPercentChange: (sowItemId: string, displayLineNo: string | number, newPercent: number, isAcvOnly: boolean) => void;
   onEditReconEntry?: (entry: any) => void;
   onDeleteReconEntry?: (entry: any) => void;
+  onReconPercentChanged?: (entryId: string, newPercent: number) => void;
 }
 
 // react-window v2 row component
@@ -637,6 +643,7 @@ function VirtualizedRow({
   onPercentChange,
   onEditReconEntry,
   onDeleteReconEntry,
+  onReconPercentChanged,
 }: RowComponentProps<VirtualizedRowProps>): React.ReactElement | null {
   const row = flatRows[index];
   if (!row) return null;
@@ -660,7 +667,9 @@ function VirtualizedRow({
                 <span style={{ paddingLeft: 18 }}>↳ {lineLabel}</span>
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 220 }} />
-              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100 }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, fontSize: 11, color: "#6b7280" }}>
+                {e?.activity ?? ""}
+              </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis" }}>
                 <span style={{ color: "#6b7280" }}>[{kind}]</span> {desc || note || ""}
               </td>
@@ -672,11 +681,100 @@ function VirtualizedRow({
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }}>
                 {rcvAmt != null ? rcvAmt.toLocaleString(undefined, { maximumFractionDigits: 2 }) : ""}
               </td>
-              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 60, textAlign: "right" }}>
-                {e?.percentComplete ?? 0}%
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>
+                {e?.isPercentCompleteLocked && !isPmOrAbove ? (
+                  <span style={{ fontSize: 11, color: "#6b7280" }}>{e?.percentComplete ?? 0}%</span>
+                ) : (
+                <select
+                  value={e?.percentComplete ?? 100}
+                  onChange={async (ev) => {
+                    const newPct = Number(ev.target.value);
+                    if (!Number.isFinite(newPct)) return;
+                    
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) return;
+                    
+                    // Optimistic update FIRST so UI updates immediately
+                    onReconPercentChanged?.(e.id, newPct);
+                    
+                    // Then make the API call in the background
+                    const API_BASE = (window as any).__NEXT_PUBLIC_API_BASE_URL__ || process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+                    const projectId = window.location.pathname.split('/')[2];
+                    
+                    // If entry is locked, unlock it first (admin override)
+                    if (e?.isPercentCompleteLocked && isPmOrAbove) {
+                      try {
+                        const unlockRes = await fetch(`${API_BASE}/projects/${projectId}/petl-reconciliation/entries/${e.id}`, {
+                          method: 'PATCH',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({ isPercentCompleteLocked: false }),
+                        });
+                        if (!unlockRes.ok) {
+                          console.error('Failed to unlock percent:', unlockRes.status);
+                          return; // Don't proceed if unlock failed
+                        }
+                        // Wait a moment for the unlock to propagate
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                      } catch (err) {
+                        console.error('Failed to unlock percent:', err);
+                        return; // Don't proceed if unlock failed
+                      }
+                    }
+                    
+                    try {
+                      const res = await fetch(`${API_BASE}/projects/${projectId}/petl-reconciliation/entries/${e.id}/percent`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ newPercent: newPct }),
+                      });
+                      
+                      if (!res.ok) {
+                        const errorText = await res.text().catch(() => '');
+                        console.error('Failed to update percent:', res.status, errorText);
+                        // Could revert optimistic update here if needed
+                      }
+                    } catch (err) {
+                      console.error('Failed to update percent:', err);
+                      // Could revert optimistic update here if needed
+                    }
+                  }}
+                  style={{
+                    width: 70,
+                    padding: "2px 4px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 11,
+                    background: e?.isPercentCompleteLocked ? "#f3f4f6" : "#ffffff",
+                    cursor: e?.isPercentCompleteLocked ? "not-allowed" : "pointer",
+                    opacity: e?.isPercentCompleteLocked ? 0.6 : 1,
+                  }}
+                >
+                  <option value="0">0%</option>
+                  <option value="10">10%</option>
+                  <option value="20">20%</option>
+                  <option value="30">30%</option>
+                  <option value="40">40%</option>
+                  <option value="50">50%</option>
+                  <option value="60">60%</option>
+                  <option value="70">70%</option>
+                  <option value="80">80%</option>
+                  <option value="90">90%</option>
+                  <option value="100">100%</option>
+                </select>
+                )}
               </td>
-              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80 }} />
-              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80 }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, fontSize: 11 }}>
+                {e?.categoryCode ?? ""}
+              </td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, fontSize: 11 }}>
+                {e?.selectionCode ?? ""}
+              </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 180 }}>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <button
@@ -913,6 +1011,7 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
   onPercentChange,
   onEditReconEntry,
   onDeleteReconEntry,
+  onReconPercentChanged,
 }: PetlVirtualizedTableProps) {
 
   // Build flat row list for virtualization
@@ -975,8 +1074,9 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
       onPercentChange,
       onEditReconEntry,
       onDeleteReconEntry,
+      onReconPercentChanged,
     }),
-    [flatRows, reconEntriesBySowItemId, expandedIds, flaggedIds, reconActivityIds, isPmOrAbove, isAdminOrAbove, editingCell, editDraft, editSaving, onToggleExpand, onToggleFlag, onOpenReconciliation, onDeleteItem, onOpenCellEditor, onEditDraftChange, onSaveEdit, onCancelEdit, onPercentChange, onEditReconEntry, onDeleteReconEntry]
+    [flatRows, reconEntriesBySowItemId, expandedIds, flaggedIds, reconActivityIds, isPmOrAbove, isAdminOrAbove, editingCell, editDraft, editSaving, onToggleExpand, onToggleFlag, onOpenReconciliation, onDeleteItem, onOpenCellEditor, onEditDraftChange, onSaveEdit, onCancelEdit, onPercentChange, onEditReconEntry, onDeleteReconEntry, onReconPercentChanged]
   );
 
   return (

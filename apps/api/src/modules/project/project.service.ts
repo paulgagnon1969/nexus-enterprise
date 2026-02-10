@@ -5020,8 +5020,12 @@ export class ProjectService {
       throw new NotFoundException("Reconciliation entry not found for this project");
     }
 
+    // Only PM/Owner/Admin can update locked percent complete
     if (entry.isPercentCompleteLocked) {
-      throw new BadRequestException("Percent complete is locked for this entry");
+      const canEdit = await this.isProjectManagerOrAbove(projectId, actor);
+      if (!canEdit) {
+        throw new BadRequestException("Percent complete is locked for this entry");
+      }
     }
 
     const updated = await this.prisma.petlReconciliationEntry.update({
@@ -6752,7 +6756,6 @@ export class ProjectService {
         where: {
           projectId,
           estimateVersionId: latestVersion.id,
-          status: PetlReconciliationEntryStatus.APPROVED,
           rcvAmount: { not: null },
           ...(filters.roomParticleIds?.length
             ? { projectParticleId: { in: filters.roomParticleIds } }
@@ -6797,7 +6800,7 @@ export class ProjectService {
 
     for (const entry of reconEntries) {
       const lineTotal = entry.rcvAmount ?? 0;
-      const pct = entry.isPercentCompleteLocked ? 0 : (entry.percentComplete ?? 0);
+      const pct = entry.percentComplete ?? 0;
       itemCount += 1;
       totalAmount += lineTotal;
       completedAmount += lineTotal * (pct / 100);
@@ -8256,7 +8259,7 @@ export class ProjectService {
 
     for (const entry of reconEntries) {
       const rcv = entry.rcvAmount ?? 0;
-      const pct = entry.isPercentCompleteLocked ? 0 : (entry.percentComplete ?? 0);
+      const pct = entry.percentComplete ?? 0;
       totalRcvClaim += rcv;
       workCompleteRcv += rcv * (pct / 100);
     }
@@ -9682,7 +9685,6 @@ export class ProjectService {
         where: {
           projectId: project.id,
           estimateVersionId: latestVersion.id,
-          status: PetlReconciliationEntryStatus.APPROVED,
           rcvAmount: { not: null },
           parentSowItemId: { not: null },
         },
