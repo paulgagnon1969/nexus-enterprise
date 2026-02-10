@@ -46,6 +46,8 @@ interface ReconEntry {
   // CO fields for "Moved to" label
   isStandaloneChangeOrder?: boolean;
   coSequenceNo?: number | null;
+  // Origin tracking for "From Line X" display
+  originLineNo?: number | null;
 }
 
 interface PetlRowProps {
@@ -571,7 +573,8 @@ interface FlatRow {
   reconEntry?: ReconEntry;
   reconSeq?: number | null; // null for note-only entries
   displayLineNo: string | number; // Can be string for CO format like "15-CO1"
-  movedToLabel?: string | null; // precomputed for note-only entries
+  movedToLabel?: string | null; // precomputed for note-only entries ("→ Moved to X-CO1")
+  originFromLabel?: string | null; // precomputed for standalone COs ("← From Line X")
   isNoteOnly?: boolean; // fast path for rowHeight/render
 }
 
@@ -674,6 +677,7 @@ function VirtualizedRow({
     const isNoteOnly = rcvAmt == null && note;
     const lineLabel = row.reconSeq != null ? `${row.displayLineNo}.${row.reconSeq}` : `${row.displayLineNo}`;
     const movedToLabel: string | null = row.movedToLabel ?? null;
+    const originFromLabel: string | null = row.originFromLabel ?? null;
 
     // Fast path: render nothing for hidden note-only rows
     if (isNoteOnly && (hideNotes as boolean)) {
@@ -705,7 +709,14 @@ function VirtualizedRow({
                     )}
                   </span>
                 ) : (
-                  <><span style={{ color: "#6b7280" }}>[{kind}]</span> {desc || note || ""}</>
+                  <>
+                    <span style={{ color: "#6b7280" }}>[{kind}]</span> {desc || note || ""}
+                    {originFromLabel && (
+                      <span style={{ marginLeft: 8, color: "#7c3aed", fontWeight: 500, fontSize: 11 }}>
+                        ← From Line {originFromLabel}
+                      </span>
+                    )}
+                  </>
                 )}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>{isNoteOnly ? "" : (e?.qty ?? "")}</td>
@@ -1075,7 +1086,13 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
         // Financial entries first with sequence numbers
         for (let idx = 0; idx < financial.length; idx++) {
           const entry = financial[idx];
-          rows.push({ type: "recon", item, reconEntry: entry, reconSeq: idx + 1, displayLineNo });
+          // For standalone COs, show "← From Line X" if originLineNo differs from current displayLineNo
+          const entryOriginLineNo = (entry as any)?.originLineNo as number | null | undefined;
+          const isStandaloneCOEntry = Boolean((entry as any)?.isStandaloneChangeOrder);
+          const originFromLabel = isStandaloneCOEntry && typeof entryOriginLineNo === 'number'
+            ? String(entryOriginLineNo)
+            : null;
+          rows.push({ type: "recon", item, reconEntry: entry, reconSeq: idx + 1, displayLineNo, originFromLabel });
         }
         // Note-only entries as subordinated lines (no sequence number)
         // Always include; we will hide via 0-height when hideNotes=true to avoid full rebuilds
