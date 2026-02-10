@@ -130,7 +130,7 @@ export function ViewRoleSwitcher() {
     <div
       style={{
         position: "fixed",
-        bottom: "1rem",
+        bottom: "4rem", // Raised to avoid Next.js dev indicator
         left: "1rem",
         zIndex: 50,
         fontSize: 12,
