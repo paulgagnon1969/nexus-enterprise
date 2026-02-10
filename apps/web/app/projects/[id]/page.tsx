@@ -1071,6 +1071,8 @@ export default function ProjectDetailPage({
   const [categoryCodeFilters, setCategoryCodeFilters] = useState<string[]>([]);
   const [selectionCodeFilters, setSelectionCodeFilters] = useState<string[]>([]);
   const [petlOrgGroupFilters, setPetlOrgGroupFilters] = useState<string[]>([]);
+  // Hide note badges and note-only reconciliation lines by default
+  const [petlHideNotes, setPetlHideNotes] = useState(true);
 
   const roomParticleIdFilterSet = useMemo(
     () => new Set(roomParticleIdFilters),
@@ -7972,6 +7974,7 @@ ${htmlBody}
             editDraft={petlEditDraft}
             editSaving={petlEditSaving}
             containerHeight={petlContainerHeight}
+            hideNotes={petlHideNotes}
             onToggleExpand={handleVirtualToggleExpand}
             onToggleFlag={handleVirtualToggleFlag}
             onOpenReconciliation={handleVirtualOpenReconciliation}
@@ -19624,6 +19627,28 @@ ${htmlBody}
               minWidth={140}
               minListHeight={240}
             />
+          </div>
+
+          <div>
+            <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>&nbsp;</div>
+            <button
+              type="button"
+              onClick={() => setPetlHideNotes((prev) => !prev)}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 6,
+                border: "1px solid #f59e0b",
+                background: "#fef3c7",
+                color: "#92400e",
+                fontSize: 12,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.4)",
+              }}
+              title={petlHideNotes ? "Show note badges and note-only reconciliation lines" : "Hide note badges and notes"}
+            >
+              {petlHideNotes ? "📝 Show Notes" : "📝 Hide Notes"}
+            </button>
           </div>
 
           <form
