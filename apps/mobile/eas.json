@@ -1,0 +1,24 @@
+{
+  "cli": {
+    "version": ">= 16.32.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://nexus-api-979156454944.us-central1.run.app"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
