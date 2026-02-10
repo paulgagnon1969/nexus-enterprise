@@ -578,6 +578,7 @@ export interface PetlVirtualizedTableProps {
   editDraft: string;
   editSaving: boolean;
   containerHeight: number;
+  hideNotes?: boolean; // Hide note badges and note-only reconciliation lines
   onToggleExpand: (itemId: string) => void;
   onToggleFlag: (itemId: string) => void;
   onOpenReconciliation: (itemId: string) => void;
@@ -607,6 +608,7 @@ interface VirtualizedRowProps {
   editingCell: { sowItemId: string; field: string } | null;
   editDraft: string;
   editSaving: boolean;
+  hideNotes: boolean;
   onToggleExpand: (itemId: string) => void;
   onToggleFlag: (itemId: string) => void;
   onOpenReconciliation: (itemId: string) => void;
@@ -635,6 +637,7 @@ function VirtualizedRow({
   editingCell,
   editDraft,
   editSaving,
+  hideNotes,
   onToggleExpand,
   onToggleFlag,
   onOpenReconciliation,
@@ -1037,6 +1040,7 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
   editDraft,
   editSaving,
   containerHeight,
+  hideNotes = false,
   onToggleExpand,
   onToggleFlag,
   onOpenReconciliation,
@@ -1080,19 +1084,22 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
         });
         
         // Note-only entries as subordinated lines (no sequence number)
-        noteOnly.forEach((entry) => {
-          rows.push({
-            type: "recon",
-            item,
-            reconEntry: entry,
-            reconSeq: null, // No sequence for note-only
-            displayLineNo,
+        // Skip if hideNotes is true
+        if (!hideNotes) {
+          noteOnly.forEach((entry) => {
+            rows.push({
+              type: "recon",
+              item,
+              reconEntry: entry,
+              reconSeq: null, // No sequence for note-only
+              displayLineNo,
+            });
           });
-        });
+        }
       }
     }
     return rows;
-  }, [items, expandedIds, reconEntriesBySowItemId]);
+  }, [items, expandedIds, reconEntriesBySowItemId, hideNotes]);
 
   // Row height function for react-window v2
   const getRowHeight = useCallback(
@@ -1116,6 +1123,7 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
       editingCell,
       editDraft,
       editSaving,
+      hideNotes,
       onToggleExpand,
       onToggleFlag,
       onOpenReconciliation,
@@ -1129,7 +1137,7 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
       onDeleteReconEntry,
       onReconPercentChanged,
     }),
-    [flatRows, reconEntriesBySowItemId, expandedIds, flaggedIds, reconActivityIds, isPmOrAbove, isAdminOrAbove, editingCell, editDraft, editSaving, onToggleExpand, onToggleFlag, onOpenReconciliation, onDeleteItem, onOpenCellEditor, onEditDraftChange, onSaveEdit, onCancelEdit, onPercentChange, onEditReconEntry, onDeleteReconEntry, onReconPercentChanged]
+    [flatRows, reconEntriesBySowItemId, expandedIds, flaggedIds, reconActivityIds, isPmOrAbove, isAdminOrAbove, editingCell, editDraft, editSaving, hideNotes, onToggleExpand, onToggleFlag, onOpenReconciliation, onDeleteItem, onOpenCellEditor, onEditDraftChange, onSaveEdit, onCancelEdit, onPercentChange, onEditReconEntry, onDeleteReconEntry, onReconPercentChanged]
   );
 
   return (
