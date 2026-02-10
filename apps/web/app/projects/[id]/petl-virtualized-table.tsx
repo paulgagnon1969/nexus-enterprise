@@ -909,7 +909,7 @@ function VirtualizedRow({
             <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span title={item.description ?? ""}>{item.description ?? ""}</span>
-                {item.itemNote && (
+                {!hideNotes && item.itemNote && (
                   <span
                     title={`V0 Note: ${item.itemNote}`}
                     style={{

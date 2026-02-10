@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useViewRole, ViewRole } from "./view-as-role-context";
+import { useRoleAuditSafe } from "./role-audit";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -18,12 +19,14 @@ interface MeResponse {
 
 export function ViewRoleSwitcher() {
   const { viewAs, setViewAs } = useViewRole();
+  const { auditMode, toggleAuditMode } = useRoleAuditSafe();
   const [open, setOpen] = useState(false);
   const [allowedRoles, setAllowedRoles] = useState<ViewRole[]>(["ACTUAL"]);
   const [snapshotState, setSnapshotState] = useState<
     { status: "idle" | "running" | "success" | "error"; message?: string }
   >({ status: "idle" });
   const [canFreezeDev, setCanFreezeDev] = useState(false);
+  const [canRoleAudit, setCanRoleAudit] = useState(false);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
@@ -49,6 +52,10 @@ export function ViewRoleSwitcher() {
 
         // Freeze Dev is allowed only for SUPER_ADMIN or company OWNER
         const canFreeze = globalRole === "SUPER_ADMIN" || isOwner;
+        
+        // Role Audit is allowed for ADMIN and above
+        const canAudit = globalRole === "SUPER_ADMIN" || isOwner || isAdmin;
+        setCanRoleAudit(canAudit);
 
         if (globalRole === "SUPER_ADMIN" || isOwner) {
           roles.push("OWNER", "ADMIN", "MEMBER", "CLIENT");
@@ -201,6 +208,39 @@ export function ViewRoleSwitcher() {
               </li>
             ))}
           </ul>
+
+          {canRoleAudit && (
+            <div
+              style={{
+                borderTop: "1px solid #1e293b",
+                marginTop: 8,
+                paddingTop: 6,
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 4, color: "#f9fafb" }}>
+                🔍 Role Audit
+              </div>
+              <button
+                type="button"
+                onClick={toggleAuditMode}
+                style={{
+                  width: "100%",
+                  padding: "4px 6px",
+                  fontSize: 12,
+                  borderRadius: 4,
+                  border: auditMode ? "1px solid #22c55e" : "1px solid #6b7280",
+                  background: auditMode ? "#166534" : "#020617",
+                  color: "#f9fafb",
+                  cursor: "pointer",
+                }}
+              >
+                {auditMode ? "✓ Audit Mode ON" : "Enable Audit Mode"}
+              </button>
+              <div style={{ marginTop: 4, fontSize: 10, color: "#9ca3af" }}>
+                Highlights fields by visibility level
+              </div>
+            </div>
+          )}
 
           {canFreezeDev && (
             <div
