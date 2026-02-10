@@ -36,6 +36,7 @@ import { XactScheduleModule } from "./modules/xact-schedule/xact-schedule.module
 import { PnpModule } from "./modules/pnp/pnp.module";
 import { DocumentImportModule } from "./modules/document-import/document-import.module";
 import { SopModule } from "./modules/sop/sop.module";
+import { ClaimJournalModule } from "./modules/claim-journal/claim-journal.module";
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { SopModule } from "./modules/sop/sop.module";
     PnpModule,
     DocumentImportModule,
     SopModule,
+    ClaimJournalModule,
   ],
   controllers: [DevController]
 })
