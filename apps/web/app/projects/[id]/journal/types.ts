@@ -53,17 +53,16 @@ export interface ClaimJournalEntry {
   occurredAt: string;
   summary: string;
   details: string | null;
-  disputedAmount: number | null;
-  approvedAmount: number | null;
-  deniedAmount: number | null;
+  amountDisputed: number | null;
+  amountApproved: number | null;
+  amountDenied: number | null;
   tags: string[];
   correctsEntryId: string | null;
   correctsEntry?: ClaimJournalEntry | null;
-  correctedByEntries?: ClaimJournalEntry[];
+  correctedBy?: ClaimJournalEntry | null;
   attachments?: ClaimJournalAttachment[];
   createdById: string | null;
   createdAt: string;
-  updatedAt: string;
 }
 
 export interface CreateJournalEntryDto {
@@ -75,9 +74,9 @@ export interface CreateJournalEntryDto {
   occurredAt: string;
   summary: string;
   details?: string | null;
-  disputedAmount?: number | null;
-  approvedAmount?: number | null;
-  deniedAmount?: number | null;
+  amountDisputed?: number | null;
+  amountApproved?: number | null;
+  amountDenied?: number | null;
   tags?: string[];
 }
 

@@ -73,7 +73,7 @@ export function JournalEntryCard({
   };
 
   const colors = getTypeColor();
-  const hasCorrections = (entry.correctedByEntries?.length ?? 0) > 0;
+  const hasCorrections = !!entry.correctedBy;
   const isCorrection = !!entry.correctsEntryId;
 
   return (
@@ -174,9 +174,9 @@ export function JournalEntryCard({
           )}
 
           {/* Amounts */}
-          {(entry.disputedAmount != null ||
-            entry.approvedAmount != null ||
-            entry.deniedAmount != null) && (
+          {(entry.amountDisputed != null ||
+            entry.amountApproved != null ||
+            entry.amountDenied != null) && (
             <div
               style={{
                 marginTop: 12,
@@ -185,7 +185,7 @@ export function JournalEntryCard({
                 gap: 8,
               }}
             >
-              {entry.disputedAmount != null && (
+              {entry.amountDisputed != null && (
                 <div
                   style={{
                     padding: 8,
@@ -196,11 +196,11 @@ export function JournalEntryCard({
                 >
                   <div style={{ fontSize: 10, color: "#6b7280" }}>Disputed</div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>
-                    {formatMoney(entry.disputedAmount)}
+                    {formatMoney(entry.amountDisputed)}
                   </div>
                 </div>
               )}
-              {entry.approvedAmount != null && (
+              {entry.amountApproved != null && (
                 <div
                   style={{
                     padding: 8,
@@ -211,11 +211,11 @@ export function JournalEntryCard({
                 >
                   <div style={{ fontSize: 10, color: "#166534" }}>Approved</div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "#166534" }}>
-                    {formatMoney(entry.approvedAmount)}
+                    {formatMoney(entry.amountApproved)}
                   </div>
                 </div>
               )}
-              {entry.deniedAmount != null && (
+              {entry.amountDenied != null && (
                 <div
                   style={{
                     padding: 8,
@@ -226,7 +226,7 @@ export function JournalEntryCard({
                 >
                   <div style={{ fontSize: 10, color: "#b91c1c" }}>Denied</div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "#b91c1c" }}>
-                    {formatMoney(entry.deniedAmount)}
+                    {formatMoney(entry.amountDenied)}
                   </div>
                 </div>
               )}
