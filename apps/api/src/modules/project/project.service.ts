@@ -9234,18 +9234,33 @@ export class ProjectService {
 
       // Best effort: keep the living draft synced to PETL as the source of truth.
       // Only run if the Prisma client includes the new model.
+      // For existing drafts, skip sync to make "Open living invoice" instant - user can
+      // manually trigger sync if needed. For newly created drafts, run sync inline so
+      // the invoice has PETL lines when first opened.
       if (this.invoicePetlModelsAvailable()) {
-        try {
-          await this.syncDraftInvoiceFromPetl(projectId, invoice.id, actor);
-        } catch (err: any) {
-          const code = String((err as any)?.code ?? "");
-          const msg = String((err as any)?.message ?? "");
-          this.logger.warn(
-            `syncDraftInvoiceFromPetl failed for invoice ${invoice.id} on project ${projectId} (code=${code}): ${msg}`,
-          );
-          // Do not block draft creation on PETL sync failures. The user can still
-          // add manual line items, and PETL-derived lines can be investigated
-          // separately via logs / diagnostics.
+        if (existingDraft) {
+          // Existing draft: fire-and-forget async sync to avoid blocking the UI.
+          // The UI will show current state immediately; sync happens in background.
+          setImmediate(() => {
+            this.syncDraftInvoiceFromPetl(projectId, invoice.id, actor).catch((err: any) => {
+              const code = String((err as any)?.code ?? "");
+              const msg = String((err as any)?.message ?? "");
+              this.logger.warn(
+                `[async] syncDraftInvoiceFromPetl failed for invoice ${invoice.id} on project ${projectId} (code=${code}): ${msg}`,
+              );
+            });
+          });
+        } else {
+          // New draft: sync inline so the invoice has PETL lines immediately.
+          try {
+            await this.syncDraftInvoiceFromPetl(projectId, invoice.id, actor);
+          } catch (err: any) {
+            const code = String((err as any)?.code ?? "");
+            const msg = String((err as any)?.message ?? "");
+            this.logger.warn(
+              `syncDraftInvoiceFromPetl failed for invoice ${invoice.id} on project ${projectId} (code=${code}): ${msg}`,
+            );
+          }
         }
       }
 
