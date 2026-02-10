@@ -10787,7 +10787,7 @@ ${htmlBody}
                 
                 if (hasFilters) {
                   for (const item of petlItems) {
-                    const matchesRoom = !roomParticleIdFilters.length || roomParticleIdFilters.includes(item.roomParticleId ?? "");
+                    const matchesRoom = !roomParticleIdFilters.length || roomParticleIdFilters.includes(item.projectParticle?.id ?? "");
                     const matchesCategory = !categoryCodeFilters.length || categoryCodeFilters.includes(item.categoryCode ?? "");
                     const matchesSelection = !selectionCodeFilters.length || selectionCodeFilters.includes(item.selectionCode ?? "");
                     
