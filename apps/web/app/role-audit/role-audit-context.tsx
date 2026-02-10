@@ -5,7 +5,7 @@ import React, { createContext, useContext, useState, useCallback, type ReactNode
 /**
  * Role hierarchy from lowest (most permissive) to highest (most restrictive).
  * "CLIENT" means everyone including clients can see it.
- * "OWNER" means only owners can see it.
+ * "SUPER_ADMIN" means only Nexus Superusers can see it.
  */
 export const ROLE_HIERARCHY = [
   "CLIENT",
@@ -16,6 +16,7 @@ export const ROLE_HIERARCHY = [
   "EXECUTIVE",
   "ADMIN",
   "OWNER",
+  "SUPER_ADMIN",
 ] as const;
 
 export type VisibilityRole = (typeof ROLE_HIERARCHY)[number];
@@ -31,7 +32,8 @@ export const ROLE_COLORS: Record<VisibilityRole, { bg: string; border: string; t
   PM: { bg: "#e0e7ff", border: "#6366f1", text: "#4338ca" },          // Indigo
   EXECUTIVE: { bg: "#ede9fe", border: "#8b5cf6", text: "#6d28d9" },   // Violet
   ADMIN: { bg: "#fce7f3", border: "#ec4899", text: "#be185d" },       // Pink
-  OWNER: { bg: "#fee2e2", border: "#ef4444", text: "#b91c1c" },       // Red - most restricted
+  OWNER: { bg: "#fee2e2", border: "#ef4444", text: "#b91c1c" },       // Red
+  SUPER_ADMIN: { bg: "#18181b", border: "#fbbf24", text: "#fbbf24" }, // Black/Gold - Nexus Superuser
 };
 
 export const ROLE_LABELS: Record<VisibilityRole, string> = {
@@ -43,6 +45,7 @@ export const ROLE_LABELS: Record<VisibilityRole, string> = {
   EXECUTIVE: "Executive+",
   ADMIN: "Admin+",
   OWNER: "Owner Only",
+  SUPER_ADMIN: "⚡ Nexus Superuser",
 };
 
 interface RoleAuditContextValue {

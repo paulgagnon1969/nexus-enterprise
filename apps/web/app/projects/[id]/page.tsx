@@ -19630,25 +19630,53 @@ ${htmlBody}
           </div>
 
           <div>
-            <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>&nbsp;</div>
-            <button
-              type="button"
-              onClick={() => setPetlHideNotes((prev) => !prev)}
+            <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Notes</div>
+            <div
+              role="group"
+              aria-label="Notes visibility"
               style={{
-                padding: "6px 10px",
-                borderRadius: 6,
-                border: "1px solid #f59e0b",
-                background: "#fef3c7",
-                color: "#92400e",
-                fontSize: 12,
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.4)",
+                display: "inline-flex",
+                border: "1px solid #d1d5db",
+                borderRadius: 999,
+                overflow: "hidden",
               }}
-              title={petlHideNotes ? "Show note badges and note-only reconciliation lines" : "Hide note badges and notes"}
             >
-              {petlHideNotes ? "📝 Show Notes" : "📝 Hide Notes"}
-            </button>
+              <button
+                type="button"
+                onClick={() => setPetlHideNotes(true)}
+                style={{
+                  padding: "5px 10px",
+                  fontSize: 12,
+                  border: "none",
+                  cursor: "pointer",
+                  background: petlHideNotes ? "#0f172a" : "#ffffff",
+                  color: petlHideNotes ? "#f9fafb" : "#111827",
+                  transition: "background-color 120ms ease, color 120ms ease",
+                }}
+                title="Hide note badges and note-only reconciliation lines"
+              >
+                Off
+              </button>
+              <button
+                type="button"
+                onClick={() => setPetlHideNotes(false)}
+                style={{
+                  padding: "5px 10px",
+                  fontSize: 12,
+                  borderLeft: "1px solid #d1d5db",
+                  borderTop: "none",
+                  borderRight: "none",
+                  borderBottom: "none",
+                  cursor: "pointer",
+                  background: !petlHideNotes ? "#0f172a" : "#ffffff",
+                  color: !petlHideNotes ? "#f9fafb" : "#111827",
+                  transition: "background-color 120ms ease, color 120ms ease",
+                }}
+                title="Show note badges and note-only reconciliation lines"
+              >
+                On
+              </button>
+            </div>
           </div>
 
           <form
