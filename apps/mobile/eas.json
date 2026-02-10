@@ -9,7 +9,10 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://nexus-api-979156454944.us-central1.run.app"
+      }
     },
     "production": {
       "autoIncrement": true,
