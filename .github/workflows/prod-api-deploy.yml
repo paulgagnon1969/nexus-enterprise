@@ -51,6 +51,13 @@ jobs:
       - name: Configure Docker auth for Artifact Registry
         run: gcloud auth configure-docker us-docker.pkg.dev --quiet
 
+      - name: Run Prisma migrations (prod database)
+        run: |
+          cd packages/database
+          npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+
       - name: Deploy API to Cloud Run (prod)
         run: |
           cd scripts
