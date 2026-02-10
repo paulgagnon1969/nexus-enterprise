@@ -1503,11 +1503,11 @@ export default function ProjectDetailPage({
 
   // Group by field for print - supports multi-level hierarchy
   const printGroupByKey = `invoicePrintGroupBy:v2:${id}`;
-  const [invoicePrintGroupBy, setInvoicePrintGroupBy] = useState<"none" | "room" | "unit" | "building" | "category">(() => {
+  const [invoicePrintGroupBy, setInvoicePrintGroupBy] = useState<"none" | "room" | "unit" | "building" | "category" | "supplements" | "change-orders" | "acv-rebates">(() => {
     if (typeof window === "undefined") return "none";
     try {
       const raw = localStorage.getItem(printGroupByKey);
-      if (raw === "room" || raw === "unit" || raw === "building" || raw === "category") return raw;
+      if (raw === "room" || raw === "unit" || raw === "building" || raw === "category" || raw === "supplements" || raw === "change-orders" || raw === "acv-rebates") return raw as any;
       return "none";
     } catch {
       return "none";
