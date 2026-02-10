@@ -37,6 +37,7 @@ import { PnpModule } from "./modules/pnp/pnp.module";
 import { DocumentImportModule } from "./modules/document-import/document-import.module";
 import { SopModule } from "./modules/sop/sop.module";
 import { ClaimJournalModule } from "./modules/claim-journal/claim-journal.module";
+import { FieldSecurityModule } from "./modules/field-security/field-security.module";
 
 @Module({
   imports: [
@@ -82,6 +83,7 @@ import { ClaimJournalModule } from "./modules/claim-journal/claim-journal.module
     DocumentImportModule,
     SopModule,
     ClaimJournalModule,
+    FieldSecurityModule,
   ],
   controllers: [DevController]
 })

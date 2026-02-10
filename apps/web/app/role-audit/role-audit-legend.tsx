@@ -25,12 +25,12 @@ export function RoleAuditLegend() {
         right: 16,
         zIndex: 9999,
         background: "#ffffff",
-        border: "2px solid #0f172a",
-        borderRadius: 8,
-        boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
-        padding: 12,
-        minWidth: 180,
-        maxWidth: 220,
+        border: "3px solid #0f172a",
+        borderRadius: 12,
+        boxShadow: "0 12px 32px rgba(0,0,0,0.25)",
+        padding: 20,
+        minWidth: 280,
+        maxWidth: 340,
       }}
     >
       <div
@@ -38,12 +38,12 @@ export function RoleAuditLegend() {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: 10,
-          paddingBottom: 8,
-          borderBottom: "1px solid #e5e7eb",
+          marginBottom: 16,
+          paddingBottom: 12,
+          borderBottom: "2px solid #e5e7eb",
         }}
       >
-        <div style={{ fontWeight: 700, fontSize: 13, color: "#0f172a" }}>
+        <div style={{ fontWeight: 700, fontSize: 20, color: "#0f172a" }}>
           🔍 Role Audit
         </div>
         <button
@@ -52,7 +52,7 @@ export function RoleAuditLegend() {
           style={{
             background: "none",
             border: "none",
-            fontSize: 16,
+            fontSize: 24,
             cursor: "pointer",
             color: "#6b7280",
             padding: 0,
@@ -64,11 +64,11 @@ export function RoleAuditLegend() {
         </button>
       </div>
 
-      <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 8 }}>
+      <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 14 }}>
         Fields are highlighted by minimum visibility level:
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {ROLE_HIERARCHY.map((role) => {
           const colors = ROLE_COLORS[role];
           return (
@@ -77,20 +77,20 @@ export function RoleAuditLegend() {
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 8,
+                gap: 12,
               }}
             >
               <div
                 style={{
-                  width: 16,
-                  height: 16,
-                  borderRadius: 3,
+                  width: 28,
+                  height: 28,
+                  borderRadius: 6,
                   background: colors.bg,
-                  border: `2px solid ${colors.border}`,
+                  border: `3px solid ${colors.border}`,
                   flexShrink: 0,
                 }}
               />
-              <span style={{ fontSize: 11, color: colors.text, fontWeight: 500 }}>
+              <span style={{ fontSize: 16, color: colors.text, fontWeight: 600 }}>
                 {ROLE_LABELS[role]}
               </span>
             </div>
@@ -100,12 +100,12 @@ export function RoleAuditLegend() {
 
       <div
         style={{
-          marginTop: 10,
-          paddingTop: 8,
-          borderTop: "1px solid #e5e7eb",
-          fontSize: 9,
+          marginTop: 16,
+          paddingTop: 12,
+          borderTop: "2px solid #e5e7eb",
+          fontSize: 13,
           color: "#9ca3af",
-          lineHeight: 1.4,
+          lineHeight: 1.5,
         }}
       >
         Green = visible to all • Red = restricted
