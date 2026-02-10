@@ -24257,7 +24257,7 @@ ${htmlBody}
                   return;
                 }
                 
-                const entry = await res.json();
+                const result = await res.json();
                 
                 // Close workflow modal
                 closeModal();
@@ -24265,8 +24265,8 @@ ${htmlBody}
                 // Refresh PETL
                 setPetlReloadTick(t => t + 1);
                 
-                // Open entry in edit mode
-                openReconEntryEdit(entry);
+                // Open entry in edit mode (API returns { entry, reconciliationCase })
+                openReconEntryEdit(result.entry ?? result);
               });
             }
           } catch (err: any) {
