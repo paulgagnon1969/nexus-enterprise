@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { HelpIcon } from "../components/help-icon";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "https://ncc-nexus-contractor-connect.com";
 
@@ -263,10 +264,16 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div style={{ marginTop: 12, fontSize: 12 }}>
+        <div style={{ marginTop: 12, fontSize: 12, display: "flex", gap: 16, alignItems: "center" }}>
           <a href="/reset-password" style={{ color: "#2563eb", textDecoration: "none" }}>
             Forgot password?
           </a>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <a href="/apply" style={{ color: "#2563eb", textDecoration: "none" }}>
+              Self Register
+            </a>
+            <HelpIcon featureId="self-registration" tooltip="Learn about self-registration" />
+          </span>
         </div>
 
         <p

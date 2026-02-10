@@ -35,6 +35,7 @@ import { UploadsModule } from "./modules/uploads/uploads.module";
 import { XactScheduleModule } from "./modules/xact-schedule/xact-schedule.module";
 import { PnpModule } from "./modules/pnp/pnp.module";
 import { DocumentImportModule } from "./modules/document-import/document-import.module";
+import { SopModule } from "./modules/sop/sop.module";
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { DocumentImportModule } from "./modules/document-import/document-import.
     UploadsModule,
     PnpModule,
     DocumentImportModule,
+    SopModule,
   ],
   controllers: [DevController]
 })
