@@ -6,15 +6,19 @@ import { Text, View } from "react-native";
 import { HomeScreen } from "../screens/HomeScreen";
 import { ProjectsScreen } from "../screens/ProjectsScreen";
 import { DailyLogsScreen } from "../screens/DailyLogsScreen";
+import { DailyLogFeedScreen } from "../screens/DailyLogFeedScreen";
+import { DailyLogDetailScreen } from "../screens/DailyLogDetailScreen";
+import { DailyLogEditScreen } from "../screens/DailyLogEditScreen";
 import { InventoryScreen } from "../screens/InventoryScreen";
 import { OutboxScreen } from "../screens/OutboxScreen";
 import { TimecardScreen } from "../screens/TimecardScreen";
-import type { ProjectListItem } from "../types/api";
+import type { ProjectListItem, DailyLogListItem, DailyLogDetail } from "../types/api";
 
 // Type definitions for navigation
 export type RootTabParamList = {
   HomeTab: undefined;
   TimecardTab: undefined;
+  LogsTab: undefined;
   ProjectsTab: undefined;
   InventoryTab: undefined;
   OutboxTab: undefined;
@@ -25,14 +29,22 @@ export type ProjectsStackParamList = {
   DailyLogs: { project: ProjectListItem };
 };
 
+export type LogsStackParamList = {
+  LogsFeed: undefined;
+  LogDetail: { log: DailyLogListItem };
+  LogEdit: { log: DailyLogDetail };
+};
+
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
+const LogsStack = createNativeStackNavigator<LogsStackParamList>();
 
 // Simple icon component (can be replaced with expo-vector-icons later)
 function TabIcon({ label, focused }: { label: string; focused: boolean }) {
   const icons: Record<string, string> = {
     Home: "🏠",
     Timecard: "⏱️",
+    Logs: "📝",
     Projects: "📋",
     Inventory: "📦",
     Outbox: "📤",
@@ -41,6 +53,44 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
     <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.5 }}>
       {icons[label] ?? "•"}
     </Text>
+  );
+}
+
+// Logs stack with Feed -> Detail -> Edit
+function LogsStackNavigator() {
+  return (
+    <LogsStack.Navigator screenOptions={{ headerShown: false }}>
+      <LogsStack.Screen name="LogsFeed">
+        {(props) => (
+          <DailyLogFeedScreen
+            onSelectLog={(log) =>
+              props.navigation.navigate("LogDetail", { log })
+            }
+          />
+        )}
+      </LogsStack.Screen>
+      <LogsStack.Screen name="LogDetail">
+        {(props) => (
+          <DailyLogDetailScreen
+            log={props.route.params.log}
+            onBack={() => props.navigation.goBack()}
+            onEdit={(log) => props.navigation.navigate("LogEdit", { log })}
+          />
+        )}
+      </LogsStack.Screen>
+      <LogsStack.Screen name="LogEdit">
+        {(props) => (
+          <DailyLogEditScreen
+            log={props.route.params.log}
+            onBack={() => props.navigation.goBack()}
+            onSaved={(updated) => {
+              // Go back to detail screen with updated log
+              props.navigation.goBack();
+            }}
+          />
+        )}
+      </LogsStack.Screen>
+    </LogsStack.Navigator>
   );
 }
 
@@ -124,6 +174,11 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
         name="TimecardTab"
         options={{ tabBarLabel: "Timecard" }}
         component={TimecardScreen}
+      />
+      <Tab.Screen
+        name="LogsTab"
+        options={{ tabBarLabel: "Logs" }}
+        component={LogsStackNavigator}
       />
       <Tab.Screen
         name="ProjectsTab"
