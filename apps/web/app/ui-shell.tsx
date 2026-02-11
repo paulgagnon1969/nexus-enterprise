@@ -1,6 +1,6 @@
 "use client";
 
-import React, { ReactNode, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import NavDropdown from "./components/nav-dropdown";
@@ -28,7 +28,7 @@ interface UserMeResponse {
   }[];
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const {messages} = useLanguage();
   const h = messages.header;
@@ -736,7 +736,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 }
 
-export function PageCard({ children, style, className }: { children: ReactNode; style?: React.CSSProperties; className?: string }) {
+export function PageCard({ children, style, className }: { children: React.ReactNode; style?: React.CSSProperties; className?: string }) {
   return <div className={className ? `app-card ${className}` : "app-card"} style={style}>{children}</div>;
 }
 

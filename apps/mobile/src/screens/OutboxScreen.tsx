@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
-import { listOutboxRecent } from "../offline/outbox";
+import { listOutboxRecent, resetErrorItems, clearPendingItems } from "../offline/outbox";
 
 export function OutboxScreen({ onBack }: { onBack: () => void }) {
   const [rows, setRows] = useState<any[]>([]);
+  const [resetting, setResetting] = useState(false);
 
   const load = async () => {
     const r = await listOutboxRecent(200);
@@ -37,6 +38,42 @@ export function OutboxScreen({ onBack }: { onBack: () => void }) {
         </Pressable>
       </View>
 
+      {rows.some((r) => r.status === "ERROR") && (
+        <Pressable
+          style={styles.retryButton}
+          onPress={async () => {
+            setResetting(true);
+            const count = await resetErrorItems();
+            console.log(`[Outbox] Reset ${count} error items to PENDING`);
+            await load();
+            setResetting(false);
+          }}
+          disabled={resetting}
+        >
+          <Text style={styles.retryButtonText}>
+            {resetting ? "Resetting…" : "Retry All Failed Items"}
+          </Text>
+        </Pressable>
+      )}
+
+      {rows.some((r) => r.status === "PENDING" || r.status === "ERROR") && (
+        <Pressable
+          style={styles.clearButton}
+          onPress={async () => {
+            setResetting(true);
+            const count = await clearPendingItems();
+            console.log(`[Outbox] Cleared ${count} pending/error items`);
+            await load();
+            setResetting(false);
+          }}
+          disabled={resetting}
+        >
+          <Text style={styles.clearButtonText}>
+            {resetting ? "Clearing…" : "Clear All Pending"}
+          </Text>
+        </Pressable>
+      )}
+
       <ScrollView style={{ flex: 1 }}>
         {rows.map((r) => (
           <View key={r.id} style={styles.card}>
@@ -63,6 +100,22 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 18, fontWeight: "700" },
   link: { color: "#2563eb", fontWeight: "600" },
+  retryButton: {
+    backgroundColor: "#f59e0b",
+    padding: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  retryButtonText: { color: "#ffffff", fontWeight: "700" },
+  clearButton: {
+    backgroundColor: "#dc2626",
+    padding: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  clearButtonText: { color: "#ffffff", fontWeight: "700" },
   card: {
     borderWidth: 1,
     borderColor: "#e5e7eb",
