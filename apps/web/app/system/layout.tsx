@@ -1,5 +1,6 @@
 "use client";
 
+import type { PropsWithChildren } from "react";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
@@ -23,7 +24,7 @@ interface OrgProjectSummary {
   status?: string;
 }
 
-function SystemLayoutInner({ children }: { children: React.ReactNode }) {
+function SystemLayoutInner({ children }: PropsWithChildren) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -1000,7 +1001,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function SystemLayout({ children }: { children: React.ReactNode }) {
+export default function SystemLayout({ children }: PropsWithChildren) {
   return (
     <Suspense
       fallback={
