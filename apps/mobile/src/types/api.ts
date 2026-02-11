@@ -82,3 +82,95 @@ export interface FieldPetlItem {
   orgGroupCode: string | null;
   percentComplete?: number;
 }
+
+// Daily log list item (returned from feed endpoint)
+export interface DailyLogListItem {
+  id: string;
+  projectId: string;
+  projectName: string;
+  logDate: string;
+  title: string | null;
+  workPerformed: string | null;
+  issues: string | null;
+  status: string;
+  createdAt: string;
+  createdById: string;
+  // Delay publish workflow
+  isDelayedPublish: boolean;
+  delayedById?: string | null;
+  delayedAt?: string | null;
+  publishedById?: string | null;
+  publishedAt?: string | null;
+  createdByUser: {
+    id: string;
+    email: string;
+    firstName?: string | null;
+    lastName?: string | null;
+  } | null;
+  attachments?: Array<{
+    id: string;
+    fileName: string | null;
+    fileUrl: string | null;
+  }>;
+}
+
+// Daily log full detail
+export interface DailyLogDetail extends DailyLogListItem {
+  weatherSummary: string | null;
+  crewOnSite: string | null;
+  safetyIncidents: string | null;
+  manpowerOnsite: string | null;
+  personOnsite: string | null;
+  confidentialNotes: string | null;
+  shareInternal: boolean;
+  shareSubs: boolean;
+  shareClient: boolean;
+  sharePrivate: boolean;
+  effectiveShareClient: boolean;
+  building?: { id: string; name: string; code: string | null } | null;
+  unit?: { id: string; label: string; floor: string | null } | null;
+  roomParticle?: { id: string; name: string; fullLabel: string | null } | null;
+  sowItem?: { id: string; description: string | null } | null;
+}
+
+// Feed response
+export interface DailyLogFeedResponse {
+  items: DailyLogListItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// Daily log update request (all fields optional)
+export interface DailyLogUpdateRequest {
+  logDate?: string;
+  title?: string | null;
+  tags?: string[];
+  weatherSummary?: string | null;
+  crewOnSite?: string | null;
+  workPerformed?: string | null;
+  issues?: string | null;
+  safetyIncidents?: string | null;
+  manpowerOnsite?: string | null;
+  personOnsite?: string | null;
+  confidentialNotes?: string | null;
+  shareInternal?: boolean;
+  shareSubs?: boolean;
+  shareClient?: boolean;
+  sharePrivate?: boolean;
+}
+
+// Daily log revision history item
+export interface DailyLogRevision {
+  id: string;
+  revisionNumber: number;
+  editedAt: string;
+  editedBy: {
+    id: string;
+    email: string;
+    firstName?: string | null;
+    lastName?: string | null;
+  };
+  changes: Record<string, any>;
+  previousValues: Record<string, any>;
+}

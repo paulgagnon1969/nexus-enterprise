@@ -1,8 +1,74 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { DailyLogService } from "./daily-log.service";
 import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateDailyLogDto } from "./dto/create-daily-log.dto";
+import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
+
+/**
+ * Cross-project daily logs endpoint.
+ * Returns logs across all projects the user has access to.
+ */
+@Controller("daily-logs")
+export class DailyLogFeedController {
+  constructor(private readonly dailyLogs: DailyLogService) {}
+
+  @UseGuards(JwtAuthGuard)
+  @Get()
+  listAll(
+    @Req() req: any,
+    @Query("projectIds") projectIds?: string,
+    @Query("limit") limit?: string,
+    @Query("offset") offset?: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const filters = {
+      projectIds: projectIds ? projectIds.split(",").filter(Boolean) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      offset: offset ? parseInt(offset, 10) : undefined,
+    };
+    return this.dailyLogs.listForUser(user.companyId, user, filters);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":logId")
+  getOne(@Req() req: any, @Param("logId") logId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.getById(logId, user.companyId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(":logId")
+  update(
+    @Req() req: any,
+    @Param("logId") logId: string,
+    @Body() dto: UpdateDailyLogDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.updateLog(logId, user.companyId, user, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":logId/delay-publish")
+  delayPublish(@Req() req: any, @Param("logId") logId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.delayPublishLog(logId, user.companyId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":logId/publish")
+  publish(@Req() req: any, @Param("logId") logId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.publishLog(logId, user.companyId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":logId/revisions")
+  getRevisions(@Req() req: any, @Param("logId") logId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.getRevisions(logId, user.companyId, user);
+  }
+}
 
 @Controller("projects/:projectId/daily-logs")
 export class DailyLogController {

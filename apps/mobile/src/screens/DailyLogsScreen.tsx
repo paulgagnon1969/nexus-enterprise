@@ -78,10 +78,21 @@ export function DailyLogsScreen({
   const [attachments, setAttachments] = useState<StoredFile[]>([]);
 
   const key = `dailyLogs:${project.id}`;
+  const petlKey = `fieldPetl:${project.id}`;
 
   const loadCached = async () => {
     const cached = await getCache<any[]>(key);
     if (cached) setLogs(cached);
+  };
+
+  const loadCachedPetl = async () => {
+    const cached = await getCache<FieldPetlItem[]>(petlKey);
+    if (cached && cached.length > 0) {
+      setFieldPetlItems(cached);
+      setFieldPetlStatus(null); // Clear loading status if we have cached data
+      return true;
+    }
+    return false;
   };
 
   const refreshOnline = async () => {
@@ -102,10 +113,17 @@ export function DailyLogsScreen({
     void loadCached().then(refreshOnline);
   }, [project.id]);
 
-  // Load Field PETL when project changes
+  // Load Field PETL when project changes - with caching
   useEffect(() => {
     (async () => {
-      setFieldPetlStatus("Loading PETL scope…");
+      // Load cached data first for instant display
+      const hadCache = await loadCachedPetl();
+      
+      // Show loading only if no cached data
+      if (!hadCache) {
+        setFieldPetlStatus("Loading PETL scope…");
+      }
+
       try {
         const json = await apiJson<{ items: any[] }>(
           `/projects/${encodeURIComponent(project.id)}/petl-field`,
@@ -134,11 +152,20 @@ export function DailyLogsScreen({
         }));
         setFieldPetlItems(mapped);
         setFieldPetlStatus(null);
+        
+        // Cache the fresh data
+        await setCache(petlKey, mapped);
       } catch (e) {
-        setFieldPetlStatus(
-          e instanceof Error ? e.message : `Failed to load PETL scope: ${String(e)}`,
-        );
-        setFieldPetlItems([]);
+        // Only show error if we don't have cached data
+        if (!hadCache) {
+          setFieldPetlStatus(
+            e instanceof Error ? e.message : `Failed to load PETL scope: ${String(e)}`,
+          );
+          setFieldPetlItems([]);
+        } else {
+          // Silently fail if we have cached data - just keep showing it
+          setFieldPetlStatus(null);
+        }
       }
     })();
   }, [project.id]);

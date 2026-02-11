@@ -404,6 +404,11 @@ model User {
   // Claim Journal (carrier negotiation tracking)
   claimJournalEntriesCreated      ClaimJournalEntry[]      @relation("ClaimJournalEntryCreatedBy")
   claimJournalAttachmentsUploaded ClaimJournalAttachment[] @relation("ClaimJournalAttachmentUploadedBy")
+
+  // Daily log delay publish and revision tracking
+  dailyLogsDelayed   DailyLog[]         @relation("DailyLogDelayedBy")
+  dailyLogsPublished DailyLog[]         @relation("DailyLogPublishedBy")
+  dailyLogRevisions  DailyLogRevision[] @relation("DailyLogRevisionEditedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -2441,18 +2446,28 @@ model DailyLog {
   updatedAt            DateTime             @updatedAt
   effectiveShareClient Boolean              @default(false)
   status               DailyLogStatus       @default(SUBMITTED)
+  /// Delay publish workflow
+  isDelayedPublish     Boolean              @default(false)
+  delayedById          String?
+  delayedAt            DateTime?
+  publishedById        String?
+  publishedAt          DateTime?
   createdBy            User                 @relation(fields: [createdById], references: [id])
   project              Project              @relation(fields: [projectId], references: [id])
   attachments          DailyLogAttachment[]
+  revisions            DailyLogRevision[]
   assetUsages          AssetUsage[]
   building             ProjectBuilding?     @relation("ProjectBuildingDailyLogs", fields: [buildingId], references: [id])
   unit                 ProjectUnit?         @relation("ProjectUnitDailyLogs", fields: [unitId], references: [id])
   roomParticle         ProjectParticle?     @relation("ProjectParticleDailyLogs", fields: [roomParticleId], references: [id])
   sowItem              SowItem?             @relation("SowItemDailyLogs", fields: [sowItemId], references: [id])
+  delayedBy            User?                @relation("DailyLogDelayedBy", fields: [delayedById], references: [id])
+  publishedBy          User?                @relation("DailyLogPublishedBy", fields: [publishedById], references: [id])
 
   @@index([projectId], map: "DailyLog_project_idx")
   @@index([projectId, roomParticleId], map: "DailyLog_project_room_idx")
   @@index([projectId, sowItemId], map: "DailyLog_project_sow_idx")
+  @@index([isDelayedPublish], map: "DailyLog_delayed_idx")
 }
 
 model DailyLogAttachment {
@@ -2469,6 +2484,25 @@ model DailyLogAttachment {
   projectFile ProjectFile? @relation(fields: [projectFileId], references: [id])
 
   @@index([dailyLogId], map: "DailyLogAttachment_log_idx")
+}
+
+/// Tracks revision history for daily logs
+model DailyLogRevision {
+  id                 String   @id @default(cuid())
+  dailyLogId         String
+  revisionNumber     Int
+  editedById         String
+  editedAt           DateTime @default(now())
+  /// JSON object mapping changed field names to their new values
+  changesJson        String
+  /// JSON snapshot of field values before this edit
+  previousValuesJson String
+
+  dailyLog DailyLog @relation(fields: [dailyLogId], references: [id], onDelete: Cascade)
+  editedBy User     @relation("DailyLogRevisionEditedBy", fields: [editedById], references: [id])
+
+  @@unique([dailyLogId, revisionNumber], name: "DailyLogRevision_log_revision_key")
+  @@index([dailyLogId], map: "DailyLogRevision_log_idx")
 }
 
 model OnboardingSession {
