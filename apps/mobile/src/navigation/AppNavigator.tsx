@@ -1,7 +1,11 @@
 import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { useNavigation, useRoute } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RouteProp } from "@react-navigation/native";
 import { Text, View } from "react-native";
+import { colors } from "../theme/colors";
 
 import { HomeScreen } from "../screens/HomeScreen";
 import { ProjectsScreen } from "../screens/ProjectsScreen";
@@ -9,6 +13,7 @@ import { DailyLogsScreen } from "../screens/DailyLogsScreen";
 import { DailyLogFeedScreen } from "../screens/DailyLogFeedScreen";
 import { DailyLogDetailScreen } from "../screens/DailyLogDetailScreen";
 import { DailyLogEditScreen } from "../screens/DailyLogEditScreen";
+import { DailyLogCreateScreen } from "../screens/DailyLogCreateScreen";
 import { InventoryScreen } from "../screens/InventoryScreen";
 import { OutboxScreen } from "../screens/OutboxScreen";
 import { TimecardScreen } from "../screens/TimecardScreen";
@@ -33,6 +38,7 @@ export type LogsStackParamList = {
   LogsFeed: undefined;
   LogDetail: { log: DailyLogListItem };
   LogEdit: { log: DailyLogDetail };
+  LogCreate: undefined;
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
@@ -56,81 +62,92 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
   );
 }
 
-// Logs stack with Feed -> Detail -> Edit
+// Screen wrappers that use hooks instead of render props
+function LogsFeedWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<LogsStackParamList>>();
+  return (
+    <DailyLogFeedScreen
+      onSelectLog={(log) => navigation.navigate("LogDetail", { log })}
+      onCreateLog={() => navigation.navigate("LogCreate")}
+    />
+  );
+}
+
+function LogDetailWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<LogsStackParamList>>();
+  const route = useRoute<RouteProp<LogsStackParamList, "LogDetail">>();
+  return (
+    <DailyLogDetailScreen
+      log={route.params.log}
+      onBack={() => navigation.goBack()}
+      onEdit={(log) => navigation.navigate("LogEdit", { log })}
+    />
+  );
+}
+
+function LogEditWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<LogsStackParamList>>();
+  const route = useRoute<RouteProp<LogsStackParamList, "LogEdit">>();
+  return (
+    <DailyLogEditScreen
+      log={route.params.log}
+      onBack={() => navigation.goBack()}
+      onSaved={() => navigation.goBack()}
+    />
+  );
+}
+
+function LogCreateWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<LogsStackParamList>>();
+  return (
+    <DailyLogCreateScreen
+      onBack={() => navigation.goBack()}
+      onCreated={() => navigation.goBack()}
+    />
+  );
+}
+
+// Logs stack with Feed -> Detail -> Edit -> Create
 function LogsStackNavigator() {
   return (
     <LogsStack.Navigator screenOptions={{ headerShown: false }}>
-      <LogsStack.Screen name="LogsFeed">
-        {(props) => (
-          <DailyLogFeedScreen
-            onSelectLog={(log) =>
-              props.navigation.navigate("LogDetail", { log })
-            }
-          />
-        )}
-      </LogsStack.Screen>
-      <LogsStack.Screen name="LogDetail">
-        {(props) => (
-          <DailyLogDetailScreen
-            log={props.route.params.log}
-            onBack={() => props.navigation.goBack()}
-            onEdit={(log) => props.navigation.navigate("LogEdit", { log })}
-          />
-        )}
-      </LogsStack.Screen>
-      <LogsStack.Screen name="LogEdit">
-        {(props) => (
-          <DailyLogEditScreen
-            log={props.route.params.log}
-            onBack={() => props.navigation.goBack()}
-            onSaved={(updated) => {
-              // Go back to detail screen with updated log
-              props.navigation.goBack();
-            }}
-          />
-        )}
-      </LogsStack.Screen>
+      <LogsStack.Screen name="LogsFeed" component={LogsFeedWrapper} />
+      <LogsStack.Screen name="LogDetail" component={LogDetailWrapper} />
+      <LogsStack.Screen name="LogEdit" component={LogEditWrapper} />
+      <LogsStack.Screen name="LogCreate" component={LogCreateWrapper} />
     </LogsStack.Navigator>
   );
 }
 
-// Projects stack with drill-down to Daily Logs
-function ProjectsStackNavigator({ onLogout }: { onLogout: () => void }) {
+// Projects stack wrappers
+function ProjectsListWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
   return (
-    <ProjectsStack.Navigator screenOptions={{ headerShown: false }}>
-      <ProjectsStack.Screen name="ProjectsList">
-        {(props) => (
-          <ProjectsScreen
-            {...props}
-            onBack={() => {}} // No back from root
-            onOpenProject={(project) =>
-              props.navigation.navigate("DailyLogs", { project })
-            }
-          />
-        )}
-      </ProjectsStack.Screen>
-      <ProjectsStack.Screen name="DailyLogs">
-        {(props) => (
-          <DailyLogsScreen
-            project={props.route.params.project}
-            onBack={() => props.navigation.goBack()}
-          />
-        )}
-      </ProjectsStack.Screen>
-    </ProjectsStack.Navigator>
+    <ProjectsScreen
+      onBack={() => {}}
+      onOpenProject={(project) => navigation.navigate("DailyLogs", { project })}
+    />
   );
 }
 
-// Wrapper for HomeScreen to handle navigation
-function HomeTabScreen({ onLogout }: { onLogout: () => void }) {
-  // Home screen doesn't need navigation props anymore - it uses tabs
+function DailyLogsWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const route = useRoute<RouteProp<ProjectsStackParamList, "DailyLogs">>();
   return (
-    <HomeScreen
-      onLogout={onLogout}
-      onGoProjects={() => {}} // Handled by tabs now
-      onGoInventory={() => {}} // Handled by tabs now
-      onGoOutbox={() => {}} // Handled by tabs now
+    <DailyLogsScreen
+      project={route.params.project}
+      onBack={() => navigation.goBack()}
     />
+  );
+}
+
+// Projects stack with drill-down to Daily Logs
+function ProjectsStackNavigator() {
+  return (
+    <ProjectsStack.Navigator screenOptions={{ headerShown: false }}>
+      <ProjectsStack.Screen name="ProjectsList" component={ProjectsListWrapper} />
+      <ProjectsStack.Screen name="DailyLogs" component={DailyLogsWrapper} />
+    </ProjectsStack.Navigator>
   );
 }
 
@@ -144,58 +161,73 @@ function OutboxTabScreen() {
   return <OutboxScreen onBack={() => {}} />;
 }
 
+// Context for logout callback
+const LogoutContext = React.createContext<() => void>(() => {});
+
+function HomeTabScreen() {
+  const onLogout = React.useContext(LogoutContext);
+  return (
+    <HomeScreen
+      onLogout={onLogout}
+      onGoProjects={() => {}}
+      onGoInventory={() => {}}
+      onGoOutbox={() => {}}
+    />
+  );
+}
+
 export function AppNavigator({ onLogout }: { onLogout: () => void }) {
   return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarIcon: ({ focused }) => (
-          <TabIcon label={route.name.replace("Tab", "")} focused={focused} />
-        ),
-        tabBarActiveTintColor: "#111827",
-        tabBarInactiveTintColor: "#9ca3af",
-        tabBarStyle: {
-          backgroundColor: "#ffffff",
-          borderTopColor: "#e5e7eb",
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: "600",
-        },
-      })}
-    >
-      <Tab.Screen
-        name="HomeTab"
-        options={{ tabBarLabel: "Home" }}
+    <LogoutContext.Provider value={onLogout}>
+      <Tab.Navigator
+        screenOptions={({ route }) => ({
+          headerShown: false,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon label={route.name.replace("Tab", "")} focused={focused} />
+          ),
+          tabBarActiveTintColor: colors.tabActive,
+          tabBarInactiveTintColor: colors.tabInactive,
+          tabBarStyle: {
+            backgroundColor: colors.tabBackground,
+            borderTopColor: colors.tabBorder,
+          },
+          tabBarLabelStyle: {
+            fontSize: 11,
+            fontWeight: "600",
+          },
+        })}
       >
-        {() => <HomeTabScreen onLogout={onLogout} />}
-      </Tab.Screen>
-      <Tab.Screen
-        name="TimecardTab"
-        options={{ tabBarLabel: "Timecard" }}
-        component={TimecardScreen}
-      />
-      <Tab.Screen
-        name="LogsTab"
-        options={{ tabBarLabel: "Logs" }}
-        component={LogsStackNavigator}
-      />
-      <Tab.Screen
-        name="ProjectsTab"
-        options={{ tabBarLabel: "Projects" }}
-      >
-        {() => <ProjectsStackNavigator onLogout={onLogout} />}
-      </Tab.Screen>
-      <Tab.Screen
-        name="InventoryTab"
-        options={{ tabBarLabel: "Inventory" }}
-        component={InventoryTabScreen}
-      />
-      <Tab.Screen
-        name="OutboxTab"
-        options={{ tabBarLabel: "Outbox" }}
-        component={OutboxTabScreen}
-      />
-    </Tab.Navigator>
+        <Tab.Screen
+          name="HomeTab"
+          options={{ tabBarLabel: "Home" }}
+          component={HomeTabScreen}
+        />
+        <Tab.Screen
+          name="TimecardTab"
+          options={{ tabBarLabel: "Timecard" }}
+          component={TimecardScreen}
+        />
+        <Tab.Screen
+          name="LogsTab"
+          options={{ tabBarLabel: "Logs" }}
+          component={LogsStackNavigator}
+        />
+        <Tab.Screen
+          name="ProjectsTab"
+          options={{ tabBarLabel: "Projects" }}
+          component={ProjectsStackNavigator}
+        />
+        <Tab.Screen
+          name="InventoryTab"
+          options={{ tabBarLabel: "Inventory" }}
+          component={InventoryTabScreen}
+        />
+        <Tab.Screen
+          name="OutboxTab"
+          options={{ tabBarLabel: "Outbox" }}
+          component={OutboxTabScreen}
+        />
+      </Tab.Navigator>
+    </LogoutContext.Provider>
   );
 }

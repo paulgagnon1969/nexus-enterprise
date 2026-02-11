@@ -6,16 +6,22 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "channel": "development",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://nexus-api-979156454944.us-central1.run.app"
+      }
     },
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://nexus-api-979156454944.us-central1.run.app"
       }
     },
     "production": {
       "autoIncrement": true,
+      "channel": "production",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://nexus-api-979156454944.us-central1.run.app"
       }

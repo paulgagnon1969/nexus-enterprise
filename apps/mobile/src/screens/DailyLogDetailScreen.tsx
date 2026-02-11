@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { fetchDailyLogDetail, delayPublishLog, publishLog, fetchRevisions } from "../api/dailyLog";
 import { getCache, setCache } from "../offline/cache";
+import { colors } from "../theme/colors";
 import type { DailyLogDetail, DailyLogListItem, DailyLogRevision } from "../types/api";
 
 interface Props {
@@ -427,7 +428,7 @@ function getStatusStyle(status: string) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f9fafb",
+    backgroundColor: colors.backgroundSecondary,
   },
   header: {
     paddingHorizontal: 16,
@@ -435,7 +436,7 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   backLink: {
-    color: "#2563eb",
+    color: colors.primary,
     fontWeight: "600",
     fontSize: 15,
   },
@@ -457,32 +458,32 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   errorText: {
-    color: "#b91c1c",
+    color: colors.error,
     textAlign: "center",
   },
   headerSection: {
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.cardBackground,
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.cardBorder,
   },
   projectName: {
     fontSize: 12,
-    color: "#2563eb",
+    color: colors.primary,
     fontWeight: "600",
     marginBottom: 4,
   },
   date: {
     fontSize: 13,
-    color: "#6b7280",
+    color: colors.textMuted,
     marginBottom: 8,
   },
   title: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#111827",
+    color: colors.textPrimary,
     marginBottom: 8,
   },
   metaRow: {
@@ -492,7 +493,7 @@ const styles = StyleSheet.create({
   },
   meta: {
     fontSize: 12,
-    color: "#6b7280",
+    color: colors.textMuted,
   },
   statusBadge: {
     paddingHorizontal: 10,
@@ -502,25 +503,25 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#374151",
+    color: colors.textSecondary,
   },
   section: {
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.cardBackground,
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.cardBorder,
   },
   sectionTitle: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#374151",
+    color: colors.primary,
     marginBottom: 8,
   },
   sectionContent: {
     fontSize: 14,
-    color: "#111827",
+    color: colors.textPrimary,
     lineHeight: 20,
   },
   field: {
@@ -528,17 +529,17 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     fontSize: 11,
-    color: "#6b7280",
+    color: colors.textMuted,
     fontWeight: "600",
     marginBottom: 2,
   },
   fieldValue: {
     fontSize: 14,
-    color: "#111827",
+    color: colors.textPrimary,
   },
   locationItem: {
     fontSize: 13,
-    color: "#4b5563",
+    color: colors.textSecondary,
     marginBottom: 4,
   },
   attachmentRow: {
@@ -546,7 +547,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#f3f4f6",
+    borderBottomColor: colors.borderMuted,
   },
   attachmentIcon: {
     fontSize: 16,
@@ -554,7 +555,7 @@ const styles = StyleSheet.create({
   },
   attachmentName: {
     fontSize: 14,
-    color: "#2563eb",
+    color: colors.primary,
     flex: 1,
   },
   sharingRow: {
@@ -563,7 +564,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sharingBadge: {
-    backgroundColor: "#e0e7ff",
+    backgroundColor: colors.infoLight,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
@@ -571,19 +572,19 @@ const styles = StyleSheet.create({
   sharingBadgeText: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#3730a3",
+    color: colors.primary,
   },
   delayedBanner: {
-    backgroundColor: "#fef3c7",
+    backgroundColor: colors.warningLight,
     borderRadius: 8,
     padding: 12,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: "#fcd34d",
+    borderColor: colors.warning,
   },
   delayedBannerText: {
     fontSize: 13,
-    color: "#92400e",
+    color: colors.warning,
     fontWeight: "500",
     textAlign: "center",
   },
@@ -595,43 +596,43 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: colors.border,
     borderRadius: 8,
     paddingVertical: 10,
     paddingHorizontal: 14,
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.background,
   },
   actionButtonText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#374151",
+    color: colors.primary,
   },
   delayButton: {
-    borderColor: "#fcd34d",
-    backgroundColor: "#fffbeb",
+    borderColor: colors.warning,
+    backgroundColor: colors.warningLight,
   },
   publishButton: {
-    borderColor: "#059669",
-    backgroundColor: "#059669",
+    borderColor: colors.success,
+    backgroundColor: colors.success,
   },
   revisionItem: {
     borderBottomWidth: 1,
-    borderBottomColor: "#f3f4f6",
+    borderBottomColor: colors.borderMuted,
     paddingVertical: 10,
   },
   revisionMeta: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#374151",
+    color: colors.primary,
   },
   revisionEditor: {
     fontSize: 11,
-    color: "#6b7280",
+    color: colors.textMuted,
     marginTop: 2,
   },
   revisionChanges: {
     fontSize: 11,
-    color: "#9ca3af",
+    color: colors.textMuted,
     marginTop: 2,
   },
 });

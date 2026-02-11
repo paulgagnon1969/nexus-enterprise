@@ -38,9 +38,10 @@ fi
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-echo "[deploy-api-prod-env] Deploying API to prod via npm run deploy:prod:api"
+echo "[deploy-api-prod-env] Deploying API to prod via deploy-api-prod.sh"
 SANITIZED_DB_URL="${DATABASE_URL/*:\/\/*@/****@}"
 echo "[deploy-api-prod-env] Using PROJECT_ID=${PROJECT_ID}, REGION=${REGION}, SERVICE=${SERVICE}"
 echo "[deploy-api-prod-env] Using DATABASE_URL=${SANITIZED_DB_URL}"
 
-npm run deploy:prod:api
+export PROJECT_ID REGION SERVICE DATABASE_URL
+"$ROOT_DIR/deploy-api-prod.sh"
