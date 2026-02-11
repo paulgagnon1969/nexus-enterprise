@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, ReactNode, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -50,7 +50,7 @@ const NEW_PROJECT_DEFAULT = {
   country: "USA",
 };
 
-export default function ProjectsLayout({ children }: { children: ReactNode }) {
+export default function ProjectsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
