@@ -79,3 +79,25 @@ export async function recoverStuckProcessing(): Promise<number> {
   );
   return result.changes ?? 0;
 }
+
+/**
+ * Reset all ERROR items back to PENDING so they can be retried.
+ */
+export async function resetErrorItems(): Promise<number> {
+  const db = await getDb();
+  const result = await db.runAsync(
+    "UPDATE outbox SET status='PENDING', lastError=NULL WHERE status='ERROR'",
+  );
+  return result.changes ?? 0;
+}
+
+/**
+ * Clear all pending/error items from the outbox (use for stale test data).
+ */
+export async function clearPendingItems(): Promise<number> {
+  const db = await getDb();
+  const result = await db.runAsync(
+    "DELETE FROM outbox WHERE status IN ('PENDING', 'ERROR')",
+  );
+  return result.changes ?? 0;
+}

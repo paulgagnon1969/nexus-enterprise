@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import React from "react";
 import { BusyOverlayProvider } from "./busy-overlay-context";
 import { ViewRoleProvider } from "./view-as-role-context";
 import { ViewRoleSwitcher } from "./view-as-role-switcher";
@@ -10,7 +10,7 @@ import {
   SecurityInspectorOverlay,
 } from "./components/security-inspector";
 
-export default function Providers({ children }: { children: ReactNode }) {
+export default function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ViewRoleProvider>
       <RoleAuditProvider>
