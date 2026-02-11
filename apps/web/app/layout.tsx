@@ -1,5 +1,4 @@
 import "./globals.css";
-import type { ReactNode } from "react";
 import Providers from "./providers";
 import { AppShell } from "./ui-shell";
 import { cookies, headers } from "next/headers";
@@ -49,7 +48,7 @@ async function getLocaleFromRequest(): Promise<Locale> {
   return "en";
 }
 
-export default async function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const locale = await getLocaleFromRequest();
 
   return (
