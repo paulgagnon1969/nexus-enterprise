@@ -10,13 +10,15 @@ import {
 } from "react-native";
 import { fetchDailyLogFeed, fetchUserProjects } from "../api/dailyLog";
 import { getCache, setCache } from "../offline/cache";
+import { colors } from "../theme/colors";
 import type { DailyLogListItem, ProjectListItem } from "../types/api";
 
 interface Props {
   onSelectLog: (log: DailyLogListItem) => void;
+  onCreateLog?: () => void;
 }
 
-export function DailyLogFeedScreen({ onSelectLog }: Props) {
+export function DailyLogFeedScreen({ onSelectLog, onCreateLog }: Props) {
   const [logs, setLogs] = useState<DailyLogListItem[]>([]);
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set());
@@ -144,6 +146,11 @@ export function DailyLogFeedScreen({ onSelectLog }: Props) {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Daily Logs</Text>
+        {onCreateLog && (
+          <Pressable style={styles.addButton} onPress={onCreateLog}>
+            <Text style={styles.addButtonText}>+</Text>
+          </Pressable>
+        )}
       </View>
 
       {/* Project filter chips */}
@@ -221,9 +228,12 @@ export function DailyLogFeedScreen({ onSelectLog }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f9fafb",
+    backgroundColor: colors.backgroundSecondary,
   },
   header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 8,
@@ -231,7 +241,21 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: "700",
-    color: "#111827",
+    color: colors.primary,
+  },
+  addButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primary,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  addButtonText: {
+    color: colors.textOnPrimary,
+    fontSize: 24,
+    fontWeight: "600",
+    lineHeight: 28,
   },
   filterSection: {
     paddingVertical: 8,
@@ -242,24 +266,24 @@ const styles = StyleSheet.create({
   },
   chip: {
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: colors.chipBorder,
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 6,
     marginRight: 8,
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.chipBackground,
   },
   chipSelected: {
-    backgroundColor: "#111827",
-    borderColor: "#111827",
+    backgroundColor: colors.chipBackgroundSelected,
+    borderColor: colors.chipBackgroundSelected,
   },
   chipText: {
     fontSize: 13,
-    color: "#111827",
+    color: colors.chipText,
   },
   chipTextSelected: {
     fontSize: 13,
-    color: "#f9fafb",
+    color: colors.chipTextSelected,
     fontWeight: "600",
   },
   listContent: {
@@ -267,9 +291,9 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   card: {
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.cardBackground,
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.cardBorder,
     borderRadius: 12,
     padding: 14,
     marginBottom: 10,
@@ -283,22 +307,22 @@ const styles = StyleSheet.create({
   cardDate: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#6b7280",
+    color: colors.textMuted,
   },
   cardProject: {
     fontSize: 12,
-    color: "#2563eb",
+    color: colors.primary,
     fontWeight: "500",
   },
   cardTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.textPrimary,
     marginBottom: 4,
   },
   cardSnippet: {
     fontSize: 13,
-    color: "#4b5563",
+    color: colors.textSecondary,
     lineHeight: 18,
   },
   cardFooter: {
@@ -308,7 +332,7 @@ const styles = StyleSheet.create({
   },
   cardMeta: {
     fontSize: 11,
-    color: "#9ca3af",
+    color: colors.textMuted,
   },
   errorContainer: {
     flex: 1,
@@ -317,18 +341,18 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   errorText: {
-    color: "#b91c1c",
+    color: colors.error,
     marginBottom: 12,
     textAlign: "center",
   },
   retryButton: {
-    backgroundColor: "#111827",
+    backgroundColor: colors.buttonPrimary,
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,
   },
   retryButtonText: {
-    color: "#fff",
+    color: colors.buttonPrimaryText,
     fontWeight: "600",
   },
   emptyContainer: {
@@ -338,7 +362,7 @@ const styles = StyleSheet.create({
     paddingTop: 60,
   },
   emptyText: {
-    color: "#6b7280",
+    color: colors.textMuted,
     fontSize: 14,
   },
 });

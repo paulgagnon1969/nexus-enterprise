@@ -396,10 +396,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
   },
   projectChipSelected: {
-    backgroundColor: "#111827",
-    borderColor: "#111827",
+    backgroundColor: "#1e3a8a",
+    borderColor: "#1e3a8a",
   },
-  projectChipText: { fontSize: 13, color: "#111827" },
+  projectChipText: { fontSize: 13, color: "#1e3a8a" },
   projectChipTextSelected: { fontSize: 13, color: "#ffffff", fontWeight: "600" },
 
   clockButton: {

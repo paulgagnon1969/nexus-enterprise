@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { updateDailyLog } from "../api/dailyLog";
 import { enqueueOutbox } from "../offline/outbox";
+import { colors } from "../theme/colors";
 import type { DailyLogDetail, DailyLogUpdateRequest } from "../types/api";
 
 interface Props {
@@ -226,7 +227,7 @@ export function DailyLogEditScreen({ log, onBack, onSaved }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f9fafb",
+    backgroundColor: colors.backgroundSecondary,
   },
   header: {
     flexDirection: "row",
@@ -236,21 +237,21 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
-    backgroundColor: "#ffffff",
+    borderBottomColor: colors.cardBorder,
+    backgroundColor: colors.background,
   },
   headerTitle: {
     fontSize: 17,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.primary,
   },
   headerLink: {
     fontSize: 15,
-    color: "#6b7280",
+    color: colors.textMuted,
     fontWeight: "500",
   },
   saveLink: {
-    color: "#2563eb",
+    color: colors.primary,
     fontWeight: "600",
   },
   scrollView: {
@@ -261,56 +262,56 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   readOnlySection: {
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.cardBackground,
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.cardBorder,
   },
   projectName: {
     fontSize: 12,
-    color: "#2563eb",
+    color: colors.primary,
     fontWeight: "600",
     marginBottom: 4,
   },
   date: {
     fontSize: 14,
-    color: "#374151",
+    color: colors.textSecondary,
     fontWeight: "500",
   },
   errorBanner: {
-    backgroundColor: "#fee2e2",
+    backgroundColor: colors.errorLight,
     borderRadius: 8,
     padding: 12,
     marginBottom: 16,
   },
   errorText: {
-    color: "#b91c1c",
+    color: colors.error,
     fontSize: 13,
   },
   formSection: {
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.cardBackground,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#e5e7eb",
+    borderColor: colors.cardBorder,
   },
   label: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#374151",
+    color: colors.primary,
     marginBottom: 6,
     marginTop: 12,
   },
   input: {
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: colors.borderLight,
     borderRadius: 8,
     padding: 12,
     fontSize: 14,
-    color: "#111827",
-    backgroundColor: "#ffffff",
+    color: colors.textPrimary,
+    backgroundColor: colors.background,
   },
   multilineInput: {
     minHeight: 80,

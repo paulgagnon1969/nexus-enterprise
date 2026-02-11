@@ -3,10 +3,26 @@ import { View, Text, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import * as Updates from "expo-updates";
 import { getTokens } from "./src/storage/tokens";
 import { initDb } from "./src/offline/db";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { AppNavigator } from "./src/navigation/AppNavigator";
+
+/** Check for OTA updates and apply if available */
+async function checkForUpdates() {
+  if (__DEV__) return; // Skip in development mode
+  try {
+    const update = await Updates.checkForUpdateAsync();
+    if (update.isAvailable) {
+      await Updates.fetchUpdateAsync();
+      await Updates.reloadAsync();
+    }
+  } catch (e) {
+    // Silently fail - updates are non-critical
+    console.log("Update check failed:", e);
+  }
+}
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -16,6 +32,8 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
+        // Check for OTA updates first
+        await checkForUpdates();
         await initDb();
         const tokens = await getTokens();
         setIsLoggedIn(!!tokens);
