@@ -46,6 +46,10 @@ export async function apiFetch(
 
   const tokens = init?.skipAuth ? null : await getTokens();
 
+  // DEBUG: Log request details
+  console.log(`[apiFetch] ${init?.method || "GET"} ${url}`);
+  console.log(`[apiFetch] hasAccessToken=${!!tokens?.accessToken}, hasRefreshToken=${!!tokens?.refreshToken}`);
+
   const headers = new Headers(init?.headers || {});
   if (!init?.skipAuth && tokens?.accessToken) {
     headers.set("Authorization", `Bearer ${tokens.accessToken}`);
@@ -53,22 +57,29 @@ export async function apiFetch(
 
   const first = await fetch(url, { ...(init || {}), headers });
 
+  console.log(`[apiFetch] Response status: ${first.status}`);
+
   if (first.status !== 401 || init?.skipAuth) {
     return first;
   }
 
   // Attempt refresh + retry once.
+  console.log(`[apiFetch] Got 401, attempting token refresh...`);
   try {
     if (!refreshPromise) {
       refreshPromise = runRefresh();
     }
     const refreshed = await refreshPromise;
+    console.log(`[apiFetch] Refresh succeeded, retrying request...`);
 
     const retryHeaders = new Headers(init?.headers || {});
     retryHeaders.set("Authorization", `Bearer ${refreshed.accessToken}`);
 
-    return fetch(url, { ...(init || {}), headers: retryHeaders });
-  } catch {
+    const retryRes = await fetch(url, { ...(init || {}), headers: retryHeaders });
+    console.log(`[apiFetch] Retry response status: ${retryRes.status}`);
+    return retryRes;
+  } catch (refreshErr) {
+    console.log(`[apiFetch] Refresh FAILED:`, refreshErr instanceof Error ? refreshErr.message : refreshErr);
     await clearTokens();
     return first;
   } finally {

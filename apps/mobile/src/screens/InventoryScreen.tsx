@@ -331,7 +331,7 @@ export function InventoryScreen({ onBack }: { onBack: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
+  container: { flex: 1, padding: 16, paddingTop: 38 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",

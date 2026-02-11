@@ -10,6 +10,7 @@ import { colors } from "../theme/colors";
 import { HomeScreen } from "../screens/HomeScreen";
 import { ProjectsScreen } from "../screens/ProjectsScreen";
 import { DailyLogsScreen } from "../screens/DailyLogsScreen";
+import { FieldPetlScreen, type PetlSessionChanges } from "../screens/FieldPetlScreen";
 import { DailyLogFeedScreen } from "../screens/DailyLogFeedScreen";
 import { DailyLogDetailScreen } from "../screens/DailyLogDetailScreen";
 import { DailyLogEditScreen } from "../screens/DailyLogEditScreen";
@@ -31,7 +32,8 @@ export type RootTabParamList = {
 
 export type ProjectsStackParamList = {
   ProjectsList: undefined;
-  DailyLogs: { project: ProjectListItem };
+  DailyLogs: { project: ProjectListItem; petlChanges?: PetlSessionChanges };
+  FieldPetl: { project: ProjectListItem };
 };
 
 export type LogsStackParamList = {
@@ -124,7 +126,6 @@ function ProjectsListWrapper() {
   const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
   return (
     <ProjectsScreen
-      onBack={() => {}}
       onOpenProject={(project) => navigation.navigate("DailyLogs", { project })}
     />
   );
@@ -133,20 +134,41 @@ function ProjectsListWrapper() {
 function DailyLogsWrapper() {
   const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
   const route = useRoute<RouteProp<ProjectsStackParamList, "DailyLogs">>();
+  const project = route.params.project;
+  const petlChanges = route.params.petlChanges;
   return (
     <DailyLogsScreen
-      project={route.params.project}
+      project={project}
       onBack={() => navigation.goBack()}
+      onOpenPetl={() => navigation.navigate("FieldPetl", { project })}
+      petlChanges={petlChanges}
     />
   );
 }
 
-// Projects stack with drill-down to Daily Logs
+function FieldPetlWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const route = useRoute<RouteProp<ProjectsStackParamList, "FieldPetl">>();
+  const project = route.params.project;
+  return (
+    <FieldPetlScreen
+      project={project}
+      onBack={() => navigation.goBack()}
+      onSaveWithChanges={(changes) => {
+        // Navigate back to DailyLogs with the changes
+        navigation.navigate("DailyLogs", { project, petlChanges: changes });
+      }}
+    />
+  );
+}
+
+// Projects stack with drill-down to Daily Logs and Field PETL
 function ProjectsStackNavigator() {
   return (
     <ProjectsStack.Navigator screenOptions={{ headerShown: false }}>
       <ProjectsStack.Screen name="ProjectsList" component={ProjectsListWrapper} />
       <ProjectsStack.Screen name="DailyLogs" component={DailyLogsWrapper} />
+      <ProjectsStack.Screen name="FieldPetl" component={FieldPetlWrapper} />
     </ProjectsStack.Navigator>
   );
 }

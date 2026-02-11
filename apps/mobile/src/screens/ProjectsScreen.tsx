@@ -8,7 +8,7 @@ export function ProjectsScreen({
   onBack,
   onOpenProject,
 }: {
-  onBack: () => void;
+  onBack?: () => void;
   onOpenProject: (project: ProjectListItem) => void;
 }) {
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
@@ -38,9 +38,13 @@ export function ProjectsScreen({
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={onBack}>
-          <Text style={styles.link}>← Back</Text>
-        </Pressable>
+        {onBack ? (
+          <Pressable onPress={onBack}>
+            <Text style={styles.link}>← Back</Text>
+          </Pressable>
+        ) : (
+          <View style={{ width: 50 }} />
+        )}
         <Text style={styles.title}>Projects</Text>
         <Pressable onPress={refreshOnline}>
           <Text style={styles.link}>Refresh</Text>
@@ -63,7 +67,7 @@ export function ProjectsScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
+  container: { flex: 1, padding: 16, paddingTop: 38 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",

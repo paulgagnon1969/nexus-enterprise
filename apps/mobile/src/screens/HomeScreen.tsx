@@ -102,7 +102,11 @@ export function HomeScreen({
     setLastSyncMsg(null);
     try {
       const res = await syncOnce();
-      setLastSyncMsg(`Synced. processed=${res.processed} failed=${res.failed}`);
+      if (res.skippedReason) {
+        setLastSyncMsg(`Sync skipped: ${res.skippedReason}`);
+      } else {
+        setLastSyncMsg(`Synced. processed=${res.processed} failed=${res.failed}`);
+      }
     } catch (e) {
       setLastSyncMsg(e instanceof Error ? e.message : String(e));
     } finally {
