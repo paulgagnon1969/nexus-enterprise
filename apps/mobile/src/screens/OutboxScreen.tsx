@@ -7,6 +7,17 @@ export function OutboxScreen({ onBack }: { onBack: () => void }) {
 
   const load = async () => {
     const r = await listOutboxRecent(200);
+    // DEBUG: Log outbox contents to console
+    console.log('=== OUTBOX DEBUG ===');
+    r.forEach((item) => {
+      console.log(JSON.stringify({
+        id: item.id,
+        type: item.type,
+        status: item.status,
+        lastError: item.lastError,
+        payload: item.payload?.substring(0, 300),
+      }, null, 2));
+    });
     setRows(r);
   };
 
@@ -43,7 +54,7 @@ export function OutboxScreen({ onBack }: { onBack: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
+  container: { flex: 1, padding: 16, paddingTop: 38 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",

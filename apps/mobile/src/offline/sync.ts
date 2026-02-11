@@ -214,6 +214,31 @@ async function processOutboxItem(type: string, payloadStr: string): Promise<void
       return;
     }
 
+    case "fieldPetl.bulkUpdatePercent": {
+      const { projectId, sowItemIds, newPercent } = payload as {
+        projectId: string;
+        sowItemIds: string[];
+        newPercent: number;
+        filterDescription?: string;
+        itemCount?: number;
+        previousPercent?: string;
+      };
+
+      // Send bulk percent update to server
+      await apiJson(`/projects/${encodeURIComponent(projectId)}/petl/percentage-edits`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          changes: sowItemIds.map((sowItemId) => ({
+            sowItemId,
+            newPercent,
+          })),
+        }),
+      });
+
+      return;
+    }
+
     case "timecard.clockIn": {
       const { projectId, timestamp, latitude, longitude } = payload as {
         projectId: string;
@@ -285,27 +310,50 @@ async function processOutboxItem(type: string, payloadStr: string): Promise<void
   }
 }
 
-export async function syncOnce(): Promise<{ processed: number; failed: number }> {
-  const allowed = await canSyncNow();
-  if (!allowed) {
-    return { processed: 0, failed: 0 };
+export async function syncOnce(): Promise<{ processed: number; failed: number; skippedReason?: string }> {
+  const wifiOnly = await getWifiOnlySync();
+  const netState = await NetInfo.fetch();
+
+  // Check connectivity
+  if (!netState.isConnected) {
+    return { processed: 0, failed: 0, skippedReason: "No network connection" };
+  }
+  if (wifiOnly && netState.type !== "wifi") {
+    return { processed: 0, failed: 0, skippedReason: `Wi-Fi only enabled but on ${netState.type}` };
   }
 
   const items = await getPendingOutbox(50);
 
   let processed = 0;
   let failed = 0;
+  let authFailure = false;
 
   for (const item of items) {
+    // If we hit an auth failure, stop processing further items
+    // (they'll all fail with 401 anyway)
+    if (authFailure) {
+      break;
+    }
+
     try {
       await markOutboxProcessing(item.id);
       await processOutboxItem(item.type, item.payload);
       await markOutboxDone(item.id);
       processed += 1;
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       await markOutboxError(item.id, err);
       failed += 1;
+
+      // Detect auth failures and stop early
+      if (errMsg.includes("401") || errMsg.includes("Unauthorized") || errMsg.includes("Missing refresh token") || errMsg.includes("Refresh failed")) {
+        authFailure = true;
+      }
     }
+  }
+
+  if (authFailure) {
+    return { processed, failed, skippedReason: "Authentication failed - please log in again" };
   }
 
   return { processed, failed };

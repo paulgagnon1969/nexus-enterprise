@@ -6,6 +6,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as Updates from "expo-updates";
 import { getTokens } from "./src/storage/tokens";
 import { initDb } from "./src/offline/db";
+import { recoverStuckProcessing } from "./src/offline/outbox";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 
@@ -35,6 +36,8 @@ export default function App() {
         // Check for OTA updates first
         await checkForUpdates();
         await initDb();
+        // Recover any outbox items stuck in PROCESSING (e.g., app killed mid-sync)
+        await recoverStuckProcessing();
         const tokens = await getTokens();
         setIsLoggedIn(!!tokens);
       } catch (e) {

@@ -67,3 +67,15 @@ export async function listOutboxRecent(limit = 100): Promise<OutboxRow[]> {
   );
   return rows || [];
 }
+
+/**
+ * Recover items stuck in PROCESSING status (e.g., app was killed mid-sync).
+ * Call this on app startup before running sync.
+ */
+export async function recoverStuckProcessing(): Promise<number> {
+  const db = await getDb();
+  const result = await db.runAsync(
+    "UPDATE outbox SET status='PENDING', lastError='Recovered from stuck PROCESSING state' WHERE status='PROCESSING'",
+  );
+  return result.changes ?? 0;
+}
