@@ -6,6 +6,8 @@ import {
   StyleSheet,
   ScrollView,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { apiJson } from "../api/client";
@@ -366,7 +368,11 @@ export function DailyLogsScreen({
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+    >
       <View style={styles.header}>
         <Pressable onPress={onBack}>
           <Text style={styles.link}>← Back</Text>
@@ -377,10 +383,17 @@ export function DailyLogsScreen({
         </Pressable>
       </View>
 
-      <Text style={styles.projectName}>{project.name}</Text>
-      {status ? <Text style={styles.status}>{status}</Text> : null}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={true}
+        nestedScrollEnabled={true}
+      >
+        <Text style={styles.projectName}>{project.name}</Text>
+        {status ? <Text style={styles.status}>{status}</Text> : null}
 
-      <View style={styles.form}>
+        <View style={styles.form}>
         <Text style={styles.formLabel}>Create log (offline-capable)</Text>
         <TextInput
           style={styles.input}
@@ -478,7 +491,8 @@ export function DailyLogsScreen({
         </Pressable>
       </View>
 
-      <ScrollView style={{ flex: 1 }}>
+      {/* Existing logs */}
+      <View style={styles.logsSection}>
         {logs.map((l) => (
           <View key={l.id} style={styles.card}>
             <Text style={styles.cardTitle}>
@@ -617,9 +631,11 @@ export function DailyLogsScreen({
           )}
         </View>
 
-        {fieldPetlEdit && (
-          <View style={[styles.card, { marginTop: 12 }]}>
-            <Text style={[styles.cardTitle, { marginBottom: 6 }]}>Verify PETL line</Text>
+      </View>
+
+      {fieldPetlEdit && (
+        <View style={[styles.card, { marginTop: 12 }]}>
+          <Text style={[styles.cardTitle, { marginBottom: 6 }]}>Verify PETL line</Text>
             <Text style={{ fontSize: 12, color: "#4b5563", marginBottom: 4 }}>
               #{fieldPetlEdit.item.lineNo}
               {fieldPetlEdit.item.roomName ? ` · ${fieldPetlEdit.item.roomName}` : ""}
@@ -680,43 +696,58 @@ export function DailyLogsScreen({
               </Text>
             ) : null}
 
-            <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
-              <Pressable
-                style={[styles.smallButton, { borderColor: "#9ca3af" }]}
-                onPress={closeFieldPetlEdit}
-                disabled={fieldPetlEdit.saving}
-              >
-                <Text style={styles.smallButtonText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={styles.button}
-                onPress={submitFieldPetlEdit}
-                disabled={fieldPetlEdit.saving}
-              >
-                <Text style={styles.buttonText}>
-                  {fieldPetlEdit.saving ? "Saving…" : "Save offline"}
-                </Text>
-              </Pressable>
-            </View>
+          <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+            <Pressable
+              style={[styles.smallButton, { borderColor: "#9ca3af" }]}
+              onPress={closeFieldPetlEdit}
+              disabled={fieldPetlEdit.saving}
+            >
+              <Text style={styles.smallButtonText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={styles.button}
+              onPress={submitFieldPetlEdit}
+              disabled={fieldPetlEdit.saving}
+            >
+              <Text style={styles.buttonText}>
+                {fieldPetlEdit.saving ? "Saving…" : "Save offline"}
+              </Text>
+            </Pressable>
           </View>
-        )}
+        </View>
+      )}
+
+      {/* Bottom padding for scroll */}
+      <View style={{ height: 40 }} />
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
+  container: { flex: 1 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 8,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 20,
   },
   title: { fontSize: 18, fontWeight: "700" },
   link: { color: "#2563eb", fontWeight: "600" },
   projectName: { fontWeight: "700", marginBottom: 6 },
   status: { color: "#374151", marginBottom: 8 },
+  logsSection: {
+    marginTop: 8,
+  },
   form: {
     borderWidth: 1,
     borderColor: "#e5e7eb",
