@@ -15,6 +15,7 @@ import { apiJson } from "../api/client";
 import { getCache, setCache } from "../offline/cache";
 import { enqueueOutbox } from "../offline/outbox";
 import { addLocalDailyLog } from "../offline/sync";
+import { triggerSync } from "../offline/autoSync";
 import { copyToAppStorage, type StoredFile } from "../storage/files";
 import { colors } from "../theme/colors";
 import type { DailyLogCreateRequest, ProjectListItem } from "../types/api";
@@ -228,7 +229,10 @@ export function DailyLogsScreen({
     setConfidentialNotes("");
     setAttachments([]);
 
-    setStatus("Saved offline. Will sync later.");
+    setStatus("Saved. Syncing...");
+
+    // Trigger sync immediately (will work if online)
+    triggerSync("daily log created");
   };
 
   return (

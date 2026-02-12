@@ -167,6 +167,21 @@ async function processOutboxItem(type: string, payloadStr: string): Promise<void
       return;
     }
 
+    case "dailyLog.update": {
+      const { logId, updates } = payload as {
+        logId: string;
+        updates: Record<string, any>;
+      };
+
+      await apiJson(`/daily-logs/${encodeURIComponent(logId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+
+      return;
+    }
+
     case "fieldPetl.edit": {
       const { projectId, sowItemId, incorrect, fieldQty, percent, note } = payload as {
         projectId: string;

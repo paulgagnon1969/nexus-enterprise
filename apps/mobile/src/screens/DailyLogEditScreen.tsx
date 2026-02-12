@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { updateDailyLog } from "../api/dailyLog";
 import { enqueueOutbox } from "../offline/outbox";
+import { triggerSync } from "../offline/autoSync";
 import { colors } from "../theme/colors";
 import type { DailyLogDetail, DailyLogUpdateRequest } from "../types/api";
 
@@ -69,6 +70,8 @@ export function DailyLogEditScreen({ log, onBack, onSaved }: Props) {
             logId: log.id,
             updates,
           });
+          // Trigger sync immediately
+          triggerSync("daily log updated offline");
           Alert.alert(
             "Saved Offline",
             "Your changes will sync when connectivity is restored.",

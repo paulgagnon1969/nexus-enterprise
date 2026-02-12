@@ -1,13 +1,21 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
-import { listOutboxRecent, resetErrorItems, clearPendingItems } from "../offline/outbox";
+import { View, Text, Pressable, StyleSheet, ScrollView, RefreshControl } from "react-native";
+import { listOutboxRecent, resetErrorItems, clearPendingItems, countPendingOutbox } from "../offline/outbox";
+import { syncOnce } from "../offline/sync";
 
 export function OutboxScreen({ onBack }: { onBack: () => void }) {
   const [rows, setRows] = useState<any[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
   const [resetting, setResetting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncResult, setLastSyncResult] = useState<string | null>(null);
 
   const load = async () => {
-    const r = await listOutboxRecent(200);
+    const [r, count] = await Promise.all([
+      listOutboxRecent(200),
+      countPendingOutbox(),
+    ]);
+    setPendingCount(count);
     // DEBUG: Log outbox contents to console
     console.log('=== OUTBOX DEBUG ===');
     r.forEach((item) => {
@@ -22,6 +30,24 @@ export function OutboxScreen({ onBack }: { onBack: () => void }) {
     setRows(r);
   };
 
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    setLastSyncResult(null);
+    try {
+      const result = await syncOnce();
+      const msg = `✓ Processed: ${result.processed}, Failed: ${result.failed}${result.skippedReason ? ` (${result.skippedReason})` : ""}`;
+      setLastSyncResult(msg);
+      console.log(`[Outbox] Sync result: ${msg}`);
+      await load();
+    } catch (e) {
+      const msg = `✗ Error: ${e instanceof Error ? e.message : String(e)}`;
+      setLastSyncResult(msg);
+      console.log(`[Outbox] Sync error: ${msg}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   useEffect(() => {
     void load();
   }, []);
@@ -32,11 +58,29 @@ export function OutboxScreen({ onBack }: { onBack: () => void }) {
         <Pressable onPress={onBack}>
           <Text style={styles.link}>← Back</Text>
         </Pressable>
-        <Text style={styles.title}>Outbox</Text>
+        <Text style={styles.title}>Outbox ({pendingCount} pending)</Text>
         <Pressable onPress={load}>
           <Text style={styles.link}>Refresh</Text>
         </Pressable>
       </View>
+
+      {/* Sync Now button - always visible */}
+      <Pressable
+        style={[styles.syncButton, syncing && styles.syncButtonDisabled]}
+        onPress={handleSyncNow}
+        disabled={syncing}
+      >
+        <Text style={styles.syncButtonText}>
+          {syncing ? "Syncing..." : `⚡ Sync Now (${pendingCount})`}
+        </Text>
+      </Pressable>
+
+      {/* Last sync result */}
+      {lastSyncResult && (
+        <View style={[styles.resultBox, lastSyncResult.startsWith("✗") && styles.resultBoxError]}>
+          <Text style={styles.resultText}>{lastSyncResult}</Text>
+        </View>
+      )}
 
       {rows.some((r) => r.status === "ERROR") && (
         <Pressable
@@ -91,7 +135,7 @@ export function OutboxScreen({ onBack }: { onBack: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 38 },
+  container: { flex: 1, padding: 16, paddingTop: 50 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -100,6 +144,27 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 18, fontWeight: "700" },
   link: { color: "#2563eb", fontWeight: "600" },
+  syncButton: {
+    backgroundColor: "#2563eb",
+    padding: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  syncButtonDisabled: {
+    backgroundColor: "#93c5fd",
+  },
+  syncButtonText: { color: "#ffffff", fontWeight: "700", fontSize: 16 },
+  resultBox: {
+    backgroundColor: "#dcfce7",
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  resultBoxError: {
+    backgroundColor: "#fee2e2",
+  },
+  resultText: { fontSize: 13, fontWeight: "600" },
   retryButton: {
     backgroundColor: "#f59e0b",
     padding: 12,
