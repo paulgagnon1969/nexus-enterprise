@@ -3,7 +3,6 @@ import Providers from "./providers";
 import { AppShell } from "./ui-shell";
 import { cookies, headers } from "next/headers";
 import { LanguageProvider, Locale } from "./language-context";
-import type { PropsWithChildren } from "react";
 
 export const metadata = {
   title: "Nexus Enterprise",
@@ -49,18 +48,19 @@ async function getLocaleFromRequest(): Promise<Locale> {
   return "en";
 }
 
-export default async function RootLayout({ children }: PropsWithChildren) {
+export default async function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const locale = await getLocaleFromRequest();
-
-  // Cast children to any to work around React 18/19 type mismatch in Next.js 16
-  const content = children as any;
 
   return (
     <html lang={locale}>
       <body>
         <LanguageProvider initialLocale={locale}>
           <Providers>
-            <AppShell>{content}</AppShell>
+            <AppShell>{children}</AppShell>
           </Providers>
         </LanguageProvider>
       </body>
