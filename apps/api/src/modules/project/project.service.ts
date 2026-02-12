@@ -6205,7 +6205,6 @@ export class ProjectService {
           });
         }
       }, { timeout: 30000 });
-      });
 
       // Best effort: regenerate the current living invoice draft from PETL.
       await this.maybeSyncLivingDraftInvoiceFromPetl(projectId, companyId, actor);
