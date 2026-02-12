@@ -49,6 +49,15 @@ export default function App() {
     })();
   }, []);
 
+  // Start/stop auto-sync based on login state
+  useEffect(() => {
+    if (isLoggedIn) {
+      startAutoSync();
+    } else {
+      stopAutoSync();
+    }
+  }, [isLoggedIn]);
+
   if (!ready) {
     return (
       <View style={styles.center}>
@@ -66,15 +75,6 @@ export default function App() {
       </View>
     );
   }
-
-  // Start/stop auto-sync based on login state
-  useEffect(() => {
-    if (isLoggedIn) {
-      startAutoSync();
-    } else {
-      stopAutoSync();
-    }
-  }, [isLoggedIn]);
 
   if (!isLoggedIn) {
     return (
