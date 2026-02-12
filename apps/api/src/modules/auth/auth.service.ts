@@ -270,11 +270,29 @@ export class AuthService {
       profileCode
     );
 
+    // Generate or retrieve syncToken for DeviceSync authentication
+    let userSyncToken = user.syncToken;
+    if (!userSyncToken) {
+      userSyncToken = randomUUID();
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { syncToken: userSyncToken },
+      });
+    }
+
+    // Get company's workerInviteToken for DeviceSync
+    const companyToken = membership.company.workerInviteToken;
+
     return {
       user: { id: user.id, email: user.email },
       company: { id: membership.company.id, name: membership.company.name },
       accessToken,
-      refreshToken
+      refreshToken,
+      // Permanent sync credentials for mobile offline-first sync
+      syncCredentials: companyToken ? {
+        userToken: userSyncToken,
+        companyToken,
+      } : undefined,
     };
   }
 

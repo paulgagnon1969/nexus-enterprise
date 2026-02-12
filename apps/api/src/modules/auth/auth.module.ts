@@ -3,6 +3,7 @@ import { JwtModule } from "@nestjs/jwt";
 import { AuthService } from "./auth.service";
 import { AuthController } from "./auth.controller";
 import { JwtStrategy } from "./jwt.strategy";
+import { DeviceSyncStrategy } from "./device-sync.strategy";
 import { RolesGuard, GlobalRolesGuard } from "./auth.guards";
 import { Reflector } from "@nestjs/core";
 
@@ -14,7 +15,14 @@ import { Reflector } from "@nestjs/core";
       signOptions: { expiresIn: Number(process.env.JWT_ACCESS_TTL) || 86400 }
     })
   ],
-  providers: [AuthService, JwtStrategy, RolesGuard, GlobalRolesGuard, Reflector],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    DeviceSyncStrategy,
+    RolesGuard,
+    GlobalRolesGuard,
+    Reflector,
+  ],
   controllers: [AuthController],
   exports: [AuthService]
 })

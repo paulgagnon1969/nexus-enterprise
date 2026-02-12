@@ -304,6 +304,10 @@ model User {
   firstName                 String?
   lastName                  String?
 
+  /// Permanent sync token for mobile DeviceSync authentication.
+  /// Combined with Company.workerInviteToken to form a persistent auth fingerprint.
+  syncToken String? @unique
+
   /// Percent of this user's profile that is complete (07100). Starts at 10%
   /// once we have at least name + email, then increases as additional fields
   /// (contact info, onboarding profile, skills, etc.) are filled in.

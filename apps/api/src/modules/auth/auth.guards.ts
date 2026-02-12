@@ -24,6 +24,47 @@ export enum GlobalRole {
 
 export class JwtAuthGuard extends AuthGuard("jwt") {}
 
+/**
+ * DeviceSync auth guard for permanent token authentication.
+ * Used as a fallback when JWT tokens expire.
+ */
+export class DeviceSyncAuthGuard extends AuthGuard("device-sync") {}
+
+/**
+ * Combined auth guard that accepts either JWT or DeviceSync authentication.
+ * Tries JWT first, falls back to DeviceSync if JWT fails.
+ * Use this guard on endpoints that should support both auth methods.
+ */
+@Injectable()
+export class CombinedAuthGuard implements CanActivate {
+  private jwtGuard = new (AuthGuard("jwt"))();
+  private deviceSyncGuard = new (AuthGuard("device-sync"))();
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Try JWT first
+    try {
+      const jwtResult = await this.jwtGuard.canActivate(context);
+      if (jwtResult === true || (jwtResult as any)?.valueOf?.() === true) {
+        return true;
+      }
+    } catch {
+      // JWT failed, try DeviceSync
+    }
+
+    // Fall back to DeviceSync
+    try {
+      const deviceSyncResult = await this.deviceSyncGuard.canActivate(context);
+      if (deviceSyncResult === true || (deviceSyncResult as any)?.valueOf?.() === true) {
+        return true;
+      }
+    } catch {
+      // DeviceSync also failed
+    }
+
+    return false;
+  }
+}
+
 export const ROLES_KEY = "roles";
 export const Roles = (...roles: Role[]) => SetMetadata(ROLES_KEY, roles);
 

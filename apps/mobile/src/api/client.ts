@@ -1,6 +1,6 @@
 import { getApiBaseUrl } from "./config";
 import type { RefreshResponse } from "../types/api";
-import { getTokens, setTokens, clearTokens } from "../storage/tokens";
+import { getTokens, setTokens, clearTokens, getSyncCredentials } from "../storage/tokens";
 
 let refreshPromise: Promise<RefreshResponse> | null = null;
 
@@ -33,6 +33,31 @@ async function runRefresh(): Promise<RefreshResponse> {
 
   await setTokens(next);
   return next;
+}
+
+/**
+ * Try request with DeviceSync permanent tokens.
+ * This is the last-resort fallback when JWT and refresh both fail.
+ */
+async function tryDeviceSync(
+  url: string,
+  init?: RequestInit,
+): Promise<Response | null> {
+  const syncCreds = await getSyncCredentials();
+  if (!syncCreds) {
+    console.log(`[apiFetch] No DeviceSync credentials available`);
+    return null;
+  }
+
+  console.log(`[apiFetch] Trying DeviceSync authentication...`);
+
+  const headers = new Headers(init?.headers || {});
+  headers.set("Authorization", `DeviceSync ${syncCreds.userToken}:${syncCreds.companyToken}`);
+
+  const res = await fetch(url, { ...(init || {}), headers });
+  console.log(`[apiFetch] DeviceSync response status: ${res.status}`);
+
+  return res;
 }
 
 export type ApiRequestInit = RequestInit & { skipAuth?: boolean };
@@ -80,8 +105,16 @@ export async function apiFetch(
     return retryRes;
   } catch (refreshErr) {
     console.log(`[apiFetch] Refresh FAILED:`, refreshErr instanceof Error ? refreshErr.message : refreshErr);
+
+    // Fallback to DeviceSync (permanent tokens)
+    const deviceSyncRes = await tryDeviceSync(url, init);
+    if (deviceSyncRes && deviceSyncRes.ok) {
+      return deviceSyncRes;
+    }
+
+    // All auth methods failed
     await clearTokens();
-    return first;
+    return deviceSyncRes || first;
   } finally {
     refreshPromise = null;
   }

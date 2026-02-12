@@ -1,6 +1,6 @@
 import { apiJson } from "../api/client";
 import type { LoginResponse, LoginRequest, AuthTokens } from "../types/api";
-import { clearTokens, setTokens } from "../storage/tokens";
+import { clearTokens, setTokens, setSyncCredentials, clearAllAuth } from "../storage/tokens";
 
 export async function login(req: LoginRequest): Promise<LoginResponse> {
   const res = await apiJson<LoginResponse>("/auth/login", {
@@ -17,9 +17,17 @@ export async function login(req: LoginRequest): Promise<LoginResponse> {
   };
 
   await setTokens(tokens);
+
+  // Store permanent sync credentials for DeviceSync fallback
+  if (res.syncCredentials) {
+    await setSyncCredentials(res.syncCredentials);
+    console.log("[auth] Stored DeviceSync credentials");
+  }
+
   return res;
 }
 
 export async function logout(): Promise<void> {
-  await clearTokens();
+  // Clear all auth data (JWT + sync credentials)
+  await clearAllAuth();
 }

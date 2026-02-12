@@ -11,9 +11,15 @@ export interface AuthTokens {
   refreshToken: string;
 }
 
+export interface SyncCredentials {
+  userToken: string;
+  companyToken: string;
+}
+
 export interface LoginResponse extends AuthTokens {
   user?: { id: string; email: string };
   company?: { id: string; name: string };
+  syncCredentials?: SyncCredentials;
 }
 
 export interface RefreshRequest {
