@@ -1,0 +1,26 @@
+# Ignore node_modules - EAS will install fresh
+node_modules/
+
+# Ignore build artifacts
+dist/
+build/
+.expo/
+android/
+ios/
+
+# Ignore test files
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+__tests__/
+
+# Ignore dev files
+.git/
+*.log
+.DS_Store
+
+# Ignore docs and non-essential files from monorepo root
+../../docs/
+../../.git/
+../../node_modules/

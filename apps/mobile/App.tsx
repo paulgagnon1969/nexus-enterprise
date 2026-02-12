@@ -7,6 +7,7 @@ import * as Updates from "expo-updates";
 import { getTokens } from "./src/storage/tokens";
 import { initDb } from "./src/offline/db";
 import { recoverStuckProcessing } from "./src/offline/outbox";
+import { startAutoSync, stopAutoSync } from "./src/offline/autoSync";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 
@@ -65,6 +66,15 @@ export default function App() {
       </View>
     );
   }
+
+  // Start/stop auto-sync based on login state
+  useEffect(() => {
+    if (isLoggedIn) {
+      startAutoSync();
+    } else {
+      stopAutoSync();
+    }
+  }, [isLoggedIn]);
 
   if (!isLoggedIn) {
     return (

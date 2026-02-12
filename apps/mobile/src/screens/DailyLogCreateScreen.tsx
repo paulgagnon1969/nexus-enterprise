@@ -9,11 +9,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Image,
+  Alert,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { apiJson } from "../api/client";
 import { fetchUserProjects } from "../api/dailyLog";
 import { enqueueOutbox } from "../offline/outbox";
+import { triggerSync } from "../offline/autoSync";
 import { copyToAppStorage, type StoredFile } from "../storage/files";
 import { colors } from "../theme/colors";
 import type { DailyLogCreateRequest, ProjectListItem } from "../types/api";
@@ -99,22 +102,49 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
       return;
     }
 
-    const res = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"],
-      quality: 0.8,
-    });
-    if (res.canceled) return;
+    const captureAndAsk = async (): Promise<void> => {
+      const res = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        quality: 0.8,
+      });
+      if (res.canceled) return;
 
-    const a = res.assets?.[0];
-    if (!a?.uri) return;
+      const a = res.assets?.[0];
+      if (!a?.uri) return;
 
-    const stored = await copyToAppStorage({
-      uri: a.uri,
-      name: (a as any).fileName ?? null,
-      mimeType: (a as any).mimeType ?? "image/jpeg",
-    });
+      const stored = await copyToAppStorage({
+        uri: a.uri,
+        name: (a as any).fileName ?? null,
+        mimeType: (a as any).mimeType ?? "image/jpeg",
+      });
 
-    setAttachments((prev) => [...prev, stored]);
+      setAttachments((prev) => [...prev, stored]);
+
+      // Ask if they want to take another photo
+      return new Promise((resolve) => {
+        Alert.alert(
+          "Photo Added",
+          "Photo saved. Take another?",
+          [
+            {
+              text: "Done",
+              style: "cancel",
+              onPress: () => resolve(),
+            },
+            {
+              text: "Add Another",
+              onPress: async () => {
+                await captureAndAsk();
+                resolve();
+              },
+            },
+          ],
+          { cancelable: false }
+        );
+      });
+    };
+
+    await captureAndAsk();
   };
 
   const removeAttachment = (uri: string) => {
@@ -161,6 +191,7 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
       );
 
       // Upload attachments if we created online
+      let attachmentsFailed = 0;
       for (const a of attachments) {
         try {
           const formData = new FormData();
@@ -175,11 +206,24 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
             body: formData,
           });
         } catch {
-          // Attachment upload failed, but log was created
+          // Attachment upload failed — queue for retry
+          attachmentsFailed++;
+          await enqueueOutbox("dailyLog.uploadAttachment", {
+            logId: result.id,
+            fileUri: a.uri,
+            fileName: a.name,
+            mimeType: a.mimeType,
+          });
         }
       }
 
-      setStatus("Daily log created!");
+      if (attachmentsFailed > 0) {
+        setStatus(`Daily log created! ${attachmentsFailed} photo(s) queued for sync.`);
+        // Trigger immediate sync for queued attachments
+        triggerSync("attachment upload queued");
+      } else {
+        setStatus("Daily log created!");
+      }
       setTimeout(() => onCreated(), 500);
     } catch (e) {
       // Queue offline
@@ -200,6 +244,8 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
       }
 
       setStatus("Saved offline. Will sync when connected.");
+      // Trigger sync attempt (will succeed if we're actually online)
+      triggerSync("daily log queued offline");
       setTimeout(() => onCreated(), 1000);
     } finally {
       setSaving(false);
@@ -292,8 +338,8 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
           placeholder="YYYY-MM-DD"
         />
 
-        {/* Title */}
-        <Text style={styles.label}>Title</Text>
+        {/* Daily Log Title */}
+        <Text style={styles.label}>Daily Log Title</Text>
         <TextInput
           style={styles.input}
           value={title}
@@ -382,7 +428,9 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
         <Text style={styles.label}>Photos</Text>
         <View style={styles.attachmentButtons}>
           <Pressable style={styles.attachButton} onPress={takePhoto}>
-            <Text style={styles.attachButtonText}>📷 Camera</Text>
+            <Text style={styles.attachButtonText}>
+              📷 Camera{attachments.length > 0 ? ` (${attachments.length})` : ""}
+            </Text>
           </Pressable>
           <Pressable style={styles.attachButton} onPress={pickPhotoFromLibrary}>
             <Text style={styles.attachButtonText}>🖼️ Library</Text>
@@ -390,14 +438,15 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
         </View>
 
         {attachments.length > 0 && (
-          <View style={styles.attachmentList}>
+          <View style={styles.thumbnailContainer}>
             {attachments.map((a) => (
-              <View key={a.uri} style={styles.attachmentRow}>
-                <Text style={styles.attachmentName} numberOfLines={1}>
-                  {a.name}
-                </Text>
-                <Pressable onPress={() => removeAttachment(a.uri)}>
-                  <Text style={styles.removeText}>Remove</Text>
+              <View key={a.uri} style={styles.thumbnailWrapper}>
+                <Image source={{ uri: a.uri }} style={styles.thumbnail} />
+                <Pressable
+                  style={styles.thumbnailRemove}
+                  onPress={() => removeAttachment(a.uri)}
+                >
+                  <Text style={styles.thumbnailRemoveText}>✕</Text>
                 </Pressable>
               </View>
             ))}
@@ -549,5 +598,36 @@ const styles = StyleSheet.create({
     color: colors.error,
     fontWeight: "600",
     fontSize: 13,
+  },
+  thumbnailContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 12,
+  },
+  thumbnailWrapper: {
+    position: "relative",
+  },
+  thumbnail: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    backgroundColor: colors.borderMuted,
+  },
+  thumbnailRemove: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.error,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  thumbnailRemoveText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
   },
 });
