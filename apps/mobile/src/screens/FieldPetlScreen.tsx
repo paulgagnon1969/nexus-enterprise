@@ -32,6 +32,7 @@ export type PetlSessionChanges = {
 
 interface Props {
   project: ProjectListItem;
+  companyName?: string;
   onBack: () => void;
   onSaveWithChanges?: (data: PetlSessionChanges) => void;
 }
@@ -91,7 +92,7 @@ function formatLineNumbers(lineNos: number[]): string {
   return ranges.join(", ");
 }
 
-export function FieldPetlScreen({ project, onBack, onSaveWithChanges }: Props) {
+export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChanges }: Props) {
   const [items, setItems] = useState<FieldPetlItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -674,6 +675,16 @@ export function FieldPetlScreen({ project, onBack, onSaveWithChanges }: Props) {
           <Text style={styles.headerTitle}>Field PETL</Text>
           <View style={{ width: 50 }} />
         </View>
+        {/* Breadcrumb */}
+        <View style={styles.breadcrumb}>
+          {companyName && (
+            <>
+              <Text style={styles.breadcrumbOrg}>{companyName}</Text>
+              <Text style={styles.breadcrumbSep}> / </Text>
+            </>
+          )}
+          <Text style={styles.breadcrumbProject}>{project.name}</Text>
+        </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Loading scope...</Text>
@@ -692,10 +703,20 @@ export function FieldPetlScreen({ project, onBack, onSaveWithChanges }: Props) {
         <Text style={styles.itemCount}>{filteredItems.length} items</Text>
       </View>
 
+      {/* Breadcrumb: Tenant Org / Project Name */}
+      <View style={styles.breadcrumb}>
+        {companyName && (
+          <>
+            <Text style={styles.breadcrumbOrg}>{companyName}</Text>
+            <Text style={styles.breadcrumbSep}> / </Text>
+          </>
+        )}
+        <Text style={styles.breadcrumbProject}>{project.name}</Text>
+      </View>
+
       {/* Project Info Row with Save & Close */}
       <View style={styles.projectRow}>
         <View style={styles.projectInfo}>
-          <Text style={styles.projectName}>{project.name}</Text>
           <Text style={styles.projectId}>ID: {project.id}</Text>
         </View>
         <Pressable
@@ -788,8 +809,16 @@ export function FieldPetlScreen({ project, onBack, onSaveWithChanges }: Props) {
             {filteredItems.length} item{filteredItems.length !== 1 ? "s" : ""}
             {hasActiveFilters ? " match filters" : ""}
           </Text>
-          <Pressable style={styles.bulkUpdateButton} onPress={openBulkUpdate}>
-            <Text style={styles.bulkUpdateButtonText}>Bulk Update %</Text>
+          <Pressable 
+            style={[
+              styles.bulkUpdateButton,
+              sessionChanges.length > 0 && styles.bulkUpdateButtonPending,
+            ]} 
+            onPress={openBulkUpdate}
+          >
+            <Text style={styles.bulkUpdateButtonText}>
+              Bulk Update %{sessionChanges.length > 0 ? ` (${sessionChanges.length} pending)` : ""}
+            </Text>
           </Pressable>
         </View>
       )}
@@ -1354,10 +1383,37 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 6,
   },
+  bulkUpdateButtonPending: {
+    backgroundColor: colors.warning,
+  },
   bulkUpdateButtonText: {
     color: colors.textOnPrimary,
     fontSize: 13,
     fontWeight: "600",
+  },
+  // Breadcrumb styles
+  breadcrumb: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: colors.backgroundTertiary,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderMuted,
+  },
+  breadcrumbOrg: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: colors.textMuted,
+  },
+  breadcrumbSep: {
+    fontSize: 13,
+    color: colors.textMuted,
+  },
+  breadcrumbProject: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.textPrimary,
   },
   // Filter Picker styles
   filterPickerSearchContainer: {

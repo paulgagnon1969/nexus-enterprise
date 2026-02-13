@@ -10,6 +10,7 @@ import { recoverStuckProcessing } from "./src/offline/outbox";
 import { startAutoSync, stopAutoSync } from "./src/offline/autoSync";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { AppNavigator } from "./src/navigation/AppNavigator";
+import { VersionBadge } from "./src/components/VersionBadge";
 
 /** Check for OTA updates and apply if available */
 async function checkForUpdates() {
@@ -82,6 +83,7 @@ export default function App() {
         <View style={styles.container}>
           <StatusBar style="auto" />
           <LoginScreen onLoggedIn={() => setIsLoggedIn(true)} />
+          <VersionBadge />
         </View>
       </SafeAreaProvider>
     );
@@ -93,6 +95,7 @@ export default function App() {
         <View style={styles.container}>
           <StatusBar style="auto" />
           <AppNavigator onLogout={() => setIsLoggedIn(false)} />
+          <VersionBadge />
         </View>
       </NavigationContainer>
     </SafeAreaProvider>

@@ -1,7 +1,18 @@
 #!/bin/bash
-# Build Android APK and download to local drive
+# Build Android APK using EAS cloud builds
+# DEPRECATED: Use build-android-local.sh for local builds
 # Usage: ./scripts/build-android.sh [profile]
 # Profiles: preview (default), production
+
+echo "⚠️  This script uses EAS cloud builds."
+echo "   For local builds, use: npm run build:android:release"
+echo "   Or run: ./scripts/build-android-local.sh"
+echo ""
+read -p "Continue with EAS build? (y/N) " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+  exit 0
+fi
 
 set -e
 

@@ -12,11 +12,15 @@ export function HomeScreen({
   onGoProjects,
   onGoInventory,
   onGoOutbox,
+  onCompanyChange,
+  triggerSyncOnMount,
 }: {
   onLogout: () => void;
   onGoProjects: () => void;
   onGoInventory: () => void;
   onGoOutbox: () => void;
+  onCompanyChange?: (company: { id: string; name: string }) => void;
+  triggerSyncOnMount?: boolean;
 }) {
   const [wifiOnly, setWifiOnly] = useState(false);
   const [pending, setPending] = useState<number>(0);
@@ -91,6 +95,21 @@ export function HomeScreen({
     void refresh();
     void loadCompanies();
   }, []);
+
+  // Auto-sync when navigating here with triggerSyncOnMount
+  useEffect(() => {
+    if (triggerSyncOnMount) {
+      void runSync();
+    }
+  }, [triggerSyncOnMount]);
+
+  // Notify parent of company changes
+  useEffect(() => {
+    if (currentCompanyId && currentCompanyName && onCompanyChange) {
+      onCompanyChange({ id: currentCompanyId, name: currentCompanyName });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentCompanyId, currentCompanyName]);
 
   const toggleWifiOnly = async (next: boolean) => {
     setWifiOnly(next);
@@ -184,13 +203,51 @@ export function HomeScreen({
         <Switch value={wifiOnly} onValueChange={toggleWifiOnly} />
       </View>
 
-      <Text style={styles.small}>Pending outbox items: {pending}</Text>
-
-      <Pressable style={styles.button} onPress={runSync} disabled={syncing}>
-        <Text style={styles.buttonText}>{syncing ? "Syncing…" : "Sync now"}</Text>
-      </Pressable>
-
-      {lastSyncMsg ? <Text style={styles.small}>{lastSyncMsg}</Text> : null}
+      {/* Sync Status Section - Prominent */}
+      <View style={styles.syncSection}>
+        <Text style={styles.syncSectionTitle}>Sync Status</Text>
+        
+        {syncing ? (
+          <View style={styles.syncStatusRow}>
+            <Text style={styles.syncStatusSyncing}>⟳ Syncing...</Text>
+          </View>
+        ) : lastSyncMsg ? (
+          <View style={styles.syncStatusRow}>
+            <Text style={[
+              styles.syncStatusText,
+              lastSyncMsg.includes("failed=0") || lastSyncMsg.includes("processed") 
+                ? styles.syncStatusSuccess 
+                : styles.syncStatusWarning
+            ]}>
+              {lastSyncMsg.includes("processed") && !lastSyncMsg.includes("failed=0")
+                ? "⚠️ " + lastSyncMsg
+                : lastSyncMsg.includes("processed")
+                ? "✓ " + lastSyncMsg
+                : lastSyncMsg}
+            </Text>
+          </View>
+        ) : null}
+        
+        <View style={styles.syncPendingRow}>
+          <Text style={styles.syncPendingLabel}>Pending items:</Text>
+          <Text style={[
+            styles.syncPendingCount,
+            pending > 0 && styles.syncPendingCountActive
+          ]}>
+            {pending}
+          </Text>
+        </View>
+        
+        <Pressable 
+          style={[styles.button, syncing && styles.buttonDisabled]} 
+          onPress={runSync} 
+          disabled={syncing}
+        >
+          <Text style={styles.buttonText}>
+            {syncing ? "Syncing…" : pending > 0 ? `Sync now (${pending})` : "Sync now"}
+          </Text>
+        </Pressable>
+      </View>
 
       <View style={{ flex: 1 }} />
 
@@ -205,6 +262,59 @@ const styles = StyleSheet.create({
   container: { flex: 1, padding: 16 },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
   sectionLabel: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 4 },
+  // Sync section styles
+  syncSection: {
+    backgroundColor: "#f3f4f6",
+    borderRadius: 12,
+    padding: 16,
+    marginVertical: 12,
+  },
+  syncSectionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#1f2937",
+    marginBottom: 8,
+  },
+  syncStatusRow: {
+    marginBottom: 8,
+  },
+  syncStatusSyncing: {
+    fontSize: 14,
+    color: "#2563eb",
+    fontWeight: "600",
+  },
+  syncStatusText: {
+    fontSize: 13,
+    color: "#374151",
+  },
+  syncStatusSuccess: {
+    color: "#059669",
+    fontWeight: "600",
+  },
+  syncStatusWarning: {
+    color: "#d97706",
+  },
+  syncPendingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  syncPendingLabel: {
+    fontSize: 13,
+    color: "#6b7280",
+    marginRight: 8,
+  },
+  syncPendingCount: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#059669",
+  },
+  syncPendingCountActive: {
+    color: "#d97706",
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
   companyRow: {
     flexDirection: "row",
     flexWrap: "wrap",
