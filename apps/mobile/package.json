@@ -1,6 +1,6 @@
 {
   "name": "mobile",
-  "version": "1.0.0",
+  "version": "1.1.0-dev",
   "private": true,
   "main": "index.ts",
   "scripts": {
@@ -11,8 +11,8 @@
     "web": "npm run build:deps && expo start --web",
     "build:deps": "npm --workspace @repo/types run build",
     "check-types": "tsc --noEmit",
-    "build:android": "./scripts/build-android.sh preview",
-    "build:android:prod": "./scripts/build-android.sh production"
+    "build:android": "npx expo run:android --variant debug",
+    "build:android:release": "./scripts/build-android-local.sh"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^2.2.0",
@@ -37,7 +37,7 @@
     "expo-status-bar": "~55.0.2",
     "expo-updates": "~55.0.7",
     "punycode": "^2.3.1",
-    "react": "19.2.0",
+    "react": "^19.2.4",
     "react-dom": "^19.2.0",
     "react-native": "0.83.1",
     "react-native-safe-area-context": "^5.6.2",

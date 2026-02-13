@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -27,13 +27,17 @@ function makeLocalId() {
 
 export function DailyLogsScreen({
   project,
+  companyName,
   onBack,
   onOpenPetl,
+  onNavigateHome,
   petlChanges,
 }: {
   project: ProjectListItem;
+  companyName?: string;
   onBack: () => void;
   onOpenPetl?: () => void;
+  onNavigateHome?: () => void;
   petlChanges?: PetlSessionChanges;
 }) {
   const [logs, setLogs] = useState<any[]>([]);
@@ -57,6 +61,7 @@ export function DailyLogsScreen({
   const [confidentialNotes, setConfidentialNotes] = useState("");
 
   const [attachments, setAttachments] = useState<StoredFile[]>([]);
+  const processedPetlChangesRef = useRef<string | null>(null);
 
   const key = `dailyLogs:${project.id}`;
 
@@ -86,6 +91,13 @@ export function DailyLogsScreen({
   // Apply PETL changes when returning from Field PETL
   useEffect(() => {
     if (petlChanges && petlChanges.changes.length > 0) {
+      // Create a unique key for these changes to prevent reprocessing
+      const changesKey = JSON.stringify(petlChanges.changes);
+      if (processedPetlChangesRef.current === changesKey) {
+        return; // Already processed these exact changes
+      }
+      processedPetlChangesRef.current = changesKey;
+
       // Append to existing notes (don't overwrite)
       setWorkPerformed((prev) => {
         if (prev.trim()) {
@@ -218,21 +230,26 @@ export function DailyLogsScreen({
       });
     }
 
-    setTitle("");
-    setWeatherSummary("");
-    setCrewOnSite("");
-    setWorkPerformed("");
-    setIssues("");
-    setSafetyIncidents("");
-    setManpowerOnsite("");
-    setPersonOnsite("");
-    setConfidentialNotes("");
-    setAttachments([]);
-
-    setStatus("Saved. Syncing...");
-
     // Trigger sync immediately (will work if online)
     triggerSync("daily log created");
+
+    // Navigate to Home with sync feedback instead of staying on blank form
+    if (onNavigateHome) {
+      onNavigateHome();
+    } else {
+      // Fallback: clear form if no navigation callback
+      setTitle("");
+      setWeatherSummary("");
+      setCrewOnSite("");
+      setWorkPerformed("");
+      setIssues("");
+      setSafetyIncidents("");
+      setManpowerOnsite("");
+      setPersonOnsite("");
+      setConfidentialNotes("");
+      setAttachments([]);
+      setStatus("Saved. Syncing...");
+    }
   };
 
   return (
@@ -246,10 +263,23 @@ export function DailyLogsScreen({
         <Pressable onPress={onBack}>
           <Text style={styles.link}>← Back</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>New Daily Log</Text>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle}>New Daily Log</Text>
+        </View>
         <Pressable onPress={refreshOnline}>
           <Text style={styles.link}>⟳</Text>
         </Pressable>
+      </View>
+
+      {/* Breadcrumb: Tenant Org / Project Name */}
+      <View style={styles.breadcrumb}>
+        {companyName && (
+          <>
+            <Text style={styles.breadcrumbOrg}>{companyName}</Text>
+            <Text style={styles.breadcrumbSep}> / </Text>
+          </>
+        )}
+        <Text style={styles.breadcrumbProject}>{project.name}</Text>
       </View>
 
       <ScrollView
@@ -259,7 +289,6 @@ export function DailyLogsScreen({
         showsVerticalScrollIndicator={true}
         nestedScrollEnabled={true}
       >
-        <Text style={styles.projectName}>{project.name}</Text>
         {status ? <Text style={styles.status}>{status}</Text> : null}
 
         {/* 1. DATE - Always at top */}
@@ -454,9 +483,36 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.borderMuted,
   },
+  headerCenter: {
+    flex: 1,
+    alignItems: "center",
+  },
   headerTitle: { 
     fontSize: 18, 
     fontWeight: "700",
+    color: colors.textPrimary,
+  },
+  breadcrumb: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: colors.backgroundTertiary,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderMuted,
+  },
+  breadcrumbOrg: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: colors.textMuted,
+  },
+  breadcrumbSep: {
+    fontSize: 13,
+    color: colors.textMuted,
+  },
+  breadcrumbProject: {
+    fontSize: 14,
+    fontWeight: "600",
     color: colors.textPrimary,
   },
   link: { 

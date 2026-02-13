@@ -22,7 +22,7 @@ import type { ProjectListItem, DailyLogListItem, DailyLogDetail } from "../types
 
 // Type definitions for navigation
 export type RootTabParamList = {
-  HomeTab: undefined;
+  HomeTab: { triggerSync?: boolean } | undefined;
   TimecardTab: undefined;
   LogsTab: undefined;
   ProjectsTab: undefined;
@@ -32,8 +32,8 @@ export type RootTabParamList = {
 
 export type ProjectsStackParamList = {
   ProjectsList: undefined;
-  DailyLogs: { project: ProjectListItem; petlChanges?: PetlSessionChanges };
-  FieldPetl: { project: ProjectListItem };
+  DailyLogs: { project: ProjectListItem; companyName?: string; petlChanges?: PetlSessionChanges };
+  FieldPetl: { project: ProjectListItem; companyName?: string };
 };
 
 export type LogsStackParamList = {
@@ -124,23 +124,30 @@ function LogsStackNavigator() {
 // Projects stack wrappers
 function ProjectsListWrapper() {
   const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const company = useCurrentCompany();
   return (
     <ProjectsScreen
-      onOpenProject={(project) => navigation.navigate("DailyLogs", { project })}
+      onOpenProject={(project) => navigation.navigate("DailyLogs", { project, companyName: company.name ?? undefined })}
     />
   );
 }
 
 function DailyLogsWrapper() {
-  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList & RootTabParamList>>();
   const route = useRoute<RouteProp<ProjectsStackParamList, "DailyLogs">>();
   const project = route.params.project;
+  const companyName = route.params.companyName;
   const petlChanges = route.params.petlChanges;
   return (
     <DailyLogsScreen
       project={project}
+      companyName={companyName}
       onBack={() => navigation.goBack()}
-      onOpenPetl={() => navigation.navigate("FieldPetl", { project })}
+      onOpenPetl={() => navigation.navigate("FieldPetl", { project, companyName })}
+      onNavigateHome={() => {
+        // Navigate to Home tab with sync trigger
+        navigation.getParent()?.navigate("HomeTab", { triggerSync: true });
+      }}
       petlChanges={petlChanges}
     />
   );
@@ -150,13 +157,15 @@ function FieldPetlWrapper() {
   const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
   const route = useRoute<RouteProp<ProjectsStackParamList, "FieldPetl">>();
   const project = route.params.project;
+  const companyName = route.params.companyName;
   return (
     <FieldPetlScreen
       project={project}
+      companyName={companyName}
       onBack={() => navigation.goBack()}
       onSaveWithChanges={(changes) => {
         // Navigate back to DailyLogs with the changes
-        navigation.navigate("DailyLogs", { project, petlChanges: changes });
+        navigation.navigate("DailyLogs", { project, companyName, petlChanges: changes });
       }}
     />
   );
@@ -183,24 +192,49 @@ function OutboxTabScreen() {
   return <OutboxScreen onBack={() => {}} />;
 }
 
-// Context for logout callback
+// Context for logout callback and company info
 const LogoutContext = React.createContext<() => void>(() => {});
+const CompanyContext = React.createContext<{ name: string | null; id: string | null }>({
+  name: null,
+  id: null,
+});
+
+// Hook to get current company from context
+export function useCurrentCompany() {
+  return React.useContext(CompanyContext);
+}
+
+// Callback for HomeScreen to update company context
+const SetCompanyContext = React.createContext<(company: { id: string; name: string }) => void>(() => {});
 
 function HomeTabScreen() {
   const onLogout = React.useContext(LogoutContext);
+  const setCompany = React.useContext(SetCompanyContext);
+  const route = useRoute<RouteProp<RootTabParamList, "HomeTab">>();
+  const triggerSync = route.params?.triggerSync;
+  
   return (
     <HomeScreen
       onLogout={onLogout}
       onGoProjects={() => {}}
       onGoInventory={() => {}}
       onGoOutbox={() => {}}
+      onCompanyChange={setCompany}
+      triggerSyncOnMount={triggerSync}
     />
   );
 }
 
 export function AppNavigator({ onLogout }: { onLogout: () => void }) {
+  const [company, setCompany] = React.useState<{ id: string | null; name: string | null }>({
+    id: null,
+    name: null,
+  });
+  
   return (
     <LogoutContext.Provider value={onLogout}>
+    <CompanyContext.Provider value={company}>
+    <SetCompanyContext.Provider value={(c) => setCompany({ id: c.id, name: c.name })}>
       <Tab.Navigator
         screenOptions={({ route }) => ({
           headerShown: false,
@@ -250,6 +284,8 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
           component={OutboxTabScreen}
         />
       </Tab.Navigator>
+    </SetCompanyContext.Provider>
+    </CompanyContext.Provider>
     </LogoutContext.Provider>
   );
 }
