@@ -6177,33 +6177,42 @@ export class ProjectService {
           sowItems.map((i) => [i.id, i])
         );
 
-        for (const change of distinct) {
-          const row = byId.get(change.sowItemId);
-          if (!row) continue;
-
-          const currentDbPercent = row.percentComplete ?? 0;
-          const old = change.oldPercent ?? currentDbPercent;
-          const next = change.newPercent;
-
-          await tx.petlEditChange.create({
-            data: {
+        // Batch create PetlEditChange records for audit trail
+        const editChanges = distinct
+          .map((change) => {
+            const row = byId.get(change.sowItemId);
+            if (!row) return null;
+            const currentDbPercent = row.percentComplete ?? 0;
+            const old = change.oldPercent ?? currentDbPercent;
+            return {
               sessionId: session.id,
               sowItemId: row.id,
               field: "percent_complete",
               oldValue: old,
-              newValue: next,
+              newValue: change.newPercent,
               effectiveAt: endedAt
-            }
-          });
+            };
+          })
+          .filter((c): c is NonNullable<typeof c> => c !== null);
 
-          await tx.sowItem.update({
-            where: { id: row.id },
-            data: {
-              percentComplete: next,
-              isAcvOnly: change.acvOnly ?? false,
-            },
-          });
-        }
+        await tx.petlEditChange.createMany({
+          data: editChanges
+        });
+
+        // Batch update sowItem records using Promise.all for parallelization
+        await Promise.all(
+          distinct.map(async (change) => {
+            const row = byId.get(change.sowItemId);
+            if (!row) return;
+            await tx.sowItem.update({
+              where: { id: row.id },
+              data: {
+                percentComplete: change.newPercent,
+                isAcvOnly: change.acvOnly ?? false,
+              },
+            });
+          })
+        );
       }, { timeout: 30000 });
 
       // Best effort: regenerate the current living invoice draft from PETL.
@@ -6340,34 +6349,42 @@ export class ProjectService {
         sowItems.map((i) => [i.id, i])
       );
 
-      for (const change of computedChanges) {
-        const row = byId.get(change.sowItemId);
-        if (!row) continue;
-
-        const currentDbPercent = row.percentComplete ?? 0;
-        const old = change.oldPercent ?? currentDbPercent;
-        const next = change.newPercent;
-        const isAcvOnly = !!change.acvOnly;
-
-        await tx.petlEditChange.create({
-          data: {
+      // Batch create PetlEditChange records for audit trail
+      const editChanges = computedChanges
+        .map((change) => {
+          const row = byId.get(change.sowItemId);
+          if (!row) return null;
+          const currentDbPercent = row.percentComplete ?? 0;
+          const old = change.oldPercent ?? currentDbPercent;
+          return {
             sessionId: session.id,
             sowItemId: row.id,
             field: "percent_complete",
             oldValue: old,
-            newValue: next,
+            newValue: change.newPercent,
             effectiveAt: endedAt
-          }
-        });
+          };
+        })
+        .filter((c): c is NonNullable<typeof c> => c !== null);
 
-        await tx.sowItem.update({
-          where: { id: row.id },
-          data: {
-            percentComplete: next,
-            isAcvOnly,
-          },
-        });
-      }
+      await tx.petlEditChange.createMany({
+        data: editChanges
+      });
+
+      // Batch update sowItem records using Promise.all for parallelization
+      await Promise.all(
+        computedChanges.map(async (change) => {
+          const row = byId.get(change.sowItemId);
+          if (!row) return;
+          await tx.sowItem.update({
+            where: { id: row.id },
+            data: {
+              percentComplete: change.newPercent,
+              isAcvOnly: !!change.acvOnly,
+            },
+          });
+        })
+      );
     }, { timeout: 30000 });
 
     // Best effort: regenerate the current living invoice draft from PETL.
