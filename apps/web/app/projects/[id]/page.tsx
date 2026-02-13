@@ -2634,8 +2634,11 @@ ${htmlBody}
       return all;
     })();
 
-    const invoiceNo = String(activeInvoice.invoiceNo ?? "Draft invoice");
-    const title = invoiceNo ? `Invoice ${invoiceNo}` : "Invoice";
+    const invoiceNo = String(activeInvoice.invoiceNo ?? "Draft");
+    // Format date as yyyy.mm.dd - HH:mm for filename
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")} - ${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+    const title = `Invoice ${invoiceNo} ${dateStr}`;
 
     const logoUrl = `${window.location.origin}/nexus-logo-mark.png`;
 

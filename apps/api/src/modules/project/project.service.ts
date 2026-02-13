@@ -9037,9 +9037,14 @@ export class ProjectService {
           },
         });
 
-        return tx.projectBill.update({
+        // Update totalAmount and return fresh data with all fields
+        await tx.projectBill.update({
           where: { id: existing.id },
           data: { totalAmount: nextLine.amount },
+        });
+
+        return tx.projectBill.findFirstOrThrow({
+          where: { id: existing.id },
           include: {
             lineItems: { orderBy: { createdAt: "asc" } },
             attachments: { orderBy: { createdAt: "asc" } },
