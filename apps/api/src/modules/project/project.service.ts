@@ -8369,43 +8369,39 @@ export class ProjectService {
     };
   }
 
-  private formatInvoiceNumber(sequenceNo: number) {
-    return `INV-${String(sequenceNo).padStart(5, "0")}`;
+  /**
+   * Format invoice number as INV-[PROJECT].[yyyymmdd].[sequence]
+   * Example: INV-NEXUS.20260213.047
+   */
+  private formatInvoiceNumber(sequenceNo: number, projectName?: string | null) {
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    const prefix = this.computeProjectCodeFromName(projectName);
+    const seqStr = String(sequenceNo).padStart(3, "0");
+    return `INV-${prefix}.${dateStr}.${seqStr}`;
   }
 
-  private computeInvoicePrefixFromProjectName(projectName: string | null | undefined): string | null {
+  /**
+   * Extract first 5 alphanumeric characters from project name for invoice prefix.
+   * Falls back to "NEXUS" if project name is empty or has no valid chars.
+   */
+  private computeProjectCodeFromName(projectName: string | null | undefined): string {
     const raw = String(projectName ?? "").trim();
-    if (!raw) return null;
+    if (!raw) return "NEXUS";
 
-    const tokens = raw
-      // Treat punctuation as word boundaries.
-      .replace(/[^a-zA-Z0-9\s]+/g, " ")
-      .split(/\s+/)
-      .map((t) => t.trim())
-      .filter(Boolean);
+    // Remove all non-alphanumeric characters and take first 5
+    const cleaned = raw.replace(/[^a-zA-Z0-9]+/g, "").toUpperCase();
+    if (cleaned.length === 0) return "NEXUS";
 
-    if (tokens.length === 0) return null;
+    return cleaned.slice(0, 5).padEnd(5, "X");
+  }
 
-    const STOP = new Set(["THE", "AND", "OF", "AT", "IN", "ON", "FOR", "A", "AN"]);
-    const significant = tokens.filter((t) => !STOP.has(t.toUpperCase()));
-    const source = significant.length > 0 ? significant : tokens;
-
-    const letters: string[] = [];
-    for (const t of source) {
-      const c = t[0];
-      if (c) letters.push(c.toUpperCase());
-      if (letters.length >= 3) break;
-    }
-
-    let prefix = letters.join("");
-
-    // If there are fewer than 3 words, fall back to first 3 alphanumerics from the joined name.
-    if (prefix.length < 3) {
-      const joined = source.join("");
-      prefix = joined.replace(/[^a-zA-Z0-9]+/g, "").toUpperCase().slice(0, 3);
-    }
-
-    return prefix.length === 3 ? prefix : null;
+  /**
+   * Generate a random starting invoice number (10-99) for new tenants
+   * so the company doesn't appear brand new.
+   */
+  private generateRandomStartingInvoiceNo(): number {
+    return Math.floor(Math.random() * 90) + 10; // 10-99
   }
 
   private billingModelsAvailable() {
@@ -10505,15 +10501,28 @@ export class ProjectService {
       const now = new Date();
 
       await this.prisma.$transaction(async (tx) => {
-        const counter = await tx.companyInvoiceCounter.upsert({
+        // Check if counter exists for this company
+        const existingCounter = await tx.companyInvoiceCounter.findUnique({
           where: { companyId: project.companyId },
-          create: { companyId: project.companyId, lastInvoiceNo: 1 },
-          update: { lastInvoiceNo: { increment: 1 } },
         });
 
+        let counter;
+        if (existingCounter) {
+          // Increment existing counter
+          counter = await tx.companyInvoiceCounter.update({
+            where: { companyId: project.companyId },
+            data: { lastInvoiceNo: { increment: 1 } },
+          });
+        } else {
+          // Create new counter with random starting number (10-99)
+          const startingNo = this.generateRandomStartingInvoiceNo();
+          counter = await tx.companyInvoiceCounter.create({
+            data: { companyId: project.companyId, lastInvoiceNo: startingNo },
+          });
+        }
+
         const sequenceNo = counter.lastInvoiceNo;
-        const prefix = this.computeInvoicePrefixFromProjectName(project.name);
-        const invoiceNo = prefix ? `${prefix}-${this.formatInvoiceNumber(sequenceNo)}` : this.formatInvoiceNumber(sequenceNo);
+        const invoiceNo = this.formatInvoiceNumber(sequenceNo, project.name);
 
         await tx.projectInvoice.update({
           where: { id: invoice.id },
