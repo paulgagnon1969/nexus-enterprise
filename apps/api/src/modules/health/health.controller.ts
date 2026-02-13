@@ -1,4 +1,5 @@
 import { Controller, Get } from "@nestjs/common";
+import { PrismaClient } from "@prisma/client";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { RedisService } from "../../infra/redis/redis.service";
 
@@ -22,7 +23,7 @@ export class HealthController {
   @Get("deps")
   async getDepsHealth() {
     // If this throws, Nest will surface a 5xx and the health check fails.
-    await this.prisma.$queryRaw`SELECT 1`;
+    await (this.prisma as PrismaClient).$queryRaw`SELECT 1`;
 
     let redisStatus: string;
     try {

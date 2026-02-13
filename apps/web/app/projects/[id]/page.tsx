@@ -1341,9 +1341,10 @@ export default function ProjectDetailPage({
   const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
 
   const [operation, setOperation] = useState<"set" | "increment" | "decrement">("set");
-  const [operationPercent, setOperationPercent] = useState<string>("0");
+  const [operationPercent, setOperationPercent] = useState<string>("");
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+  const [bulkConfirmPending, setBulkConfirmPending] = useState(false);
 
   // Pending PETL % approvals (PM/owner/admin only)
   const [pendingPetlSessions, setPendingPetlSessions] = useState<any[] | null>(null);
@@ -1395,6 +1396,8 @@ export default function ProjectDetailPage({
   const [billLineAmount, setBillLineAmount] = useState("");
   const [billLineTimecardStartDate, setBillLineTimecardStartDate] = useState("");
   const [billLineTimecardEndDate, setBillLineTimecardEndDate] = useState("");
+  const [billBillable, setBillBillable] = useState(false);
+  const [billMarkupPercent, setBillMarkupPercent] = useState<string>("25");
 
   const [billAttachmentProjectFileIds, setBillAttachmentProjectFileIds] = useState<string[]>([]);
   const [billEditingExistingAttachmentIds, setBillEditingExistingAttachmentIds] = useState<string[]>([]);
@@ -2105,6 +2108,9 @@ export default function ProjectDetailPage({
     setBillLineTimecardStartDate("");
     setBillLineTimecardEndDate("");
 
+    setBillBillable(false);
+    setBillMarkupPercent("25");
+
     setBillAttachmentProjectFileIds([]);
     setBillEditingExistingAttachmentIds([]);
   };
@@ -2131,6 +2137,9 @@ export default function ProjectDetailPage({
     setBillLineAmount(li?.amount != null ? String(li.amount) : "");
     setBillLineTimecardStartDate(li?.timecardStartDate ? String(li.timecardStartDate).slice(0, 10) : "");
     setBillLineTimecardEndDate(li?.timecardEndDate ? String(li.timecardEndDate).slice(0, 10) : "");
+
+    setBillBillable(!!bill?.isBillable);
+    setBillMarkupPercent(bill?.markupPercent != null ? String(bill.markupPercent) : "25");
 
     const attachedIds = (Array.isArray(bill?.attachments) ? bill.attachments : [])
       .map((a: any) => String(a?.projectFileId ?? "").trim())
@@ -2168,6 +2177,7 @@ export default function ProjectDetailPage({
       return;
     }
 
+    const markupPct = billBillable ? Number(billMarkupPercent) : 0;
     const payload: any = {
       vendorName,
       billNumber: billBillNumber.trim() || undefined,
@@ -2175,6 +2185,8 @@ export default function ProjectDetailPage({
       dueAt: billDueAt || undefined,
       status: billStatus || undefined,
       memo: billMemo.trim() || undefined,
+      isBillable: billBillable,
+      markupPercent: billBillable && Number.isFinite(markupPct) ? markupPct : undefined,
       lineItem: {
         kind: billLineKind,
         description: lineDesc,
@@ -4122,8 +4134,8 @@ ${htmlBody}
   // Split "which tab is highlighted" from "which tab content is mounted".
   // Switching content can be expensive (unmounting a large tab + mounting PETL), so we
   // update the underline immediately, then transition the content change on the next frame.
-  const [activeTab, setActiveTab] = useState<TabKey>("SUMMARY");
-  const [activeTabUi, setActiveTabUi] = useState<TabKey>("SUMMARY");
+  const [activeTab, setActiveTab] = useState<TabKey>("DAILY_LOGS");
+  const [activeTabUi, setActiveTabUi] = useState<TabKey>("DAILY_LOGS");
   const [, startTabTransition] = useTransition();
 
   const setTab = useCallback(
@@ -10621,7 +10633,7 @@ ${htmlBody}
       >
       {(
           [
-            { key: "SUMMARY", label: "Summary" },
+            { key: "SUMMARY", label: "Job parameters" },
             { key: "DAILY_LOGS", label: "Daily Logs" },
             { key: "SCHEDULE", label: "Schedule" },
             { key: "PETL", label: "PETL" },
@@ -12389,6 +12401,55 @@ ${htmlBody}
                       />
                     </div>
 
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={billBillable}
+                          onChange={(e) => setBillBillable(e.target.checked)}
+                        />
+                        <span style={{ fontSize: 12, fontWeight: 500 }}>Billable?</span>
+                      </label>
+                      {billBillable && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 11, color: "#4b5563" }}>Markup %</span>
+                          <input
+                            type="number"
+                            value={billMarkupPercent}
+                            onChange={(e) => setBillMarkupPercent(e.target.value)}
+                            min="0"
+                            max="100"
+                            style={{
+                              width: 70,
+                              padding: "4px 6px",
+                              borderRadius: 6,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {billBillable && billLineAmount && (
+                      <div style={{ fontSize: 11, color: "#4b5563", display: "flex", gap: 16 }}>
+                        {(() => {
+                          const cost = Number(billLineAmount) || 0;
+                          const markup = Number(billMarkupPercent) || 0;
+                          const gmDollars = cost * (markup / 100);
+                          const billableAmount = cost + gmDollars;
+                          const gmPercent = billableAmount > 0 ? (gmDollars / billableAmount) * 100 : 0;
+                          return (
+                            <>
+                              <span><strong>GM%:</strong> {gmPercent.toFixed(1)}%</span>
+                              <span><strong>GM$:</strong> ${gmDollars.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              <span><strong>Billable Total:</strong> ${billableAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+
                     {billLineKind === "LABOR" && (
                       <>
                         <div>
@@ -13174,6 +13235,9 @@ ${htmlBody}
                           <th style={{ padding: "6px 8px" }}>Kind</th>
                           <th style={{ padding: "6px 8px" }}>Description</th>
                           <th style={{ padding: "6px 8px", textAlign: "right" }}>Amount</th>
+                          <th style={{ padding: "6px 8px", textAlign: "center" }}>Billable</th>
+                          <th style={{ padding: "6px 8px", textAlign: "right" }}>GM%</th>
+                          <th style={{ padding: "6px 8px", textAlign: "right" }}>GM$</th>
                           <th style={{ padding: "6px 8px" }}>Attachments</th>
                           <th style={{ padding: "6px 8px", textAlign: "right" }}>Actions</th>
                         </tr>
@@ -13189,6 +13253,12 @@ ${htmlBody}
                           .map((b: any) => {
                             const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
                             const attachments: any[] = Array.isArray(b?.attachments) ? b.attachments : [];
+                            const isBillable = !!b?.isBillable;
+                            const cost = Number(b?.totalAmount) || 0;
+                            const markupPct = Number(b?.markupPercent) || 0;
+                            const gmDollars = isBillable ? cost * (markupPct / 100) : 0;
+                            const billableTotal = cost + gmDollars;
+                            const gmPercent = isBillable && billableTotal > 0 ? (gmDollars / billableTotal) * 100 : 0;
                             return (
                               <tr key={String(b?.id ?? Math.random())}>
                                 <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
@@ -13211,6 +13281,19 @@ ${htmlBody}
                                 </td>
                                 <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", fontWeight: 600 }}>
                                   {formatMoney(b?.totalAmount)}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "center" }}>
+                                  {isBillable ? (
+                                    <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ {markupPct}%</span>
+                                  ) : (
+                                    <span style={{ color: "#9ca3af" }}>—</span>
+                                  )}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: isBillable ? "#111827" : "#9ca3af" }}>
+                                  {isBillable ? `${gmPercent.toFixed(1)}%` : "—"}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", fontWeight: isBillable ? 600 : 400, color: isBillable ? "#16a34a" : "#9ca3af" }}>
+                                  {isBillable ? formatMoney(gmDollars) : "—"}
                                 </td>
                                 <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
                                   {attachments.length === 0 ? (
@@ -13262,6 +13345,94 @@ ${htmlBody}
               </div>
             )}
           </div>
+
+          {/* Billable Expenses Invoice */}
+          {(() => {
+            const billableBills = (projectBills ?? []).filter((b: any) => b?.isBillable);
+            const billableTotal = billableBills.reduce((sum: number, b: any) => sum + (Number(b?.billableAmount) || 0), 0);
+            const costTotal = billableBills.reduce((sum: number, b: any) => sum + (Number(b?.totalAmount) || 0), 0);
+            const gmTotal = billableTotal - costTotal;
+
+            if (billableBills.length === 0) return null;
+
+            return (
+              <div
+                style={{
+                  marginTop: 16,
+                  borderRadius: 8,
+                  border: "1px solid #16a34a",
+                  background: "#f0fdf4",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    background: "#dcfce7",
+                    borderBottom: "1px solid #16a34a",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                    <span>💰 Billable Expenses Invoice</span>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: "#166534" }}>
+                      · {billableBills.length} item{billableBills.length !== 1 ? "s" : ""} · Total {formatMoney(billableTotal)}
+                    </span>
+                  </div>
+                </div>
+                <div style={{ padding: 12, fontSize: 12 }}>
+                  <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Cost</div>
+                      <div style={{ fontWeight: 600 }}>{formatMoney(costTotal)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Gross Margin</div>
+                      <div style={{ fontWeight: 600, color: "#16a34a" }}>{formatMoney(gmTotal)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Billable Total</div>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{formatMoney(billableTotal)}</div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#166534" }}>
+                    This invoice is auto-generated from bills marked as &quot;Billable&quot;. Review the items below and issue when ready.
+                  </div>
+                  <div style={{ marginTop: 12 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                      <thead>
+                        <tr style={{ textAlign: "left", borderBottom: "1px solid #bbf7d0" }}>
+                          <th style={{ padding: "4px 6px" }}>Vendor</th>
+                          <th style={{ padding: "4px 6px" }}>Description</th>
+                          <th style={{ padding: "4px 6px", textAlign: "right" }}>Cost</th>
+                          <th style={{ padding: "4px 6px", textAlign: "right" }}>Markup</th>
+                          <th style={{ padding: "4px 6px", textAlign: "right" }}>Billable</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {billableBills.map((b: any) => {
+                          const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                          return (
+                            <tr key={String(b?.id ?? Math.random())} style={{ borderTop: "1px solid #bbf7d0" }}>
+                              <td style={{ padding: "4px 6px" }}>{b?.vendorName ?? "—"}</td>
+                              <td style={{ padding: "4px 6px", color: "#166534" }}>{li?.description ?? "—"}</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right" }}>{formatMoney(b?.totalAmount)}</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right" }}>{b?.markupPercent ?? 0}%</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 600 }}>{formatMoney(b?.billableAmount)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Payments */}
           <div
@@ -15566,7 +15737,7 @@ ${htmlBody}
                     </table>
                   )}
 
-                  {/* Preview total */}
+                  {/* Preview total for PETL */}
                   {previewLines.length > 0 && enabledFieldsPreview.length > 0 && (
                     <div
                       style={{
@@ -15578,10 +15749,77 @@ ${htmlBody}
                         gap: 16,
                       }}
                     >
-                      <span style={{ fontWeight: 600, fontSize: 12 }}>Total:</span>
+                      <span style={{ fontWeight: 600, fontSize: 12 }}>PETL Total:</span>
                       <span style={{ fontWeight: 700, fontSize: 12, fontVariantNumeric: "tabular-nums" }}>
                         {fmtCurrency(previewTotal)}
                       </span>
+                    </div>
+                  )}
+
+                  {/* Manual Line Items Preview */}
+                  {activeInvoiceLineItemGroups.length > 0 && (
+                    <div style={{ marginTop: 24 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, color: "#1f2937" }}>
+                        Additional Line Items
+                      </div>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                          <tr style={{ background: "#f9fafb" }}>
+                            <th style={{ padding: "8px 10px", textAlign: "left", borderBottom: "2px solid #e5e7eb", fontWeight: 600, fontSize: 11, color: "#374151" }}>Description</th>
+                            <th style={{ padding: "8px 10px", textAlign: "right", borderBottom: "2px solid #e5e7eb", fontWeight: 600, fontSize: 11, color: "#374151", width: 80 }}>Qty</th>
+                            <th style={{ padding: "8px 10px", textAlign: "right", borderBottom: "2px solid #e5e7eb", fontWeight: 600, fontSize: 11, color: "#374151", width: 100 }}>Unit Price</th>
+                            <th style={{ padding: "8px 10px", textAlign: "right", borderBottom: "2px solid #e5e7eb", fontWeight: 600, fontSize: 11, color: "#374151", width: 100 }}>Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activeInvoiceLineItemGroups.map((group) => (
+                            <React.Fragment key={group.kind}>
+                              {/* Group header */}
+                              <tr style={{ background: "#eef2ff" }}>
+                                <td
+                                  colSpan={4}
+                                  style={{
+                                    padding: "6px 10px",
+                                    fontWeight: 600,
+                                    fontSize: 11,
+                                    color: "#4338ca",
+                                    borderBottom: "1px solid #c7d2fe",
+                                  }}
+                                >
+                                  {group.label}
+                                </td>
+                              </tr>
+                              {/* Group items */}
+                              {group.items.map((li: any, idx: number) => (
+                                <tr key={li?.id ?? idx} style={{ background: idx % 2 === 1 ? "#fafafa" : "transparent" }}>
+                                  <td style={{ padding: "6px 10px", borderBottom: "1px solid #f3f4f6" }}>
+                                    {li?.description ?? ""}
+                                  </td>
+                                  <td style={{ padding: "6px 10px", textAlign: "right", borderBottom: "1px solid #f3f4f6" }}>
+                                    {li?.qty ?? ""}
+                                  </td>
+                                  <td style={{ padding: "6px 10px", textAlign: "right", borderBottom: "1px solid #f3f4f6" }}>
+                                    {li?.unitPrice ? fmtCurrency(li.unitPrice) : ""}
+                                  </td>
+                                  <td style={{ padding: "6px 10px", textAlign: "right", borderBottom: "1px solid #f3f4f6", fontVariantNumeric: "tabular-nums" }}>
+                                    {fmtCurrency(li?.amount ?? 0)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr style={{ background: "#f8fafc" }}>
+                            <td colSpan={3} style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600, borderTop: "2px solid #e5e7eb" }}>
+                              Additional Items Total:
+                            </td>
+                            <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, borderTop: "2px solid #e5e7eb", fontVariantNumeric: "tabular-nums" }}>
+                              {fmtCurrency(activeInvoiceLineItemGroups.reduce((sum, g) => sum + g.subtotal, 0))}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
                     </div>
                   )}
                 </div>
@@ -19712,6 +19950,7 @@ ${htmlBody}
             </div>
           </div>
 
+          {isPmOrAbove && (
           <form
             onSubmit={async (e) => {
               e.preventDefault();
@@ -19719,6 +19958,12 @@ ${htmlBody}
 
               const raw = operationPercent.trim();
               const isAcv = raw === "ACV";
+
+              // Require a selection before applying
+              if (!raw) {
+                setBulkMessage("Please select a percentage value first.");
+                return;
+              }
 
               if (isAcv && operation !== "set") {
                 setBulkMessage("ACV only can only be used with the 'Set to' operation.");
@@ -19732,6 +19977,13 @@ ${htmlBody}
                 setBulkMessage("ACV only can only be applied by a PM/Owner/Admin.");
                 return;
               }
+
+              // Two-step confirmation: first click shows confirm, second click applies
+              if (!bulkConfirmPending) {
+                setBulkConfirmPending(true);
+                return;
+              }
+              setBulkConfirmPending(false);
 
               let pct = 0;
               if (!isAcv) {
@@ -19917,7 +20169,10 @@ ${htmlBody}
             </span>
             <select
               value={operation}
-              onChange={e => setOperation(e.target.value as any)}
+              onChange={e => {
+                setOperation(e.target.value as any);
+                setBulkConfirmPending(false);
+              }}
               style={{
                 padding: "4px 6px",
                 borderRadius: 4,
@@ -19932,7 +20187,10 @@ ${htmlBody}
 
             <select
               value={operationPercent}
-              onChange={e => setOperationPercent(e.target.value)}
+              onChange={e => {
+                setOperationPercent(e.target.value);
+                setBulkConfirmPending(false);
+              }}
               style={{
                 padding: "4px 6px",
                 borderRadius: 4,
@@ -19940,6 +20198,7 @@ ${htmlBody}
                 fontSize: 12,
               }}
             >
+              <option value="">Select</option>
               <option value="0">0%</option>
               <option value="10">10%</option>
               <option value="20">20%</option>
@@ -19956,20 +20215,38 @@ ${htmlBody}
 
             <button
               type="submit"
-              disabled={bulkSaving || petlItems.length === 0}
+              disabled={bulkSaving || petlItems.length === 0 || !operationPercent}
               style={{
                 padding: "6px 10px",
                 borderRadius: 4,
-                border: "1px solid #0f172a",
-                backgroundColor: bulkSaving ? "#e5e7eb" : "#0f172a",
-                color: bulkSaving ? "#4b5563" : "#f9fafb",
+                border: bulkConfirmPending ? "1px solid #dc2626" : "1px solid #0f172a",
+                backgroundColor: bulkSaving || !operationPercent ? "#e5e7eb" : bulkConfirmPending ? "#dc2626" : "#0f172a",
+                color: bulkSaving || !operationPercent ? "#4b5563" : "#f9fafb",
                 fontSize: 12,
-                cursor: bulkSaving ? "default" : "pointer",
+                cursor: bulkSaving || !operationPercent ? "default" : "pointer",
               }}
             >
-              {bulkSaving ? "Applying…" : "Apply"}
+              {bulkSaving ? "Applying…" : bulkConfirmPending ? "Confirm Apply?" : "Apply"}
             </button>
+            {bulkConfirmPending && (
+              <button
+                type="button"
+                onClick={() => setBulkConfirmPending(false)}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #d1d5db",
+                  backgroundColor: "#ffffff",
+                  color: "#4b5563",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            )}
           </form>
+          )}
 
           {bulkMessage && (
             <div style={{ fontSize: 12, color: "#4b5563", marginTop: 6, width: "100%" }}>

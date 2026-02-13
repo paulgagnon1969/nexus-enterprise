@@ -8,6 +8,7 @@ import {
   Linking,
   ActivityIndicator,
   Alert,
+  Image,
 } from "react-native";
 import { fetchDailyLogDetail, delayPublishLog, publishLog, fetchRevisions } from "../api/dailyLog";
 import { getCache, setCache } from "../offline/cache";
@@ -148,6 +149,20 @@ export function DailyLogDetailScreen({
 
   const openAttachment = (url: string) => {
     void Linking.openURL(url);
+  };
+
+  // Check if attachment is an image
+  const isImageAttachment = (att: { fileName?: string; mimeType?: string }) => {
+    const fileName = att.fileName?.toLowerCase() || "";
+    const mimeType = att.mimeType?.toLowerCase() || "";
+    return (
+      mimeType.startsWith("image/") ||
+      fileName.endsWith(".jpg") ||
+      fileName.endsWith(".jpeg") ||
+      fileName.endsWith(".png") ||
+      fileName.endsWith(".gif") ||
+      fileName.endsWith(".webp")
+    );
   };
 
   const renderField = (label: string, value: string | null | undefined) => {
@@ -335,7 +350,28 @@ export function DailyLogDetailScreen({
             <Text style={styles.sectionTitle}>
               Attachments ({data.attachments.length})
             </Text>
-            {data.attachments.map((att) => (
+            
+            {/* Photo grid for images */}
+            {data.attachments.some(isImageAttachment) && (
+              <View style={styles.photoGrid}>
+                {data.attachments.filter(isImageAttachment).map((att) => (
+                  <Pressable
+                    key={att.id}
+                    style={styles.photoThumbnailWrapper}
+                    onPress={() => att.fileUrl && openAttachment(att.fileUrl)}
+                  >
+                    <Image
+                      source={{ uri: att.fileUrl || att.thumbnailUrl }}
+                      style={styles.photoThumbnail}
+                      resizeMode="cover"
+                    />
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            
+            {/* Non-image attachments */}
+            {data.attachments.filter((att) => !isImageAttachment(att)).map((att) => (
               <Pressable
                 key={att.id}
                 style={styles.attachmentRow}
@@ -432,7 +468,7 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 16,
-    paddingTop: 38,
+    paddingTop: 54,
     paddingBottom: 8,
   },
   backLink: {
@@ -634,5 +670,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textMuted,
     marginTop: 2,
+  },
+  // Photo grid styles
+  photoGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 12,
+  },
+  photoThumbnailWrapper: {
+    borderRadius: 10,
+    overflow: "hidden",
+  },
+  photoThumbnail: {
+    width: 100,
+    height: 100,
+    backgroundColor: colors.borderMuted,
   },
 });

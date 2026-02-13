@@ -1,23 +1,27 @@
 ---
-title: "Token Authentication SOP"
+title: "Token Authentication SOP (Multi-Tenant)"
 module: mobile-sync
-revision: "1.0"
-tags: [sop, mobile-sync, authentication, security, api]
+revision: "2.0"
+tags: [sop, mobile-sync, authentication, security, api, multi-tenant]
 status: draft
 created: 2026-02-12
 updated: 2026-02-12
 author: Warp
 ---
 
-# Token Authentication
+# Token Authentication (Multi-Tenant)
 
 ## Purpose
-This SOP defines the authentication mechanism for mobile device sync operations using permanent Person + Company tokens. This enables reliable offline-first sync without requiring users to re-authenticate when JWT tokens expire.
+This SOP defines the authentication mechanism for mobile device sync operations using permanent **Person Token (PT) + Company Token (CT)** signatures. This enables:
+- **Multi-tenant access**: Users can authenticate to multiple companies using the same Person Token
+- **Offline-first sync**: Reliable sync without re-authentication when JWT tokens expire
+- **Flexible revocation**: Granular control at user, company, or membership level
 
 ## Who Uses This
-- Mobile app users (field crews, project managers)
-- API developers implementing sync endpoints
-- System administrators managing device access
+- **Mobile app users**: Field crews and project managers who may work across multiple companies
+- **Multi-tenant users**: Users with memberships in multiple organizations
+- **API developers**: Implementing sync endpoints with multi-tenant support
+- **System administrators**: Managing device access and token revocation
 
 ## Workflow
 
@@ -132,10 +136,12 @@ async function authenticatedFetch(url, options) {
 ```
 
 ## Key Features
-- **Never Expires**: Combined token signature has no TTL
-- **Offline-Resilient**: Works even after extended offline periods
-- **Per-Tenant Scoped**: Company token ensures data isolation
-- **Revocable**: Admin can regenerate tokens to invalidate devices
+- **Multi-Tenant Support**: Same Person Token works across all companies user belongs to
+- **Never Expires**: Combined PT+CT signature has no TTL
+- **Offline-Resilient**: Works even after extended offline periods (31+ days)
+- **Per-Tenant Scoped**: Company Token ensures data isolation between tenants
+- **Flexible Revocation**: Revoke at user level (all companies) or company level (all users)
+- **Membership Validation**: Checks active membership at every request
 
 ## Security Considerations
 
@@ -168,7 +174,35 @@ All DeviceSync authentications should log:
 - [API Authentication](../api-contracts/authentication.md)
 - [User Management](./user-management-sop.md)
 
+## Multi-Tenant Scenarios
+
+### User Works for Multiple Companies
+**Example**: John is a foreman who works for both "ABC Construction" (General Contractor) and "XYZ Electric" (Subcontractor).
+
+1. John logs into mobile app and selects ABC Construction
+2. API returns:
+   - JWT scoped to ABC Construction
+   - PT: John's permanent user token
+   - CT: ABC Construction's company token
+3. John completes a week of work for ABC Construction
+4. Next week, John logs out and logs into XYZ Electric
+5. API returns:
+   - JWT scoped to XYZ Electric
+   - **Same PT** (John's user token)
+   - **Different CT** (XYZ Electric's company token)
+6. John can now sync work for XYZ Electric using PT + CT signature
+
+### Extended Offline Period
+**Example**: Crew goes to remote site with no internet for 35 days.
+
+1. Day 1-15: JWT expires after 15 minutes, refresh token keeps working
+2. Day 16-30: Refresh token valid, crew can still sync when briefly online
+3. Day 31+: Refresh token expired (30-day TTL)
+4. **DeviceSync Activates**: PT + CT used for authentication
+5. Sync continues to work without forcing crew to re-login
+
 ## Revision History
 | Rev | Date | Changes |
 |-----|------|--------|
 | 1.0 | 2026-02-12 | Initial release |
+| 2.0 | 2026-02-12 | Updated with multi-tenant architecture and PT+CT terminology |

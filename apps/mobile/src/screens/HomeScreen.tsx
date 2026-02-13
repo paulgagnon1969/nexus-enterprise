@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Pressable, StyleSheet, Switch } from "react-native";
+import { View, Text, Pressable, StyleSheet, Switch, Modal, ScrollView } from "react-native";
 import { logout } from "../auth/auth";
 import { countPendingOutbox } from "../offline/outbox";
 import { syncOnce } from "../offline/sync";
@@ -36,6 +36,7 @@ export function HomeScreen({
   const [companyLoading, setCompanyLoading] = useState(false);
   const [companyMessage, setCompanyMessage] = useState<string | null>(null);
   const [companySwitchingId, setCompanySwitchingId] = useState<string | null>(null);
+  const [showCompanyPicker, setShowCompanyPicker] = useState(false);
 
   const refresh = async () => {
     const [w, p] = await Promise.all([getWifiOnlySync(), countPendingOutbox()]);
@@ -163,40 +164,27 @@ export function HomeScreen({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Nexus Mobile</Text>
-
-      {/* Tenant / organization selector */}
+      {/* Tenant dropdown at top */}
       {!companyLoading && companies.length > 0 && (
-        <View style={{ marginBottom: 8 }}>
-          <Text style={styles.sectionLabel}>Organization</Text>
-          <View style={styles.companyRow}>
-            {companies.map((c) => {
-              const selected = c.id === currentCompanyId;
-              const switching = companySwitchingId === c.id;
-              return (
-                <Pressable
-                  key={c.id}
-                  style={[styles.chip, selected && styles.chipSelected]}
-                  onPress={() => handleSelectCompany(c.id)}
-                  disabled={switching}
-                >
-                  <Text style={selected ? styles.chipTextSelected : styles.chipText}>
-                    {c.name}
-                    {switching ? " (switching…)" : selected ? " (current)" : ""}
-                  </Text>
-                </Pressable>
-              );
-            })}
+        <Pressable
+          style={styles.tenantDropdown}
+          onPress={() => setShowCompanyPicker(true)}
+        >
+          <Text style={styles.tenantDropdownLabel}>Organization</Text>
+          <View style={styles.tenantDropdownValue}>
+            <Text style={styles.tenantDropdownText} numberOfLines={1}>
+              {currentCompanyName || "Select..."}
+            </Text>
+            <Text style={styles.tenantDropdownArrow}>▼</Text>
           </View>
-          {currentCompanyName ? (
-            <Text style={styles.small}>Current: {currentCompanyName}</Text>
-          ) : null}
-        </View>
+        </Pressable>
       )}
       {companyLoading && (
         <Text style={styles.small}>Loading organizations…</Text>
       )}
-      {companyMessage && <Text style={styles.small}>{companyMessage}</Text>}
+      {companyMessage && <Text style={styles.companyMessage}>{companyMessage}</Text>}
+
+      <Text style={styles.title}>Nexus Mobile</Text>
 
       <View style={styles.row}>
         <Text style={styles.label}>Wi‑Fi only sync</Text>
@@ -254,12 +242,54 @@ export function HomeScreen({
       <Pressable style={styles.logout} onPress={doLogout}>
         <Text style={styles.logoutText}>Logout</Text>
       </Pressable>
+
+      {/* Tenant picker modal */}
+      <Modal
+        visible={showCompanyPicker}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowCompanyPicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Organization</Text>
+              <Pressable onPress={() => setShowCompanyPicker(false)}>
+                <Text style={styles.modalClose}>✕</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.modalBody}>
+              {companies.map((c) => {
+                const selected = c.id === currentCompanyId;
+                const switching = companySwitchingId === c.id;
+                return (
+                  <Pressable
+                    key={c.id}
+                    style={[styles.tenantOption, selected && styles.tenantOptionSelected]}
+                    onPress={async () => {
+                      await handleSelectCompany(c.id);
+                      setShowCompanyPicker(false);
+                    }}
+                    disabled={switching}
+                  >
+                    <Text style={[styles.tenantOptionText, selected && styles.tenantOptionTextSelected]}>
+                      {c.name}
+                    </Text>
+                    {selected && <Text style={styles.tenantOptionCheck}>✓</Text>}
+                    {switching && <Text style={styles.tenantOptionSwitching}>...</Text>}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
+  container: { flex: 1, padding: 16, paddingTop: 54 },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
   sectionLabel: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 4 },
   // Sync section styles
@@ -367,4 +397,100 @@ const styles = StyleSheet.create({
   },
   chipText: { fontSize: 12, color: "#1e3a8a" },
   chipTextSelected: { fontSize: 12, color: "#f9fafb", fontWeight: "600" },
+  // Tenant dropdown styles
+  tenantDropdown: {
+    backgroundColor: "#f3f4f6",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  tenantDropdownLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#6b7280",
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  tenantDropdownValue: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  tenantDropdownText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1f2937",
+    flex: 1,
+  },
+  tenantDropdownArrow: {
+    fontSize: 12,
+    color: "#6b7280",
+    marginLeft: 8,
+  },
+  companyMessage: {
+    fontSize: 12,
+    color: "#059669",
+    marginBottom: 8,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: "60%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1f2937",
+  },
+  modalClose: {
+    fontSize: 20,
+    color: "#6b7280",
+    padding: 4,
+  },
+  modalBody: {
+    padding: 8,
+  },
+  tenantOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 16,
+    borderRadius: 10,
+    marginVertical: 4,
+  },
+  tenantOptionSelected: {
+    backgroundColor: "#eff6ff",
+  },
+  tenantOptionText: {
+    fontSize: 16,
+    color: "#1f2937",
+  },
+  tenantOptionTextSelected: {
+    fontWeight: "700",
+    color: "#1e3a8a",
+  },
+  tenantOptionCheck: {
+    fontSize: 18,
+    color: "#1e3a8a",
+    fontWeight: "700",
+  },
+  tenantOptionSwitching: {
+    fontSize: 14,
+    color: "#6b7280",
+  },
 });

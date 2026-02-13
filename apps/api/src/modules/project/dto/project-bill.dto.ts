@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsNotEmpty,
@@ -66,6 +67,14 @@ export class CreateProjectBillDto {
   @IsArray()
   @IsString({ each: true })
   attachmentProjectFileIds?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  isBillable?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  markupPercent?: number;
 }
 
 export class UpdateProjectBillLineItemDto {
@@ -119,6 +128,14 @@ export class UpdateProjectBillDto {
   @ValidateNested()
   @Type(() => UpdateProjectBillLineItemDto)
   lineItem?: UpdateProjectBillLineItemDto;
+
+  @IsOptional()
+  @IsBoolean()
+  isBillable?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  markupPercent?: number;
 }
 
 export class AttachProjectBillFileDto {

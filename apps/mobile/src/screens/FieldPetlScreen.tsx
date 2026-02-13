@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { apiJson } from "../api/client";
 import { getCache, setCache } from "../offline/cache";
 import { enqueueOutbox } from "../offline/outbox";
@@ -990,7 +991,10 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
         transparent
         onRequestClose={() => setBulkUpdate(null)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
           <View style={styles.modalContent}>
             {bulkUpdate && (
               <>
@@ -1001,7 +1005,12 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
                   </Pressable>
                 </View>
 
-                <ScrollView style={styles.modalBody}>
+                <KeyboardAwareScrollView 
+                  style={styles.modalBody}
+                  keyboardShouldPersistTaps="handled"
+                  extraScrollHeight={80}
+                  enableOnAndroid={true}
+                >
                   <View style={styles.bulkUpdateInfo}>
                     <Text style={styles.bulkUpdateInfoLabel}>Items to update:</Text>
                     <Text style={styles.bulkUpdateInfoValue}>{filteredItems.length}</Text>
@@ -1016,20 +1025,22 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
 
                   <Text style={styles.modalLabel}>New % Complete</Text>
                   <TextInput
-                    style={styles.modalInput}
+                    style={styles.modalInputSmall}
                     value={bulkUpdate.newPercent}
                     onChangeText={(t) =>
                       setBulkUpdate((prev) => prev ? { ...prev, newPercent: t } : prev)
                     }
-                    keyboardType="numeric"
+                    keyboardType="decimal-pad"
+                    returnKeyType="done"
                     placeholder="0-100"
+                    maxLength={3}
                     autoFocus
                   />
 
                   {bulkUpdate.error && (
                     <Text style={styles.modalError}>{bulkUpdate.error}</Text>
                   )}
-                </ScrollView>
+                </KeyboardAwareScrollView>
 
                 <View style={styles.modalFooter}>
                   <Pressable
@@ -1055,7 +1066,7 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
               </>
             )}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Edit Modal */}
@@ -1079,7 +1090,7 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
                   </Pressable>
                 </View>
 
-                <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
+                <KeyboardAwareScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled" extraScrollHeight={100} extraHeight={120} enableOnAndroid={true} enableAutomaticScroll={true} keyboardOpeningTime={0}>
                   {/* Item info header */}
                   <Text style={styles.modalItemLine}>
                     #{editItem.item.lineNo}
@@ -1137,7 +1148,8 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
                                 prev ? { ...prev, fieldQty: t } : prev
                               )
                             }
-                            keyboardType="numeric"
+                            keyboardType="decimal-pad"
+                            returnKeyType="done"
                             placeholder="Enter"
                             placeholderTextColor={colors.textMuted}
                           />
@@ -1168,7 +1180,8 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
                               prev ? { ...prev, newPercent: t } : prev
                             )
                           }
-                          keyboardType="numeric"
+                          keyboardType="decimal-pad"
+                          returnKeyType="done"
                           placeholder="0-100"
                           placeholderTextColor={colors.textMuted}
                         />
@@ -1193,7 +1206,7 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
                   {editItem.error && (
                     <Text style={styles.modalError}>{editItem.error}</Text>
                   )}
-                </ScrollView>
+                </KeyboardAwareScrollView>
 
                 <View style={styles.modalFooter}>
                   <Pressable
@@ -1235,7 +1248,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 38,
+    paddingTop: 54,
     paddingBottom: 8,
     backgroundColor: colors.background,
     borderBottomWidth: 1,
@@ -1670,9 +1683,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderMuted,
     borderRadius: 8,
-    padding: 12,
+    padding: 10,
     fontSize: 14,
     color: colors.textPrimary,
+  },
+  modalInputSmall: {
+    borderWidth: 1,
+    borderColor: colors.borderMuted,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    fontSize: 16,
+    fontWeight: "600",
+    color: colors.textPrimary,
+    width: 80,
+    textAlign: "center",
   },
   modalInputMultiline: {
     height: 80,
@@ -1733,12 +1758,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: colors.textPrimary,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     backgroundColor: colors.background,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.primary,
+    width: 80,
+    textAlign: "center",
   },
   // Percent Section styles
   pctSection: {
@@ -1771,12 +1798,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: colors.textPrimary,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     backgroundColor: colors.background,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.borderMuted,
+    width: 80,
+    textAlign: "center",
   },
   modalError: {
     color: colors.error,

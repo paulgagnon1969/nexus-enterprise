@@ -1,9 +1,9 @@
 import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
-import { JwtAuthGuard } from "../auth/auth.guards";
+import { CombinedAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { LocationsService } from "./locations.service";
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(CombinedAuthGuard)
 @Controller("inventory/holdings")
 export class InventoryHoldingsController {
   constructor(private readonly locations: LocationsService) {}

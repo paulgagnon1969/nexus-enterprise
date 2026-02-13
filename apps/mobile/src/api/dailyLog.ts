@@ -88,3 +88,38 @@ export async function fetchRevisions(logId: string): Promise<DailyLogRevision[]>
     `/daily-logs/${encodeURIComponent(logId)}/revisions`,
   );
 }
+
+/**
+ * Upload an attachment to a daily log.
+ */
+export async function uploadAttachment(
+  logId: string,
+  fileUri: string,
+  fileName: string,
+  mimeType: string,
+): Promise<void> {
+  const formData = new FormData();
+  formData.append("file", {
+    uri: fileUri,
+    name: fileName,
+    type: mimeType,
+  } as any);
+
+  await apiJson(`/daily-logs/${encodeURIComponent(logId)}/attachments`, {
+    method: "POST",
+    body: formData,
+  });
+}
+
+/**
+ * Delete an attachment from a daily log.
+ */
+export async function deleteAttachment(
+  logId: string,
+  attachmentId: string,
+): Promise<void> {
+  await apiFetch(
+    `/daily-logs/${encodeURIComponent(logId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    { method: "DELETE" },
+  );
+}

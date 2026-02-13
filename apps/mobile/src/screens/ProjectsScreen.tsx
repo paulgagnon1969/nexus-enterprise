@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
 import { apiJson } from "../api/client";
-import { getCache, setCache } from "../offline/cache";
+import { getCache, setCache, deleteCache } from "../offline/cache";
 import type { ProjectListItem } from "../types/api";
 
 export function ProjectsScreen({
   onBack,
   onOpenProject,
+  refreshKey,
 }: {
   onBack?: () => void;
   onOpenProject: (project: ProjectListItem) => void;
+  refreshKey?: number;
 }) {
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [status, setStatus] = useState<string | null>(null);
@@ -34,6 +36,17 @@ export function ProjectsScreen({
   useEffect(() => {
     void loadCached().then(refreshOnline);
   }, []);
+
+  // Refresh when tenant changes (refreshKey updates)
+  useEffect(() => {
+    if (refreshKey !== undefined && refreshKey > 0) {
+      // Clear cached projects and fetch fresh for new tenant
+      void deleteCache("projects.list").then(() => {
+        setProjects([]);
+        refreshOnline();
+      });
+    }
+  }, [refreshKey]);
 
   return (
     <View style={styles.container}>
@@ -67,7 +80,7 @@ export function ProjectsScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 38 },
+  container: { flex: 1, padding: 16, paddingTop: 54 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",

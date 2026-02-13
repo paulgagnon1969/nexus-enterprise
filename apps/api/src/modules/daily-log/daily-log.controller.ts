@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { DailyLogService } from "./daily-log.service";
-import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
+import { CombinedAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateDailyLogDto } from "./dto/create-daily-log.dto";
 import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
@@ -13,7 +13,7 @@ import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
 export class DailyLogFeedController {
   constructor(private readonly dailyLogs: DailyLogService) {}
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get()
   listAll(
     @Req() req: any,
@@ -30,14 +30,14 @@ export class DailyLogFeedController {
     return this.dailyLogs.listForUser(user.companyId, user, filters);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get(":logId")
   getOne(@Req() req: any, @Param("logId") logId: string) {
     const user = req.user as AuthenticatedUser;
     return this.dailyLogs.getById(logId, user.companyId, user);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Patch(":logId")
   update(
     @Req() req: any,
@@ -48,21 +48,21 @@ export class DailyLogFeedController {
     return this.dailyLogs.updateLog(logId, user.companyId, user, dto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Post(":logId/delay-publish")
   delayPublish(@Req() req: any, @Param("logId") logId: string) {
     const user = req.user as AuthenticatedUser;
     return this.dailyLogs.delayPublishLog(logId, user.companyId, user);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Post(":logId/publish")
   publish(@Req() req: any, @Param("logId") logId: string) {
     const user = req.user as AuthenticatedUser;
     return this.dailyLogs.publishLog(logId, user.companyId, user);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get(":logId/revisions")
   getRevisions(@Req() req: any, @Param("logId") logId: string) {
     const user = req.user as AuthenticatedUser;
@@ -74,14 +74,14 @@ export class DailyLogFeedController {
 export class DailyLogController {
   constructor(private readonly dailyLogs: DailyLogService) {}
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get()
   list(@Req() req: any, @Param("projectId") projectId: string) {
     const user = req.user as AuthenticatedUser;
     return this.dailyLogs.listForProject(projectId, user.companyId, user);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
   @Post()
   create(
@@ -93,7 +93,7 @@ export class DailyLogController {
     return this.dailyLogs.createForProject(projectId, user.companyId, user, dto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN)
   @Post(":logId/approve")
   approve(
@@ -104,7 +104,7 @@ export class DailyLogController {
     return this.dailyLogs.approveLog(logId, user.companyId, user);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN)
   @Post(":logId/reject")
   reject(

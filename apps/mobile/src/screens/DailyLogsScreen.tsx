@@ -4,12 +4,12 @@ import {
   Text,
   Pressable,
   StyleSheet,
-  ScrollView,
   TextInput,
   KeyboardAvoidingView,
   Platform,
   Alert,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import * as ImagePicker from "expo-image-picker";
 import { apiJson } from "../api/client";
 import { getCache, setCache } from "../offline/cache";
@@ -23,6 +23,36 @@ import type { PetlSessionChanges } from "./FieldPetlScreen";
 
 function makeLocalId() {
   return `local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Simple text summarizer - extracts first sentence or key phrase for title
+function summarizeToTitle(text: string, maxLength = 60): string {
+  if (!text || !text.trim()) return "";
+  
+  // Clean up the text
+  let cleaned = text.trim();
+  
+  // Try to get first sentence
+  const sentenceMatch = cleaned.match(/^[^.!?\n]+[.!?]?/);
+  if (sentenceMatch) {
+    cleaned = sentenceMatch[0].trim();
+  }
+  
+  // Remove common filler words at start
+  cleaned = cleaned.replace(/^(today |we |i |the team |crew |worked on |completed |finished |started )/i, "");
+  
+  // Capitalize first letter
+  cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  
+  // Truncate if too long
+  if (cleaned.length > maxLength) {
+    cleaned = cleaned.substring(0, maxLength - 3).trim() + "...";
+  }
+  
+  // Remove trailing period if present (will be added back if needed)
+  cleaned = cleaned.replace(/\.$/, "");
+  
+  return cleaned;
 }
 
 export function DailyLogsScreen({
@@ -282,12 +312,16 @@ export function DailyLogsScreen({
         <Text style={styles.breadcrumbProject}>{project.name}</Text>
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={true}
-        nestedScrollEnabled={true}
+        extraScrollHeight={100}
+        extraHeight={120}
+        enableOnAndroid={true}
+        enableAutomaticScroll={true}
+        keyboardOpeningTime={0}
       >
         {status ? <Text style={styles.status}>{status}</Text> : null}
 
@@ -358,7 +392,17 @@ export function DailyLogsScreen({
 
         {/* 5. SUMMARY TITLE - Mandatory */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Summary Title <Text style={styles.required}>*</Text></Text>
+          <View style={styles.titleLabelRow}>
+            <Text style={styles.sectionLabel}>Summary Title <Text style={styles.required}>*</Text></Text>
+            {workPerformed.trim().length > 10 && !title.trim() && (
+              <Pressable
+                style={styles.autoTitleButton}
+                onPress={() => setTitle(summarizeToTitle(workPerformed))}
+              >
+                <Text style={styles.autoTitleButtonText}>✨ Auto-generate</Text>
+              </Pressable>
+            )}
+          </View>
           <TextInput
             style={styles.titleInput}
             value={title}
@@ -401,7 +445,7 @@ export function DailyLogsScreen({
               onChangeText={setManpowerOnsite}
               placeholder="Manpower count"
               placeholderTextColor={colors.textMuted}
-              keyboardType="numeric"
+              keyboardType="number-pad"
             />
             <TextInput
               style={styles.detailInput}
@@ -462,7 +506,7 @@ export function DailyLogsScreen({
 
         {/* Bottom padding for scroll */}
         <View style={{ height: 40 }} />
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -477,7 +521,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 38,
+    paddingTop: 54,
     paddingBottom: 12,
     backgroundColor: colors.background,
     borderBottomWidth: 1,
@@ -596,7 +640,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: colors.textSecondary,
-    marginBottom: 6,
   },
   required: {
     color: colors.error,
@@ -615,6 +658,23 @@ const styles = StyleSheet.create({
   },
 
   // Title input
+  titleLabelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  autoTitleButton: {
+    backgroundColor: colors.primaryLight ?? "#e0e7ff",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  autoTitleButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.primary,
+  },
   titleInput: {
     backgroundColor: colors.background,
     borderRadius: 10,

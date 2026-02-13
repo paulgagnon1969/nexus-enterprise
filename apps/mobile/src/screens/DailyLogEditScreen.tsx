@@ -9,12 +9,16 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Image,
+  Linking,
 } from "react-native";
-import { updateDailyLog } from "../api/dailyLog";
+import * as ImagePicker from "expo-image-picker";
+import { updateDailyLog, uploadAttachment, deleteAttachment } from "../api/dailyLog";
 import { enqueueOutbox } from "../offline/outbox";
 import { triggerSync } from "../offline/autoSync";
+import { copyToAppStorage, type StoredFile } from "../storage/files";
 import { colors } from "../theme/colors";
-import type { DailyLogDetail, DailyLogUpdateRequest } from "../types/api";
+import type { DailyLogDetail, DailyLogUpdateRequest, DailyLogAttachment } from "../types/api";
 
 interface Props {
   log: DailyLogDetail;
@@ -35,6 +39,11 @@ export function DailyLogEditScreen({ log, onBack, onSaved }: Props) {
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Attachment management
+  const [existingAttachments, setExistingAttachments] = useState<DailyLogAttachment[]>(log.attachments || []);
+  const [newAttachments, setNewAttachments] = useState<StoredFile[]>([]);
+  const [deletedAttachmentIds, setDeletedAttachmentIds] = useState<string[]>([]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -60,6 +69,30 @@ export function DailyLogEditScreen({ log, onBack, onSaved }: Props) {
     }
 
     try {
+      // Delete removed attachments
+      for (const attId of deletedAttachmentIds) {
+        try {
+          await deleteAttachment(log.id, attId);
+        } catch {
+          // Continue even if delete fails
+        }
+      }
+
+      // Upload new attachments
+      for (const att of newAttachments) {
+        try {
+          await uploadAttachment(log.id, att.uri, att.name, att.mimeType);
+        } catch {
+          // Queue for offline sync if upload fails
+          await enqueueOutbox("dailyLog.uploadAttachment", {
+            logId: log.id,
+            fileUri: att.uri,
+            fileName: att.name,
+            mimeType: att.mimeType,
+          });
+        }
+      }
+
       const updated = await updateDailyLog(log.id, updates);
       onSaved(updated);
     } catch (e) {
@@ -96,6 +129,96 @@ export function DailyLogEditScreen({ log, onBack, onSaved }: Props) {
       month: "long",
       day: "numeric",
     });
+  };
+
+  // Check if attachment is an image
+  const isImageAttachment = (att: { fileName?: string; mimeType?: string }) => {
+    const fileName = att.fileName?.toLowerCase() || "";
+    const mimeType = att.mimeType?.toLowerCase() || "";
+    return (
+      mimeType.startsWith("image/") ||
+      fileName.endsWith(".jpg") ||
+      fileName.endsWith(".jpeg") ||
+      fileName.endsWith(".png") ||
+      fileName.endsWith(".gif") ||
+      fileName.endsWith(".webp")
+    );
+  };
+
+  const openAttachment = (url: string) => {
+    void Linking.openURL(url);
+  };
+
+  const takePhoto = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission Denied", "Camera permission is required to take photos.");
+      return;
+    }
+
+    const res = await ImagePicker.launchCameraAsync({
+      mediaTypes: ["images"],
+      quality: 0.8,
+    });
+    if (res.canceled) return;
+
+    const a = res.assets?.[0];
+    if (!a?.uri) return;
+
+    const stored = await copyToAppStorage({
+      uri: a.uri,
+      name: (a as any).fileName ?? null,
+      mimeType: (a as any).mimeType ?? "image/jpeg",
+    });
+
+    setNewAttachments((prev) => [...prev, stored]);
+  };
+
+  const pickPhotoFromLibrary = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission Denied", "Photo library access is required.");
+      return;
+    }
+
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.8,
+    });
+    if (res.canceled) return;
+
+    const a = res.assets?.[0];
+    if (!a?.uri) return;
+
+    const stored = await copyToAppStorage({
+      uri: a.uri,
+      name: (a as any).fileName ?? null,
+      mimeType: (a as any).mimeType ?? "image/jpeg",
+    });
+
+    setNewAttachments((prev) => [...prev, stored]);
+  };
+
+  const removeExistingAttachment = (attId: string) => {
+    Alert.alert(
+      "Remove Attachment",
+      "This attachment will be deleted when you save. Continue?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => {
+            setDeletedAttachmentIds((prev) => [...prev, attId]);
+            setExistingAttachments((prev) => prev.filter((a) => a.id !== attId));
+          },
+        },
+      ]
+    );
+  };
+
+  const removeNewAttachment = (uri: string) => {
+    setNewAttachments((prev) => prev.filter((a) => a.uri !== uri));
   };
 
   return (
@@ -221,6 +344,81 @@ export function DailyLogEditScreen({ log, onBack, onSaved }: Props) {
           />
         </View>
 
+        {/* Attachments Section */}
+        <View style={styles.attachmentsSection}>
+          <View style={styles.attachmentsHeader}>
+            <Text style={styles.attachmentsTitle}>
+              Attachments ({existingAttachments.length + newAttachments.length})
+            </Text>
+            <View style={styles.attachmentButtons}>
+              <Pressable style={styles.attachButton} onPress={takePhoto} disabled={saving}>
+                <Text style={styles.attachButtonText}>📷</Text>
+              </Pressable>
+              <Pressable style={styles.attachButton} onPress={pickPhotoFromLibrary} disabled={saving}>
+                <Text style={styles.attachButtonText}>🖼</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          {/* Existing attachments */}
+          {existingAttachments.length > 0 && (
+            <View style={styles.photoGrid}>
+              {existingAttachments.map((att) => (
+                <View key={att.id} style={styles.photoWrapper}>
+                  {isImageAttachment(att) ? (
+                    <Pressable onPress={() => att.fileUrl && openAttachment(att.fileUrl)}>
+                      <Image
+                        source={{ uri: att.fileUrl || att.thumbnailUrl }}
+                        style={styles.photoThumbnail}
+                        resizeMode="cover"
+                      />
+                    </Pressable>
+                  ) : (
+                    <View style={styles.fileAttachment}>
+                      <Text style={styles.fileIcon}>📎</Text>
+                      <Text style={styles.fileName} numberOfLines={1}>{att.fileName}</Text>
+                    </View>
+                  )}
+                  <Pressable
+                    style={styles.removeButton}
+                    onPress={() => removeExistingAttachment(att.id)}
+                  >
+                    <Text style={styles.removeButtonText}>✕</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* New attachments (pending upload) */}
+          {newAttachments.length > 0 && (
+            <View style={styles.photoGrid}>
+              {newAttachments.map((att) => (
+                <View key={att.uri} style={styles.photoWrapper}>
+                  <Image
+                    source={{ uri: att.uri }}
+                    style={[styles.photoThumbnail, styles.pendingPhoto]}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.pendingBadge}>
+                    <Text style={styles.pendingBadgeText}>New</Text>
+                  </View>
+                  <Pressable
+                    style={styles.removeButton}
+                    onPress={() => removeNewAttachment(att.uri)}
+                  >
+                    <Text style={styles.removeButtonText}>✕</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {existingAttachments.length === 0 && newAttachments.length === 0 && (
+            <Text style={styles.noAttachments}>No attachments yet. Tap 📷 or 🖼 to add photos.</Text>
+          )}
+        </View>
+
         <View style={{ height: 40 }} />
       </ScrollView>
     </KeyboardAvoidingView>
@@ -237,7 +435,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 38,
+    paddingTop: 54,
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.cardBorder,
@@ -319,5 +517,115 @@ const styles = StyleSheet.create({
   multilineInput: {
     minHeight: 80,
     textAlignVertical: "top",
+  },
+  // Attachments section
+  attachmentsSection: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  attachmentsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  attachmentsTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  attachmentButtons: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  attachButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: colors.backgroundSecondary,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.borderMuted,
+  },
+  attachButtonText: {
+    fontSize: 18,
+  },
+  photoGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  photoWrapper: {
+    position: "relative",
+  },
+  photoThumbnail: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    backgroundColor: colors.borderMuted,
+  },
+  pendingPhoto: {
+    opacity: 0.8,
+  },
+  pendingBadge: {
+    position: "absolute",
+    bottom: 4,
+    left: 4,
+    backgroundColor: colors.success,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  pendingBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: colors.textOnPrimary,
+  },
+  removeButton: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.error,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  removeButtonText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  fileAttachment: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    backgroundColor: colors.backgroundSecondary,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.borderMuted,
+  },
+  fileIcon: {
+    fontSize: 24,
+    marginBottom: 4,
+  },
+  fileName: {
+    fontSize: 9,
+    color: colors.textMuted,
+    textAlign: "center",
+    paddingHorizontal: 4,
+  },
+  noAttachments: {
+    fontSize: 13,
+    color: colors.textMuted,
+    textAlign: "center",
+    paddingVertical: 20,
   },
 });

@@ -128,6 +128,7 @@ function ProjectsListWrapper() {
   return (
     <ProjectsScreen
       onOpenProject={(project) => navigation.navigate("DailyLogs", { project, companyName: company.name ?? undefined })}
+      refreshKey={company.refreshKey}
     />
   );
 }
@@ -194,9 +195,10 @@ function OutboxTabScreen() {
 
 // Context for logout callback and company info
 const LogoutContext = React.createContext<() => void>(() => {});
-const CompanyContext = React.createContext<{ name: string | null; id: string | null }>({
+const CompanyContext = React.createContext<{ name: string | null; id: string | null; refreshKey: number }>({
   name: null,
   id: null,
+  refreshKey: 0,
 });
 
 // Hook to get current company from context
@@ -226,15 +228,16 @@ function HomeTabScreen() {
 }
 
 export function AppNavigator({ onLogout }: { onLogout: () => void }) {
-  const [company, setCompany] = React.useState<{ id: string | null; name: string | null }>({
+  const [company, setCompany] = React.useState<{ id: string | null; name: string | null; refreshKey: number }>({
     id: null,
     name: null,
+    refreshKey: 0,
   });
   
   return (
     <LogoutContext.Provider value={onLogout}>
     <CompanyContext.Provider value={company}>
-    <SetCompanyContext.Provider value={(c) => setCompany({ id: c.id, name: c.name })}>
+    <SetCompanyContext.Provider value={(c) => setCompany((prev) => ({ id: c.id, name: c.name, refreshKey: prev.refreshKey + 1 }))}>
       <Tab.Navigator
         screenOptions={({ route }) => ({
           headerShown: false,
