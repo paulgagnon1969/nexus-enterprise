@@ -46,7 +46,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     path.startsWith("/apply/") ||
     path.startsWith("/onboarding/") ||
     path === "/reset-password" ||
-    path.startsWith("/reset-password/");
+    path.startsWith("/reset-password/") ||
+    path === "/support";
   const isReferralRoute = path === "/referrals" || path.startsWith("/referrals/");
 
   // On first load in this browser tab, clear any stale tokens and send the
