@@ -1304,6 +1304,13 @@ enum ProjectInvoiceStatus {
   VOID
 }
 
+/// Category of invoice: PETL for progress billing, EXPENSE for billable expenses, HOURS for billable hours.
+enum ProjectInvoiceCategory {
+  PETL
+  EXPENSE
+  HOURS
+}
+
 enum ProjectInvoiceLineItemKind {
   MANUAL
   BILLABLE_HOURS
@@ -1360,7 +1367,8 @@ model ProjectInvoice {
   companyId String
   projectId String
 
-  status ProjectInvoiceStatus @default(DRAFT)
+  status   ProjectInvoiceStatus   @default(DRAFT)
+  category ProjectInvoiceCategory @default(PETL)
 
   /// Assigned when the invoice is issued. Uniqueness is enforced by (companyId, invoiceSequenceNo).
   invoiceSequenceNo Int?
@@ -1410,6 +1418,9 @@ model ProjectInvoiceLineItem {
   // remain stable if the cost book changes later.)
   companyPriceListItemId String?
 
+  // Optional pointer to the source bill (for EXPENSE invoice lines).
+  sourceBillId String?
+
   description String
   qty         Float?
   unitPrice   Float?
@@ -1421,11 +1432,13 @@ model ProjectInvoiceLineItem {
 
   invoice              ProjectInvoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   companyPriceListItem CompanyPriceListItem? @relation("InvoiceLineItemCostBookItem", fields: [companyPriceListItemId], references: [id], onDelete: SetNull)
+  sourceBill           ProjectBill?          @relation("InvoiceLineItemSourceBill", fields: [sourceBillId], references: [id], onDelete: SetNull)
 
   @@index([invoiceId, sortOrder], map: "ProjectInvoiceLineItem_invoice_sort_idx")
   @@index([invoiceId, kind], map: "ProjectInvoiceLineItem_invoice_kind_idx")
   @@index([invoiceId, billingTag], map: "ProjectInvoiceLineItem_invoice_billing_tag_idx")
   @@index([companyPriceListItemId], map: "ProjectInvoiceLineItem_company_price_item_idx")
+  @@index([sourceBillId], map: "ProjectInvoiceLineItem_source_bill_idx")
 }
 
 enum ProjectInvoicePetlLineKind {
@@ -1624,6 +1637,11 @@ model ProjectBill {
 
   totalAmount Float
 
+  // Billable expense fields: when isBillable=true, an invoice line is auto-created
+  isBillable     Boolean @default(false)
+  markupPercent  Float   @default(0)
+  billableAmount Float   @default(0)
+
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -1632,8 +1650,9 @@ model ProjectBill {
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdBy User?   @relation("ProjectBillCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
-  lineItems   ProjectBillLineItem[]
-  attachments ProjectBillAttachment[]
+  lineItems    ProjectBillLineItem[]
+  attachments  ProjectBillAttachment[]
+  invoiceLines ProjectInvoiceLineItem[] @relation("InvoiceLineItemSourceBill")
 
   @@index([companyId, projectId, billDate], map: "ProjectBill_company_project_date_idx")
   @@index([projectId, billDate], map: "ProjectBill_project_date_idx")

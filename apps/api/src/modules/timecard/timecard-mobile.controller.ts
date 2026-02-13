@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Body, UseGuards, Req, NotFoundException } from "@nestjs/common";
-import { JwtAuthGuard } from "../auth/auth.guards";
+import { CombinedAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 
@@ -82,7 +82,7 @@ export class TimecardMobileController {
   /**
    * Get current clock-in status for the authenticated user
    */
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get("status")
   async getStatus(@Req() req: any): Promise<ClockStatus> {
     const user = req.user as AuthenticatedUser;
@@ -156,7 +156,7 @@ export class TimecardMobileController {
   /**
    * Clock in to a project
    */
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Post("clock-in")
   async clockIn(@Req() req: any, @Body() body: ClockInDto): Promise<ClockStatus> {
     const user = req.user as AuthenticatedUser;
@@ -231,7 +231,7 @@ export class TimecardMobileController {
   /**
    * Clock out from current shift
    */
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Post("clock-out")
   async clockOut(@Req() req: any, @Body() body: ClockOutDto): Promise<ClockStatus> {
     const user = req.user as AuthenticatedUser;
@@ -293,7 +293,7 @@ export class TimecardMobileController {
   /**
    * Get recent time entries for the user (last 14 days)
    */
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get("recent")
   async getRecent(@Req() req: any): Promise<RecentEntry[]> {
     const user = req.user as AuthenticatedUser;

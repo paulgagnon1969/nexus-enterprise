@@ -15,7 +15,7 @@ import {
 import type { FastifyRequest } from "fastify";
 import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
 import { ProjectService } from "./project.service";
-import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
+import { JwtAuthGuard, CombinedAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateProjectDto, AddProjectMemberDto, ImportXactDto, ImportXactComponentsDto, UpdateProjectDto } from "./dto/project.dto";
 import {
@@ -65,7 +65,7 @@ export class ProjectController {
     private readonly taxJurisdictions: TaxJurisdictionService,
   ) {}
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get()
   list(
     @Req() req: any,
@@ -91,7 +91,7 @@ export class ProjectController {
     );
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
   @Post()
   create(@Req() req: any, @Body() dto: CreateProjectDto) {
@@ -99,7 +99,7 @@ export class ProjectController {
     return this.projects.createProject(dto, user);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get(":id")
   getOne(@Req() req: any, @Param("id") projectId: string) {
     const user = req.user as AuthenticatedUser;
@@ -1556,7 +1556,7 @@ export class ProjectController {
     });
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Post(":id/petl/percentage-edits")
   applyPetlPercentageEdits(
     @Req() req: any,
@@ -1584,7 +1584,7 @@ export class ProjectController {
   }
 
   // Accept quantity flags from Field PETL (PUDL) UI.
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Post(":id/petl-field/qty-flags")
   applyFieldPetlQuantityFlags(
     @Req() req: any,

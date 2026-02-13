@@ -7,6 +7,7 @@ import {
   FlatList,
   RefreshControl,
   ScrollView,
+  Image,
 } from "react-native";
 import { fetchDailyLogFeed, fetchUserProjects } from "../api/dailyLog";
 import { getCache, setCache } from "../offline/cache";
@@ -109,12 +110,30 @@ export function DailyLogFeedScreen({ onSelectLog, onCreateLog }: Props) {
     });
   };
 
+  // Check if attachment is an image
+  const isImageAttachment = (att: { fileName?: string; mimeType?: string }) => {
+    const fileName = att.fileName?.toLowerCase() || "";
+    const mimeType = att.mimeType?.toLowerCase() || "";
+    return (
+      mimeType.startsWith("image/") ||
+      fileName.endsWith(".jpg") ||
+      fileName.endsWith(".jpeg") ||
+      fileName.endsWith(".png") ||
+      fileName.endsWith(".gif") ||
+      fileName.endsWith(".webp")
+    );
+  };
+
   const renderLogItem = ({ item }: { item: DailyLogListItem }) => {
     const createdByName = item.createdByUser
       ? [item.createdByUser.firstName, item.createdByUser.lastName]
           .filter(Boolean)
           .join(" ") || item.createdByUser.email
       : "Unknown";
+
+    // Get image attachments for thumbnails
+    const imageAttachments = item.attachments?.filter(isImageAttachment) || [];
+    const hasImages = imageAttachments.length > 0;
 
     return (
       <Pressable style={styles.card} onPress={() => onSelectLog(item)}>
@@ -130,6 +149,31 @@ export function DailyLogFeedScreen({ onSelectLog, onCreateLog }: Props) {
             {item.workPerformed}
           </Text>
         ) : null}
+        
+        {/* Photo thumbnails */}
+        {hasImages && (
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            style={styles.thumbnailRow}
+            contentContainerStyle={styles.thumbnailRowContent}
+          >
+            {imageAttachments.slice(0, 4).map((att, idx) => (
+              <Image
+                key={att.id || idx}
+                source={{ uri: att.fileUrl || att.thumbnailUrl }}
+                style={styles.thumbnail}
+                resizeMode="cover"
+              />
+            ))}
+            {imageAttachments.length > 4 && (
+              <View style={styles.thumbnailMore}>
+                <Text style={styles.thumbnailMoreText}>+{imageAttachments.length - 4}</Text>
+              </View>
+            )}
+          </ScrollView>
+        )}
+        
         <View style={styles.cardFooter}>
           <Text style={styles.cardMeta}>By {createdByName}</Text>
           {item.attachments && item.attachments.length > 0 && (
@@ -235,7 +279,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 38,
+    paddingTop: 54,
     paddingBottom: 8,
   },
   title: {
@@ -364,5 +408,32 @@ const styles = StyleSheet.create({
   emptyText: {
     color: colors.textMuted,
     fontSize: 14,
+  },
+  // Thumbnail styles
+  thumbnailRow: {
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  thumbnailRowContent: {
+    gap: 8,
+  },
+  thumbnail: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    backgroundColor: colors.borderMuted,
+  },
+  thumbnailMore: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    backgroundColor: colors.backgroundTertiary,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  thumbnailMoreText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.textMuted,
   },
 });

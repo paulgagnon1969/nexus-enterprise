@@ -113,11 +113,16 @@ export interface DailyLogListItem {
     firstName?: string | null;
     lastName?: string | null;
   } | null;
-  attachments?: Array<{
-    id: string;
-    fileName: string | null;
-    fileUrl: string | null;
-  }>;
+  attachments?: DailyLogAttachment[];
+}
+
+// Daily log attachment
+export interface DailyLogAttachment {
+  id: string;
+  fileName: string | null;
+  fileUrl: string | null;
+  thumbnailUrl?: string | null;
+  mimeType?: string | null;
 }
 
 // Daily log full detail

@@ -4,7 +4,6 @@ import {
   Text,
   Pressable,
   StyleSheet,
-  ScrollView,
   TextInput,
   KeyboardAvoidingView,
   Platform,
@@ -12,6 +11,7 @@ import {
   Image,
   Alert,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import * as ImagePicker from "expo-image-picker";
 import { apiJson } from "../api/client";
 import { fetchUserProjects } from "../api/dailyLog";
@@ -288,10 +288,15 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
         </Pressable>
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
+        extraScrollHeight={100}
+        extraHeight={120}
+        enableOnAndroid={true}
+        enableAutomaticScroll={true}
+        keyboardOpeningTime={0}
       >
         {status && (
           <View style={styles.statusBox}>
@@ -402,7 +407,7 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
           value={manpowerOnsite}
           onChangeText={setManpowerOnsite}
           placeholder="Number of workers"
-          keyboardType="numeric"
+          keyboardType="number-pad"
         />
 
         {/* Person Onsite */}
@@ -455,7 +460,7 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
 
         {/* Bottom padding */}
         <View style={{ height: 40 }} />
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -470,7 +475,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 38,
+    paddingTop: 54,
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderMuted,

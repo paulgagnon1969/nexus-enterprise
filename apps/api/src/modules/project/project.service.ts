@@ -21,6 +21,7 @@ import {
   ProjectBillLineItemAmountSource,
   ProjectBillLineItemKind,
   ProjectBillStatus,
+  ProjectInvoiceCategory,
   ProjectInvoiceLineItemKind,
   ProjectInvoicePetlLineBillingTag,
   ProjectInvoiceStatus,
@@ -8823,6 +8824,11 @@ export class ProjectService {
         );
       }
 
+      // Billable expense calculation
+      const isBillable = dto.isBillable ?? false;
+      const markupPercent = isBillable ? (dto.markupPercent ?? 25) : 0;
+      const billableAmount = isBillable ? amount * (1 + markupPercent / 100) : 0;
+
       const bill = await this.prisma.projectBill.create({
         data: {
           companyId: project.companyId,
@@ -8834,6 +8840,9 @@ export class ProjectService {
           status: dto.status ?? ProjectBillStatus.DRAFT,
           memo: dto.memo ?? null,
           totalAmount: amount,
+          isBillable,
+          markupPercent,
+          billableAmount,
           createdByUserId: actor.userId,
           lineItems: {
             create: {
@@ -8874,8 +8883,15 @@ export class ProjectService {
           vendorName: bill.vendorName,
           billDate: bill.billDate,
           totalAmount: bill.totalAmount,
+          isBillable: bill.isBillable,
+          billableAmount: bill.billableAmount,
         },
       });
+
+      // If billable, auto-create invoice line on the EXPENSE draft invoice
+      if (bill.isBillable && this.billingModelsAvailable()) {
+        await this.syncBillableExpenseInvoiceLine(project.id, project.companyId, bill, actor);
+      }
 
       return bill;
     } catch (err: any) {
@@ -8984,6 +9000,14 @@ export class ProjectService {
         throw new BadRequestException("lineItem.amount is invalid");
       }
 
+      // Billable expense handling
+      const wasBillable = (existing as any).isBillable ?? false;
+      const nextIsBillable = dto.isBillable === undefined ? wasBillable : dto.isBillable;
+      const nextMarkupPercent = nextIsBillable
+        ? (dto.markupPercent === undefined ? ((existing as any).markupPercent ?? 25) : dto.markupPercent)
+        : 0;
+      const nextBillableAmount = nextIsBillable ? nextAmount * (1 + nextMarkupPercent / 100) : 0;
+
       const updated = await this.prisma.$transaction(async (tx) => {
         await tx.projectBill.update({
           where: { id: existing.id },
@@ -8994,6 +9018,9 @@ export class ProjectService {
             dueAt: nextDueAt,
             status: dto.status ?? existing.status,
             memo: dto.memo === undefined ? existing.memo : dto.memo ?? null,
+            isBillable: nextIsBillable,
+            markupPercent: nextMarkupPercent,
+            billableAmount: nextBillableAmount,
           },
         });
 
@@ -9028,8 +9055,20 @@ export class ProjectService {
           vendorName: updated.vendorName,
           billDate: updated.billDate,
           totalAmount: updated.totalAmount,
+          isBillable: (updated as any).isBillable,
+          billableAmount: (updated as any).billableAmount,
         },
       });
+
+      // Sync billable expense invoice line
+      if (this.billingModelsAvailable()) {
+        if ((updated as any).isBillable) {
+          await this.syncBillableExpenseInvoiceLine(project.id, project.companyId, updated as any, actor);
+        } else if (wasBillable && !nextIsBillable) {
+          // Bill was billable, now it's not - remove the invoice line
+          await this.removeBillableExpenseInvoiceLine(project.id, project.companyId, updated.id);
+        }
+      }
 
       return updated;
     } catch (err: any) {
@@ -9119,6 +9158,154 @@ export class ProjectService {
         this.throwBillTablesNotMigrated();
       }
       throw err;
+    }
+  }
+
+  /**
+   * Get or create a draft invoice for a specific category (EXPENSE or HOURS).
+   * Used for billable expenses and billable hours invoices.
+   */
+  private async getOrCreateCategoryDraftInvoice(
+    projectId: string,
+    companyId: string,
+    category: ProjectInvoiceCategory,
+    actor: AuthenticatedUser,
+  ) {
+    const existingDraft = await this.prisma.projectInvoice.findFirst({
+      where: {
+        projectId,
+        companyId,
+        category,
+        status: ProjectInvoiceStatus.DRAFT,
+      },
+      orderBy: [{ createdAt: "desc" }],
+    });
+
+    if (existingDraft) {
+      return existingDraft;
+    }
+
+    const categoryLabel = category === ProjectInvoiceCategory.EXPENSE
+      ? "Billable Expenses"
+      : category === ProjectInvoiceCategory.HOURS
+        ? "Billable Hours"
+        : "Invoice";
+
+    return this.prisma.projectInvoice.create({
+      data: {
+        companyId,
+        projectId,
+        category,
+        status: ProjectInvoiceStatus.DRAFT,
+        memo: categoryLabel,
+        createdByUserId: actor.userId,
+      },
+    });
+  }
+
+  /**
+   * Sync a billable expense from a bill to an invoice line item.
+   * Creates or updates a line item on the EXPENSE draft invoice.
+   */
+  private async syncBillableExpenseInvoiceLine(
+    projectId: string,
+    companyId: string,
+    bill: { id: string; vendorName: string; billNumber?: string | null; billableAmount: number; markupPercent: number; totalAmount: number },
+    actor: AuthenticatedUser,
+  ) {
+    try {
+      const invoice = await this.getOrCreateCategoryDraftInvoice(
+        projectId,
+        companyId,
+        ProjectInvoiceCategory.EXPENSE,
+        actor,
+      );
+
+      // Check if there's already an invoice line for this bill
+      const existingLine = await this.prisma.projectInvoiceLineItem.findFirst({
+        where: {
+          invoiceId: invoice.id,
+          sourceBillId: bill.id,
+        },
+      });
+
+      const description = bill.billNumber
+        ? `${bill.vendorName} (#${bill.billNumber}) + ${bill.markupPercent}% markup`
+        : `${bill.vendorName} + ${bill.markupPercent}% markup`;
+
+      if (existingLine) {
+        // Update existing line
+        await this.prisma.projectInvoiceLineItem.update({
+          where: { id: existingLine.id },
+          data: {
+            description,
+            amount: bill.billableAmount,
+            unitPrice: bill.totalAmount,
+            qty: 1,
+          },
+        });
+      } else {
+        // Create new line
+        await this.prisma.projectInvoiceLineItem.create({
+          data: {
+            invoiceId: invoice.id,
+            kind: ProjectInvoiceLineItemKind.MANUAL,
+            billingTag: ProjectInvoicePetlLineBillingTag.NONE,
+            sourceBillId: bill.id,
+            description,
+            qty: 1,
+            unitPrice: bill.totalAmount,
+            amount: bill.billableAmount,
+          },
+        });
+      }
+
+      // Recompute invoice total
+      await this.recomputeInvoiceTotal(invoice.id);
+    } catch (err: any) {
+      // Non-fatal: log but don't fail the bill operation
+      this.logger.warn(
+        `syncBillableExpenseInvoiceLine failed for bill ${bill.id}: ${err?.message ?? err}`,
+      );
+    }
+  }
+
+  /**
+   * Remove a billable expense invoice line when a bill is no longer billable.
+   */
+  private async removeBillableExpenseInvoiceLine(
+    projectId: string,
+    companyId: string,
+    billId: string,
+  ) {
+    try {
+      // Find the EXPENSE draft invoice
+      const invoice = await this.prisma.projectInvoice.findFirst({
+        where: {
+          projectId,
+          companyId,
+          category: ProjectInvoiceCategory.EXPENSE,
+          status: ProjectInvoiceStatus.DRAFT,
+        },
+      });
+
+      if (!invoice) return;
+
+      // Delete the line item for this bill
+      await this.prisma.projectInvoiceLineItem.deleteMany({
+        where: {
+          invoiceId: invoice.id,
+          sourceBillId: billId,
+        },
+      });
+
+      // Recompute invoice total
+      await this.recomputeInvoiceTotal(invoice.id);
+    } catch (err: any) {
+      // Non-fatal: log but don't fail the bill operation
+      this.logger.warn(
+        `removeBillableExpenseInvoiceLine failed for bill ${billId}: ${err?.message ?? err}`,
+      );
     }
   }
 

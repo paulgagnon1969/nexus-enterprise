@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
-import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
+import { CombinedAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { DailyLogService } from "./daily-log.service";
 import type { FastifyRequest } from "fastify";
@@ -8,14 +8,14 @@ import type { FastifyRequest } from "fastify";
 export class DailyLogAttachmentsController {
   constructor(private readonly dailyLogs: DailyLogService) {}
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Get()
   list(@Req() req: any, @Param("logId") logId: string) {
     const user = req.user as AuthenticatedUser;
     return this.dailyLogs.listAttachments(logId, user.companyId, user);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
   @Post()
   async upload(@Req() req: FastifyRequest, @Param("logId") logId: string) {
@@ -54,7 +54,7 @@ export class DailyLogAttachmentsController {
     });
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
   @Post("link")
   async linkAttachment(

@@ -20,7 +20,7 @@ export function EmbeddedTenantView(props: {
   view: TenantViewKey;
   companyId: string | null;
   projectId: string | null;
-}): JSX.Element {
+}): ReactNode {
   const { view } = props;
 
   return (
