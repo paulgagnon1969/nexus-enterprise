@@ -8886,7 +8886,12 @@ export class ProjectService {
 
       // If billable, auto-create invoice line on the EXPENSE draft invoice
       if (bill.isBillable && this.billingModelsAvailable()) {
-        await this.syncBillableExpenseInvoiceLine(project.id, project.companyId, bill, actor);
+        try {
+          await this.syncBillableExpenseInvoiceLine(project.id, project.companyId, bill, actor);
+        } catch (syncErr: any) {
+          this.logger.error(`Failed to sync billable expense invoice line for new bill ${bill.id}: ${syncErr?.message ?? syncErr}`);
+          // Non-fatal - bill was created successfully
+        }
       }
 
       return bill;
@@ -9063,11 +9068,16 @@ export class ProjectService {
 
       // Sync billable expense invoice line
       if (this.billingModelsAvailable()) {
-        if ((updated as any).isBillable) {
-          await this.syncBillableExpenseInvoiceLine(project.id, project.companyId, updated as any, actor);
-        } else if (wasBillable && !nextIsBillable) {
-          // Bill was billable, now it's not - remove the invoice line
-          await this.removeBillableExpenseInvoiceLine(project.id, project.companyId, updated.id);
+        try {
+          if ((updated as any).isBillable) {
+            await this.syncBillableExpenseInvoiceLine(project.id, project.companyId, updated as any, actor);
+          } else if (wasBillable && !nextIsBillable) {
+            // Bill was billable, now it's not - remove the invoice line
+            await this.removeBillableExpenseInvoiceLine(project.id, project.companyId, updated.id);
+          }
+        } catch (syncErr: any) {
+          this.logger.error(`Failed to sync billable expense invoice line for bill ${updated.id}: ${syncErr?.message ?? syncErr}`);
+          // Non-fatal - bill was updated successfully
         }
       }
 
