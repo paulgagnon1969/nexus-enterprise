@@ -424,6 +424,125 @@ function CheckboxMultiSelect(props: {
   );
 }
 
+// Inline editable field for click-to-edit functionality
+function InlineEditableField(props: {
+  label: string;
+  value: string;
+  placeholder?: string;
+  canEdit: boolean;
+  linkHref?: string;
+  onSave: (value: string) => Promise<void>;
+}) {
+  const { label, value, placeholder = "N/A", canEdit, linkHref, onSave } = props;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const handleSave = async () => {
+    if (draft !== value) {
+      setSaving(true);
+      try {
+        await onSave(draft);
+      } finally {
+        setSaving(false);
+      }
+    }
+    setEditing(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSave();
+    } else if (e.key === "Escape") {
+      setDraft(value);
+      setEditing(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}>
+        <span style={{ fontSize: 10, color: "#9ca3af", minWidth: 40 }}>{label}:</span>
+        <input
+          ref={inputRef}
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={handleSave}
+          onKeyDown={handleKeyDown}
+          disabled={saving}
+          style={{
+            flex: 1,
+            padding: "2px 4px",
+            fontSize: 12,
+            border: "1px solid #2563eb",
+            borderRadius: 3,
+            outline: "none",
+          }}
+        />
+      </div>
+    );
+  }
+
+  const displayValue = value || placeholder;
+  const isEmpty = !value;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        marginTop: 4,
+        cursor: canEdit ? "pointer" : "default",
+      }}
+      onClick={() => canEdit && setEditing(true)}
+      title={canEdit ? "Click to edit" : undefined}
+    >
+      <span style={{ fontSize: 10, color: "#9ca3af", minWidth: 40 }}>{label}:</span>
+      {linkHref && !isEmpty ? (
+        <a
+          href={linkHref}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            fontSize: 12,
+            color: "#2563eb",
+            textDecoration: "none",
+          }}
+        >
+          {displayValue}
+        </a>
+      ) : (
+        <span
+          style={{
+            fontSize: 12,
+            color: isEmpty ? "#9ca3af" : "#111827",
+            fontStyle: isEmpty ? "italic" : "normal",
+          }}
+        >
+          {displayValue}
+        </span>
+      )}
+      {canEdit && (
+        <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: 2 }}>✎</span>
+      )}
+    </div>
+  );
+}
+
 interface Project {
   id: string;
   name: string;
@@ -3700,7 +3819,7 @@ ${htmlBody}
     log: DailyLog | null;
   }>({ open: false, log: null });
 
-  // Field PETL (scope-only) view for Daily Logs.
+  // Field PETL
   const [fieldPetlItems, setFieldPetlItems] = useState<FieldPetlItem[]>([]);
   const [fieldPetlLoading, setFieldPetlLoading] = useState(false);
   const [fieldPetlError, setFieldPetlError] = useState<string | null>(null);
@@ -4444,6 +4563,82 @@ ${htmlBody}
   const [editProjectMessage, setEditProjectMessage] = useState<string | null>(null);
   const [deleteProjectMessage, setDeleteProjectMessage] = useState<string | null>(null);
   const [editProjectState, setEditProjectState] = useState<ProjectStateChoice>("OPEN");
+
+  // Tenant client search state for linking
+  interface TenantClientResult {
+    id: string;
+    firstName: string;
+    lastName: string;
+    displayName: string | null;
+    email: string | null;
+    phone: string | null;
+    company: string | null;
+    projectCount?: number;
+  }
+  const [clientLinkMode, setClientLinkMode] = useState(false);
+  const [clientSearchQuery, setClientSearchQuery] = useState("");
+  const [clientSearchResults, setClientSearchResults] = useState<TenantClientResult[]>([]);
+  const [clientSearching, setClientSearching] = useState(false);
+  const [selectedTenantClient, setSelectedTenantClient] = useState<TenantClientResult | null>(null);
+
+  // Search for tenant clients by name, email, or phone
+  const searchTenantClients = async (query: string) => {
+    if (!query || query.length < 2) {
+      setClientSearchResults([]);
+      return;
+    }
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    if (!token) return;
+
+    try {
+      setClientSearching(true);
+      const res = await fetch(
+        `${API_BASE}/clients/search?q=${encodeURIComponent(query)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setClientSearchResults(Array.isArray(data) ? data : []);
+      }
+    } catch {
+      // Ignore search errors
+    } finally {
+      setClientSearching(false);
+    }
+  };
+
+  // Handle selecting a client from search results
+  const handleSelectTenantClient = (client: TenantClientResult) => {
+    setSelectedTenantClient(client);
+    setClientSearchQuery("");
+    setClientSearchResults([]);
+    // Auto-fill contact fields from selected client
+    setEditProject(prev =>
+      prev
+        ? {
+            ...prev,
+            primaryContactName: client.displayName || `${client.firstName} ${client.lastName}`.trim(),
+            primaryContactEmail: client.email || null,
+            primaryContactPhone: client.phone || null,
+          }
+        : prev
+    );
+  };
+
+  // Clear client link
+  const handleClearTenantClientLink = () => {
+    setSelectedTenantClient(null);
+    setEditProject(prev =>
+      prev
+        ? {
+            ...prev,
+            primaryContactName: null,
+            primaryContactEmail: null,
+            primaryContactPhone: null,
+          }
+        : prev
+    );
+  };
 
   const searchParams = useSearchParams();
 
@@ -10148,20 +10343,261 @@ ${htmlBody}
     setAttachmentsViewer({ open: false, log: null });
   };
 
+  // Edit Daily Log Modal - render BEFORE early returns so it shows regardless of loading state
+  const editDailyLogModal = editDailyLog.open && editDailyLog.draft && (
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 99999,
+        backgroundColor: "rgba(15, 23, 42, 0.6)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+      }}
+      onClick={closeEditDailyLog}
+    >
+      <div
+        style={{
+          width: 600,
+          maxWidth: "96vw",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          backgroundColor: "#ffffff",
+          borderRadius: 10,
+          border: "1px solid #e5e7eb",
+          boxShadow: "0 16px 40px rgba(15,23,42,0.35)",
+          padding: 16,
+          fontSize: 13,
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ fontSize: 15, fontWeight: 600 }}>Edit Daily Log</div>
+          <button
+            type="button"
+            onClick={closeEditDailyLog}
+            style={{
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              fontSize: 18,
+              lineHeight: 1,
+              padding: 4,
+            }}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Type</label>
+            <select
+              value={editDailyLog.draft.type}
+              onChange={e =>
+                setEditDailyLog(prev => ({
+                  ...prev,
+                  draft: prev.draft ? { ...prev.draft, type: e.target.value as DailyLogType } : null,
+                }))
+              }
+              style={{
+                width: "100%",
+                padding: "6px 8px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            >
+              <option value="PUDL">Daily Log (PUDL)</option>
+              <option value="RECEIPT_EXPENSE">Receipt / Expense</option>
+              <option value="JSA">Job Safety Assessment</option>
+              <option value="INCIDENT">Incident Report</option>
+              <option value="QUALITY">Quality Inspection</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Date</label>
+            <input
+              type="date"
+              value={editDailyLog.draft.logDate}
+              onChange={e =>
+                setEditDailyLog(prev => ({
+                  ...prev,
+                  draft: prev.draft ? { ...prev.draft, logDate: e.target.value } : null,
+                }))
+              }
+              style={{
+                width: "100%",
+                padding: "6px 8px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Title</label>
+          <input
+            type="text"
+            value={editDailyLog.draft.title}
+            onChange={e =>
+              setEditDailyLog(prev => ({
+                ...prev,
+                draft: prev.draft ? { ...prev.draft, title: e.target.value } : null,
+              }))
+            }
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              borderRadius: 4,
+              border: "1px solid #d1d5db",
+              fontSize: 12,
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Work Performed</label>
+          <textarea
+            value={editDailyLog.draft.workPerformed}
+            onChange={e =>
+              setEditDailyLog(prev => ({
+                ...prev,
+                draft: prev.draft ? { ...prev.draft, workPerformed: e.target.value } : null,
+              }))
+            }
+            rows={3}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              borderRadius: 4,
+              border: "1px solid #d1d5db",
+              fontSize: 12,
+              resize: "vertical",
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Crew On Site</label>
+          <textarea
+            value={editDailyLog.draft.crewOnSite}
+            onChange={e =>
+              setEditDailyLog(prev => ({
+                ...prev,
+                draft: prev.draft ? { ...prev.draft, crewOnSite: e.target.value } : null,
+              }))
+            }
+            rows={2}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              borderRadius: 4,
+              border: "1px solid #d1d5db",
+              fontSize: 12,
+              resize: "vertical",
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Issues</label>
+          <textarea
+            value={editDailyLog.draft.issues}
+            onChange={e =>
+              setEditDailyLog(prev => ({
+                ...prev,
+                draft: prev.draft ? { ...prev.draft, issues: e.target.value } : null,
+              }))
+            }
+            rows={2}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              borderRadius: 4,
+              border: "1px solid #d1d5db",
+              fontSize: 12,
+              resize: "vertical",
+            }}
+          />
+        </div>
+
+        {editDailyLog.error && (
+          <div style={{ marginBottom: 12, color: "#b91c1c", fontSize: 12 }}>
+            {editDailyLog.error}
+          </div>
+        )}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button
+            type="button"
+            onClick={closeEditDailyLog}
+            style={{
+              padding: "8px 14px",
+              borderRadius: 6,
+              border: "1px solid #d1d5db",
+              background: "#ffffff",
+              cursor: "pointer",
+              fontSize: 12,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleUpdateDailyLog}
+            disabled={editDailyLog.saving}
+            style={{
+              padding: "8px 14px",
+              borderRadius: 6,
+              border: "1px solid #0f172a",
+              background: editDailyLog.saving ? "#e5e7eb" : "#0f172a",
+              color: editDailyLog.saving ? "#4b5563" : "#f9fafb",
+              cursor: editDailyLog.saving ? "default" : "pointer",
+              fontSize: 12,
+            }}
+          >
+            {editDailyLog.saving ? "Saving…" : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (loading) {
     return (
-      <div className="app-card">
-        <p style={{ fontSize: 14, color: "#6b7280" }}>Loading project…</p>
-      </div>
+      <>
+        {editDailyLogModal}
+        <div className="app-card">
+          <p style={{ fontSize: 14, color: "#6b7280" }}>Loading project…</p>
+        </div>
+      </>
     );
   }
 
   if (error || !project) {
     return (
-      <div className="app-card">
-        <h1 style={{ marginTop: 0, fontSize: 20 }}>Project</h1>
-        <p style={{ color: "#b91c1c" }}>{error ?? "Project not found."}</p>
-      </div>
+      <>
+        {editDailyLogModal}
+        <div className="app-card">
+          <h1 style={{ marginTop: 0, fontSize: 20 }}>Project</h1>
+          <p style={{ color: "#b91c1c" }}>{error ?? "Project not found."}</p>
+        </div>
+      </>
     );
   }
 
@@ -10370,47 +10806,6 @@ ${htmlBody}
                   )}
                 </p>
               </RoleVisible>
-              {/* Client Contact Info */}
-              {(project.primaryContactName || project.primaryContactEmail || project.primaryContactPhone) && (
-                <RoleVisible minRole="FOREMAN">
-                  <div
-                    style={{
-                      marginTop: 8,
-                      padding: "8px 10px",
-                      backgroundColor: "#f9fafb",
-                      borderRadius: 6,
-                      border: "1px solid #e5e7eb",
-                    }}
-                  >
-                    <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 4 }}>
-                      Client Contact
-                    </div>
-                    {project.primaryContactName && (
-                      <div style={{ fontSize: 13, fontWeight: 500, color: "#111827" }}>
-                        {project.primaryContactName}
-                      </div>
-                    )}
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 2 }}>
-                      {project.primaryContactPhone && (
-                        <a
-                          href={`tel:${project.primaryContactPhone}`}
-                          style={{ fontSize: 12, color: "#2563eb", textDecoration: "none" }}
-                        >
-                          📞 {project.primaryContactPhone}
-                        </a>
-                      )}
-                      {project.primaryContactEmail && (
-                        <a
-                          href={`mailto:${project.primaryContactEmail}`}
-                          style={{ fontSize: 12, color: "#2563eb", textDecoration: "none" }}
-                        >
-                          ✉️ {project.primaryContactEmail}
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                </RoleVisible>
-              )}
             </>
           )}
 
@@ -10566,95 +10961,237 @@ ${htmlBody}
                   borderTop: "1px solid #e5e7eb",
                 }}
               >
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
-                  Client Contact (for invoices & correspondence)
-                </label>
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: 6,
-                    alignItems: "flex-start",
-                  }}
-                >
-                  <div style={{ flex: "1 1 200px", minWidth: 180 }}>
-                    <label
-                      style={{ display: "block", fontSize: 12, fontWeight: 600 }}
-                    >
-                      Client Name
-                    </label>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600 }}>
+                    Client Contact (for invoices & correspondence)
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
                     <input
-                      value={editProject.primaryContactName ?? ""}
-                      onChange={e =>
-                        setEditProject(prev =>
-                          prev
-                            ? { ...prev, primaryContactName: e.target.value || null }
-                            : prev,
-                        )
-                      }
-                      placeholder="Full name"
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 13,
+                      type="checkbox"
+                      checked={clientLinkMode}
+                      onChange={e => {
+                        setClientLinkMode(e.target.checked);
+                        if (!e.target.checked) {
+                          setSelectedTenantClient(null);
+                          setClientSearchQuery("");
+                          setClientSearchResults([]);
+                        }
                       }}
+                      style={{ cursor: "pointer" }}
                     />
-                  </div>
-                  <div style={{ flex: "1 1 200px", minWidth: 180 }}>
-                    <label
-                      style={{ display: "block", fontSize: 12, fontWeight: 600 }}
-                    >
-                      Email
-                    </label>
-                    <input
-                      type="email"
-                      value={editProject.primaryContactEmail ?? ""}
-                      onChange={e =>
-                        setEditProject(prev =>
-                          prev
-                            ? { ...prev, primaryContactEmail: e.target.value || null }
-                            : prev,
-                        )
-                      }
-                      placeholder="email@example.com"
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 13,
-                      }}
-                    />
-                  </div>
-                  <div style={{ flex: "0 0 160px", minWidth: 140 }}>
-                    <label
-                      style={{ display: "block", fontSize: 12, fontWeight: 600 }}
-                    >
-                      Phone
-                    </label>
-                    <input
-                      type="tel"
-                      value={editProject.primaryContactPhone ?? ""}
-                      onChange={e =>
-                        setEditProject(prev =>
-                          prev
-                            ? { ...prev, primaryContactPhone: e.target.value || null }
-                            : prev,
-                        )
-                      }
-                      placeholder="(555) 123-4567"
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 13,
-                      }}
-                    />
-                  </div>
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>Search existing clients</span>
+                  </label>
                 </div>
+
+                {clientLinkMode ? (
+                  <div>
+                    {selectedTenantClient ? (
+                      <div
+                        style={{
+                          padding: 10,
+                          borderRadius: 6,
+                          border: "1px solid #10b981",
+                          background: "#ecfdf5",
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 13, color: "#065f46" }}>
+                              {selectedTenantClient.displayName || `${selectedTenantClient.firstName} ${selectedTenantClient.lastName}`}
+                            </div>
+                            {selectedTenantClient.email && (
+                              <div style={{ fontSize: 12, color: "#047857" }}>{selectedTenantClient.email}</div>
+                            )}
+                            {selectedTenantClient.phone && (
+                              <div style={{ fontSize: 12, color: "#047857" }}>{selectedTenantClient.phone}</div>
+                            )}
+                            {selectedTenantClient.company && (
+                              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                                {selectedTenantClient.company}
+                              </div>
+                            )}
+                            {selectedTenantClient.projectCount != null && selectedTenantClient.projectCount > 0 && (
+                              <div style={{ fontSize: 10, color: "#065f46", marginTop: 4 }}>
+                                Linked to {selectedTenantClient.projectCount} other project(s)
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleClearTenantClientLink}
+                            style={{
+                              padding: "2px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              background: "#fff",
+                              fontSize: 11,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ position: "relative", marginBottom: 8 }}>
+                        <input
+                          type="text"
+                          value={clientSearchQuery}
+                          onChange={e => {
+                            setClientSearchQuery(e.target.value);
+                            searchTenantClients(e.target.value);
+                          }}
+                          placeholder="Search by name, email, or phone..."
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 13,
+                          }}
+                        />
+                        {clientSearching && (
+                          <div style={{ position: "absolute", right: 8, top: 8, fontSize: 11, color: "#9ca3af" }}>
+                            Searching...
+                          </div>
+                        )}
+                        {clientSearchResults.length > 0 && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: "100%",
+                              left: 0,
+                              right: 0,
+                              zIndex: 10,
+                              background: "#fff",
+                              border: "1px solid #d1d5db",
+                              borderRadius: 6,
+                              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                              maxHeight: 240,
+                              overflowY: "auto",
+                            }}
+                          >
+                            {clientSearchResults.map(client => (
+                              <div
+                                key={client.id}
+                                onClick={() => handleSelectTenantClient(client)}
+                                style={{
+                                  padding: "8px 10px",
+                                  cursor: "pointer",
+                                  borderBottom: "1px solid #f3f4f6",
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = "#f9fafb")}
+                                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                              >
+                                <div style={{ fontSize: 13, fontWeight: 500 }}>
+                                  {client.displayName || `${client.firstName} ${client.lastName}`}
+                                </div>
+                                {client.email && (
+                                  <div style={{ fontSize: 11, color: "#6b7280" }}>{client.email}</div>
+                                )}
+                                {client.phone && (
+                                  <div style={{ fontSize: 11, color: "#6b7280" }}>{client.phone}</div>
+                                )}
+                                {client.projectCount != null && client.projectCount > 0 && (
+                                  <div style={{ fontSize: 10, color: "#2563eb", marginTop: 2 }}>
+                                    {client.projectCount} project(s)
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {clientSearchQuery.length >= 2 && clientSearchResults.length === 0 && !clientSearching && (
+                          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
+                            No clients found. Uncheck to enter new contact info manually.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 6,
+                      alignItems: "flex-start",
+                    }}
+                  >
+                    <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+                      <label style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
+                        Client Name
+                      </label>
+                      <input
+                        value={editProject.primaryContactName ?? ""}
+                        onChange={e =>
+                          setEditProject(prev =>
+                            prev
+                              ? { ...prev, primaryContactName: e.target.value || null }
+                              : prev,
+                          )
+                        }
+                        placeholder="Full name"
+                        style={{
+                          width: "100%",
+                          padding: "4px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 13,
+                        }}
+                      />
+                    </div>
+                    <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+                      <label style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        value={editProject.primaryContactEmail ?? ""}
+                        onChange={e =>
+                          setEditProject(prev =>
+                            prev
+                              ? { ...prev, primaryContactEmail: e.target.value || null }
+                              : prev,
+                          )
+                        }
+                        placeholder="email@example.com"
+                        style={{
+                          width: "100%",
+                          padding: "4px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 13,
+                        }}
+                      />
+                    </div>
+                    <div style={{ flex: "0 0 160px", minWidth: 140 }}>
+                      <label style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
+                        Phone
+                      </label>
+                      <input
+                        type="tel"
+                        value={editProject.primaryContactPhone ?? ""}
+                        onChange={e =>
+                          setEditProject(prev =>
+                            prev
+                              ? { ...prev, primaryContactPhone: e.target.value || null }
+                              : prev,
+                          )
+                        }
+                        placeholder="(555) 123-4567"
+                        style={{
+                          width: "100%",
+                          padding: "4px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 13,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Project state toggle (Open / Archived / Deleted / Warranty) */}
@@ -10736,6 +11273,87 @@ ${htmlBody}
             </div>
           )}
         </div>
+
+        {/* Client Contact Info - Always visible, inline editable for Admin+ */}
+        {!editProjectMode && (
+          <RoleVisible minRole="FOREMAN">
+            <div
+              style={{
+                flex: "1 1 auto",
+                maxWidth: 320,
+                minWidth: 200,
+                marginLeft: 24,
+                padding: "8px 12px",
+                backgroundColor: "#f9fafb",
+                borderRadius: 6,
+                border: "1px solid #e5e7eb",
+              }}
+            >
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 6 }}>
+                Client Contact
+              </div>
+              <InlineEditableField
+                label="Name"
+                value={project.primaryContactName || ""}
+                placeholder="No name"
+                canEdit={isAdminOrAbove}
+                onSave={async (val) => {
+                  const token = localStorage.getItem("accessToken");
+                  if (!token) return;
+                  const res = await fetch(`${API_BASE}/projects/${project.id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ primaryContactName: val || null }),
+                  });
+                  if (res.ok) {
+                    const updated = await res.json();
+                    setProject(updated);
+                  }
+                }}
+              />
+              <InlineEditableField
+                label="Phone"
+                value={project.primaryContactPhone || ""}
+                placeholder="No phone"
+                canEdit={isAdminOrAbove}
+                linkHref={project.primaryContactPhone ? `tel:${project.primaryContactPhone}` : undefined}
+                onSave={async (val) => {
+                  const token = localStorage.getItem("accessToken");
+                  if (!token) return;
+                  const res = await fetch(`${API_BASE}/projects/${project.id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ primaryContactPhone: val || null }),
+                  });
+                  if (res.ok) {
+                    const updated = await res.json();
+                    setProject(updated);
+                  }
+                }}
+              />
+              <InlineEditableField
+                label="Email"
+                value={project.primaryContactEmail || ""}
+                placeholder="No email"
+                canEdit={isAdminOrAbove}
+                linkHref={project.primaryContactEmail ? `mailto:${project.primaryContactEmail}` : undefined}
+                onSave={async (val) => {
+                  const token = localStorage.getItem("accessToken");
+                  if (!token) return;
+                  const res = await fetch(`${API_BASE}/projects/${project.id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ primaryContactEmail: val || null }),
+                  });
+                  if (res.ok) {
+                    const updated = await res.json();
+                    setProject(updated);
+                  }
+                }}
+              />
+            </div>
+          </RoleVisible>
+        )}
 
         {canEditProjectHeader && (
           <div
@@ -19824,19 +20442,24 @@ ${htmlBody}
                               >
                                 <button
                                   type="button"
-                                  onClick={() => openEditDailyLog(log)}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    openEditDailyLog(log);
+                                  }}
                                   title="Edit daily log"
                                   style={{
-                                    border: "1px solid #d1d5db",
-                                    background: "#ffffff",
+                                    border: "1px solid #2563eb",
+                                    background: "#2563eb",
                                     borderRadius: 4,
                                     cursor: "pointer",
-                                    padding: "4px 8px",
+                                    padding: "4px 10px",
                                     fontSize: 11,
-                                    color: "#374151",
+                                    color: "#ffffff",
+                                    fontWeight: 500,
                                   }}
                                 >
-                                  ✏️
+                                  Edit
                                 </button>
                               </td>
                               {/* Date */}
@@ -21471,375 +22094,8 @@ ${htmlBody}
 
       {/* Project grouping: Units → Rooms (expandable) */}
 
-      {/* Edit Daily Log Modal */}
-      {editDailyLog.open && editDailyLog.draft && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 99999,
-            backgroundColor: "rgba(15, 23, 42, 0.6)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-          }}
-          onClick={closeEditDailyLog}
-        >
-          <div
-            style={{
-              width: 600,
-              maxWidth: "96vw",
-              maxHeight: "90vh",
-              overflowY: "auto",
-              backgroundColor: "#ffffff",
-              borderRadius: 10,
-              border: "1px solid #e5e7eb",
-              boxShadow: "0 16px 40px rgba(15,23,42,0.35)",
-              padding: 16,
-              fontSize: 13,
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ fontSize: 15, fontWeight: 600 }}>Edit Daily Log</div>
-              <button
-                type="button"
-                onClick={closeEditDailyLog}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  cursor: "pointer",
-                  fontSize: 18,
-                  lineHeight: 1,
-                  padding: 4,
-                }}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Type</label>
-                <select
-                  value={editDailyLog.draft.type}
-                  onChange={e =>
-                    setEditDailyLog(prev => ({
-                      ...prev,
-                      draft: prev.draft ? { ...prev.draft, type: e.target.value as DailyLogType } : null,
-                    }))
-                  }
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                  }}
-                >
-                  <option value="PUDL">Daily Log (PUDL)</option>
-                  <option value="RECEIPT_EXPENSE">Receipt / Expense</option>
-                  <option value="JSA">Job Safety Assessment</option>
-                  <option value="INCIDENT">Incident Report</option>
-                  <option value="QUALITY">Quality Inspection</option>
-                </select>
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Date</label>
-                <input
-                  type="date"
-                  value={editDailyLog.draft.logDate}
-                  onChange={e =>
-                    setEditDailyLog(prev => ({
-                      ...prev,
-                      draft: prev.draft ? { ...prev.draft, logDate: e.target.value } : null,
-                    }))
-                  }
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Title</label>
-              <input
-                type="text"
-                value={editDailyLog.draft.title}
-                onChange={e =>
-                  setEditDailyLog(prev => ({
-                    ...prev,
-                    draft: prev.draft ? { ...prev.draft, title: e.target.value } : null,
-                  }))
-                }
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                }}
-              />
-            </div>
-
-            {editDailyLog.draft.type === "RECEIPT_EXPENSE" && (
-              <div style={{ marginBottom: 12, padding: 10, background: "#fef3c7", borderRadius: 6, border: "1px solid #fcd34d" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#92400e" }}>Receipt Details</div>
-                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
-                  <div>
-                    <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Vendor</label>
-                    <input
-                      type="text"
-                      value={editDailyLog.draft.expenseVendor}
-                      onChange={e =>
-                        setEditDailyLog(prev => ({
-                          ...prev,
-                          draft: prev.draft ? { ...prev.draft, expenseVendor: e.target.value } : null,
-                        }))
-                      }
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 12,
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Amount</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={editDailyLog.draft.expenseAmount}
-                      onChange={e =>
-                        setEditDailyLog(prev => ({
-                          ...prev,
-                          draft: prev.draft ? { ...prev.draft, expenseAmount: e.target.value } : null,
-                        }))
-                      }
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 12,
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Receipt Date</label>
-                    <input
-                      type="date"
-                      value={editDailyLog.draft.expenseDate}
-                      onChange={e =>
-                        setEditDailyLog(prev => ({
-                          ...prev,
-                          draft: prev.draft ? { ...prev.draft, expenseDate: e.target.value } : null,
-                        }))
-                      }
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 12,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Work Performed</label>
-              <textarea
-                value={editDailyLog.draft.workPerformed}
-                onChange={e =>
-                  setEditDailyLog(prev => ({
-                    ...prev,
-                    draft: prev.draft ? { ...prev.draft, workPerformed: e.target.value } : null,
-                  }))
-                }
-                rows={3}
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                  resize: "vertical",
-                }}
-              />
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Issues</label>
-                <textarea
-                  value={editDailyLog.draft.issues}
-                  onChange={e =>
-                    setEditDailyLog(prev => ({
-                      ...prev,
-                      draft: prev.draft ? { ...prev.draft, issues: e.target.value } : null,
-                    }))
-                  }
-                  rows={2}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                    resize: "vertical",
-                  }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Safety Incidents</label>
-                <textarea
-                  value={editDailyLog.draft.safetyIncidents}
-                  onChange={e =>
-                    setEditDailyLog(prev => ({
-                      ...prev,
-                      draft: prev.draft ? { ...prev.draft, safetyIncidents: e.target.value } : null,
-                    }))
-                  }
-                  rows={2}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                    resize: "vertical",
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Weather</label>
-                <input
-                  type="text"
-                  value={editDailyLog.draft.weatherSummary}
-                  onChange={e =>
-                    setEditDailyLog(prev => ({
-                      ...prev,
-                      draft: prev.draft ? { ...prev.draft, weatherSummary: e.target.value } : null,
-                    }))
-                  }
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                  }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Crew / Person Onsite</label>
-                <input
-                  type="text"
-                  value={editDailyLog.draft.personOnsite}
-                  onChange={e =>
-                    setEditDailyLog(prev => ({
-                      ...prev,
-                      draft: prev.draft ? { ...prev.draft, personOnsite: e.target.value } : null,
-                    }))
-                  }
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Confidential Notes (NO PRINT)</label>
-              <textarea
-                value={editDailyLog.draft.confidentialNotes}
-                onChange={e =>
-                  setEditDailyLog(prev => ({
-                    ...prev,
-                    draft: prev.draft ? { ...prev.draft, confidentialNotes: e.target.value } : null,
-                  }))
-                }
-                rows={2}
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                  resize: "vertical",
-                }}
-              />
-            </div>
-
-            {editDailyLog.error && (
-              <div style={{ marginBottom: 12, fontSize: 12, color: "#b91c1c" }}>
-                {editDailyLog.error}
-              </div>
-            )}
-
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button
-                type="button"
-                onClick={closeEditDailyLog}
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                  backgroundColor: "#ffffff",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleUpdateDailyLog}
-                disabled={editDailyLog.saving}
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: 4,
-                  border: "1px solid #0f172a",
-                  backgroundColor: editDailyLog.saving ? "#e5e7eb" : "#0f172a",
-                  color: editDailyLog.saving ? "#4b5563" : "#f9fafb",
-                  fontSize: 12,
-                  cursor: editDailyLog.saving ? "default" : "pointer",
-                }}
-              >
-                {editDailyLog.saving ? "Saving…" : "Save Changes"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Edit Daily Log Modal - now rendered via editDailyLogModal variable above early returns */}
+      {editDailyLogModal}
 
       {/* Attachments Viewer Modal */}
       {attachmentsViewer.open && attachmentsViewer.log && (
