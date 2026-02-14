@@ -22,6 +22,92 @@ export class PublicDocsService {
   }
 
   // =========================================================================
+  // Public Portal (No Auth Required)
+  // =========================================================================
+
+  /**
+   * Get all public manuals and documents for the public portal
+   */
+  async getPublicPortal() {
+    const [manuals, documents] = await Promise.all([
+      // Get all public published manuals
+      this.prisma.manual.findMany({
+        where: {
+          isPublic: true,
+          status: "PUBLISHED",
+          publicSlug: { not: null },
+        },
+        select: {
+          id: true,
+          code: true,
+          title: true,
+          description: true,
+          publicSlug: true,
+          iconEmoji: true,
+          coverImageUrl: true,
+          currentVersion: true,
+          publishedAt: true,
+          _count: {
+            select: {
+              chapters: { where: { active: true } },
+              documents: { where: { active: true } },
+            },
+          },
+        },
+        orderBy: { title: "asc" },
+      }),
+      // Get all public documents (standalone, not part of manuals)
+      this.prisma.systemDocument.findMany({
+        where: {
+          isPublic: true,
+          active: true,
+          publicSlug: { not: null },
+        },
+        select: {
+          id: true,
+          code: true,
+          title: true,
+          description: true,
+          publicSlug: true,
+          category: true,
+          subcategory: true,
+          currentVersion: {
+            select: { versionNo: true, createdAt: true },
+          },
+        },
+        orderBy: [{ category: "asc" }, { title: "asc" }],
+      }),
+    ]);
+
+    return {
+      manuals: manuals.map((m) => ({
+        id: m.id,
+        code: m.code,
+        title: m.title,
+        description: m.description,
+        slug: m.publicSlug,
+        iconEmoji: m.iconEmoji,
+        coverImageUrl: m.coverImageUrl,
+        version: m.currentVersion,
+        publishedAt: m.publishedAt,
+        chapterCount: m._count.chapters,
+        documentCount: m._count.documents,
+      })),
+      documents: documents.map((d) => ({
+        id: d.id,
+        code: d.code,
+        title: d.title,
+        description: d.description,
+        slug: d.publicSlug,
+        category: d.category,
+        subcategory: d.subcategory,
+        versionNo: d.currentVersion?.versionNo,
+        updatedAt: d.currentVersion?.createdAt,
+      })),
+    };
+  }
+
+  // =========================================================================
   // Public Document Access (No Auth Required)
   // =========================================================================
 
