@@ -514,25 +514,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             {h.files}
           </Link>
-          {/* Documents dropdown: hidden for SUPER_ADMIN (they use /system sidebar instead) */}
-          {globalRole !== "SUPER_ADMIN" && (
-            <NavDropdown
-              label="Documents"
-              active={isActive("/documents") || isActive("/admin/documents")}
-              items={
-                companyRole === "OWNER" || companyRole === "ADMIN"
-                  ? [
-                      { label: "Unpublished eDocs", href: "/admin/documents" },
-                      { label: "Published eDocs", href: "/documents" },
-                      { label: "Templates", href: "/documents/templates" },
-                    ]
-                  : [
-                      { label: "Published eDocs", href: "/documents" },
-                      { label: "Templates", href: "/documents/templates" },
-                    ]
-              }
-            />
-          )}
+          {/* Documents dropdown: show for all users when not on /system routes */}
+          <NavDropdown
+            label="Documents"
+            active={isActive("/documents") || isActive("/admin/documents")}
+            items={
+              companyRole === "OWNER" || companyRole === "ADMIN" || globalRole === "SUPER_ADMIN"
+                ? [
+                    { label: "Unpublished eDocs", href: "/admin/documents" },
+                    { label: "Published eDocs", href: "/documents" },
+                    { label: "Templates", href: "/documents/templates" },
+                  ]
+                : [
+                    { label: "Published eDocs", href: "/documents" },
+                    { label: "Templates", href: "/documents/templates" },
+                  ]
+            }
+          />
           <Link
             href="/messaging"
             className={
