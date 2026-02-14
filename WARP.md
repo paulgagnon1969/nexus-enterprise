@@ -170,6 +170,32 @@ Use these when coordinating across multiple apps/packages:
 - Format the repo:
   - `npm run format`
 
+## Database Schema Changes - CRITICAL SAFETY RULES
+
+**NEVER use these commands without explicit user approval:**
+- `prisma db push --force-reset` - WIPES ALL DATA
+- `prisma migrate reset` - WIPES ALL DATA
+- Any command with `--force` or `reset` flags on the database
+
+**Always use migrations for schema changes:**
+```bash
+# CORRECT - preserves data, creates migration history
+npm -w packages/database exec -- npx prisma migrate dev --name descriptive_name
+
+# WRONG - no migration history, can cause data loss
+npm -w packages/database exec -- npx prisma db push
+```
+
+**Before any schema change:**
+1. Check if the change is additive (new nullable field, new table) - safe
+2. Check if the change modifies existing data (rename, type change) - needs migration strategy
+3. Check if the change removes data (drop column/table) - DANGEROUS, needs backup
+
+**If `db push` fails with schema drift:**
+- Do NOT use `--force-reset`
+- Create a proper migration instead
+- Or ask the user how they want to handle it
+
 ## How future agents should work here
 
 - Prefer running tasks via root `npm` scripts when touching multiple apps; drop into app/package directories only when you need fine-grained control.
