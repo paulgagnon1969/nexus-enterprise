@@ -1,8 +1,20 @@
-import { IsArray, IsBoolean, IsDateString, IsOptional, IsString } from "class-validator";
+import { IsArray, IsBoolean, IsDateString, IsEnum, IsNumber, IsOptional, IsString } from "class-validator";
+
+export enum DailyLogTypeDto {
+  PUDL = 'PUDL',
+  RECEIPT_EXPENSE = 'RECEIPT_EXPENSE',
+  JSA = 'JSA',
+  INCIDENT = 'INCIDENT',
+  QUALITY = 'QUALITY',
+}
 
 export class CreateDailyLogDto {
   @IsDateString()
   logDate!: string;
+
+  @IsOptional()
+  @IsEnum(DailyLogTypeDto)
+  type?: DailyLogTypeDto;
 
   @IsOptional()
   @IsString()
@@ -82,4 +94,23 @@ export class CreateDailyLogDto {
   @IsArray()
   @IsString({ each: true })
   notifyUserIds?: string[];
+
+  // Receipt/expense fields (used when type = RECEIPT_EXPENSE)
+  @IsOptional()
+  @IsString()
+  expenseVendor?: string | null;
+
+  @IsOptional()
+  @IsNumber()
+  expenseAmount?: number | null;
+
+  @IsOptional()
+  @IsDateString()
+  expenseDate?: string | null;
+
+  // Optional: project file IDs to attach (triggers OCR if receipt type)
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  attachmentProjectFileIds?: string[];
 }

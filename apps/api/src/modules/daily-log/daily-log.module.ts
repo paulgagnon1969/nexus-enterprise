@@ -6,9 +6,10 @@ import { PrismaModule } from "../../infra/prisma/prisma.module";
 import { AuditService } from "../../common/audit.service";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { TaskService } from "../task/task.service";
+import { OcrModule } from "../ocr/ocr.module";
 
 @Module({
-  imports: [PrismaModule, NotificationsModule],
+  imports: [PrismaModule, NotificationsModule, OcrModule],
   providers: [DailyLogService, AuditService, TaskService],
   controllers: [DailyLogController, DailyLogFeedController, DailyLogAttachmentsController]
 })

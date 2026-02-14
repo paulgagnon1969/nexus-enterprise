@@ -1157,10 +1157,11 @@ model ProjectFile {
   projectId String
   folderId  String?
 
-  storageUrl String
-  fileName   String
-  mimeType   String?
-  sizeBytes  Int?
+  storageUrl  String
+  fileName    String
+  mimeType    String?
+  sizeBytes   Int?
+  contentHash String?
 
   createdAt   DateTime @default(now())
   createdById String?
@@ -1171,10 +1172,13 @@ model ProjectFile {
   attachments                   MessageAttachment[]
   dailyLogAttachments           DailyLogAttachment[]
   billAttachments               ProjectBillAttachment[]
+  invoiceAttachments            ProjectInvoiceAttachment[]
   petlArchives                  ProjectPetlArchive[]
   petlReconciliationAttachments PetlReconciliationAttachment[]
+  receiptOcrResults             ReceiptOcrResult[]
 
   @@index([companyId, projectId], map: "ProjectFile_company_project_idx")
+  @@index([companyId, projectId, contentHash], map: "ProjectFile_company_project_hash_idx")
 }
 
 model ProjectPetlArchive {
@@ -1347,6 +1351,9 @@ enum ProjectInvoiceLineItemKind {
   MANUAL
   BILLABLE_HOURS
   EQUIPMENT_RENTAL
+  LABOR_ONLY
+  MATERIALS_ONLY
+  LABOR_AND_MATERIALS
   COST_BOOK
   OTHER
 }
@@ -1427,6 +1434,7 @@ model ProjectInvoice {
 
   lineItems                   ProjectInvoiceLineItem[]
   petlLines                   ProjectInvoicePetlLine[]
+  attachments                 ProjectInvoiceAttachment[]
   payments                    ProjectPayment[]
   paymentApplications         ProjectPaymentApplication[]
   invoiceApplicationsAsSource ProjectInvoiceApplication[] @relation("InvoiceApplicationsSource")
@@ -1471,6 +1479,27 @@ model ProjectInvoiceLineItem {
   @@index([invoiceId, billingTag], map: "ProjectInvoiceLineItem_invoice_billing_tag_idx")
   @@index([companyPriceListItemId], map: "ProjectInvoiceLineItem_company_price_item_idx")
   @@index([sourceBillId], map: "ProjectInvoiceLineItem_source_bill_idx")
+}
+
+model ProjectInvoiceAttachment {
+  id            String @id @default(cuid())
+  invoiceId     String
+  projectFileId String
+
+  // Snapshot for display convenience.
+  fileUrl   String
+  fileName  String?
+  mimeType  String?
+  sizeBytes Int?
+
+  createdAt DateTime @default(now())
+
+  invoice     ProjectInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  projectFile ProjectFile    @relation(fields: [projectFileId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, projectFileId], map: "ProjectInvoiceAttachment_invoice_file_key")
+  @@index([invoiceId], map: "ProjectInvoiceAttachment_invoice_idx")
+  @@index([projectFileId], map: "ProjectInvoiceAttachment_project_file_idx")
 }
 
 enum ProjectInvoicePetlLineKind {
@@ -1674,6 +1703,9 @@ model ProjectBill {
   markupPercent  Float   @default(0)
   billableAmount Float   @default(0)
 
+  // Link to source daily log (for receipts submitted via daily log)
+  sourceDailyLogId String?
+
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -1682,12 +1714,15 @@ model ProjectBill {
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdBy User?   @relation("ProjectBillCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
-  lineItems    ProjectBillLineItem[]
-  attachments  ProjectBillAttachment[]
-  invoiceLines ProjectInvoiceLineItem[] @relation("InvoiceLineItemSourceBill")
+  lineItems        ProjectBillLineItem[]
+  attachments      ProjectBillAttachment[]
+  invoiceLines     ProjectInvoiceLineItem[] @relation("InvoiceLineItemSourceBill")
+  sourceDailyLog   DailyLog?                @relation("DailyLogSourceBill")
+  ocrResult        ReceiptOcrResult?
 
   @@index([companyId, projectId, billDate], map: "ProjectBill_company_project_date_idx")
   @@index([projectId, billDate], map: "ProjectBill_project_date_idx")
+  @@index([sourceDailyLogId], map: "ProjectBill_source_daily_log_idx")
 }
 
 model ProjectBillLineItem {
@@ -1731,6 +1766,45 @@ model ProjectBillAttachment {
   @@unique([billId, projectFileId], map: "ProjectBillAttachment_bill_file_key")
   @@index([billId], map: "ProjectBillAttachment_bill_idx")
   @@index([projectFileId], map: "ProjectBillAttachment_project_file_idx")
+}
+
+/// OCR extraction results for receipt images
+model ReceiptOcrResult {
+  id            String    @id @default(cuid())
+  dailyLogId    String?   @unique
+  billId        String?   @unique
+  projectFileId String
+
+  status   OcrStatus @default(PENDING)
+  provider String?   // "openai", "aws_textract", "google_documentai"
+
+  // Extracted fields
+  vendorName    String?
+  vendorAddress String?
+  receiptDate   DateTime?
+  subtotal      Decimal?  @db.Decimal(12, 2)
+  taxAmount     Decimal?  @db.Decimal(12, 2)
+  totalAmount   Decimal?  @db.Decimal(12, 2)
+  currency      String?   @default("USD")
+  paymentMethod String?   // "CASH", "CARD", etc.
+
+  // Line items as JSON array: [{description, qty, unitPrice, amount}]
+  lineItemsJson String?
+
+  // Raw response for audit trail
+  rawResponseJson String?
+  confidence      Float?    // 0-1 overall confidence
+
+  errorMessage String?
+  processedAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  dailyLog    DailyLog?    @relation(fields: [dailyLogId], references: [id], onDelete: Cascade)
+  bill        ProjectBill? @relation(fields: [billId], references: [id], onDelete: Cascade)
+  projectFile ProjectFile  @relation(fields: [projectFileId], references: [id], onDelete: Cascade)
+
+  @@index([status], map: "ReceiptOcrResult_status_idx")
+  @@index([projectFileId], map: "ReceiptOcrResult_project_file_idx")
 }
 
 /// Log of Golden price list updates driven by Xact RAW imports.
@@ -2507,6 +2581,16 @@ model DailyLog {
   delayedAt            DateTime?
   publishedById        String?
   publishedAt          DateTime?
+
+  /// Daily log type classification
+  type                 DailyLogType         @default(PUDL)
+
+  /// Receipt/expense fields (used when type = RECEIPT_EXPENSE)
+  expenseVendor        String?
+  expenseAmount        Decimal?             @db.Decimal(12, 2)
+  expenseDate          DateTime?
+  sourceBillId         String?              @unique
+
   createdBy            User                 @relation(fields: [createdById], references: [id])
   project              Project              @relation(fields: [projectId], references: [id])
   attachments          DailyLogAttachment[]
@@ -2518,11 +2602,14 @@ model DailyLog {
   sowItem              SowItem?             @relation("SowItemDailyLogs", fields: [sowItemId], references: [id])
   delayedBy            User?                @relation("DailyLogDelayedBy", fields: [delayedById], references: [id])
   publishedBy          User?                @relation("DailyLogPublishedBy", fields: [publishedById], references: [id])
+  sourceBill           ProjectBill?         @relation("DailyLogSourceBill", fields: [sourceBillId], references: [id])
+  ocrResult            ReceiptOcrResult?
 
   @@index([projectId], map: "DailyLog_project_idx")
   @@index([projectId, roomParticleId], map: "DailyLog_project_room_idx")
   @@index([projectId, sowItemId], map: "DailyLog_project_sow_idx")
   @@index([isDelayedPublish], map: "DailyLog_delayed_idx")
+  @@index([projectId, type], map: "DailyLog_project_type_idx")
 }
 
 model DailyLogAttachment {
@@ -3264,6 +3351,21 @@ enum DailyLogStatus {
   SUBMITTED
   APPROVED
   REJECTED
+}
+
+enum DailyLogType {
+  PUDL              // Standard daily log (default)
+  RECEIPT_EXPENSE   // Receipt/expense submission
+  JSA               // Job Safety Assessment
+  INCIDENT          // Safety incident report
+  QUALITY           // Quality inspection
+}
+
+enum OcrStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
 }
 
 enum OnboardingStatus {

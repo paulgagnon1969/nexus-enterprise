@@ -27,6 +27,17 @@ import { RoleVisible } from "../../role-audit";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
+/**
+ * Compute SHA-256 hash of a File/Blob using the Web Crypto API.
+ * Returns hex string.
+ */
+async function computeFileHash(file: File | Blob): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 declare global {
   interface Window {
     mermaid?: {
@@ -506,11 +517,14 @@ interface DailyLogAttachmentDto {
 type CompanyRole = "OWNER" | "ADMIN" | "MEMBER" | "CLIENT";
 type GlobalRole = "SUPER_ADMIN" | "NONE" | string;
 
+type DailyLogType = "PUDL" | "RECEIPT_EXPENSE" | "JSA" | "INCIDENT" | "QUALITY" | "CUSTOM";
+
 interface DailyLog {
   id: string;
   projectId: string;
   logDate: string;
   title: string | null;
+  type?: DailyLogType;
   weatherSummary: string | null;
   crewOnSite: string | null;
   workPerformed: string | null;
@@ -525,6 +539,11 @@ interface DailyLog {
   sharePrivate: boolean;
   status?: "SUBMITTED" | "APPROVED" | "REJECTED";
   effectiveShareClient?: boolean;
+  // Receipt/expense fields
+  expenseVendor?: string | null;
+  expenseAmount?: number | null;
+  expenseDate?: string | null;
+  sourceBillId?: string | null;
   createdAt: string;
   createdByUser?: {
     id: string;
@@ -542,6 +561,7 @@ interface NewDailyLogState {
   logDate: string;
   title: string;
   tags: string;
+  type: DailyLogType;
   weatherSummary: string;
   workPerformed: string;
   crewOnSite: string;
@@ -554,11 +574,17 @@ interface NewDailyLogState {
   shareSubs: boolean;
   shareClient: boolean;
   sharePrivate: boolean;
+  // Receipt/expense fields (for RECEIPT_EXPENSE type)
+  expenseVendor: string;
+  expenseAmount: string; // stored as string for input, parsed on submit
+  expenseDate: string;
   // Optional PETL context when composing from PETL
   buildingId?: string | null;
   unitId?: string | null;
   roomParticleId?: string | null;
   sowItemId?: string | null;
+  // Attachment file IDs to include
+  attachmentProjectFileIds?: string[];
 }
 
 interface RoomComponentAgg {
@@ -1420,6 +1446,7 @@ export default function ProjectDetailPage({
 
   const [invoiceMessage, setInvoiceMessage] = useState<string | null>(null);
   const [paymentsMessage, setPaymentsMessage] = useState<string | null>(null);
+  const [invoiceAttachMenuOpen, setInvoiceAttachMenuOpen] = useState(false);
 
   async function loadActiveInvoice() {
     if (!project || !activeInvoice?.id) return;
@@ -3891,6 +3918,7 @@ ${htmlBody}
       logDate: today,
       title: "",
       tags: "",
+      type: "PUDL" as DailyLogType,
       weatherSummary: "",
       workPerformed: "",
       crewOnSite: "",
@@ -3903,6 +3931,11 @@ ${htmlBody}
       shareSubs: false,
       shareClient: false,
       sharePrivate: false,
+      // Receipt/expense defaults
+      expenseVendor: "",
+      expenseAmount: "",
+      expenseDate: today,
+      attachmentProjectFileIds: [],
     };
   });
 
@@ -9891,10 +9924,13 @@ ${htmlBody}
           .map(t => t.trim())
           .filter(Boolean);
 
+        const isReceiptExpense = newDailyLog.type === "RECEIPT_EXPENSE";
+
         const body: any = {
           logDate: newDailyLog.logDate,
           title: newDailyLog.title || null,
           tags: tagsArray,
+          type: newDailyLog.type,
           weatherSummary: newDailyLog.weatherSummary || null,
           crewOnSite: newDailyLog.crewOnSite || null,
           workPerformed: newDailyLog.workPerformed || null,
@@ -9903,12 +9939,25 @@ ${htmlBody}
           manpowerOnsite: newDailyLog.manpowerOnsite || null,
           personOnsite: newDailyLog.personOnsite || null,
           confidentialNotes: newDailyLog.confidentialNotes || null,
-          shareInternal: newDailyLog.shareInternal,
-          shareSubs: newDailyLog.shareSubs,
-          shareClient: newDailyLog.shareClient,
-          sharePrivate: newDailyLog.sharePrivate,
+          shareInternal: isReceiptExpense ? false : newDailyLog.shareInternal,
+          shareSubs: isReceiptExpense ? false : newDailyLog.shareSubs,
+          shareClient: isReceiptExpense ? false : newDailyLog.shareClient,
+          sharePrivate: isReceiptExpense ? true : newDailyLog.sharePrivate,
           notifyUserIds: [] as string[],
         };
+
+        // Receipt/expense fields
+        if (isReceiptExpense) {
+          body.expenseVendor = newDailyLog.expenseVendor || null;
+          const amt = parseFloat(newDailyLog.expenseAmount);
+          body.expenseAmount = !isNaN(amt) ? amt : null;
+          body.expenseDate = newDailyLog.expenseDate || null;
+        }
+
+        // Attachment file IDs
+        if (newDailyLog.attachmentProjectFileIds && newDailyLog.attachmentProjectFileIds.length > 0) {
+          body.attachmentProjectFileIds = newDailyLog.attachmentProjectFileIds;
+        }
 
         // Attach PETL context if present (PUDL scenario)
         if (newDailyLog.buildingId) body.buildingId = newDailyLog.buildingId;
@@ -9937,6 +9986,7 @@ ${htmlBody}
           ...prev,
           title: "",
           tags: "",
+          type: "PUDL" as DailyLogType,
           weatherSummary: "",
           workPerformed: "",
           crewOnSite: "",
@@ -9945,6 +9995,10 @@ ${htmlBody}
           manpowerOnsite: "",
           personOnsite: "",
           confidentialNotes: "",
+          expenseVendor: "",
+          expenseAmount: "",
+          expenseDate: new Date().toISOString().slice(0, 10),
+          attachmentProjectFileIds: [],
           buildingId: undefined,
           unitId: undefined,
           roomParticleId: undefined,
@@ -13351,6 +13405,94 @@ ${htmlBody}
                     {billsMessage}
                   </div>
                 )}
+
+                {/* Uncommitted Receipts Section - Draft bills from daily log receipts */}
+                {!projectBillsLoading && projectBills && (() => {
+                  const uncommittedReceipts = projectBills.filter(
+                    (b: any) => b?.sourceDailyLogId && b?.status === "DRAFT"
+                  );
+                  if (uncommittedReceipts.length === 0) return null;
+                  return (
+                    <div
+                      style={{
+                        marginBottom: 12,
+                        padding: "10px 12px",
+                        borderRadius: 6,
+                        background: "#fef3c7",
+                        border: "1px solid #fcd34d",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#92400e" }}>
+                          📥 Uncommitted Receipts ({uncommittedReceipts.length})
+                        </div>
+                        <span style={{ fontSize: 11, color: "#b45309" }}>
+                          Submitted by field crew - review and commit
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {uncommittedReceipts.map((b: any) => {
+                          const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                          const attachments: any[] = Array.isArray(b?.attachments) ? b.attachments : [];
+                          return (
+                            <div
+                              key={String(b?.id ?? Math.random())}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 8,
+                                padding: "6px 8px",
+                                borderRadius: 4,
+                                background: "#fffbeb",
+                              }}
+                            >
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600, fontSize: 12 }}>
+                                  {b?.vendorName ?? "Unknown Vendor"}
+                                </div>
+                                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                                  {b?.billDate ? String(b.billDate).slice(0, 10) : "No date"}
+                                  {li?.description && ` · ${li.description}`}
+                                </div>
+                              </div>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: "#92400e" }}>
+                                {formatMoney(b?.totalAmount)}
+                              </div>
+                              {attachments.length > 0 && (
+                                <a
+                                  href={String(attachments[0]?.fileUrl ?? "#")}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ fontSize: 11, color: "#2563eb" }}
+                                  title="View receipt"
+                                >
+                                  🖼️ View
+                                </a>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => openEditBillModal(b)}
+                                style={{
+                                  padding: "3px 8px",
+                                  borderRadius: 4,
+                                  border: "1px solid #92400e",
+                                  background: "#f59e0b",
+                                  color: "#ffffff",
+                                  cursor: "pointer",
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                }}
+                              >
+                                Review
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {projectBillsLoading && <div style={{ color: "#6b7280" }}>Loading bills…</div>}
                 {projectBillsError && !projectBillsLoading && (
@@ -17163,95 +17305,379 @@ ${htmlBody}
                         >
                         Add line
                         </button>
+
+                        {/* Attach button - narrow vertical oval with paperclip */}
+                        <div style={{ position: "relative" }}>
+                          <button
+                            type="button"
+                            onClick={() => setInvoiceAttachMenuOpen(prev => !prev)}
+                            style={{
+                              padding: "2px 4px",
+                              borderRadius: 10,
+                              border: "1px solid #0f172a",
+                              background: "#ffffff",
+                              cursor: "pointer",
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              height: 32,
+                              minWidth: 20,
+                            }}
+                            title="Attach file"
+                          >
+<span style={{ fontSize: 16, display: "inline-block", transform: "rotate(45deg)" }}>📎</span>
+                          </button>
+                          {invoiceAttachMenuOpen && (<>
+                            {/* Invisible backdrop to close menu on click outside */}
+                            <div
+                              onClick={() => setInvoiceAttachMenuOpen(false)}
+                              style={{
+                                position: "fixed",
+                                inset: 0,
+                                zIndex: 99,
+                              }}
+                            />
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: "100%",
+                                right: 0,
+                                marginTop: 4,
+                                background: "#ffffff",
+                                border: "1px solid #e5e7eb",
+                                borderRadius: 6,
+                                boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                                zIndex: 100,
+                                minWidth: 180,
+                                overflow: "hidden",
+                              }}
+                            >
+                                <div style={{ padding: "6px 10px", fontSize: 11, color: "#6b7280", borderBottom: "1px solid #e5e7eb" }}>
+                                  Attachment Source
+                                </div>
+                                {/* Photo/Camera option */}
+                                <label
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                    padding: "8px 12px",
+                                    cursor: "pointer",
+                                    fontSize: 12,
+                                  }}
+                                  onMouseEnter={e => (e.currentTarget.style.background = "#f3f4f6")}
+                                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                                >
+                                  <span>📷</span>
+                                  <span>Take Photo</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    capture="environment"
+                                    style={{ display: "none" }}
+                                    onChange={async (e) => {
+                                      const file = e.target.files?.[0];
+                                      if (!file || !project || !activeInvoice?.id) return;
+                                      setInvoiceAttachMenuOpen(false);
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) {
+                                        setInvoiceMessage("Missing access token.");
+                                        return;
+                                      }
+                                      try {
+                                        setInvoiceMessage("Uploading...");
+                                        // Step 1: get signed upload URL
+                                        const metaRes = await fetch(
+                                          `${API_BASE}/projects/${project.id}/files/upload-url`,
+                                          {
+                                            method: "POST",
+                                            headers: {
+                                              "Content-Type": "application/json",
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                            body: JSON.stringify({
+                                              contentType: file.type || "image/jpeg",
+                                              fileName: file.name || "photo.jpg",
+                                            }),
+                                          }
+                                        );
+                                        if (!metaRes.ok) {
+                                          setInvoiceMessage(`Upload failed (${metaRes.status})`);
+                                          return;
+                                        }
+                                        const meta = await metaRes.json();
+                                        // Step 2: upload to storage
+                                        const putRes = await fetch(meta.uploadUrl, {
+                                          method: "PUT",
+                                          headers: { "Content-Type": file.type || "image/jpeg" },
+                                          body: file,
+                                        });
+                                        if (!putRes.ok) {
+                                          setInvoiceMessage(`Upload failed (${putRes.status})`);
+                                          return;
+                                        }
+                                        // Step 3: compute hash and register file
+                                        const contentHash = await computeFileHash(file);
+                                        const registerRes = await fetch(
+                                          `${API_BASE}/projects/${project.id}/files`,
+                                          {
+                                            method: "POST",
+                                            headers: {
+                                              "Content-Type": "application/json",
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                            body: JSON.stringify({
+                                              fileUri: meta.fileUri,
+                                              fileName: file.name || "photo.jpg",
+                                              mimeType: file.type || "image/jpeg",
+                                              sizeBytes: file.size,
+                                              contentHash,
+                                            }),
+                                          }
+                                        );
+                                        if (!registerRes.ok) {
+                                          setInvoiceMessage(`Register failed (${registerRes.status})`);
+                                          return;
+                                        }
+                                        const uploaded = await registerRes.json();
+                                        // Step 4: attach to invoice
+                                        const attachRes = await fetch(
+                                          `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/attachments`,
+                                          {
+                                            method: "POST",
+                                            headers: {
+                                              "Content-Type": "application/json",
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                            body: JSON.stringify({ projectFileId: uploaded.id }),
+                                          }
+                                        );
+                                        if (!attachRes.ok) {
+                                          setInvoiceMessage(`Attach failed (${attachRes.status})`);
+                                          return;
+                                        }
+                                        const json = await attachRes.json();
+                                        setActiveInvoice(json);
+                                        setInvoiceMessage(uploaded.isDuplicate ? "Photo linked (existing file)." : "Photo attached.");
+                                      } catch (err: any) {
+                                        setInvoiceMessage(err?.message ?? "Upload failed.");
+                                      }
+                                      e.target.value = "";
+                                    }}
+                                  />
+                                </label>
+                                {/* Upload file option */}
+                                <label
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                    padding: "8px 12px",
+                                    cursor: "pointer",
+                                    fontSize: 12,
+                                  }}
+                                  onMouseEnter={e => (e.currentTarget.style.background = "#f3f4f6")}
+                                  onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                                >
+                                  <span>📄</span>
+                                  <span>Upload File</span>
+                                  <input
+                                    type="file"
+                                    accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx"
+                                    style={{ display: "none" }}
+                                    onChange={async (e) => {
+                                      const file = e.target.files?.[0];
+                                      if (!file || !project || !activeInvoice?.id) return;
+                                      setInvoiceAttachMenuOpen(false);
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) {
+                                        setInvoiceMessage("Missing access token.");
+                                        return;
+                                      }
+                                      try {
+                                        setInvoiceMessage("Uploading...");
+                                        // Step 1: get signed upload URL
+                                        const metaRes = await fetch(
+                                          `${API_BASE}/projects/${project.id}/files/upload-url`,
+                                          {
+                                            method: "POST",
+                                            headers: {
+                                              "Content-Type": "application/json",
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                            body: JSON.stringify({
+                                              contentType: file.type || "application/octet-stream",
+                                              fileName: file.name || "attachment",
+                                            }),
+                                          }
+                                        );
+                                        if (!metaRes.ok) {
+                                          setInvoiceMessage(`Upload failed (${metaRes.status})`);
+                                          return;
+                                        }
+                                        const meta = await metaRes.json();
+                                        // Step 2: upload to storage
+                                        const putRes = await fetch(meta.uploadUrl, {
+                                          method: "PUT",
+                                          headers: { "Content-Type": file.type || "application/octet-stream" },
+                                          body: file,
+                                        });
+                                        if (!putRes.ok) {
+                                          setInvoiceMessage(`Upload failed (${putRes.status})`);
+                                          return;
+                                        }
+                                        // Step 3: compute hash and register file
+                                        const contentHash = await computeFileHash(file);
+                                        const registerRes = await fetch(
+                                          `${API_BASE}/projects/${project.id}/files`,
+                                          {
+                                            method: "POST",
+                                            headers: {
+                                              "Content-Type": "application/json",
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                            body: JSON.stringify({
+                                              fileUri: meta.fileUri,
+                                              fileName: file.name || "attachment",
+                                              mimeType: file.type || undefined,
+                                              sizeBytes: file.size,
+                                              contentHash,
+                                            }),
+                                          }
+                                        );
+                                        if (!registerRes.ok) {
+                                          setInvoiceMessage(`Register failed (${registerRes.status})`);
+                                          return;
+                                        }
+                                        const uploaded = await registerRes.json();
+                                        // Step 4: attach to invoice
+                                        const attachRes = await fetch(
+                                          `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/attachments`,
+                                          {
+                                            method: "POST",
+                                            headers: {
+                                              "Content-Type": "application/json",
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                            body: JSON.stringify({ projectFileId: uploaded.id }),
+                                          }
+                                        );
+                                        if (!attachRes.ok) {
+                                          setInvoiceMessage(`Attach failed (${attachRes.status})`);
+                                          return;
+                                        }
+                                        const json = await attachRes.json();
+                                        setActiveInvoice(json);
+                                        setInvoiceMessage(uploaded.isDuplicate ? "File linked (existing file)." : "File attached.");
+                                      } catch (err: any) {
+                                        setInvoiceMessage(err?.message ?? "Upload failed.");
+                                      }
+                                      e.target.value = "";
+                                    }}
+                                  />
+                                </label>
+                                {/* Project Link option - link to existing file */}
+                                <div
+                                  style={{
+                                    borderTop: "1px solid #e5e7eb",
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 8,
+                                      padding: "8px 12px",
+                                      fontSize: 12,
+                                      color: "#111827",
+                                    }}
+                                  >
+                                    <span>🔗</span>
+                                    <span>Project Link</span>
+                                  </div>
+                                  <select
+                                    id="invoice-attach-file-select"
+                                    style={{
+                                      width: "calc(100% - 24px)",
+                                      margin: "0 12px 8px 12px",
+                                      padding: "4px 6px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      fontSize: 11,
+                                    }}
+                                    onChange={async (e) => {
+                                      const projectFileId = e.target.value;
+                                      if (!projectFileId || !project || !activeInvoice?.id) return;
+                                      setInvoiceAttachMenuOpen(false);
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) {
+                                        setInvoiceMessage("Missing access token.");
+                                        return;
+                                      }
+                                      try {
+                                        const res = await fetch(
+                                          `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/attachments`,
+                                          {
+                                            method: "POST",
+                                            headers: {
+                                              "Content-Type": "application/json",
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                            body: JSON.stringify({ projectFileId }),
+                                          }
+                                        );
+                                        if (!res.ok) {
+                                          const text = await res.text().catch(() => "");
+                                          setInvoiceMessage(`Attach failed (${res.status}) ${text}`);
+                                          return;
+                                        }
+                                        const json = await res.json();
+                                        setActiveInvoice(json);
+                                        setInvoiceMessage("File attached.");
+                                      } catch (err: any) {
+                                        setInvoiceMessage(err?.message ?? "Attach failed.");
+                                      }
+                                      e.target.value = "";
+                                    }}
+                                  >
+                                    <option value="">Select file...</option>
+                                    {Array.isArray(billAttachmentFileOptions) && billAttachmentFileOptions.map((f: any) => (
+                                      <option key={f.id} value={f.id}>{f.fileName}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                            </div>
+                            </>)}
+                        </div>
                       </div>
 
-                      {/* Attachments section */}
-                      <div style={{ marginTop: 12 }}>
-                        <div style={{ fontWeight: 600, marginBottom: 6 }}>Attachments</div>
-                        {Array.isArray(activeInvoice?.attachments) && activeInvoice.attachments.length > 0 && (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+                      {/* Attachments list */}
+                      {Array.isArray(activeInvoice?.attachments) && activeInvoice.attachments.length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Attachments</div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                             {activeInvoice.attachments.map((a: any) => (
                               <a
                                 key={String(a?.id ?? a?.projectFileId ?? Math.random())}
                                 href={String(a?.fileUrl ?? "#")}
                                 target="_blank"
                                 rel="noreferrer"
-                                style={{ fontSize: 12, color: "#2563eb", textDecoration: "none" }}
+                                style={{
+                                  fontSize: 11,
+                                  color: "#2563eb",
+                                  textDecoration: "none",
+                                  padding: "2px 6px",
+                                  background: "#eff6ff",
+                                  borderRadius: 4,
+                                }}
                               >
                                 📎 {String(a?.fileName ?? "Attachment")}
                               </a>
                             ))}
                           </div>
-                        )}
-                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                          <select
-                            id="invoice-attach-file-select"
-                            style={{
-                              flex: "1 1 200px",
-                              padding: "6px 8px",
-                              borderRadius: 4,
-                              border: "1px solid #d1d5db",
-                              fontSize: 12,
-                            }}
-                          >
-                            <option value="">Select a project file...</option>
-                            {Array.isArray(billAttachmentFileOptions) && billAttachmentFileOptions.map((f: any) => (
-                              <option key={f.id} value={f.id}>{f.fileName}</option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              if (!project || !activeInvoice?.id) return;
-                              const token = localStorage.getItem("accessToken");
-                              if (!token) {
-                                setInvoiceMessage("Missing access token.");
-                                return;
-                              }
-                              const select = document.getElementById("invoice-attach-file-select") as HTMLSelectElement;
-                              const projectFileId = select?.value;
-                              if (!projectFileId) {
-                                setInvoiceMessage("Select a file to attach.");
-                                return;
-                              }
-                              try {
-                                const res = await fetch(
-                                  `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/attachments`,
-                                  {
-                                    method: "POST",
-                                    headers: {
-                                      "Content-Type": "application/json",
-                                      Authorization: `Bearer ${token}`,
-                                    },
-                                    body: JSON.stringify({ projectFileId }),
-                                  }
-                                );
-                                if (!res.ok) {
-                                  const text = await res.text().catch(() => "");
-                                  setInvoiceMessage(`Attach failed (${res.status}) ${text}`);
-                                  return;
-                                }
-                                const json: any = await res.json();
-                                setActiveInvoice(json);
-                                setInvoiceMessage("File attached.");
-                                select.value = "";
-                              } catch (err: any) {
-                                setInvoiceMessage(err?.message ?? "Attach failed.");
-                              }
-                            }}
-                            style={{
-                              padding: "6px 10px",
-                              borderRadius: 4,
-                              border: "1px solid #d1d5db",
-                              background: "#f9fafb",
-                              fontSize: 12,
-                              cursor: "pointer",
-                            }}
-                          >
-                            Attach
-                          </button>
                         </div>
-                      </div>
+                      )}
 
                       <div style={{ marginTop: 12 }}>
                         <div style={{ fontWeight: 600, marginBottom: 6 }}>Issue invoice</div>
@@ -18371,6 +18797,30 @@ ${htmlBody}
                   <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
                     <div style={{ flex: 1 }}>
                       <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>
+                        Type
+                      </label>
+                      <select
+                        value={newDailyLog.type}
+                        onChange={e =>
+                          setNewDailyLog(prev => ({ ...prev, type: e.target.value as DailyLogType }))
+                        }
+                        style={{
+                          width: "100%",
+                          padding: "4px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 12,
+                        }}
+                      >
+                        <option value="PUDL">Daily Log (PUDL)</option>
+                        <option value="RECEIPT_EXPENSE">Receipt / Expense</option>
+                        <option value="JSA">Job Safety Assessment</option>
+                        <option value="INCIDENT">Incident Report</option>
+                        <option value="QUALITY">Quality Inspection</option>
+                      </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>
                         Date
                       </label>
                       <input
@@ -18389,6 +18839,89 @@ ${htmlBody}
                       />
                     </div>
                   </div>
+
+                  {/* Receipt/Expense fields - shown when type is RECEIPT_EXPENSE */}
+                  {newDailyLog.type === "RECEIPT_EXPENSE" && (
+                    <div
+                      style={{
+                        marginBottom: 6,
+                        padding: "8px",
+                        borderRadius: 4,
+                        background: "#fef3c7",
+                        border: "1px solid #fcd34d",
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#92400e" }}>
+                        Receipt Details
+                      </div>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                        <div style={{ flex: 2 }}>
+                          <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>
+                            Vendor
+                          </label>
+                          <input
+                            type="text"
+                            value={newDailyLog.expenseVendor}
+                            onChange={e =>
+                              setNewDailyLog(prev => ({ ...prev, expenseVendor: e.target.value }))
+                            }
+                            placeholder="Home Depot, Lowe's, etc."
+                            style={{
+                              width: "100%",
+                              padding: "4px 6px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>
+                            Amount
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={newDailyLog.expenseAmount}
+                            onChange={e =>
+                              setNewDailyLog(prev => ({ ...prev, expenseAmount: e.target.value }))
+                            }
+                            placeholder="0.00"
+                            style={{
+                              width: "100%",
+                              padding: "4px 6px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>
+                            Receipt Date
+                          </label>
+                          <input
+                            type="date"
+                            value={newDailyLog.expenseDate}
+                            onChange={e =>
+                              setNewDailyLog(prev => ({ ...prev, expenseDate: e.target.value }))
+                            }
+                            style={{
+                              width: "100%",
+                              padding: "4px 6px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 10, color: "#92400e" }}>
+                        📸 Attach a receipt photo below. OCR will auto-extract vendor and amount.
+                      </div>
+                    </div>
+                  )}
 
                   {pudlContext.open && pudlContext.breadcrumb && (
                     <div
@@ -18748,34 +19281,119 @@ ${htmlBody}
                     />
                   </div>
 
+                  {/* Attachment Upload Section */}
+                  <div style={{ marginTop: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                      Attachments
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <label
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          padding: "4px 8px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          background: "#f9fafb",
+                          fontSize: 11,
+                          cursor: "pointer",
+                        }}
+                      >
+                        <span>📷</span>
+                        <span>Upload Photo/File</span>
+                        <input
+                          type="file"
+                          accept="image/*,application/pdf"
+                          capture="environment"
+                          style={{ display: "none" }}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const token = localStorage.getItem("accessToken");
+                            if (!token) {
+                              setDailyLogMessage("Missing access token.");
+                              return;
+                            }
+                            try {
+                              setDailyLogMessage("Uploading file...");
+                              const formData = new FormData();
+                              formData.append("file", file);
+                              formData.append("folder", "daily-logs");
+                              const res = await fetch(`${API_BASE}/projects/${id}/files`, {
+                                method: "POST",
+                                headers: { Authorization: `Bearer ${token}` },
+                                body: formData,
+                              });
+                              if (!res.ok) {
+                                setDailyLogMessage(`Upload failed (${res.status})`);
+                                return;
+                              }
+                              const uploaded = await res.json();
+                              setNewDailyLog(prev => ({
+                                ...prev,
+                                attachmentProjectFileIds: [
+                                  ...(prev.attachmentProjectFileIds || []),
+                                  uploaded.id,
+                                ],
+                              }));
+                              setDailyLogMessage(`Attached: ${file.name}`);
+                            } catch (err: any) {
+                              setDailyLogMessage(`Upload error: ${err?.message || "Unknown"}`);
+                            }
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                      {newDailyLog.attachmentProjectFileIds && newDailyLog.attachmentProjectFileIds.length > 0 && (
+                        <span style={{ fontSize: 11, color: "#059669" }}>
+                          ✓ {newDailyLog.attachmentProjectFileIds.length} file(s) attached
+                        </span>
+                      )}
+                    </div>
+                    {newDailyLog.type === "RECEIPT_EXPENSE" && (
+                      <div style={{ fontSize: 10, color: "#6b7280", marginTop: 4 }}>
+                        Tip: On mobile, this will open your camera for quick receipt capture.
+                      </div>
+                    )}
+                  </div>
+
                   <div style={{ marginTop: 8, marginBottom: 8 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
                       Permissions
+                      {newDailyLog.type === "RECEIPT_EXPENSE" && (
+                        <span style={{ fontWeight: 400, color: "#6b7280", marginLeft: 6 }}>
+                          (locked for receipts)
+                        </span>
+                      )}
                     </div>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, opacity: newDailyLog.type === "RECEIPT_EXPENSE" ? 0.5 : 1 }}>
                       <input
                         type="checkbox"
-                        checked={newDailyLog.shareInternal}
+                        checked={newDailyLog.type === "RECEIPT_EXPENSE" ? false : newDailyLog.shareInternal}
+                        disabled={newDailyLog.type === "RECEIPT_EXPENSE"}
                         onChange={e =>
                           setNewDailyLog(prev => ({ ...prev, shareInternal: e.target.checked }))
                         }
                       />
                       <span>Internal Users</span>
                     </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, opacity: newDailyLog.type === "RECEIPT_EXPENSE" ? 0.5 : 1 }}>
                       <input
                         type="checkbox"
-                        checked={newDailyLog.shareSubs}
+                        checked={newDailyLog.type === "RECEIPT_EXPENSE" ? false : newDailyLog.shareSubs}
+                        disabled={newDailyLog.type === "RECEIPT_EXPENSE"}
                         onChange={e =>
                           setNewDailyLog(prev => ({ ...prev, shareSubs: e.target.checked }))
                         }
                       />
                       <span>Subs / Vendors</span>
                     </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, opacity: newDailyLog.type === "RECEIPT_EXPENSE" ? 0.5 : 1 }}>
                       <input
                         type="checkbox"
-                        checked={newDailyLog.shareClient}
+                        checked={newDailyLog.type === "RECEIPT_EXPENSE" ? false : newDailyLog.shareClient}
+                        disabled={newDailyLog.type === "RECEIPT_EXPENSE"}
                         onChange={e =>
                           setNewDailyLog(prev => ({ ...prev, shareClient: e.target.checked }))
                         }
@@ -18785,7 +19403,8 @@ ${htmlBody}
                     <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <input
                         type="checkbox"
-                        checked={newDailyLog.sharePrivate}
+                        checked={newDailyLog.type === "RECEIPT_EXPENSE" ? true : newDailyLog.sharePrivate}
+                        disabled={newDailyLog.type === "RECEIPT_EXPENSE"}
                         onChange={e =>
                           setNewDailyLog(prev => ({ ...prev, sharePrivate: e.target.checked }))
                         }
@@ -23986,7 +24605,8 @@ ${htmlBody}
                         return;
                       }
 
-                      // Step 3: register as ProjectFile
+                      // Step 3: compute content hash and register as ProjectFile
+                      const contentHash = await computeFileHash(file);
                       const registerRes = await fetch(
                         `${API_BASE}/projects/${project.id}/files`,
                         {
@@ -24000,6 +24620,7 @@ ${htmlBody}
                             fileName: file.name || "attachment",
                             mimeType: file.type || undefined,
                             sizeBytes: typeof file.size === "number" ? file.size : undefined,
+                            contentHash,
                           }),
                         },
                       );

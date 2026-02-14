@@ -85,18 +85,18 @@ export function RoleVisible({
 
   const baseStyles: CSSProperties = {
     background: colors.bg,
-    border: `3px solid ${colors.border}`,
-    borderRadius: 6,
+    borderBottom: `4px solid ${colors.border}`,
+    borderRadius: 4,
     position: "relative",
     ...style,
   };
 
   const displayStyles: CSSProperties = 
     display === "inline"
-      ? { display: "inline", padding: "2px 8px" }
+      ? { display: "inline-flex", alignItems: "center", gap: 6, padding: "2px 8px" }
       : display === "field"
-        ? { display: "block", padding: "8px 12px" }
-        : { display: "block", padding: "4px 8px" };
+        ? { display: "flex", alignItems: "center", gap: 8, padding: "8px 12px" }
+        : { display: "flex", alignItems: "center", gap: 8, padding: "4px 8px" };
 
   return (
     <span
@@ -104,27 +104,19 @@ export function RoleVisible({
       title={tooltipText}
       data-role-audit={minRole}
     >
-      {children}
-      {/* Badge showing the role level - 2x size */}
+      <span style={{ flex: 1 }}>{children}</span>
+      {/* Colored dot indicator - always visible at right side */}
       <span
         style={{
-          position: "absolute",
-          top: -12,
-          right: -6,
+          width: 14,
+          height: 14,
+          borderRadius: "50%",
           background: colors.border,
-          color: "#ffffff",
-          fontSize: 14,
-          fontWeight: 700,
-          padding: "2px 8px",
-          borderRadius: 6,
-          whiteSpace: "nowrap",
-          lineHeight: 1.2,
-          boxShadow: "0 2px 4px rgba(0,0,0,0.25)",
-          zIndex: 10,
+          flexShrink: 0,
+          boxShadow: `0 0 0 3px ${colors.bg}, 0 2px 4px rgba(0,0,0,0.2)`,
         }}
-      >
-        {roleLabel}
-      </span>
+        aria-hidden="true"
+      />
     </span>
   );
 }
@@ -137,7 +129,7 @@ export function useRoleAuditStyles(minRole: VisibilityRole) {
   const { auditMode } = useRoleAuditSafe();
 
   if (!auditMode) {
-    return { isAuditing: false, styles: {} };
+    return { isAuditing: false, styles: {}, dotStyles: {} };
   }
 
   const colors = ROLE_COLORS[minRole];
@@ -146,8 +138,17 @@ export function useRoleAuditStyles(minRole: VisibilityRole) {
     isAuditing: true,
     styles: {
       background: colors.bg,
-      border: `2px solid ${colors.border}`,
+      borderBottom: `4px solid ${colors.border}`,
       borderRadius: 4,
+    } as CSSProperties,
+    // Styles for the colored dot indicator
+    dotStyles: {
+      width: 14,
+      height: 14,
+      borderRadius: "50%",
+      background: colors.border,
+      flexShrink: 0,
+      boxShadow: `0 0 0 3px ${colors.bg}, 0 2px 4px rgba(0,0,0,0.2)`,
     } as CSSProperties,
     colors,
     label: ROLE_LABELS[minRole],
