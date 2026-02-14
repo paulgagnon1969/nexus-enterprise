@@ -23,14 +23,16 @@ export class TenantClientService {
 
   /**
    * Search for tenant clients by name, email, or phone.
-   * Returns matches sorted by relevance (exact matches first).
+   * Also searches project contact data (primaryContact fields) to find
+   * contacts from other projects even if not yet in TenantClient table.
+   * Returns matches sorted by relevance.
    */
   async search(companyId: string, query: string, limit = 10) {
     const q = query.trim().toLowerCase();
     if (!q) return [];
 
-    // Search by firstName, lastName, email, or phone
-    const clients = await this.prisma.tenantClient.findMany({
+    // 1. Search TenantClient records
+    const tenantClients = await this.prisma.tenantClient.findMany({
       where: {
         companyId,
         active: true,
@@ -50,7 +52,17 @@ export class TenantClientService {
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     });
 
-    return clients.map((c: typeof clients[number]) => ({
+    const results: Array<{
+      id: string;
+      firstName: string | null;
+      lastName: string | null;
+      displayName: string | null;
+      email: string | null;
+      phone: string | null;
+      company: string | null;
+      projectCount?: number;
+      source: "tenant_client" | "project";
+    }> = tenantClients.map((c) => ({
       id: c.id,
       firstName: c.firstName,
       lastName: c.lastName,
@@ -59,7 +71,68 @@ export class TenantClientService {
       phone: c.phone,
       company: c.company,
       projectCount: c._count.projects,
+      source: "tenant_client" as const,
     }));
+
+    // 2. Search project contact fields (primaryContactName, etc.)
+    // Only if we need more results
+    if (results.length < limit) {
+      const projectContacts = await this.prisma.project.findMany({
+        where: {
+          companyId,
+          OR: [
+            { primaryContactName: { contains: q, mode: "insensitive" } },
+            { primaryContactEmail: { contains: q, mode: "insensitive" } },
+            { primaryContactPhone: { contains: q, mode: "insensitive" } },
+          ],
+          // Exclude projects already linked to a TenantClient
+          tenantClientId: null,
+        },
+        select: {
+          id: true,
+          primaryContactName: true,
+          primaryContactEmail: true,
+          primaryContactPhone: true,
+        },
+        take: limit * 2, // Get more to allow for deduplication
+      });
+
+      // Deduplicate by email or phone (case-insensitive)
+      const seen = new Set<string>();
+      // Add existing results to seen set
+      for (const r of results) {
+        if (r.email) seen.add(r.email.toLowerCase());
+        if (r.phone) seen.add(r.phone.replace(/\D/g, "")); // normalize phone
+      }
+
+      for (const p of projectContacts) {
+        // Skip if we've already seen this contact
+        const emailKey = p.primaryContactEmail?.toLowerCase();
+        const phoneKey = p.primaryContactPhone?.replace(/\D/g, "");
+        if (emailKey && seen.has(emailKey)) continue;
+        if (phoneKey && phoneKey.length >= 7 && seen.has(phoneKey)) continue;
+
+        // Add to results
+        results.push({
+          id: `project:${p.id}`, // Prefix to distinguish from TenantClient IDs
+          firstName: null,
+          lastName: null,
+          displayName: p.primaryContactName,
+          email: p.primaryContactEmail,
+          phone: p.primaryContactPhone,
+          company: null,
+          source: "project" as const,
+        });
+
+        // Mark as seen
+        if (emailKey) seen.add(emailKey);
+        if (phoneKey && phoneKey.length >= 7) seen.add(phoneKey);
+
+        if (results.length >= limit) break;
+      }
+    }
+
+    return results.slice(0, limit);
   }
 
   /**
