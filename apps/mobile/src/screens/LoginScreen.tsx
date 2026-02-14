@@ -44,11 +44,7 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
           setEmail(saved.email);
           setPassword(saved.password);
           setHasSavedCreds(true);
-
-          // Auto-trigger biometric if enabled and available
-          if (bioEnabled && compatible && enrolled) {
-            attemptBiometricLogin(saved.email, saved.password);
-          }
+          // Don't auto-trigger biometric - let user explicitly tap the button
         }
       } catch (e) {
         console.warn("Failed to load credentials:", e);
