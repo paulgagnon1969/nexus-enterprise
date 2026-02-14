@@ -282,14 +282,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Poll for unread notifications to drive the header badge.
+  // Uses visibility-aware polling to avoid INP attribution accumulation on idle tabs.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const token = window.localStorage.getItem("accessToken");
     if (!token) return;
 
     let cancelled = false;
+    let timeoutId: number | null = null;
 
     async function loadOnce() {
+      // Skip polling when tab is hidden to avoid accumulating INP attribution
+      if (document.hidden) return;
+
       try {
         const res = await fetch(`${API_BASE}/notifications?onlyUnread=true`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -303,13 +308,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       }
     }
 
-    void loadOnce();
+    function scheduleNext() {
+      if (cancelled) return;
+      timeoutId = window.setTimeout(() => {
+        void loadOnce().finally(() => scheduleNext());
+      }, 60_000);
+    }
 
-    const interval = window.setInterval(loadOnce, 60_000);
+    // Initial load
+    void loadOnce().finally(() => scheduleNext());
+
+    // Re-poll immediately when tab becomes visible after being hidden
+    function handleVisibilityChange() {
+      if (!document.hidden && !cancelled) {
+        void loadOnce();
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
