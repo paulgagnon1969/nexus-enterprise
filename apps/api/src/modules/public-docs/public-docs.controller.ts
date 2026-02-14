@@ -24,6 +24,24 @@ function getUser(req: { user: AuthenticatedUser }): AuthenticatedUser {
 }
 
 /**
+ * Public Portal Controller
+ * Landing page listing all public content (no auth required)
+ */
+@Controller("portal")
+export class PublicPortalController {
+  constructor(private readonly service: PublicDocsService) {}
+
+  /**
+   * Get all public manuals and documents
+   * No auth required
+   */
+  @Get()
+  async getPublicPortal() {
+    return this.service.getPublicPortal();
+  }
+}
+
+/**
  * Public Documents Controller
  * Endpoints for accessing public documents and share links (no auth required)
  */
