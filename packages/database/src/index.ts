@@ -16,3 +16,4 @@ export * from "./state-wages";
 export * from "./inventory";
 export { learnRegionalFactors } from "./learn-regional-factors";
 export { extrapolateCostBookItem, extrapolateCostBookItems } from "./extrapolate-cost-book-item";
+export * from "./sop-sync";

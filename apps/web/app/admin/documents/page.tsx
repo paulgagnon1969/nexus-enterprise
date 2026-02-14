@@ -21,15 +21,13 @@ interface ScanJob {
 }
 
 interface StagedSOP {
-  id: string;
+  code: string;
   title: string;
-  module: string;
   revision: string;
-  tags: string[];
-  status: "draft" | "published";
-  created: string;
-  updated: string;
-  fileName: string;
+  status: string;
+  syncStatus: "new" | "updated" | "synced";
+  currentSystemRevision?: string;
+  systemDocumentId?: string;
 }
 
 // Document type classification
@@ -121,6 +119,7 @@ export default function DocumentImportPage() {
   const [sops, setSops] = useState<StagedSOP[]>([]);
   const [sopsExpanded, setSopsExpanded] = useState(false);
   const [sopsLoading, setSopsLoading] = useState(false);
+  const [sopsSyncing, setSopsSyncing] = useState(false);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem("accessToken");
@@ -185,12 +184,13 @@ export default function DocumentImportPage() {
   const loadSOPs = useCallback(async () => {
     setSopsLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/document-import/sops?status=draft`, {
+      const res = await fetch(`${API_BASE}/admin/sops/staged`, {
         headers: getAuthHeaders(),
       });
       if (res.ok) {
         const data = await res.json();
-        setSops(data.items || []);
+        // Filter to show only new/updated SOPs (not already synced)
+        setSops(data.filter((s: StagedSOP) => s.syncStatus !== "synced"));
       }
     } catch {
       // SOPs endpoint might not exist yet - that's OK
@@ -199,6 +199,40 @@ export default function DocumentImportPage() {
       setSopsLoading(false);
     }
   }, []);
+
+  const handleSyncSop = async (code: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/sops/sync/${code}`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Sync failed");
+      const result = await res.json();
+      alert(`Synced: ${result.title} (${result.action})`);
+      loadSOPs();
+    } catch (err: any) {
+      alert(err?.message ?? "Sync failed");
+    }
+  };
+
+  const handleSyncAllSops = async () => {
+    setSopsSyncing(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/sops/sync`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error("Sync failed");
+      const report = await res.json();
+      alert(`Sync complete: ${report.summary.created} created, ${report.summary.updated} updated`);
+      loadSOPs();
+    } catch (err: any) {
+      alert(err?.message ?? "Sync failed");
+    } finally {
+      setSopsSyncing(false);
+    }
+  };
 
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
@@ -423,43 +457,67 @@ export default function DocumentImportPage() {
             backgroundColor: "#fefce8",
           }}
         >
-          <button
-            type="button"
-            onClick={() => setSopsExpanded(!sopsExpanded)}
+          <div
             style={{
-              width: "100%",
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
               padding: "12px 16px",
-              backgroundColor: "transparent",
-              border: "none",
-              cursor: "pointer",
-              textAlign: "left",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => setSopsExpanded(!sopsExpanded)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                backgroundColor: "transparent",
+                border: "none",
+                cursor: "pointer",
+                textAlign: "left",
+              }}
+            >
               <span style={{ fontSize: 18 }}>📋</span>
               <span style={{ fontSize: 15, fontWeight: 600, color: "#854d0e" }}>
-                Unpublished SOPs
+                Staged SOPs
               </span>
               <span
                 style={{
                   fontSize: 12,
                   padding: "2px 8px",
                   borderRadius: 10,
-                  backgroundColor: "#fde047",
-                  color: "#713f12",
+                  backgroundColor: sops.length > 0 ? "#fde047" : "#d1d5db",
+                  color: sops.length > 0 ? "#713f12" : "#6b7280",
                   fontWeight: 500,
                 }}
               >
-                {sops.length}
+                {sops.length} pending
               </span>
-            </div>
-            <span style={{ fontSize: 14, color: "#854d0e" }}>
-              {sopsExpanded ? "▼" : "▶"}
-            </span>
-          </button>
+              <span style={{ fontSize: 14, color: "#854d0e" }}>
+                {sopsExpanded ? "▼" : "▶"}
+              </span>
+            </button>
+            {sops.length > 0 && (
+              <button
+                type="button"
+                onClick={handleSyncAllSops}
+                disabled={sopsSyncing}
+                style={{
+                  padding: "6px 12px",
+                  fontSize: 12,
+                  fontWeight: 500,
+                  backgroundColor: sopsSyncing ? "#9ca3af" : "#16a34a",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: 4,
+                  cursor: sopsSyncing ? "not-allowed" : "pointer",
+                }}
+              >
+                {sopsSyncing ? "Syncing..." : "🔄 Sync All"}
+              </button>
+            )}
+          </div>
 
           {sopsExpanded && (
             <div style={{ padding: "0 16px 16px", borderTop: "1px solid #fde047" }}>
@@ -467,26 +525,25 @@ export default function DocumentImportPage() {
                 <p style={{ fontSize: 13, color: "#854d0e", padding: "12px 0" }}>Loading SOPs...</p>
               ) : sops.length === 0 ? (
                 <div style={{ padding: "16px 0", textAlign: "center" }}>
-                  <p style={{ fontSize: 13, color: "#a16207", marginBottom: 8 }}>
-                    No unpublished SOPs found.
+                  <p style={{ fontSize: 13, color: "#166534", marginBottom: 8 }}>
+                    ✅ All SOPs synced to Documents
                   </p>
-                  <p style={{ fontSize: 12, color: "#ca8a04" }}>
-                    SOPs are generated when features are pushed to production.<br />
-                    Check <code style={{ backgroundColor: "#fef9c3", padding: "2px 4px", borderRadius: 3 }}>docs/sops-staging/</code> for pending SOPs.
+                  <p style={{ fontSize: 12, color: "#6b7280" }}>
+                    New SOPs in <code style={{ backgroundColor: "#f3f4f6", padding: "2px 4px", borderRadius: 3 }}>docs/sops-staging/</code> will appear here.
                   </p>
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
                   {sops.map((sop) => (
                     <div
-                      key={sop.id}
+                      key={sop.code}
                       style={{
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "space-between",
                         padding: "10px 12px",
                         backgroundColor: "#ffffff",
-                        border: "1px solid #fde68a",
+                        border: `1px solid ${sop.syncStatus === "new" ? "#bbf7d0" : "#fde68a"}`,
                         borderRadius: 6,
                       }}
                     >
@@ -494,6 +551,18 @@ export default function DocumentImportPage() {
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 14, fontWeight: 500, color: "#1f2937" }}>
                             {sop.title}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 10,
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              backgroundColor: sop.syncStatus === "new" ? "#dcfce7" : "#fef3c7",
+                              color: sop.syncStatus === "new" ? "#166534" : "#92400e",
+                              fontWeight: 500,
+                            }}
+                          >
+                            {sop.syncStatus === "new" ? "NEW" : "UPDATE"}
                           </span>
                           <span
                             style={{
@@ -509,46 +578,15 @@ export default function DocumentImportPage() {
                           </span>
                         </div>
                         <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
-                          Module: {sop.module} • Updated: {new Date(sop.updated).toLocaleDateString()}
+                          Code: {sop.code}
+                          {sop.currentSystemRevision && ` • Current: ${sop.currentSystemRevision}`}
                         </div>
-                        {sop.tags.length > 0 && (
-                          <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                            {sop.tags.slice(0, 4).map((tag) => (
-                              <span
-                                key={tag}
-                                style={{
-                                  fontSize: 10,
-                                  padding: "1px 5px",
-                                  borderRadius: 3,
-                                  backgroundColor: "#f3f4f6",
-                                  color: "#4b5563",
-                                }}
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
                       </div>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button
                           type="button"
-                          title="Preview SOP"
-                          style={{
-                            padding: "6px 10px",
-                            fontSize: 12,
-                            backgroundColor: "#f3f4f6",
-                            color: "#374151",
-                            border: "none",
-                            borderRadius: 4,
-                            cursor: "pointer",
-                          }}
-                        >
-                          👁️
-                        </button>
-                        <button
-                          type="button"
-                          title="Publish SOP"
+                          onClick={() => handleSyncSop(sop.code)}
+                          title="Sync this SOP"
                           style={{
                             padding: "6px 10px",
                             fontSize: 12,
@@ -559,7 +597,7 @@ export default function DocumentImportPage() {
                             cursor: "pointer",
                           }}
                         >
-                          🚀 Publish
+                          🔄 Sync
                         </button>
                       </div>
                     </div>
