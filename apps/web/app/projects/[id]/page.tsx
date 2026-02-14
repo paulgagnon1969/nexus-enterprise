@@ -424,120 +424,269 @@ function CheckboxMultiSelect(props: {
   );
 }
 
-// Inline editable field for click-to-edit functionality
-function InlineEditableField(props: {
-  label: string;
-  value: string;
-  placeholder?: string;
+// Client contact section with inline editing and auto-search
+interface TenantClientResult {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  displayName: string | null;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+}
+
+function ClientContactSection(props: {
+  projectId: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
   canEdit: boolean;
-  linkHref?: string;
-  onSave: (value: string) => Promise<void>;
+  onUpdate: (fields: { name?: string | null; email?: string | null; phone?: string | null }) => Promise<void>;
 }) {
-  const { label, value, placeholder = "N/A", canEdit, linkHref, onSave } = props;
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
+  const { projectId, name, email, phone, canEdit, onUpdate } = props;
+  const [editingField, setEditingField] = useState<"name" | "email" | "phone" | null>(null);
+  const [draft, setDraft] = useState({ name: name || "", email: email || "", phone: phone || "" });
   const [saving, setSaving] = useState(false);
+  const [searchResults, setSearchResults] = useState<TenantClientResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showResults, setShowResults] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    if (editing && inputRef.current) {
+    setDraft({ name: name || "", email: email || "", phone: phone || "" });
+  }, [name, email, phone]);
+
+  useEffect(() => {
+    if (editingField && inputRef.current) {
       inputRef.current.focus();
       inputRef.current.select();
     }
-  }, [editing]);
+  }, [editingField]);
 
+  // Close dropdown when clicking outside
   useEffect(() => {
-    setDraft(value);
-  }, [value]);
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowResults(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
-  const handleSave = async () => {
-    if (draft !== value) {
+  const searchClients = async (query: string) => {
+    if (query.length < 2) {
+      setSearchResults([]);
+      setShowResults(false);
+      return;
+    }
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    setSearching(true);
+    try {
+      const res = await fetch(`${API_BASE}/clients/search?q=${encodeURIComponent(query)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSearchResults(Array.isArray(data) ? data : []);
+        setShowResults(true);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleInputChange = (field: "name" | "email" | "phone", value: string) => {
+    setDraft(prev => ({ ...prev, [field]: value }));
+
+    // Debounced search
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => {
+      searchClients(value);
+    }, 300);
+  };
+
+  const handleSelectClient = async (client: TenantClientResult) => {
+    const newName = client.displayName || [client.firstName, client.lastName].filter(Boolean).join(" ") || null;
+    const newEmail = client.email || null;
+    const newPhone = client.phone || null;
+
+    setDraft({ name: newName || "", email: newEmail || "", phone: newPhone || "" });
+    setShowResults(false);
+    setEditingField(null);
+    setSearchResults([]);
+
+    // Save all fields
+    setSaving(true);
+    try {
+      await onUpdate({
+        name: newName,
+        email: newEmail,
+        phone: newPhone,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSave = async (field: "name" | "email" | "phone") => {
+    const originalValue = field === "name" ? name : field === "email" ? email : phone;
+    if (draft[field] !== (originalValue || "")) {
       setSaving(true);
       try {
-        await onSave(draft);
+        await onUpdate({ [field]: draft[field] || null });
       } finally {
         setSaving(false);
       }
     }
-    setEditing(false);
+    setEditingField(null);
+    setShowResults(false);
+    setSearchResults([]);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent, field: "name" | "email" | "phone") => {
     if (e.key === "Enter") {
       e.preventDefault();
-      handleSave();
+      handleSave(field);
     } else if (e.key === "Escape") {
-      setDraft(value);
-      setEditing(false);
+      setDraft({ name: name || "", email: email || "", phone: phone || "" });
+      setEditingField(null);
+      setShowResults(false);
+      setSearchResults([]);
     }
   };
 
-  if (editing) {
+  const renderField = (field: "name" | "email" | "phone", label: string, linkPrefix?: string) => {
+    const value = field === "name" ? name : field === "email" ? email : phone;
+    const draftValue = draft[field];
+    const isEmpty = !value;
+    const isEditing = editingField === field;
+
+    if (isEditing) {
+      return (
+        <div style={{ position: "relative" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}>
+            <span style={{ fontSize: 12, color: "#6b7280", minWidth: 48 }}>{label}:</span>
+            <input
+              ref={inputRef}
+              type="text"
+              value={draftValue}
+              onChange={(e) => handleInputChange(field, e.target.value)}
+              onBlur={() => {
+                // Delay to allow click on search result
+                setTimeout(() => {
+                  if (!showResults) handleSave(field);
+                }, 150);
+              }}
+              onKeyDown={(e) => handleKeyDown(e, field)}
+              disabled={saving}
+              placeholder={`Search by ${label.toLowerCase()}...`}
+              style={{
+                flex: 1,
+                padding: "2px 4px",
+                fontSize: 13,
+                border: "1px solid #2563eb",
+                borderRadius: 3,
+                outline: "none",
+              }}
+            />
+            {searching && <span style={{ fontSize: 10, color: "#9ca3af" }}>...</span>}
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}>
-        <span style={{ fontSize: 10, color: "#9ca3af", minWidth: 40 }}>{label}:</span>
-        <input
-          ref={inputRef}
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={handleSave}
-          onKeyDown={handleKeyDown}
-          disabled={saving}
-          style={{
-            flex: 1,
-            padding: "2px 4px",
-            fontSize: 12,
-            border: "1px solid #2563eb",
-            borderRadius: 3,
-            outline: "none",
-          }}
-        />
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          marginTop: 4,
+          cursor: canEdit ? "pointer" : "default",
+        }}
+        onClick={() => canEdit && setEditingField(field)}
+        title={canEdit ? "Click to edit or search" : undefined}
+      >
+        <span style={{ fontSize: 12, color: "#6b7280", minWidth: 48 }}>{label}:</span>
+        {linkPrefix && !isEmpty ? (
+          <a
+            href={`${linkPrefix}${value}`}
+            onClick={(e) => e.stopPropagation()}
+            style={{ fontSize: 13, color: "#2563eb", textDecoration: "none" }}
+          >
+            {value}
+          </a>
+        ) : (
+          <span
+            style={{
+              fontSize: 13,
+              color: isEmpty ? "#9ca3af" : "#111827",
+              fontStyle: isEmpty ? "italic" : "normal",
+            }}
+          >
+            {value || `No ${label.toLowerCase()}`}
+          </span>
+        )}
+        {canEdit && <span style={{ fontSize: 11, color: "#9ca3af", marginLeft: 2 }}>✎</span>}
       </div>
     );
-  }
-
-  const displayValue = value || placeholder;
-  const isEmpty = !value;
+  };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 4,
-        marginTop: 4,
-        cursor: canEdit ? "pointer" : "default",
-      }}
-      onClick={() => canEdit && setEditing(true)}
-      title={canEdit ? "Click to edit" : undefined}
-    >
-      <span style={{ fontSize: 10, color: "#9ca3af", minWidth: 40 }}>{label}:</span>
-      {linkHref && !isEmpty ? (
-        <a
-          href={linkHref}
-          onClick={(e) => e.stopPropagation()}
+    <div ref={containerRef} style={{ position: "relative" }}>
+      {renderField("name", "Name")}
+      {renderField("phone", "Phone", "tel:")}
+      {renderField("email", "Email", "mailto:")}
+
+      {/* Search results dropdown */}
+      {showResults && searchResults.length > 0 && (
+        <div
           style={{
-            fontSize: 12,
-            color: "#2563eb",
-            textDecoration: "none",
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            right: 0,
+            marginTop: 4,
+            background: "#ffffff",
+            border: "1px solid #d1d5db",
+            borderRadius: 6,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+            zIndex: 100,
+            maxHeight: 200,
+            overflow: "auto",
           }}
         >
-          {displayValue}
-        </a>
-      ) : (
-        <span
-          style={{
-            fontSize: 12,
-            color: isEmpty ? "#9ca3af" : "#111827",
-            fontStyle: isEmpty ? "italic" : "normal",
-          }}
-        >
-          {displayValue}
-        </span>
-      )}
-      {canEdit && (
-        <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: 2 }}>✎</span>
+          <div style={{ padding: "4px 8px", fontSize: 10, color: "#6b7280", borderBottom: "1px solid #e5e7eb" }}>
+            Select to auto-fill all fields
+          </div>
+          {searchResults.map((client) => (
+            <div
+              key={client.id}
+              onClick={() => handleSelectClient(client)}
+              style={{
+                padding: "8px 10px",
+                cursor: "pointer",
+                borderBottom: "1px solid #f3f4f6",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#f3f4f6")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            >
+              <div style={{ fontSize: 13, fontWeight: 500, color: "#111827" }}>
+                {client.displayName || [client.firstName, client.lastName].filter(Boolean).join(" ") || "(No name)"}
+              </div>
+              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                {[client.email, client.phone, client.company].filter(Boolean).join(" • ")}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -11274,7 +11423,7 @@ ${htmlBody}
           )}
         </div>
 
-        {/* Client Contact Info - Always visible, inline editable for Admin+ */}
+        {/* Client Contact Info - Always visible, inline editable with auto-search for Admin+ */}
         {!editProjectMode && (
           <RoleVisible minRole="FOREMAN">
             <div
@@ -11292,58 +11441,23 @@ ${htmlBody}
               <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 6 }}>
                 Client Contact
               </div>
-              <InlineEditableField
-                label="Name"
-                value={project.primaryContactName || ""}
-                placeholder="No name"
+              <ClientContactSection
+                projectId={project.id}
+                name={project.primaryContactName || null}
+                email={project.primaryContactEmail || null}
+                phone={project.primaryContactPhone || null}
                 canEdit={isAdminOrAbove}
-                onSave={async (val) => {
+                onUpdate={async (fields) => {
                   const token = localStorage.getItem("accessToken");
                   if (!token) return;
+                  const body: Record<string, string | null> = {};
+                  if ("name" in fields) body.primaryContactName = fields.name ?? null;
+                  if ("email" in fields) body.primaryContactEmail = fields.email ?? null;
+                  if ("phone" in fields) body.primaryContactPhone = fields.phone ?? null;
                   const res = await fetch(`${API_BASE}/projects/${project.id}`, {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ primaryContactName: val || null }),
-                  });
-                  if (res.ok) {
-                    const updated = await res.json();
-                    setProject(updated);
-                  }
-                }}
-              />
-              <InlineEditableField
-                label="Phone"
-                value={project.primaryContactPhone || ""}
-                placeholder="No phone"
-                canEdit={isAdminOrAbove}
-                linkHref={project.primaryContactPhone ? `tel:${project.primaryContactPhone}` : undefined}
-                onSave={async (val) => {
-                  const token = localStorage.getItem("accessToken");
-                  if (!token) return;
-                  const res = await fetch(`${API_BASE}/projects/${project.id}`, {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ primaryContactPhone: val || null }),
-                  });
-                  if (res.ok) {
-                    const updated = await res.json();
-                    setProject(updated);
-                  }
-                }}
-              />
-              <InlineEditableField
-                label="Email"
-                value={project.primaryContactEmail || ""}
-                placeholder="No email"
-                canEdit={isAdminOrAbove}
-                linkHref={project.primaryContactEmail ? `mailto:${project.primaryContactEmail}` : undefined}
-                onSave={async (val) => {
-                  const token = localStorage.getItem("accessToken");
-                  if (!token) return;
-                  const res = await fetch(`${API_BASE}/projects/${project.id}`, {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ primaryContactEmail: val || null }),
+                    body: JSON.stringify(body),
                   });
                   if (res.ok) {
                     const updated = await res.json();
