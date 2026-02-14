@@ -48,6 +48,9 @@ const NEW_PROJECT_DEFAULT = {
   state: "",
   postalCode: "",
   country: "USA",
+  primaryContactName: "",
+  primaryContactEmail: "",
+  primaryContactPhone: "",
 };
 
 export default function ProjectsLayout({ children }: { children: React.ReactNode }) {
@@ -906,6 +909,66 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
                     }}
                   />
                 </label>
+              </div>
+
+              {/* Client Contact Section */}
+              <div
+                style={{
+                  marginTop: 8,
+                  paddingTop: 8,
+                  borderTop: "1px solid #e5e7eb",
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#374151" }}>
+                  Client Contact (for invoices & correspondence)
+                </div>
+                <label>
+                  <span style={{ display: "block", marginBottom: 2 }}>Client Name</span>
+                  <input
+                    type="text"
+                    value={newProject.primaryContactName}
+                    onChange={e => handleNewProjectChange("primaryContactName", e.target.value)}
+                    placeholder="Full name"
+                    style={{
+                      width: "100%",
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                    }}
+                  />
+                </label>
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  <label style={{ flex: 1 }}>
+                    <span style={{ display: "block", marginBottom: 2 }}>Email</span>
+                    <input
+                      type="email"
+                      value={newProject.primaryContactEmail}
+                      onChange={e => handleNewProjectChange("primaryContactEmail", e.target.value)}
+                      placeholder="email@example.com"
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                      }}
+                    />
+                  </label>
+                  <label style={{ flex: 1 }}>
+                    <span style={{ display: "block", marginBottom: 2 }}>Phone</span>
+                    <input
+                      type="tel"
+                      value={newProject.primaryContactPhone}
+                      onChange={e => handleNewProjectChange("primaryContactPhone", e.target.value)}
+                      placeholder="(555) 123-4567"
+                      style={{
+                        width: "100%",
+                        padding: "6px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                      }}
+                    />
+                  </label>
+                </div>
               </div>
 
               {newProjectError && (
