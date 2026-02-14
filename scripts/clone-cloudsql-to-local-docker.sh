@@ -49,7 +49,10 @@ LOCAL_DB_PASSWORD="nexus_password"
 
 # Dev Cloud SQL instance (for SOURCE=dev)
 DEV_INSTANCE_CONN="nexus-enterprise-480610:us-central1:nexusdev-v2"
-DEV_PROXY_PORT="6543"   # separate from 5433 to avoid confusion with local Docker
+DEV_PROXY_PORT="6543"   # separate from 5433 to avoid killing local Docker
+
+# Prod Cloud SQL proxy port (separate from 5433 to avoid killing local Docker)
+PROD_PROXY_PORT="6544"
 
 usage() {
   cat <<'USAGE'
@@ -215,18 +218,20 @@ create_prod_dump() {
 
   echo "[clone-cloudsql] Creating PROD dump at $DUMP_FILE via prod-db-run-with-proxy.sh..." >&2
 
-  # Reuse the existing helper which manages Cloud SQL Proxy, ADC, and safety.
-  # We explicitly use pg_dump from PostgreSQL 16 to support dumping from a
-  # Postgres 18 Cloud SQL server (Homebrew's 14.x pg_dump refuses that).
+  # Use a DIFFERENT port for Cloud SQL proxy so we don't kill local Docker postgres.
+  # We explicitly use pg_dump from PostgreSQL 18 to support dumping from a
+  # Postgres 18 Cloud SQL server.
   PROD_DB_PASSWORD="$PROD_DB_PASSWORD" \
   DUMP_FILE="$DUMP_FILE" \
-    "$ROOT_DIR/scripts/prod-db-run-with-proxy.sh" --allow-kill-port -- bash -lc '
+  PROD_PROXY_PORT="$PROD_PROXY_PORT" \
+    "$ROOT_DIR/scripts/prod-db-run-with-proxy.sh" --port "$PROD_PROXY_PORT" -- bash -lc '
       set -euo pipefail
       : "${PROD_DB_PASSWORD:?PROD_DB_PASSWORD is required in subshell}"
       : "${DUMP_FILE:?DUMP_FILE is required in subshell}"
+      : "${PROD_PROXY_PORT:?PROD_PROXY_PORT is required in subshell}"
       export PGPASSWORD="$PROD_DB_PASSWORD"
-      echo "[clone-cloudsql:prod-sub] Running pg_dump to $DUMP_FILE" >&2
-      PGDUMP_BIN="${PGDUMP_BIN:-/opt/homebrew/opt/postgresql@16/bin/pg_dump}"
+      echo "[clone-cloudsql:prod-sub] Running pg_dump to $DUMP_FILE (proxy on port $PROD_PROXY_PORT)" >&2
+      PGDUMP_BIN="${PGDUMP_BIN:-/opt/homebrew/opt/postgresql@18/bin/pg_dump}"
       if ! [ -x "$PGDUMP_BIN" ]; then
         echo "[clone-cloudsql:prod-sub] ERROR: pg_dump binary not found or not executable at $PGDUMP_BIN" >&2
         exit 1
@@ -236,7 +241,7 @@ create_prod_dump() {
         --no-owner \
         --no-privileges \
         --host=127.0.0.1 \
-        --port="${LOCAL_PORT:-5433}" \
+        --port="$PROD_PROXY_PORT" \
         --username=postgres \
         nexus_db \
         >"$DUMP_FILE"

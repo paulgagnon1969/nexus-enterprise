@@ -39,6 +39,10 @@ import { SopModule } from "./modules/sop/sop.module";
 import { ClaimJournalModule } from "./modules/claim-journal/claim-journal.module";
 import { FieldSecurityModule } from "./modules/field-security/field-security.module";
 import { SystemDocumentsModule } from "./modules/system-documents/system-documents.module";
+import { SystemTagsModule } from "./modules/system-tags/system-tags.module";
+import { ManualsModule } from "./modules/manuals/manuals.module";
+import { TenantDocumentsModule } from "./modules/tenant-documents/tenant-documents.module";
+import { PublicDocsModule } from "./modules/public-docs/public-docs.module";
 
 @Module({
   imports: [
@@ -86,6 +90,10 @@ import { SystemDocumentsModule } from "./modules/system-documents/system-documen
     ClaimJournalModule,
     FieldSecurityModule,
     SystemDocumentsModule,
+    SystemTagsModule,
+    ManualsModule,
+    TenantDocumentsModule,
+    PublicDocsModule,
   ],
   controllers: [DevController]
 })

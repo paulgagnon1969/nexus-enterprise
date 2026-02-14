@@ -16,6 +16,24 @@ export default function DocumentsHomePage() {
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <Link
+            href="/documents/inbox"
+            style={{
+              flex: "1 1 280px",
+              border: "1px solid #fef3c7",
+              borderRadius: 8,
+              padding: 12,
+              background: "#fffbeb",
+              textDecoration: "none",
+              color: "#111827",
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 600 }}>📥 Document Inbox</div>
+            <div style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
+              Review and publish documents from NEXUS to your organization.
+            </div>
+          </Link>
+
+          <Link
             href="/documents/templates"
             style={{
               flex: "1 1 280px",

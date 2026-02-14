@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
-import { SystemDocumentPublicationTarget } from "@prisma/client";
+import { SystemDocumentPublicationTarget, TenantDocumentStatus } from "@prisma/client";
 import * as crypto from "crypto";
 import {
   CreateSystemDocumentDto,
@@ -210,7 +210,7 @@ export class SystemDocumentsService {
     }
 
     // Create new publication
-    return this.prisma.systemDocumentPublication.create({
+    const publication = await this.prisma.systemDocumentPublication.create({
       data: {
         systemDocumentId: id,
         systemDocumentVersionId: doc.currentVersion.id,
@@ -220,6 +220,101 @@ export class SystemDocumentsService {
       },
       include: { targetCompany: { select: { id: true, name: true } } },
     });
+
+    // Distribute to tenants with UNRELEASED status
+    await this.distributeDocumentToTenants(
+      id,
+      { title: doc.title, currentVersion: doc.currentVersion },
+      userId,
+      dto.targetType,
+      dto.targetCompanyId
+    );
+
+    return publication;
+  }
+
+  /**
+   * Creates TenantDocumentCopy records for targeted companies.
+   * Copies are created with UNRELEASED status for tenant admins to review and publish.
+   */
+  private async distributeDocumentToTenants(
+    documentId: string,
+    doc: { title: string; currentVersion: { id: string; versionNo: number; htmlContent: string } },
+    userId: string,
+    targetType: SystemDocumentPublicationTarget,
+    targetCompanyId?: string | null
+  ) {
+    // Determine target companies
+    let companyIds: string[] = [];
+
+    if (targetType === SystemDocumentPublicationTarget.SINGLE_TENANT && targetCompanyId) {
+      companyIds = [targetCompanyId];
+    } else if (targetType === SystemDocumentPublicationTarget.ALL_TENANTS) {
+      // Get all active companies (not deleted)
+      const companies = await this.prisma.company.findMany({
+        where: { deletedAt: null },
+        select: { id: true },
+      });
+      companyIds = companies.map((c) => c.id);
+    }
+
+    if (companyIds.length === 0) return;
+
+    // Get existing copies to avoid duplicates
+    const existingCopies = await this.prisma.tenantDocumentCopy.findMany({
+      where: {
+        sourceSystemDocumentId: documentId,
+        companyId: { in: companyIds },
+      },
+      select: { companyId: true },
+    });
+    const existingCompanyIds = new Set(existingCopies.map((c) => c.companyId));
+
+    // Create copies for companies that don't have one yet
+    const contentHash = this.hashContent(doc.currentVersion.htmlContent);
+
+    for (const companyId of companyIds) {
+      if (existingCompanyIds.has(companyId)) {
+        // Company already has a copy - mark as having newer version if needed
+        await this.prisma.tenantDocumentCopy.updateMany({
+          where: { sourceSystemDocumentId: documentId, companyId },
+          data: { hasNewerSystemVersion: true },
+        });
+        continue;
+      }
+
+      // Create new tenant copy with UNRELEASED status
+      await this.prisma.$transaction(async (tx) => {
+        const copy = await tx.tenantDocumentCopy.create({
+          data: {
+            companyId,
+            sourceSystemDocumentId: documentId,
+            sourceVersionNo: doc.currentVersion.versionNo,
+            title: doc.title,
+            copiedByUserId: userId,
+            status: TenantDocumentStatus.UNRELEASED,
+          },
+        });
+
+        // Create first version
+        const version = await tx.tenantDocumentCopyVersion.create({
+          data: {
+            tenantDocumentCopyId: copy.id,
+            versionNo: 1,
+            htmlContent: doc.currentVersion.htmlContent,
+            contentHash,
+            notes: `Received from NEXUS v${doc.currentVersion.versionNo}`,
+            createdByUserId: userId,
+          },
+        });
+
+        // Link current version
+        await tx.tenantDocumentCopy.update({
+          where: { id: copy.id },
+          data: { currentVersionId: version.id },
+        });
+      });
+    }
   }
 
   async retractPublication(publicationId: string, userId: string) {

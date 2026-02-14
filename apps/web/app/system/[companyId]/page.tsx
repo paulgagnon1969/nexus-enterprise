@@ -22,6 +22,20 @@ interface ProjectDto {
   createdAt: string;
 }
 
+interface SystemTag {
+  id: string;
+  code: string;
+  label: string;
+  color?: string;
+  category?: string;
+}
+
+interface CompanyTag {
+  id: string;
+  systemTag: SystemTag;
+  assignedAt: string;
+}
+
 export default function SystemOrganizationPage({
   params,
 }: {
@@ -50,6 +64,12 @@ export default function SystemOrganizationPage({
   const [deactivateMessage, setDeactivateMessage] = useState<string | null>(null);
   const [reactivating, setReactivating] = useState(false);
   const [reactivateMessage, setReactivateMessage] = useState<string | null>(null);
+
+  // System tags
+  const [companyTags, setCompanyTags] = useState<CompanyTag[]>([]);
+  const [allTags, setAllTags] = useState<SystemTag[]>([]);
+  const [showAddTag, setShowAddTag] = useState(false);
+  const [tagsLoading, setTagsLoading] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -120,9 +140,80 @@ export default function SystemOrganizationPage({
     void load();
   }, [companyId]);
 
+  // Load company tags
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    setTagsLoading(true);
+    Promise.all([
+      fetch(`${API_BASE}/system/companies/${companyId}/tags`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then(res => res.ok ? res.json() : []),
+      fetch(`${API_BASE}/system/tags`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then(res => res.ok ? res.json() : []),
+    ])
+      .then(([tagsData, allTagsData]) => {
+        setCompanyTags(Array.isArray(tagsData) ? tagsData : []);
+        setAllTags(Array.isArray(allTagsData) ? allTagsData : []);
+      })
+      .catch(() => {})
+      .finally(() => setTagsLoading(false));
+  }, [companyId]);
+
   const sortedProjects = useMemo(() => {
     return [...projects].sort((a, b) => a.name.localeCompare(b.name));
   }, [projects]);
+
+  // Available tags to add (not already assigned)
+  const availableTags = useMemo(() => {
+    const assignedIds = new Set(companyTags.map(ct => ct.systemTag.id));
+    return allTags.filter(t => !assignedIds.has(t.id));
+  }, [allTags, companyTags]);
+
+  const handleAddTag = async (tagId: string) => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/system/companies/${companyId}/tags`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ tagId }),
+      });
+      if (!res.ok) throw new Error("Failed to add tag");
+      const newTag = await res.json();
+      setCompanyTags(prev => [...prev, newTag]);
+      setShowAddTag(false);
+    } catch (e: any) {
+      alert(e?.message || "Failed to add tag");
+    }
+  };
+
+  const handleRemoveTag = async (tagId: string) => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    if (!confirm("Remove this tag from the organization?")) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/system/companies/${companyId}/tags/${tagId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to remove tag");
+      setCompanyTags(prev => prev.filter(ct => ct.systemTag.id !== tagId));
+    } catch (e: any) {
+      alert(e?.message || "Failed to remove tag");
+    }
+  };
 
   const selectedProject = useMemo(
     () => projects.find(p => p.id === selectedProjectId) ?? null,
@@ -429,6 +520,157 @@ export default function SystemOrganizationPage({
           Tenant ID: {companyId}
         </div>
       )}
+
+      {/* System Tags Section */}
+      <div
+        style={{
+          marginTop: 12,
+          marginBottom: 16,
+          padding: 12,
+          borderRadius: 8,
+          border: "1px solid #e5e7eb",
+          background: "#fafafa",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>System Tags</span>
+          <button
+            type="button"
+            onClick={() => setShowAddTag(v => !v)}
+            style={{
+              padding: "2px 8px",
+              fontSize: 11,
+              backgroundColor: "#2563eb",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: 4,
+              cursor: "pointer",
+            }}
+          >
+            + Add
+          </button>
+          <a
+            href="/system/tags"
+            style={{
+              marginLeft: "auto",
+              fontSize: 11,
+              color: "#6b7280",
+              textDecoration: "underline",
+            }}
+          >
+            Manage all tags
+          </a>
+        </div>
+
+        {showAddTag && availableTags.length > 0 && (
+          <div
+            style={{
+              marginBottom: 8,
+              padding: 8,
+              backgroundColor: "#ffffff",
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+            }}
+          >
+            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>Select a tag to add:</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {availableTags.map(tag => (
+                <button
+                  key={tag.id}
+                  type="button"
+                  onClick={() => handleAddTag(tag.id)}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    padding: "4px 8px",
+                    fontSize: 11,
+                    backgroundColor: "#f3f4f6",
+                    color: "#374151",
+                    border: `1px solid ${tag.color || "#d1d5db"}`,
+                    borderRadius: 4,
+                    cursor: "pointer",
+                  }}
+                >
+                  {tag.color && (
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        backgroundColor: tag.color,
+                      }}
+                    />
+                  )}
+                  {tag.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {showAddTag && availableTags.length === 0 && (
+          <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 8 }}>
+            All available tags are already assigned.
+          </div>
+        )}
+
+        {tagsLoading ? (
+          <div style={{ fontSize: 11, color: "#6b7280" }}>Loading tags...</div>
+        ) : companyTags.length === 0 ? (
+          <div style={{ fontSize: 11, color: "#6b7280", fontStyle: "italic" }}>
+            No tags assigned to this organization.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {companyTags.map(ct => (
+              <div
+                key={ct.id}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "4px 8px",
+                  fontSize: 12,
+                  backgroundColor: "#ffffff",
+                  border: `1px solid ${ct.systemTag.color || "#e5e7eb"}`,
+                  borderRadius: 4,
+                }}
+              >
+                {ct.systemTag.color && (
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      backgroundColor: ct.systemTag.color,
+                    }}
+                  />
+                )}
+                <span style={{ fontWeight: 500 }}>{ct.systemTag.label}</span>
+                <span style={{ fontSize: 10, color: "#9ca3af", fontFamily: "monospace" }}>
+                  {ct.systemTag.code}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveTag(ct.systemTag.id)}
+                  title="Remove tag"
+                  style={{
+                    padding: "0 2px",
+                    fontSize: 12,
+                    backgroundColor: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "#9ca3af",
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {selectedProject && (
         <div
