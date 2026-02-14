@@ -49,6 +49,10 @@ export class CreateProjectDto {
   @IsOptional()
   @IsString()
   primaryContactEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  tenantClientId?: string;
 }
 
 export class AddProjectMemberDto {
@@ -117,6 +121,10 @@ export class UpdateProjectDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsString()
+  tenantClientId?: string;
 }
 
 export class ImportXactDto {

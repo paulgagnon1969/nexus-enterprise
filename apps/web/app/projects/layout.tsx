@@ -24,6 +24,17 @@ interface ProjectTag {
   label: string;
 }
 
+interface TenantClient {
+  id: string;
+  firstName: string;
+  lastName: string;
+  displayName: string | null;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  projects?: { id: string; name: string }[];
+}
+
 interface FilterState {
   savedFilter: string;
   groups: string[]; // array of non-state tag IDs
@@ -51,6 +62,7 @@ const NEW_PROJECT_DEFAULT = {
   primaryContactName: "",
   primaryContactEmail: "",
   primaryContactPhone: "",
+  tenantClientId: "",
 };
 
 export default function ProjectsLayout({ children }: { children: React.ReactNode }) {
@@ -71,6 +83,13 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
   const [creatingProject, setCreatingProject] = useState(false);
   const [newProject, setNewProject] = useState({ ...NEW_PROJECT_DEFAULT });
   const [newProjectError, setNewProjectError] = useState<string | null>(null);
+
+  // Tenant client linking state
+  const [linkToClient, setLinkToClient] = useState(false);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientSearchResults, setClientSearchResults] = useState<TenantClient[]>([]);
+  const [selectedClient, setSelectedClient] = useState<TenantClient | null>(null);
+  const [searchingClients, setSearchingClients] = useState(false);
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
@@ -236,6 +255,59 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
     setNewProject(prev => ({ ...prev, [field]: value }));
   };
 
+  // Search for tenant clients by name, email, or phone
+  const searchClients = async (query: string) => {
+    if (!query || query.length < 2) {
+      setClientSearchResults([]);
+      return;
+    }
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    if (!token) return;
+
+    try {
+      setSearchingClients(true);
+      const res = await fetch(
+        `${API_BASE}/clients/search?q=${encodeURIComponent(query)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setClientSearchResults(Array.isArray(data) ? data : []);
+      }
+    } catch {
+      // Ignore search errors
+    } finally {
+      setSearchingClients(false);
+    }
+  };
+
+  // Handle selecting a client from search results
+  const handleSelectClient = (client: TenantClient) => {
+    setSelectedClient(client);
+    setClientSearch("");
+    setClientSearchResults([]);
+    // Auto-fill contact fields from selected client
+    setNewProject(prev => ({
+      ...prev,
+      primaryContactName: client.displayName || `${client.firstName} ${client.lastName}`.trim(),
+      primaryContactEmail: client.email || "",
+      primaryContactPhone: client.phone || "",
+      tenantClientId: client.id,
+    }));
+  };
+
+  // Clear client link
+  const handleClearClientLink = () => {
+    setSelectedClient(null);
+    setNewProject(prev => ({
+      ...prev,
+      primaryContactName: "",
+      primaryContactEmail: "",
+      primaryContactPhone: "",
+      tenantClientId: "",
+    }));
+  };
+
   const reloadProjects = async (token: string) => {
     const params = new URLSearchParams();
     if (filters.status) params.set("status", filters.status);
@@ -296,6 +368,10 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
       // Clear form and hide panel
       setNewProject({ ...NEW_PROJECT_DEFAULT });
       setShowNewProject(false);
+      setLinkToClient(false);
+      setSelectedClient(null);
+      setClientSearch("");
+      setClientSearchResults([]);
 
       // Reload projects list
       setLoading(true);
@@ -919,56 +995,201 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
                   borderTop: "1px solid #e5e7eb",
                 }}
               >
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#374151" }}>
-                  Client Contact (for invoices & correspondence)
-                </div>
-                <label>
-                  <span style={{ display: "block", marginBottom: 2 }}>Client Name</span>
-                  <input
-                    type="text"
-                    value={newProject.primaryContactName}
-                    onChange={e => handleNewProjectChange("primaryContactName", e.target.value)}
-                    placeholder="Full name"
-                    style={{
-                      width: "100%",
-                      padding: "6px 8px",
-                      borderRadius: 4,
-                      border: "1px solid #d1d5db",
-                    }}
-                  />
-                </label>
-                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                  <label style={{ flex: 1 }}>
-                    <span style={{ display: "block", marginBottom: 2 }}>Email</span>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>
+                    Client Contact
+                  </div>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
                     <input
-                      type="email"
-                      value={newProject.primaryContactEmail}
-                      onChange={e => handleNewProjectChange("primaryContactEmail", e.target.value)}
-                      placeholder="email@example.com"
-                      style={{
-                        width: "100%",
-                        padding: "6px 8px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
+                      type="checkbox"
+                      checked={linkToClient}
+                      onChange={e => {
+                        setLinkToClient(e.target.checked);
+                        if (!e.target.checked) handleClearClientLink();
                       }}
+                      style={{ cursor: "pointer" }}
                     />
-                  </label>
-                  <label style={{ flex: 1 }}>
-                    <span style={{ display: "block", marginBottom: 2 }}>Phone</span>
-                    <input
-                      type="tel"
-                      value={newProject.primaryContactPhone}
-                      onChange={e => handleNewProjectChange("primaryContactPhone", e.target.value)}
-                      placeholder="(555) 123-4567"
-                      style={{
-                        width: "100%",
-                        padding: "6px 8px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                      }}
-                    />
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>Link to existing client</span>
                   </label>
                 </div>
+
+                {linkToClient ? (
+                  <div>
+                    {selectedClient ? (
+                      <div
+                        style={{
+                          padding: 8,
+                          borderRadius: 4,
+                          border: "1px solid #10b981",
+                          background: "#ecfdf5",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 12, color: "#065f46" }}>
+                              {selectedClient.displayName || `${selectedClient.firstName} ${selectedClient.lastName}`}
+                            </div>
+                            {selectedClient.email && (
+                              <div style={{ fontSize: 11, color: "#047857" }}>{selectedClient.email}</div>
+                            )}
+                            {selectedClient.phone && (
+                              <div style={{ fontSize: 11, color: "#047857" }}>{selectedClient.phone}</div>
+                            )}
+                            {selectedClient.company && (
+                              <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>
+                                {selectedClient.company}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleClearClientLink}
+                            style={{
+                              padding: "2px 6px",
+                              borderRadius: 3,
+                              border: "1px solid #d1d5db",
+                              background: "#fff",
+                              fontSize: 10,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                        {selectedClient.projects && selectedClient.projects.length > 0 && (
+                          <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid #a7f3d0" }}>
+                            <div style={{ fontSize: 10, color: "#065f46", fontWeight: 500 }}>
+                              Related projects ({selectedClient.projects.length}):
+                            </div>
+                            <div style={{ fontSize: 10, color: "#047857", marginTop: 2 }}>
+                              {selectedClient.projects.slice(0, 3).map(p => p.name).join(", ")}
+                              {selectedClient.projects.length > 3 && ` +${selectedClient.projects.length - 3} more`}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ position: "relative" }}>
+                        <input
+                          type="text"
+                          value={clientSearch}
+                          onChange={e => {
+                            setClientSearch(e.target.value);
+                            searchClients(e.target.value);
+                          }}
+                          placeholder="Search by name, email, or phone..."
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                          }}
+                        />
+                        {searchingClients && (
+                          <div style={{ position: "absolute", right: 8, top: 8, fontSize: 10, color: "#9ca3af" }}>
+                            Searching...
+                          </div>
+                        )}
+                        {clientSearchResults.length > 0 && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: "100%",
+                              left: 0,
+                              right: 0,
+                              zIndex: 10,
+                              background: "#fff",
+                              border: "1px solid #d1d5db",
+                              borderRadius: 4,
+                              boxShadow: "0 4px 8px rgba(0,0,0,0.1)",
+                              maxHeight: 200,
+                              overflowY: "auto",
+                            }}
+                          >
+                            {clientSearchResults.map(client => (
+                              <div
+                                key={client.id}
+                                onClick={() => handleSelectClient(client)}
+                                style={{
+                                  padding: "6px 8px",
+                                  cursor: "pointer",
+                                  borderBottom: "1px solid #f3f4f6",
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = "#f9fafb")}
+                                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                              >
+                                <div style={{ fontSize: 12, fontWeight: 500 }}>
+                                  {client.displayName || `${client.firstName} ${client.lastName}`}
+                                </div>
+                                {client.email && (
+                                  <div style={{ fontSize: 10, color: "#6b7280" }}>{client.email}</div>
+                                )}
+                                {client.phone && (
+                                  <div style={{ fontSize: 10, color: "#6b7280" }}>{client.phone}</div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {clientSearch.length >= 2 && clientSearchResults.length === 0 && !searchingClients && (
+                          <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 4 }}>
+                            No clients found. Uncheck to enter new contact info.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <label>
+                      <span style={{ display: "block", marginBottom: 2 }}>Client Name</span>
+                      <input
+                        type="text"
+                        value={newProject.primaryContactName}
+                        onChange={e => handleNewProjectChange("primaryContactName", e.target.value)}
+                        placeholder="Full name"
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                        }}
+                      />
+                    </label>
+                    <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                      <label style={{ flex: 1 }}>
+                        <span style={{ display: "block", marginBottom: 2 }}>Email</span>
+                        <input
+                          type="email"
+                          value={newProject.primaryContactEmail}
+                          onChange={e => handleNewProjectChange("primaryContactEmail", e.target.value)}
+                          placeholder="email@example.com"
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                          }}
+                        />
+                      </label>
+                      <label style={{ flex: 1 }}>
+                        <span style={{ display: "block", marginBottom: 2 }}>Phone</span>
+                        <input
+                          type="tel"
+                          value={newProject.primaryContactPhone}
+                          onChange={e => handleNewProjectChange("primaryContactPhone", e.target.value)}
+                          placeholder="(555) 123-4567"
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </>
+                )}
               </div>
 
               {newProjectError && (
