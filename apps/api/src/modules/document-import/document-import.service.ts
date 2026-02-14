@@ -1733,4 +1733,48 @@ ${bodyHtml}
       message: "SOP published successfully",
     };
   }
+
+  // ==================== Public Documents ====================
+
+  /**
+   * Get a public document by slug (no authentication required).
+   * Used for public pages like privacy policy, terms of service.
+   * Looks for documents with tag "public:{slug}" that are PUBLISHED.
+   */
+  async getPublicDocumentBySlug(slug: string): Promise<{
+    id: string;
+    title: string;
+    htmlContent: string | null;
+    updatedAt: string;
+  }> {
+    // Normalize slug
+    const normalizedSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    const publicTag = `public:${normalizedSlug}`;
+
+    // Find the document with this public tag
+    const doc = await this.prisma.stagedDocument.findFirst({
+      where: {
+        tags: { has: publicTag },
+        status: StagedDocumentStatus.PUBLISHED,
+      },
+      select: {
+        id: true,
+        displayTitle: true,
+        fileName: true,
+        htmlContent: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!doc) {
+      throw new NotFoundException(`Public document "${slug}" not found`);
+    }
+
+    return {
+      id: doc.id,
+      title: doc.displayTitle || doc.fileName.replace(/\.[^/.]+$/, ""),
+      htmlContent: doc.htmlContent,
+      updatedAt: doc.updatedAt.toISOString(),
+    };
+  }
 }

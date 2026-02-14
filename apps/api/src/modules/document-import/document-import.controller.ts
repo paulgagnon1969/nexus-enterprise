@@ -28,10 +28,25 @@ import { StagedDocumentStatus, DocumentScanJobStatus } from "@prisma/client";
 import * as fs from "fs";
 import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
 
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller("document-import")
 export class DocumentImportController {
   constructor(private readonly documentImport: DocumentImportService) {}
+
+  // ==================== Public Routes (No Auth Required) ====================
+
+  /**
+   * Get a public document by slug (no authentication required)
+   * Used for public pages like privacy policy, terms of service, etc.
+   * GET /document-import/public/:slug
+   */
+  @Get("public/:slug")
+  async getPublicDocument(@Param("slug") slug: string) {
+    return this.documentImport.getPublicDocumentBySlug(slug);
+  }
+
+  // ==================== Protected Routes ====================
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
 
   // ==================== Scan Jobs ====================
 
