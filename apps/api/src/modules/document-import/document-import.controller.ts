@@ -44,9 +44,29 @@ export class DocumentImportController {
     return this.documentImport.getPublicDocumentBySlug(slug);
   }
 
-  // ==================== Protected Routes ====================
+  // ==================== Create Document (from scratch) ====================
 
+  /**
+   * Create a new document from scratch with HTML content
+   * POST /document-import/documents/create
+   */
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER)
+  @Post("documents/create")
+  async createDocument(
+    @Req() req: any,
+    @Body()
+    body: {
+      title: string;
+      htmlContent: string;
+      tags?: string[];
+      category?: string;
+      description?: string;
+    }
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.createDocumentFromScratch(actor, body);
+  }
 
   // ==================== Scan Jobs ====================
 
@@ -54,6 +74,7 @@ export class DocumentImportController {
    * Create a new scan job (Admin+ only)
    * POST /document-import/scan-jobs
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Post("scan-jobs")
   async createScanJob(@Req() req: any, @Body() body: CreateScanJobDto) {
@@ -74,6 +95,7 @@ export class DocumentImportController {
    *   - folderName: name of the scanned folder (used for scan job)
    *   - scanJobId: (optional) existing scan job ID to add to
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Post("upload")
   async uploadDocument(@Req() req: FastifyRequest) {
@@ -117,6 +139,7 @@ export class DocumentImportController {
    * List all scan jobs for the company
    * GET /document-import/scan-jobs
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Get("scan-jobs")
   async listScanJobs(@Req() req: any, @Query() query: ListScanJobsQueryDto) {
@@ -132,6 +155,7 @@ export class DocumentImportController {
    * Get a specific scan job
    * GET /document-import/scan-jobs/:id
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Get("scan-jobs/:id")
   async getScanJob(@Req() req: any, @Param("id") id: string) {
@@ -145,6 +169,7 @@ export class DocumentImportController {
    * List staged documents with filtering and pagination
    * GET /document-import/documents
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Get("documents")
   async listDocuments(@Req() req: any, @Query() query: ListStagedDocumentsQueryDto) {
@@ -163,6 +188,7 @@ export class DocumentImportController {
    * Get a specific staged document
    * GET /document-import/documents/:id
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Get("documents/:id")
   async getDocument(@Req() req: any, @Param("id") id: string) {
@@ -174,6 +200,7 @@ export class DocumentImportController {
    * Update a staged document (e.g., archive/unarchive)
    * PATCH /document-import/documents/:id
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Patch("documents/:id")
   async updateDocument(
@@ -191,6 +218,7 @@ export class DocumentImportController {
    * Bulk update multiple documents
    * POST /document-import/documents/bulk-update
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Post("documents/bulk-update")
   async bulkUpdateDocuments(@Req() req: any, @Body() body: BulkUpdateStagedDocumentsDto) {
@@ -208,6 +236,7 @@ export class DocumentImportController {
    * Get document preview/stream for QuickLook
    * GET /document-import/documents/:id/preview
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Get("documents/:id/preview")
   async getDocumentPreview(
@@ -233,6 +262,7 @@ export class DocumentImportController {
    * Import a single document to Safety Manual, BKM, etc.
    * POST /document-import/documents/:id/import
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Post("documents/:id/import")
   async importDocument(
@@ -256,6 +286,7 @@ export class DocumentImportController {
    * Bulk import multiple documents
    * POST /document-import/documents/bulk-import
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Post("documents/bulk-import")
   async bulkImportDocuments(
@@ -278,6 +309,7 @@ export class DocumentImportController {
    * Unimport a document (return to ACTIVE status)
    * POST /document-import/documents/:id/unimport
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Post("documents/:id/unimport")
   async unimportDocument(@Req() req: any, @Param("id") id: string) {
@@ -291,6 +323,7 @@ export class DocumentImportController {
    * Get HTML content for a document (for fast rendering)
    * GET /document-import/documents/:id/html
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MEMBER, Role.ADMIN, Role.OWNER)
   @Get("documents/:id/html")
   async getDocumentHtml(@Req() req: any, @Param("id") id: string) {
@@ -302,6 +335,7 @@ export class DocumentImportController {
    * Re-convert a document to HTML (Admin+ only)
    * POST /document-import/documents/:id/reconvert
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Post("documents/:id/reconvert")
   async reconvertDocument(@Req() req: any, @Param("id") id: string) {
@@ -315,6 +349,7 @@ export class DocumentImportController {
    * Get imported documents by type and optionally category
    * GET /document-import/imported
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MEMBER, Role.ADMIN, Role.OWNER)
   @Get("imported")
   async getImportedDocuments(
@@ -333,6 +368,7 @@ export class DocumentImportController {
    * Get categories with imported documents for a given type
    * GET /document-import/imported/categories
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MEMBER, Role.ADMIN, Role.OWNER)
   @Get("imported/categories")
   async getImportedCategories(
@@ -349,6 +385,7 @@ export class DocumentImportController {
    * Update document details (title, description, tags, category)
    * PATCH /document-import/documents/:id/details
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Patch("documents/:id/details")
   async updateDocumentDetails(
@@ -374,6 +411,7 @@ export class DocumentImportController {
    * Publish a document (make it visible to all users)
    * POST /document-import/documents/:id/publish
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Post("documents/:id/publish")
   async publishDocument(
@@ -396,6 +434,7 @@ export class DocumentImportController {
    * Unpublish a document (return to ACTIVE/unpublished status)
    * POST /document-import/documents/:id/unpublish
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Post("documents/:id/unpublish")
   async unpublishDocument(@Req() req: any, @Param("id") id: string) {
@@ -407,6 +446,7 @@ export class DocumentImportController {
    * Bulk publish multiple documents
    * POST /document-import/documents/bulk-publish
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Post("documents/bulk-publish")
   async bulkPublishDocuments(
@@ -431,6 +471,7 @@ export class DocumentImportController {
    * Get published documents with optional filtering
    * GET /document-import/published
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MEMBER, Role.ADMIN, Role.OWNER)
   @Get("published")
   async getPublishedDocuments(
@@ -457,6 +498,7 @@ export class DocumentImportController {
    * Get categories for published documents
    * GET /document-import/published/categories
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MEMBER, Role.ADMIN, Role.OWNER)
   @Get("published/categories")
   async getPublishedCategories(@Req() req: any) {
@@ -468,6 +510,7 @@ export class DocumentImportController {
    * Get all tags used in published documents
    * GET /document-import/published/tags
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.MEMBER, Role.ADMIN, Role.OWNER)
   @Get("published/tags")
   async getPublishedTags(@Req() req: any) {
@@ -481,6 +524,7 @@ export class DocumentImportController {
    * Get unpublished/draft SOPs
    * GET /document-import/sops
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Get("sops")
   async getSOPs(
@@ -496,6 +540,7 @@ export class DocumentImportController {
    * Publish an SOP
    * POST /document-import/sops/:id/publish
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Post("sops/:id/publish")
   async publishSOP(
@@ -517,6 +562,7 @@ export class DocumentImportController {
    * Get document statistics
    * GET /document-import/stats
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
   @Get("stats")
   async getStats(@Req() req: any, @Query("scanJobId") scanJobId?: string) {
