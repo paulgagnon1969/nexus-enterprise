@@ -30,6 +30,31 @@ interface StagedSOP {
   systemDocumentId?: string;
 }
 
+interface SystemDocument {
+  id: string;
+  code: string;
+  title: string;
+  description?: string;
+  category?: string;
+  tags: string[];
+  currentVersion?: {
+    versionNo: number;
+    notes?: string;
+    createdAt: string;
+  };
+  publicationStatus: "unpublished" | "published_all" | "published_some";
+  publications: Array<{
+    id: string;
+    targetType: "ALL_TENANTS" | "SINGLE_TENANT";
+    targetCompany?: { id: string; name: string };
+    publishedAt: string;
+  }>;
+  versionCount: number;
+  tenantCopyCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // Document type classification
 type DocumentTypeGuess = 
   | "LIKELY_PROCEDURE" 
@@ -120,6 +145,12 @@ export default function DocumentImportPage() {
   const [sopsExpanded, setSopsExpanded] = useState(false);
   const [sopsLoading, setSopsLoading] = useState(false);
   const [sopsSyncing, setSopsSyncing] = useState(false);
+
+  // System Documents (synced SOPs)
+  const [systemDocs, setSystemDocs] = useState<SystemDocument[]>([]);
+  const [systemDocsExpanded, setSystemDocsExpanded] = useState(false);
+  const [systemDocsLoading, setSystemDocsLoading] = useState(false);
+  const [publishModal, setPublishModal] = useState<{ doc: SystemDocument } | null>(null);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem("accessToken");
@@ -227,10 +258,63 @@ export default function DocumentImportPage() {
       const report = await res.json();
       alert(`Sync complete: ${report.summary.created} created, ${report.summary.updated} updated`);
       loadSOPs();
+      loadSystemDocs(); // Refresh system docs after sync
     } catch (err: any) {
       alert(err?.message ?? "Sync failed");
     } finally {
       setSopsSyncing(false);
+    }
+  };
+
+  const loadSystemDocs = useCallback(async () => {
+    setSystemDocsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/admin/sops/documents`, {
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSystemDocs(data);
+      }
+    } catch {
+      // Non-critical
+      setSystemDocs([]);
+    } finally {
+      setSystemDocsLoading(false);
+    }
+  }, []);
+
+  const handlePublishDoc = async (docId: string, targetType: "ALL_TENANTS" | "SINGLE_TENANT", targetCompanyId?: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/sops/documents/${docId}/publish`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ targetType, targetCompanyId }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Publish failed");
+      }
+      alert("Document published successfully");
+      setPublishModal(null);
+      loadSystemDocs();
+    } catch (err: any) {
+      alert(err?.message ?? "Publish failed");
+    }
+  };
+
+  const handleUnpublishDoc = async (docId: string, publicationId: string) => {
+    if (!confirm("Are you sure you want to retract this publication?")) return;
+    try {
+      const res = await fetch(`${API_BASE}/admin/sops/documents/${docId}/unpublish`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ publicationId }),
+      });
+      if (!res.ok) throw new Error("Unpublish failed");
+      loadSystemDocs();
+    } catch (err: any) {
+      alert(err?.message ?? "Unpublish failed");
     }
   };
 
@@ -242,10 +326,10 @@ export default function DocumentImportPage() {
       return;
     }
 
-    Promise.all([loadDocuments(), loadStats(), loadScanJobs(), loadSOPs()]).finally(() =>
+    Promise.all([loadDocuments(), loadStats(), loadScanJobs(), loadSOPs(), loadSystemDocs()]).finally(() =>
       setLoading(false)
     );
-  }, [loadDocuments, loadStats, loadScanJobs, loadSOPs]);
+  }, [loadDocuments, loadStats, loadScanJobs, loadSOPs, loadSystemDocs]);
 
   // Reload when filters change
   useEffect(() => {
@@ -598,6 +682,188 @@ export default function DocumentImportPage() {
                           }}
                         >
                           🔄 Sync
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* System Documents (Synced SOPs) - Collapsible Section */}
+        <div
+          style={{
+            border: "1px solid #e5e7eb",
+            borderRadius: 8,
+            overflow: "hidden",
+            backgroundColor: "#f0f9ff",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 16px",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setSystemDocsExpanded(!systemDocsExpanded)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                backgroundColor: "transparent",
+                border: "none",
+                cursor: "pointer",
+                textAlign: "left",
+              }}
+            >
+              <span style={{ fontSize: 18 }}>📚</span>
+              <span style={{ fontSize: 15, fontWeight: 600, color: "#0c4a6e" }}>
+                System Documents
+              </span>
+              <span
+                style={{
+                  fontSize: 12,
+                  padding: "2px 8px",
+                  borderRadius: 10,
+                  backgroundColor: systemDocs.length > 0 ? "#dbeafe" : "#d1d5db",
+                  color: systemDocs.length > 0 ? "#1e40af" : "#6b7280",
+                  fontWeight: 500,
+                }}
+              >
+                {systemDocs.length} document{systemDocs.length !== 1 ? "s" : ""}
+              </span>
+              <span style={{ fontSize: 14, color: "#0c4a6e" }}>
+                {systemDocsExpanded ? "▼" : "▶"}
+              </span>
+            </button>
+          </div>
+
+          {systemDocsExpanded && (
+            <div style={{ padding: "0 16px 16px", borderTop: "1px solid #bae6fd" }}>
+              {systemDocsLoading ? (
+                <p style={{ fontSize: 13, color: "#0c4a6e", padding: "12px 0" }}>Loading documents...</p>
+              ) : systemDocs.length === 0 ? (
+                <div style={{ padding: "16px 0", textAlign: "center" }}>
+                  <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 8 }}>
+                    No system documents yet
+                  </p>
+                  <p style={{ fontSize: 12, color: "#9ca3af" }}>
+                    Sync SOPs from the "Staged SOPs" section above to create system documents.
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+                  {systemDocs.map((doc) => (
+                    <div
+                      key={doc.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "10px 12px",
+                        backgroundColor: "#ffffff",
+                        border: `1px solid ${doc.publicationStatus === "published_all" ? "#bbf7d0" : doc.publicationStatus === "published_some" ? "#fde68a" : "#e5e7eb"}`,
+                        borderRadius: 6,
+                      }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 14, fontWeight: 500, color: "#1f2937" }}>
+                            {doc.title}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 10,
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              backgroundColor: doc.publicationStatus === "published_all" ? "#dcfce7" : doc.publicationStatus === "published_some" ? "#fef3c7" : "#f3f4f6",
+                              color: doc.publicationStatus === "published_all" ? "#166534" : doc.publicationStatus === "published_some" ? "#92400e" : "#6b7280",
+                              fontWeight: 500,
+                            }}
+                          >
+                            {doc.publicationStatus === "published_all" ? "✓ ALL TENANTS" : doc.publicationStatus === "published_some" ? "PARTIAL" : "UNPUBLISHED"}
+                          </span>
+                          {doc.currentVersion && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                padding: "2px 6px",
+                                borderRadius: 4,
+                                backgroundColor: "#dbeafe",
+                                color: "#1e40af",
+                                fontWeight: 500,
+                              }}
+                            >
+                              v{doc.currentVersion.versionNo}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                          Code: {doc.code}
+                          {doc.category && ` • ${doc.category}`}
+                          {doc.versionCount > 1 && ` • ${doc.versionCount} versions`}
+                        </div>
+                        {/* Show active publications */}
+                        {doc.publications.length > 0 && (
+                          <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                            {doc.publications.map((pub) => (
+                              <span
+                                key={pub.id}
+                                style={{
+                                  fontSize: 10,
+                                  padding: "2px 6px",
+                                  borderRadius: 3,
+                                  backgroundColor: "#ecfdf5",
+                                  color: "#047857",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                }}
+                              >
+                                {pub.targetType === "ALL_TENANTS" ? "🌐 All Tenants" : `🏢 ${pub.targetCompany?.name || "Tenant"}`}
+                                <button
+                                  type="button"
+                                  onClick={() => handleUnpublishDoc(doc.id, pub.id)}
+                                  title="Retract publication"
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    padding: 0,
+                                    marginLeft: 2,
+                                    cursor: "pointer",
+                                    fontSize: 10,
+                                    color: "#991b1b",
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => setPublishModal({ doc })}
+                          title="Publish document"
+                          style={{
+                            padding: "6px 10px",
+                            fontSize: 12,
+                            backgroundColor: "#16a34a",
+                            color: "#ffffff",
+                            border: "none",
+                            borderRadius: 4,
+                            cursor: "pointer",
+                          }}
+                        >
+                          📢 Publish
                         </button>
                       </div>
                     </div>
@@ -1023,6 +1289,15 @@ export default function DocumentImportPage() {
             loadStats();
             setShowCreateModal(false);
           }}
+        />
+      )}
+
+      {/* Publish System Document Modal */}
+      {publishModal && (
+        <PublishSystemDocModal
+          doc={publishModal.doc}
+          onClose={() => setPublishModal(null)}
+          onPublish={handlePublishDoc}
         />
       )}
 
@@ -3323,7 +3598,208 @@ function CreateDocumentModal({ onClose, onCreate }: CreateDocumentModalProps) {
               cursor: isSubmitting ? "not-allowed" : "pointer",
             }}
           >
-            {isSubmitting ? "Creating..." : "Create Document"}
+          {isSubmitting ? "Creating..." : "Create Document"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Publish System Document Modal ---
+
+interface PublishSystemDocModalProps {
+  doc: SystemDocument;
+  onClose: () => void;
+  onPublish: (docId: string, targetType: "ALL_TENANTS" | "SINGLE_TENANT", targetCompanyId?: string) => void;
+}
+
+function PublishSystemDocModal({ doc, onClose, onPublish }: PublishSystemDocModalProps) {
+  const [targetType, setTargetType] = useState<"ALL_TENANTS" | "SINGLE_TENANT">("ALL_TENANTS");
+  const [targetCompanyId, setTargetCompanyId] = useState("");
+  const [companies, setCompanies] = useState<Array<{ id: string; name: string }>>([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
+
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+  // Load companies for single tenant selection
+  useEffect(() => {
+    if (targetType === "SINGLE_TENANT" && companies.length === 0) {
+      setLoadingCompanies(true);
+      const token = localStorage.getItem("accessToken");
+      fetch(`${API_BASE}/admin/companies`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => (res.ok ? res.json() : []))
+        .then((data) => setCompanies(Array.isArray(data) ? data : data.items || []))
+        .catch(() => setCompanies([]))
+        .finally(() => setLoadingCompanies(false));
+    }
+  }, [targetType, companies.length]);
+
+  const alreadyPublishedAll = doc.publications.some((p) => p.targetType === "ALL_TENANTS");
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0, 0, 0, 0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          backgroundColor: "#ffffff",
+          borderRadius: 12,
+          padding: 24,
+          width: "100%",
+          maxWidth: 500,
+          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 style={{ margin: "0 0 8px", fontSize: 18 }}>Publish Document</h2>
+        <p style={{ margin: "0 0 16px", fontSize: 14, color: "#6b7280" }}>
+          <strong>{doc.title}</strong>
+          {doc.currentVersion && <span> (v{doc.currentVersion.versionNo})</span>}
+        </p>
+
+        {/* Target Type Selection */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 8 }}>
+            Publish To
+          </label>
+          <div style={{ display: "flex", gap: 12 }}>
+            <label
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "12px 16px",
+                border: `2px solid ${targetType === "ALL_TENANTS" ? "#2563eb" : "#e5e7eb"}`,
+                borderRadius: 8,
+                cursor: alreadyPublishedAll ? "not-allowed" : "pointer",
+                backgroundColor: targetType === "ALL_TENANTS" ? "#eff6ff" : "#ffffff",
+                opacity: alreadyPublishedAll ? 0.5 : 1,
+              }}
+            >
+              <input
+                type="radio"
+                name="targetType"
+                value="ALL_TENANTS"
+                checked={targetType === "ALL_TENANTS"}
+                disabled={alreadyPublishedAll}
+                onChange={() => setTargetType("ALL_TENANTS")}
+              />
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>🌐 All Tenants</div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>Available to everyone</div>
+              </div>
+            </label>
+            <label
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "12px 16px",
+                border: `2px solid ${targetType === "SINGLE_TENANT" ? "#2563eb" : "#e5e7eb"}`,
+                borderRadius: 8,
+                cursor: "pointer",
+                backgroundColor: targetType === "SINGLE_TENANT" ? "#eff6ff" : "#ffffff",
+              }}
+            >
+              <input
+                type="radio"
+                name="targetType"
+                value="SINGLE_TENANT"
+                checked={targetType === "SINGLE_TENANT"}
+                onChange={() => setTargetType("SINGLE_TENANT")}
+              />
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>🏢 Single Tenant</div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>Specific company only</div>
+              </div>
+            </label>
+          </div>
+          {alreadyPublishedAll && (
+            <p style={{ margin: "8px 0 0", fontSize: 12, color: "#b45309" }}>
+              ⚠️ Already published to all tenants. Retract that publication first to publish to a single tenant instead.
+            </p>
+          )}
+        </div>
+
+        {/* Company Selection (for single tenant) */}
+        {targetType === "SINGLE_TENANT" && (
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+              Select Company
+            </label>
+            {loadingCompanies ? (
+              <p style={{ fontSize: 13, color: "#6b7280" }}>Loading companies...</p>
+            ) : (
+              <select
+                value={targetCompanyId}
+                onChange={(e) => setTargetCompanyId(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  fontSize: 14,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                }}
+              >
+                <option value="">Select a company...</option>
+                {companies.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", marginTop: 24 }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: "10px 20px",
+              fontSize: 14,
+              backgroundColor: "#ffffff",
+              color: "#374151",
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onPublish(doc.id, targetType, targetType === "SINGLE_TENANT" ? targetCompanyId : undefined)}
+            disabled={targetType === "SINGLE_TENANT" && !targetCompanyId}
+            style={{
+              padding: "10px 20px",
+              fontSize: 14,
+              fontWeight: 500,
+              backgroundColor:
+                targetType === "SINGLE_TENANT" && !targetCompanyId ? "#9ca3af" : "#16a34a",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: 6,
+              cursor: targetType === "SINGLE_TENANT" && !targetCompanyId ? "not-allowed" : "pointer",
+            }}
+          >
+            📢 Publish
           </button>
         </div>
       </div>
