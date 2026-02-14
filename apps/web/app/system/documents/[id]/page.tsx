@@ -33,6 +33,8 @@ interface SystemDocument {
   subcategory: string | null;
   tags: string[];
   active: boolean;
+  isPublic: boolean;
+  publicSlug: string | null;
   currentVersion: SystemDocumentVersion | null;
   versions: SystemDocumentVersion[];
   publications: Publication[];
@@ -69,6 +71,9 @@ export default function SystemDocumentDetailPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [companies, setCompanies] = useState<Company[]>([]);
   const [publishing, setPublishing] = useState(false);
+
+  // Share modal
+  const [showShareModal, setShowShareModal] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -263,6 +268,23 @@ export default function SystemDocumentDetailPage() {
         <div style={{ display: "flex", gap: 8 }}>
           {!editing && (
             <>
+              <button
+                onClick={() => setShowShareModal(true)}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 4,
+                  border: "none",
+                  background: document.isPublic ? "#7c3aed" : "#6b7280",
+                  color: "white",
+                  fontSize: 13,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                🔗 {document.isPublic ? "Public" : "Share"}
+              </button>
               <button
                 onClick={startEditing}
                 style={{
@@ -485,6 +507,18 @@ export default function SystemDocumentDetailPage() {
         </>
       )}
 
+      {/* Share Modal */}
+      {showShareModal && document && (
+        <ShareModal
+          documentId={document.id}
+          documentCode={document.code}
+          isPublic={document.isPublic}
+          publicSlug={document.publicSlug}
+          onClose={() => setShowShareModal(false)}
+          onUpdate={loadDocument}
+        />
+      )}
+
       {/* Publish Modal */}
       {showPublishModal && (
         <div
@@ -572,6 +606,234 @@ export default function SystemDocumentDetailPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Share Modal ---
+
+function ShareModal({
+  documentId,
+  documentCode,
+  isPublic,
+  publicSlug,
+  onClose,
+  onUpdate,
+}: {
+  documentId: string;
+  documentCode: string;
+  isPublic: boolean;
+  publicSlug: string | null;
+  onClose: () => void;
+  onUpdate: () => void;
+}) {
+  const [localIsPublic, setLocalIsPublic] = useState(isPublic);
+  const [localSlug, setLocalSlug] = useState(publicSlug || documentCode.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const publicUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/docs/${localSlug}`
+    : `/docs/${localSlug}`;
+
+  const portalUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/portal`
+    : `/portal`;
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const token = localStorage.getItem("accessToken");
+      const res = await fetch(`${API_BASE}/system/documents/${documentId}/public-settings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          isPublic: localIsPublic,
+          publicSlug: localIsPublic ? localSlug : null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to update settings");
+      }
+      onUpdate();
+      onClose();
+    } catch (err: any) {
+      alert(err?.message || "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(publicUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.5)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: "white",
+          borderRadius: 12,
+          padding: 24,
+          width: "90%",
+          maxWidth: 480,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 style={{ margin: 0, fontSize: 18 }}>🔗 Share Document</h2>
+
+        <div style={{ marginTop: 20 }}>
+          {/* Public Toggle */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: 16,
+              background: localIsPublic ? "#f0fdf4" : "#f9fafb",
+              borderRadius: 8,
+              border: `1px solid ${localIsPublic ? "#86efac" : "#e5e7eb"}`,
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 500, fontSize: 14 }}>Public Access</div>
+              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                Anyone with the link can view (read-only)
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLocalIsPublic(!localIsPublic)}
+              style={{
+                width: 48,
+                height: 28,
+                borderRadius: 14,
+                background: localIsPublic ? "#22c55e" : "#d1d5db",
+                border: "none",
+                cursor: "pointer",
+                position: "relative",
+              }}
+            >
+              <div
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 11,
+                  background: "white",
+                  position: "absolute",
+                  top: 3,
+                  left: localIsPublic ? 23 : 3,
+                  transition: "left 0.2s",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                }}
+              />
+            </button>
+          </div>
+
+          {/* Public URL settings */}
+          {localIsPublic && (
+            <div style={{ marginTop: 16 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
+                Public URL Slug
+              </label>
+              <input
+                type="text"
+                value={localSlug}
+                onChange={(e) => setLocalSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
+                placeholder="my-document"
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  fontSize: 14,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                  fontFamily: "monospace",
+                }}
+              />
+              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
+                Direct URL: <span style={{ fontFamily: "monospace" }}>{publicUrl}</span>
+              </div>
+              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+                Also visible on: <a href={portalUrl} target="_blank" style={{ color: "#2563eb" }}>/portal</a>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                style={{
+                  marginTop: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "10px 16px",
+                  fontSize: 14,
+                  background: copied ? "#dcfce7" : "#f3f4f6",
+                  color: copied ? "#166534" : "#374151",
+                  border: `1px solid ${copied ? "#86efac" : "#d1d5db"}`,
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  width: "100%",
+                  justifyContent: "center",
+                }}
+              >
+                {copied ? "✓ Copied!" : "📋 Copy Public Link"}
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", marginTop: 24 }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: "8px 16px",
+              fontSize: 14,
+              background: "white",
+              color: "#374151",
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            style={{
+              padding: "8px 16px",
+              fontSize: 14,
+              fontWeight: 500,
+              background: saving ? "#9ca3af" : "#7c3aed",
+              color: "white",
+              border: "none",
+              borderRadius: 6,
+              cursor: saving ? "not-allowed" : "pointer",
+            }}
+          >
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
