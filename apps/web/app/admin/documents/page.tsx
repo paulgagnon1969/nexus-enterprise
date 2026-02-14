@@ -2915,6 +2915,10 @@ function BulkImportModal({ count, onClose, onImport }: BulkImportModalProps) {
   const [importToCategory, setImportToCategory] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Get safety manual sections from AVAILABLE_MANUALS
+  const safetyManual = AVAILABLE_MANUALS.find(m => m.id === "safety");
+  const safetyCategories = safetyManual?.sections || [];
+
   const handleSubmit = async () => {
     if (!importToCategory) return;
     setIsSubmitting(true);
@@ -2969,7 +2973,7 @@ function BulkImportModal({ count, onClose, onImport }: BulkImportModalProps) {
             }}
           >
             <option value="">Select a category...</option>
-            {SAFETY_CATEGORIES.map((cat) => (
+            {safetyCategories.map((cat) => (
               <option key={cat.id} value={cat.id}>
                 {cat.name}
               </option>
