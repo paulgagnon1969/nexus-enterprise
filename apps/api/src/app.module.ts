@@ -38,6 +38,7 @@ import { DocumentImportModule } from "./modules/document-import/document-import.
 import { SopModule } from "./modules/sop/sop.module";
 import { ClaimJournalModule } from "./modules/claim-journal/claim-journal.module";
 import { FieldSecurityModule } from "./modules/field-security/field-security.module";
+import { SystemDocumentsModule } from "./modules/system-documents/system-documents.module";
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { FieldSecurityModule } from "./modules/field-security/field-security.mod
     SopModule,
     ClaimJournalModule,
     FieldSecurityModule,
+    SystemDocumentsModule,
   ],
   controllers: [DevController]
 })

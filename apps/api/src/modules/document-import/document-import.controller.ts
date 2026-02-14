@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -380,6 +381,26 @@ export class DocumentImportController {
   }
 
   // ==================== Tagging & Document Details ====================
+
+  /**
+   * Update document content (HTML)
+   * PUT /document-import/documents/:id/content
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER)
+  @Put("documents/:id/content")
+  async updateDocumentContent(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body()
+    body: {
+      htmlContent: string;
+      revisionNotes?: string;
+    }
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.updateDocumentContent(actor, id, body);
+  }
 
   /**
    * Update document details (title, description, tags, category)

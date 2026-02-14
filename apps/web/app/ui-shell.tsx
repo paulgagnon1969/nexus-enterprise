@@ -460,6 +460,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
       )}
 
+      {/* NEXUS System menu bar for SUPER_ADMIN on /system routes */}
+      {globalRole === "SUPER_ADMIN" && isSystemRoute && (
+        <>
+          <NavDropdown
+            label="Documents"
+            active={isActive("/documents") || isActive("/admin/documents")}
+            items={[
+              { label: "Unpublished eDocs", href: "/admin/documents" },
+              { label: "Published eDocs", href: "/documents" },
+              { label: "Templates", href: "/documents/templates" },
+            ]}
+          />
+        </>
+      )}
+
       {(!isSystemRoute || globalRole !== "SUPER_ADMIN") && (
         <>
           {/* Proj Overview = main project workspace (current /projects section) */}
@@ -494,22 +509,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             {h.files}
           </Link>
-          <NavDropdown
-            label="Documents"
-            active={isActive("/documents") || isActive("/admin/documents")}
-            items={
-              globalRole === "SUPER_ADMIN" || companyRole === "OWNER" || companyRole === "ADMIN"
-                ? [
-                    { label: "Unpublished eDocs", href: "/admin/documents" },
-                    { label: "Published eDocs", href: "/documents" },
-                    { label: "Templates", href: "/documents/templates" },
-                  ]
-                : [
-                    { label: "Published eDocs", href: "/documents" },
-                    { label: "Templates", href: "/documents/templates" },
-                  ]
-            }
-          />
+          {/* Documents dropdown: hidden for SUPER_ADMIN (they use /system sidebar instead) */}
+          {globalRole !== "SUPER_ADMIN" && (
+            <NavDropdown
+              label="Documents"
+              active={isActive("/documents") || isActive("/admin/documents")}
+              items={
+                companyRole === "OWNER" || companyRole === "ADMIN"
+                  ? [
+                      { label: "Unpublished eDocs", href: "/admin/documents" },
+                      { label: "Published eDocs", href: "/documents" },
+                      { label: "Templates", href: "/documents/templates" },
+                    ]
+                  : [
+                      { label: "Published eDocs", href: "/documents" },
+                      { label: "Templates", href: "/documents/templates" },
+                    ]
+              }
+            />
+          )}
           <Link
             href="/messaging"
             className={

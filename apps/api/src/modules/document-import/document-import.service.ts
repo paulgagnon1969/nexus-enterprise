@@ -1812,6 +1812,53 @@ ${bodyHtml}
     };
   }
 
+  // ==================== Update Document Content ====================
+
+  /**
+   * Update a document's HTML content.
+   * Creates a revision by incrementing the revision number.
+   */
+  async updateDocumentContent(
+    actor: AuthenticatedUser,
+    documentId: string,
+    data: {
+      htmlContent: string;
+      revisionNotes?: string;
+    }
+  ) {
+    const doc = await this.prisma.stagedDocument.findFirst({
+      where: {
+        id: documentId,
+        companyId: actor.companyId,
+      },
+    });
+
+    if (!doc) {
+      throw new NotFoundException("Document not found");
+    }
+
+    const newRevision = (doc.revisionNumber || 0) + 1;
+
+    const updated = await this.prisma.stagedDocument.update({
+      where: { id: documentId },
+      data: {
+        htmlContent: data.htmlContent,
+        fileSize: BigInt(data.htmlContent.length),
+        revisionNumber: newRevision,
+        revisionNotes: data.revisionNotes || null,
+        revisionDate: new Date(),
+        conversionStatus: HtmlConversionStatus.COMPLETED,
+        convertedAt: new Date(),
+      },
+    });
+
+    return {
+      ...updated,
+      fileSize: updated.fileSize.toString(),
+      message: `Document updated to revision ${newRevision}`,
+    };
+  }
+
   // ==================== Public Documents ====================
 
   /**
