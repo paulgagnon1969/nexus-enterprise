@@ -2367,15 +2367,43 @@ function EditDocumentModal({ document, onClose, onSaved }: EditDocumentModalProp
   );
 }
 
-// --- Import Modal Component ---
+// --- Publish Modal Component ---
 
-const SAFETY_CATEGORIES = [
-  { id: "general-safety", name: "General Safety" },
-  { id: "ppe", name: "Personal Protective Equipment" },
-  { id: "hazard-communication", name: "Hazard Communication" },
-  { id: "fall-protection", name: "Fall Protection" },
-  { id: "electrical-safety", name: "Electrical Safety" },
-  { id: "emergency-response", name: "Emergency Response" },
+type PublishMode = "standalone" | "manual";
+
+const DOCUMENT_CATEGORIES = [
+  { id: "policy", name: "Policy" },
+  { id: "procedure", name: "Procedure" },
+  { id: "form", name: "Form / Template" },
+  { id: "reference", name: "Reference Document" },
+  { id: "training", name: "Training Material" },
+  { id: "compliance", name: "Compliance" },
+  { id: "other", name: "Other" },
+];
+
+const AVAILABLE_MANUALS = [
+  { id: "safety", name: "Safety Manual", sections: [
+    { id: "general-safety", name: "General Safety" },
+    { id: "ppe", name: "Personal Protective Equipment" },
+    { id: "hazard-communication", name: "Hazard Communication" },
+    { id: "fall-protection", name: "Fall Protection" },
+    { id: "electrical-safety", name: "Electrical Safety" },
+    { id: "emergency-response", name: "Emergency Response" },
+  ]},
+  { id: "employee-handbook", name: "Employee Handbook", sections: [
+    { id: "welcome", name: "Welcome & Company Overview" },
+    { id: "employment", name: "Employment Policies" },
+    { id: "benefits", name: "Benefits & Compensation" },
+    { id: "conduct", name: "Code of Conduct" },
+    { id: "time-off", name: "Time Off & Leave" },
+    { id: "acknowledgment", name: "Acknowledgment" },
+  ]},
+  { id: "operations", name: "Operations Manual", sections: [
+    { id: "general-ops", name: "General Operations" },
+    { id: "quality", name: "Quality Control" },
+    { id: "equipment", name: "Equipment & Tools" },
+    { id: "scheduling", name: "Scheduling & Workflow" },
+  ]},
 ];
 
 interface ImportModalProps {
@@ -2391,25 +2419,49 @@ interface ImportModalProps {
 }
 
 function ImportModal({ document, onClose, onImport }: ImportModalProps) {
-  const [importToType] = useState("safety"); // For now, only safety manual
-  const [importToCategory, setImportToCategory] = useState("");
-  const [displayTitle, setDisplayTitle] = useState(document.fileName.replace(/\.[^/.]+$/, ""));
-  const [displayDescription, setDisplayDescription] = useState("");
+  const [publishMode, setPublishMode] = useState<PublishMode | null>(null);
+  const [displayTitle, setDisplayTitle] = useState(document.displayTitle || document.fileName.replace(/\.[^/.]+$/, ""));
+  const [displayDescription, setDisplayDescription] = useState(document.displayDescription || "");
+  const [category, setCategory] = useState("");
+  const [tags, setTags] = useState("");
+  
+  // Manual mode
+  const [selectedManual, setSelectedManual] = useState("");
+  const [selectedSection, setSelectedSection] = useState("");
   const [oshaReference, setOshaReference] = useState("");
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const currentManual = AVAILABLE_MANUALS.find(m => m.id === selectedManual);
+
   const handleSubmit = async () => {
-    if (!importToCategory) return;
     setIsSubmitting(true);
-    await onImport({
-      importToType,
-      importToCategory,
-      displayTitle: displayTitle.trim() || undefined,
-      displayDescription: displayDescription.trim() || undefined,
-      oshaReference: oshaReference.trim() || undefined,
-    });
+    
+    if (publishMode === "standalone") {
+      // For standalone, use "standalone" as importToType and the category as importToCategory
+      await onImport({
+        importToType: "standalone",
+        importToCategory: category || "other",
+        displayTitle: displayTitle.trim() || undefined,
+        displayDescription: displayDescription.trim() || undefined,
+      });
+    } else {
+      // For manual, use the manual ID as importToType and section as importToCategory
+      await onImport({
+        importToType: selectedManual,
+        importToCategory: selectedSection,
+        displayTitle: displayTitle.trim() || undefined,
+        displayDescription: displayDescription.trim() || undefined,
+        oshaReference: oshaReference.trim() || undefined,
+      });
+    }
+    
     setIsSubmitting(false);
   };
+
+  const canSubmit = publishMode === "standalone" 
+    ? true 
+    : (selectedManual && selectedSection);
 
   return (
     <div
@@ -2430,155 +2482,421 @@ function ImportModal({ document, onClose, onImport }: ImportModalProps) {
           borderRadius: 12,
           padding: 24,
           width: "100%",
-          maxWidth: 500,
+          maxWidth: 550,
+          maxHeight: "90vh",
+          overflow: "auto",
           boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 style={{ margin: 0, fontSize: 18 }}>Import to Safety Manual</h2>
+        <h2 style={{ margin: 0, fontSize: 18 }}>Publish Document</h2>
         <p style={{ marginTop: 8, marginBottom: 16, fontSize: 14, color: "#6b7280" }}>
-          Import "{document.fileName}" to the Safety Manual with custom metadata.
+          Publish "{document.fileName}" to make it available to users.
         </p>
 
-        {/* Category */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
-            Category *
-          </label>
-          <select
-            value={importToCategory}
-            onChange={(e) => setImportToCategory(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              fontSize: 14,
-              border: "1px solid #d1d5db",
-              borderRadius: 6,
-              backgroundColor: "#ffffff",
-            }}
-          >
-            <option value="">Select a category...</option>
-            {SAFETY_CATEGORIES.map((cat) => (
-              <option key={cat.id} value={cat.id}>
-                {cat.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* Step 1: Choose publish mode */}
+        {!publishMode && (
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 8 }}>
+                How would you like to publish this document?
+              </label>
+              
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => setPublishMode("standalone")}
+                  style={{
+                    padding: 16,
+                    borderRadius: 8,
+                    border: "2px solid #e5e7eb",
+                    background: "#ffffff",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    transition: "border-color 0.15s",
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = "#2563eb"}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = "#e5e7eb"}
+                >
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>📄 Stand-Alone Document</div>
+                  <div style={{ fontSize: 13, color: "#6b7280" }}>
+                    Publish as an individual policy, procedure, or reference document.
+                    Users can view and download it independently.
+                  </div>
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={() => setPublishMode("manual")}
+                  style={{
+                    padding: 16,
+                    borderRadius: 8,
+                    border: "2px solid #e5e7eb",
+                    background: "#ffffff",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    transition: "border-color 0.15s",
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = "#2563eb"}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = "#e5e7eb"}
+                >
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>📚 Add to Manual / Handbook</div>
+                  <div style={{ fontSize: 13, color: "#6b7280" }}>
+                    Add this document as a chapter or section within an existing manual
+                    (e.g., Safety Manual, Employee Handbook). Enables bookmarks and page references.
+                  </div>
+                </button>
+              </div>
+            </div>
+            
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  padding: "8px 16px",
+                  fontSize: 14,
+                  backgroundColor: "#ffffff",
+                  color: "#374151",
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
 
-        {/* Display Title */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
-            Display Title
-          </label>
-          <input
-            type="text"
-            value={displayTitle}
-            onChange={(e) => setDisplayTitle(e.target.value)}
-            placeholder="Enter a title for display"
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              fontSize: 14,
-              border: "1px solid #d1d5db",
-              borderRadius: 6,
-            }}
-          />
-        </div>
+        {/* Step 2: Stand-Alone Document form */}
+        {publishMode === "standalone" && (
+          <>
+            <button
+              type="button"
+              onClick={() => setPublishMode(null)}
+              style={{
+                marginBottom: 16,
+                padding: 0,
+                background: "none",
+                border: "none",
+                color: "#2563eb",
+                fontSize: 13,
+                cursor: "pointer",
+              }}
+            >
+              ← Back to publish options
+            </button>
+            
+            <div style={{ padding: 12, background: "#eff6ff", borderRadius: 8, marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: "#1e40af" }}>📄 Stand-Alone Document</div>
+              <div style={{ fontSize: 12, color: "#3b82f6" }}>This document will be published independently.</div>
+            </div>
 
-        {/* Description */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
-            Description
-          </label>
-          <textarea
-            value={displayDescription}
-            onChange={(e) => setDisplayDescription(e.target.value)}
-            placeholder="Brief description of this document"
-            rows={2}
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              fontSize: 14,
-              border: "1px solid #d1d5db",
-              borderRadius: 6,
-              resize: "vertical",
-            }}
-          />
-        </div>
+            {/* Display Title */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                Display Title
+              </label>
+              <input
+                type="text"
+                value={displayTitle}
+                onChange={(e) => setDisplayTitle(e.target.value)}
+                placeholder="Enter a title for display"
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  fontSize: 14,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                }}
+              />
+            </div>
 
-        {/* OSHA Reference */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
-            OSHA Reference
-          </label>
-          <input
-            type="text"
-            value={oshaReference}
-            onChange={(e) => setOshaReference(e.target.value)}
-            placeholder="e.g., 29 CFR 1910.132"
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              fontSize: 14,
-              border: "1px solid #d1d5db",
-              borderRadius: 6,
-            }}
-          />
-        </div>
+            {/* Category */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                Category
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  fontSize: 14,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                  backgroundColor: "#ffffff",
+                }}
+              >
+                <option value="">Select a category...</option>
+                {DOCUMENT_CATEGORIES.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-        {/* Source Path Info */}
-        <div
-          style={{
-            padding: 12,
-            backgroundColor: "#f0fdf4",
-            border: "1px solid #bbf7d0",
-            borderRadius: 6,
-            marginBottom: 16,
-          }}
-        >
-          <p style={{ margin: 0, fontSize: 12, color: "#166534" }}>
-            <strong>Source:</strong> {document.breadcrumb.join(" / ")}
-          </p>
-          <p style={{ margin: "4px 0 0", fontSize: 11, color: "#16a34a" }}>
-            The original file will remain accessible at its current location.
-          </p>
-        </div>
+            {/* Description */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                Description
+              </label>
+              <textarea
+                value={displayDescription}
+                onChange={(e) => setDisplayDescription(e.target.value)}
+                placeholder="Brief description of this document"
+                rows={2}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  fontSize: 14,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                  resize: "vertical",
+                }}
+              />
+            </div>
 
-        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              padding: "8px 16px",
-              fontSize: 14,
-              backgroundColor: "#ffffff",
-              color: "#374151",
-              border: "1px solid #d1d5db",
-              borderRadius: 6,
-              cursor: "pointer",
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!importToCategory || isSubmitting}
-            style={{
-              padding: "8px 16px",
-              fontSize: 14,
-              fontWeight: 500,
-              backgroundColor: !importToCategory || isSubmitting ? "#9ca3af" : "#2563eb",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: 6,
-              cursor: !importToCategory || isSubmitting ? "not-allowed" : "pointer",
-            }}
-          >
-            {isSubmitting ? "Importing..." : "Import Document"}
-          </button>
-        </div>
+            {/* Tags */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                Tags (comma-separated)
+              </label>
+              <input
+                type="text"
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+                placeholder="e.g., hr, onboarding, required"
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  fontSize: 14,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  padding: "8px 16px",
+                  fontSize: 14,
+                  backgroundColor: "#ffffff",
+                  color: "#374151",
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+                style={{
+                  padding: "8px 16px",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  backgroundColor: isSubmitting ? "#9ca3af" : "#16a34a",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: 6,
+                  cursor: isSubmitting ? "not-allowed" : "pointer",
+                }}
+              >
+                {isSubmitting ? "Publishing..." : "Publish Document"}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Step 2: Add to Manual form */}
+        {publishMode === "manual" && (
+          <>
+            <button
+              type="button"
+              onClick={() => setPublishMode(null)}
+              style={{
+                marginBottom: 16,
+                padding: 0,
+                background: "none",
+                border: "none",
+                color: "#2563eb",
+                fontSize: 13,
+                cursor: "pointer",
+              }}
+            >
+              ← Back to publish options
+            </button>
+            
+            <div style={{ padding: 12, background: "#fef3c7", borderRadius: 8, marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: "#92400e" }}>📚 Add to Manual / Handbook</div>
+              <div style={{ fontSize: 12, color: "#b45309" }}>This document will be added as a section within an existing manual.</div>
+            </div>
+
+            {/* Select Manual */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                Select Manual *
+              </label>
+              <select
+                value={selectedManual}
+                onChange={(e) => {
+                  setSelectedManual(e.target.value);
+                  setSelectedSection("");
+                }}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  fontSize: 14,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                  backgroundColor: "#ffffff",
+                }}
+              >
+                <option value="">Choose a manual...</option>
+                {AVAILABLE_MANUALS.map((manual) => (
+                  <option key={manual.id} value={manual.id}>
+                    {manual.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Select Section */}
+            {currentManual && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                  Section / Chapter *
+                </label>
+                <select
+                  value={selectedSection}
+                  onChange={(e) => setSelectedSection(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    fontSize: 14,
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                    backgroundColor: "#ffffff",
+                  }}
+                >
+                  <option value="">Choose a section...</option>
+                  {currentManual.sections.map((section) => (
+                    <option key={section.id} value={section.id}>
+                      {section.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Display Title */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                Display Title
+              </label>
+              <input
+                type="text"
+                value={displayTitle}
+                onChange={(e) => setDisplayTitle(e.target.value)}
+                placeholder="Enter a title for display"
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  fontSize: 14,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                }}
+              />
+            </div>
+
+            {/* Description */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                Description
+              </label>
+              <textarea
+                value={displayDescription}
+                onChange={(e) => setDisplayDescription(e.target.value)}
+                placeholder="Brief description of this document"
+                rows={2}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  fontSize: 14,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                  resize: "vertical",
+                }}
+              />
+            </div>
+
+            {/* OSHA Reference (for Safety Manual) */}
+            {selectedManual === "safety" && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                  OSHA Reference
+                </label>
+                <input
+                  type="text"
+                  value={oshaReference}
+                  onChange={(e) => setOshaReference(e.target.value)}
+                  placeholder="e.g., 29 CFR 1910.132"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    fontSize: 14,
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                  }}
+                />
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  padding: "8px 16px",
+                  fontSize: 14,
+                  backgroundColor: "#ffffff",
+                  color: "#374151",
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!canSubmit || isSubmitting}
+                style={{
+                  padding: "8px 16px",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  backgroundColor: !canSubmit || isSubmitting ? "#9ca3af" : "#16a34a",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: 6,
+                  cursor: !canSubmit || isSubmitting ? "not-allowed" : "pointer",
+                }}
+              >
+                {isSubmitting ? "Adding..." : "Add to Manual"}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

@@ -147,6 +147,10 @@ model Company {
   // NEXUS System Documents (publications targeting this company)
   systemDocumentPublications SystemDocumentPublication[]
   tenantDocumentCopies       TenantDocumentCopy[]
+  tenantManualCopies         TenantManualCopy[]
+
+  // System Tags (NEXUS-level classification for selective distribution)
+  systemTags CompanySystemTag[]
 }
 
 model OrganizationTemplate {
@@ -424,7 +428,23 @@ model User {
   systemDocumentPublicationsPublished SystemDocumentPublication[]   @relation("SystemDocPubPublishedBy")
   systemDocumentPublicationsRetracted SystemDocumentPublication[]   @relation("SystemDocPubRetractedBy")
   tenantDocumentCopiesCopied          TenantDocumentCopy[]          @relation("TenantDocCopyCopiedBy")
+  tenantDocumentCopiesPublished       TenantDocumentCopy[]          @relation("TenantDocCopyPublishedBy")
   tenantDocumentCopyVersionsCreated   TenantDocumentCopyVersion[]   @relation("TenantDocCopyVersionCreatedBy")
+
+  // Tenant Manual Copies (two-stage publishing)
+  tenantManualCopiesReceived  TenantManualCopy[] @relation("TenantManualCopyReceivedBy")
+  tenantManualCopiesPublished TenantManualCopy[] @relation("TenantManualCopyPublishedBy")
+
+  // System Tags (NEXUS-level tenant classification)
+  systemTagsCreated       SystemTag[]        @relation("SystemTagCreatedBy")
+  companySystemTagsAssigned CompanySystemTag[] @relation("CompanySystemTagAssignedBy")
+
+  // Manuals / Document Collections
+  manualsCreated        Manual[]        @relation("ManualCreatedBy")
+  manualVersionsCreated ManualVersion[] @relation("ManualVersionCreatedBy")
+
+  // Document Share Links
+  shareLinksCreated DocumentShareLink[] @relation("ShareLinkCreatedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -4796,6 +4816,13 @@ enum SystemDocumentPublicationTarget {
   SINGLE_TENANT // Published to a specific tenant only
 }
 
+/// Status of tenant document/manual copies (two-stage publishing)
+enum TenantDocumentStatus {
+  UNRELEASED  // Received from NEXUS but not yet published to org
+  PUBLISHED   // Published and visible to org users
+  ARCHIVED    // Hidden/archived by tenant admin
+}
+
 /// Master document owned by NEXUS System (not tenant-scoped)
 model SystemDocument {
   id               String   @id @default(cuid())
@@ -4807,18 +4834,23 @@ model SystemDocument {
   tags             String[] // Tags for filtering
   active           Boolean  @default(true) // Soft delete
   currentVersionId String?  @unique
+  publicSlug       String?  @unique // For branded public URLs (e.g., "ppe-policy")
+  isPublic         Boolean  @default(false) // Whether accessible without auth
   createdByUserId  String
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  currentVersion SystemDocumentVersion?      @relation("SystemDocCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
-  versions       SystemDocumentVersion[]
-  publications   SystemDocumentPublication[]
-  tenantCopies   TenantDocumentCopy[]
-  createdBy      User                        @relation("SystemDocumentCreatedBy", fields: [createdByUserId], references: [id])
+  currentVersion  SystemDocumentVersion?      @relation("SystemDocCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions        SystemDocumentVersion[]
+  publications    SystemDocumentPublication[]
+  tenantCopies    TenantDocumentCopy[]
+  manualDocuments ManualDocument[]            // Documents included in manuals
+  shareLinks      DocumentShareLink[]         // Private share links
+  createdBy       User                        @relation("SystemDocumentCreatedBy", fields: [createdByUserId], references: [id])
 
   @@index([category], map: "SystemDocument_category_idx")
   @@index([active], map: "SystemDocument_active_idx")
+  @@index([isPublic], map: "SystemDocument_public_idx")
 }
 
 /// Immutable revision snapshot of a system document
@@ -4866,26 +4898,32 @@ model SystemDocumentPublication {
 
 /// Tenant's editable copy of a system document
 model TenantDocumentCopy {
-  id                     String   @id @default(cuid())
+  id                     String               @id @default(cuid())
   companyId              String
-  sourceSystemDocumentId String   // Reference back to source for audit
-  sourceVersionNo        Int      // Version number when copied
-  title                  String   // Can be modified by tenant
-  currentVersionId       String?  @unique
+  sourceSystemDocumentId String               // Reference back to source for audit
+  sourceVersionNo        Int                  // Version number when copied
+  title                  String               // Can be modified by tenant
+  currentVersionId       String?              @unique
+  status                 TenantDocumentStatus @default(UNRELEASED) // Two-stage publishing
   copiedByUserId         String
-  copiedAt               DateTime @default(now())
-  hasNewerSystemVersion  Boolean  @default(false) // Flag for update indicator
-  updatedAt              DateTime @updatedAt
+  copiedAt               DateTime             @default(now())
+  publishedAt            DateTime?            // When tenant admin published to org
+  publishedByUserId      String?              // User who published to org
+  internalNotes          String?              @db.Text // Tenant-specific notes
+  hasNewerSystemVersion  Boolean              @default(false) // Flag for update indicator
+  updatedAt              DateTime             @updatedAt
 
   company              Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   sourceSystemDocument SystemDocument             @relation(fields: [sourceSystemDocumentId], references: [id])
   currentVersion       TenantDocumentCopyVersion? @relation("TenantDocCopyCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
   versions             TenantDocumentCopyVersion[]
   copiedBy             User                       @relation("TenantDocCopyCopiedBy", fields: [copiedByUserId], references: [id])
+  publishedBy          User?                      @relation("TenantDocCopyPublishedBy", fields: [publishedByUserId], references: [id])
 
   @@index([companyId], map: "TenantDocCopy_company_idx")
   @@index([sourceSystemDocumentId], map: "TenantDocCopy_source_idx")
   @@index([companyId, hasNewerSystemVersion], map: "TenantDocCopy_updates_idx")
+  @@index([companyId, status], map: "TenantDocCopy_status_idx")
 }
 
 /// Version history for tenant's document copy
@@ -4905,4 +4943,234 @@ model TenantDocumentCopyVersion {
 
   @@unique([tenantDocumentCopyId, versionNo], map: "TenantDocCopyVersion_copy_version_key")
   @@index([tenantDocumentCopyId], map: "TenantDocCopyVersion_copy_idx")
+}
+
+/// Tenant's copy of a manual when distributed from NEXUS
+model TenantManualCopy {
+  id                    String               @id @default(cuid())
+  companyId             String
+  sourceManualId        String               // Reference to source manual
+  sourceManualVersion   Int                  // Version when distributed
+  title                 String               // Can be customized by tenant
+  status                TenantDocumentStatus @default(UNRELEASED)
+  hasNewerSourceVersion Boolean              @default(false) // Flag for update indicator
+  receivedAt            DateTime             @default(now())
+  receivedByUserId      String               // System user or admin who triggered distribution
+  publishedAt           DateTime?            // When tenant admin published to org
+  publishedByUserId     String?              // User who published
+  internalNotes         String?              @db.Text
+  updatedAt             DateTime             @updatedAt
+
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sourceManual Manual  @relation(fields: [sourceManualId], references: [id])
+  receivedBy  User    @relation("TenantManualCopyReceivedBy", fields: [receivedByUserId], references: [id])
+  publishedBy User?   @relation("TenantManualCopyPublishedBy", fields: [publishedByUserId], references: [id])
+
+  @@unique([companyId, sourceManualId], map: "TenantManualCopy_company_manual_key")
+  @@index([companyId], map: "TenantManualCopy_company_idx")
+  @@index([sourceManualId], map: "TenantManualCopy_manual_idx")
+  @@index([companyId, status], map: "TenantManualCopy_status_idx")
+}
+
+// =============================================================================
+// System Tags for Tenant Classification
+// =============================================================================
+
+/// NEXUS System-level tags for classifying tenants (not tenant-scoped).
+/// Used for selective document/manual distribution (e.g., "tier:premium", "region:west").
+model SystemTag {
+  id          String   @id @default(cuid())
+  code        String   @unique // Unique identifier (e.g., "tier:premium", "feature:advanced-reporting")
+  label       String   // Display name (e.g., "Premium Tier")
+  description String?  // Optional description
+  category    String?  // Grouping category (e.g., "tier", "region", "feature")
+  color       String?  // Hex color for UI display (e.g., "#f59e0b")
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
+  createdByUserId String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy        User               @relation("SystemTagCreatedBy", fields: [createdByUserId], references: [id])
+  companyTags      CompanySystemTag[]
+  manualTargetTags ManualTargetTag[]  // Manuals that target this tag
+
+  @@index([category], map: "SystemTag_category_idx")
+  @@index([active], map: "SystemTag_active_idx")
+}
+
+/// Join table assigning system tags to tenant companies.
+/// Enables tag-based document/manual distribution.
+model CompanySystemTag {
+  id              String   @id @default(cuid())
+  companyId       String
+  systemTagId     String
+  assignedByUserId String
+  assignedAt      DateTime @default(now())
+
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  systemTag  SystemTag @relation(fields: [systemTagId], references: [id], onDelete: Cascade)
+  assignedBy User      @relation("CompanySystemTagAssignedBy", fields: [assignedByUserId], references: [id])
+
+  @@unique([companyId, systemTagId], map: "CompanySystemTag_company_tag_key")
+  @@index([companyId], map: "CompanySystemTag_company_idx")
+  @@index([systemTagId], map: "CompanySystemTag_tag_idx")
+}
+
+// =============================================================================
+// Manuals / Document Collections
+// =============================================================================
+
+enum ManualStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ManualVersionChangeType {
+  INITIAL
+  DOCUMENT_ADDED
+  DOCUMENT_REMOVED
+  DOCUMENT_REORDERED
+  CHAPTER_ADDED
+  CHAPTER_REMOVED
+  CHAPTER_REORDERED
+  METADATA_UPDATED
+}
+
+/// A collection of documents organized into chapters (e.g., Safety Manual, Employee Handbook)
+model Manual {
+  id                  String       @id @default(cuid())
+  code                String       @unique // Unique slug (e.g., "safety-manual")
+  title               String
+  description         String?      @db.Text
+  status              ManualStatus @default(DRAFT)
+  currentVersion      Int          @default(1) // Increments on structural changes
+  publicSlug          String?      @unique // For branded URLs like /docs/safety-manual
+  isPublic            Boolean      @default(false) // Whether accessible without auth
+  publishToAllTenants Boolean      @default(false) // If true, ignores tag filters
+  coverImageUrl       String?
+  iconEmoji           String?      // Optional emoji for display (e.g., "📘")
+  createdByUserId     String
+  publishedAt         DateTime?    // When first published
+  archivedAt          DateTime?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  createdBy     User                   @relation("ManualCreatedBy", fields: [createdByUserId], references: [id])
+  chapters      ManualChapter[]
+  documents     ManualDocument[]
+  versions      ManualVersion[]
+  targetTags    ManualTargetTag[]      // Which tenant tags can see this manual
+  tenantCopies  TenantManualCopy[]     // Distributed copies to tenants
+  shareLinks    DocumentShareLink[]    // Private share links
+
+  @@index([status], map: "Manual_status_idx")
+  @@index([isPublic], map: "Manual_public_idx")
+}
+
+/// Version history for manual structure changes (not document content changes)
+model ManualVersion {
+  id                String                  @id @default(cuid())
+  manualId          String
+  version           Int                     // Sequential version number
+  changeType        ManualVersionChangeType
+  changeNotes       String?                 // Description of what changed
+  structureSnapshot Json?                   // JSON snapshot of chapters/documents at this version
+  createdByUserId   String
+  createdAt         DateTime                @default(now())
+
+  manual    Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  createdBy User   @relation("ManualVersionCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@unique([manualId, version], map: "ManualVersion_manual_version_key")
+  @@index([manualId], map: "ManualVersion_manual_idx")
+}
+
+/// Sections/chapters within a manual
+model ManualChapter {
+  id          String   @id @default(cuid())
+  manualId    String
+  title       String
+  description String?  @db.Text
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true) // Soft delete
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  manual    Manual           @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  documents ManualDocument[]
+
+  @@index([manualId, sortOrder], map: "ManualChapter_manual_order_idx")
+}
+
+/// Join table linking system documents to manual chapters
+model ManualDocument {
+  id                     String   @id @default(cuid())
+  manualId               String
+  chapterId              String?  // Null for root-level documents
+  systemDocumentId       String
+  sortOrder              Int      @default(0) // Order within chapter
+  displayTitleOverride   String?  // Optional override (e.g., "PPE Policy" instead of full title)
+  addedInManualVersion   Int      // Which manual version added this doc
+  removedInManualVersion Int?     // Null if still active, set when removed
+  active                 Boolean  @default(true) // Derived from removedInManualVersion being null
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  manual         Manual          @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  chapter        ManualChapter?  @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  systemDocument SystemDocument  @relation(fields: [systemDocumentId], references: [id], onDelete: Cascade)
+
+  @@unique([manualId, systemDocumentId, removedInManualVersion], map: "ManualDocument_manual_doc_version_key")
+  @@index([manualId, chapterId, sortOrder], map: "ManualDocument_chapter_order_idx")
+  @@index([systemDocumentId], map: "ManualDocument_doc_idx")
+}
+
+/// Join table for which tenant tags can access a manual
+model ManualTargetTag {
+  id          String   @id @default(cuid())
+  manualId    String
+  systemTagId String
+  createdAt   DateTime @default(now())
+
+  manual    Manual    @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  systemTag SystemTag @relation(fields: [systemTagId], references: [id], onDelete: Cascade)
+
+  @@unique([manualId, systemTagId], map: "ManualTargetTag_manual_tag_key")
+  @@index([manualId], map: "ManualTargetTag_manual_idx")
+  @@index([systemTagId], map: "ManualTargetTag_tag_idx")
+}
+
+// =============================================================================
+// Document Share Links (Public & Private Sharing)
+// =============================================================================
+
+enum ShareLinkType {
+  PUBLIC_URL    // Accessible via public slug (no token needed)
+  PRIVATE_LINK  // Requires access token
+}
+
+/// Share link for private document/manual sharing with optional expiration
+model DocumentShareLink {
+  id               String        @id @default(cuid())
+  systemDocumentId String?       // Either document or manual, not both
+  manualId         String?       // Either document or manual, not both
+  shareType        ShareLinkType @default(PRIVATE_LINK)
+  accessToken      String        @unique // Random token for private links
+  expiresAt        DateTime?     // Optional expiration
+  passcode         String?       // Optional passcode (hashed)
+  accessCount      Int           @default(0) // Track number of views
+  lastAccessedAt   DateTime?     // When last accessed
+  isActive         Boolean       @default(true) // Can be revoked
+  createdByUserId  String
+  createdAt        DateTime      @default(now())
+
+  systemDocument SystemDocument? @relation(fields: [systemDocumentId], references: [id], onDelete: Cascade)
+  manual         Manual?         @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  createdBy      User            @relation("ShareLinkCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([accessToken], map: "DocShareLink_token_idx")
+  @@index([systemDocumentId], map: "DocShareLink_doc_idx")
+  @@index([manualId], map: "DocShareLink_manual_idx")
 }
