@@ -1793,8 +1793,20 @@ function QuickLookModal({ document, onClose }: QuickLookModalProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [htmlContent, setHtmlContent] = useState<string | null>(null);
 
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+  const isImage = ["jpg", "jpeg", "png", "gif", "webp", "svg"].includes(
+    document.fileType.toLowerCase()
+  );
+  const isPdf = document.fileType.toLowerCase() === "pdf";
+  const isHtml = ["html", "htm"].includes(document.fileType.toLowerCase());
+
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem("accessToken");
+    return { Authorization: `Bearer ${token}` };
+  };
 
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
@@ -1804,22 +1816,96 @@ function QuickLookModal({ document, onClose }: QuickLookModalProps) {
       return;
     }
 
-    // For preview, we'll construct the URL directly
-    setPreviewUrl(`${API_BASE}/document-import/documents/${document.id}/preview`);
-    setLoading(false);
-  }, [document.id]);
+    // For HTML files, fetch the rendered HTML content
+    if (isHtml) {
+      (async () => {
+        try {
+          // First try the /html endpoint which returns converted content
+          const res = await fetch(`${API_BASE}/document-import/documents/${document.id}/html`, {
+            headers: getAuthHeaders(),
+          });
+          if (!res.ok) throw new Error("Failed to load document content");
+          const data = await res.json();
+          
+          // Handle various response field names
+          let content = data.htmlContent || data.html || data.content || "";
+          
+          // If no converted content, fall back to fetching raw file
+          if (!content) {
+            const previewRes = await fetch(
+              `${API_BASE}/document-import/documents/${document.id}/preview`,
+              { headers: getAuthHeaders() }
+            );
+            if (previewRes.ok) {
+              content = await previewRes.text();
+            }
+          }
+          
+          setHtmlContent(content);
+        } catch (err: any) {
+          setError(err?.message ?? "Failed to load document");
+        } finally {
+          setLoading(false);
+        }
+      })();
+    } else {
+      // For other files, use the preview URL
+      setPreviewUrl(`${API_BASE}/document-import/documents/${document.id}/preview`);
+      setLoading(false);
+    }
+  }, [document.id, isHtml]);
 
-  const isImage = ["jpg", "jpeg", "png", "gif", "webp", "svg"].includes(
-    document.fileType.toLowerCase()
-  );
-  const isPdf = document.fileType.toLowerCase() === "pdf";
-  const isText = ["txt", "md", "json", "xml", "csv", "yaml", "yml", "html", "htm"].includes(
-    document.fileType.toLowerCase()
-  );
+  // Print handler - opens print dialog for the document
+  const handlePrint = () => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Please allow popups to print this document.");
+      return;
+    }
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem("accessToken");
-    return { Authorization: `Bearer ${token}` };
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${document.fileName}</title>
+        <style>
+          @page {
+            margin: 0.75in;
+            size: letter;
+          }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-size: 11pt;
+            line-height: 1.5;
+            color: #1f2937;
+            max-width: 7in;
+            margin: 0 auto;
+            padding: 20px;
+          }
+          h1, h2, h3, h4, h5, h6 { margin-top: 1.5em; margin-bottom: 0.5em; font-weight: 600; }
+          h1 { font-size: 18pt; }
+          h2 { font-size: 14pt; }
+          h3 { font-size: 12pt; }
+          p { margin: 0.75em 0; }
+          ul, ol { margin: 0.75em 0; padding-left: 1.5em; }
+          table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+          th, td { border: 1px solid #d1d5db; padding: 8px 12px; text-align: left; }
+          th { background: #f3f4f6; font-weight: 600; }
+          @media print {
+            body { padding: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        ${htmlContent || ""}
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
   };
 
   return (
@@ -1849,21 +1935,43 @@ function QuickLookModal({ document, onClose }: QuickLookModalProps) {
           <div style={{ fontSize: 16, fontWeight: 500, color: "#ffffff" }}>{document.fileName}</div>
           <div style={{ fontSize: 12, color: "#9ca3af" }}>{document.breadcrumb.join(" / ")}</div>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          style={{
-            padding: "8px 16px",
-            fontSize: 14,
-            backgroundColor: "#ffffff",
-            color: "#111827",
-            border: "none",
-            borderRadius: 6,
-            cursor: "pointer",
-          }}
-        >
-          Close
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {isHtml && htmlContent && (
+            <button
+              type="button"
+              onClick={handlePrint}
+              style={{
+                padding: "8px 16px",
+                fontSize: 14,
+                backgroundColor: "#2563eb",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: 6,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              🖨️ Print / Save PDF
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: "8px 16px",
+              fontSize: 14,
+              backgroundColor: "#ffffff",
+              color: "#111827",
+              border: "none",
+              borderRadius: 6,
+              cursor: "pointer",
+            }}
+          >
+            Close
+          </button>
+        </div>
       </div>
 
       {/* Content */}
@@ -1882,6 +1990,30 @@ function QuickLookModal({ document, onClose }: QuickLookModalProps) {
           <div style={{ color: "#ffffff" }}>Loading preview...</div>
         ) : error ? (
           <div style={{ color: "#fca5a5" }}>{error}</div>
+        ) : isHtml && htmlContent ? (
+          /* Render HTML content inline with PDF-like styling */
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 850,
+              height: "100%",
+              backgroundColor: "#ffffff",
+              borderRadius: 8,
+              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
+              overflow: "auto",
+            }}
+          >
+            <div
+              style={{
+                padding: "40px 60px",
+                fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+                fontSize: 14,
+                lineHeight: 1.6,
+                color: "#1f2937",
+              }}
+              dangerouslySetInnerHTML={{ __html: htmlContent }}
+            />
+          </div>
         ) : isImage && previewUrl ? (
           <img
             src={`${previewUrl}?token=${localStorage.getItem("accessToken")}`}
