@@ -1734,6 +1734,84 @@ ${bodyHtml}
     };
   }
 
+  // ==================== Create Document From Scratch ====================
+
+  /**
+   * Create a new document from scratch with HTML content.
+   * Used for creating documents like privacy policy directly in the system.
+   */
+  async createDocumentFromScratch(
+    actor: AuthenticatedUser,
+    data: {
+      title: string;
+      htmlContent: string;
+      tags?: string[];
+      category?: string;
+      description?: string;
+    }
+  ) {
+    // Create a "manual" scan job if one doesn't exist
+    let scanJob = await this.prisma.documentScanJob.findFirst({
+      where: {
+        companyId: actor.companyId,
+        scanPath: "manual-upload",
+      },
+    });
+
+    if (!scanJob) {
+      scanJob = await this.prisma.documentScanJob.create({
+        data: {
+          companyId: actor.companyId,
+          scanPath: "manual-upload",
+          status: DocumentScanJobStatus.COMPLETED,
+          documentsFound: 0,
+          documentsProcessed: 0,
+          createdByUserId: actor.userId,
+          startedAt: new Date(),
+          completedAt: new Date(),
+        },
+      });
+    }
+
+    // Create the document
+    const doc = await this.prisma.stagedDocument.create({
+      data: {
+        companyId: actor.companyId,
+        scanJobId: scanJob.id,
+        fileName: `${data.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html`,
+        filePath: "manual-upload",
+        breadcrumb: ["Manual Upload"],
+        fileType: "html",
+        fileSize: BigInt(data.htmlContent.length),
+        mimeType: "text/html",
+        status: StagedDocumentStatus.ACTIVE,
+        scannedByUserId: actor.userId,
+        displayTitle: data.title,
+        displayDescription: data.description || null,
+        category: data.category || null,
+        tags: data.tags || [],
+        htmlContent: data.htmlContent,
+        conversionStatus: HtmlConversionStatus.COMPLETED,
+        convertedAt: new Date(),
+      },
+    });
+
+    // Increment scan job count
+    await this.prisma.documentScanJob.update({
+      where: { id: scanJob.id },
+      data: {
+        documentsFound: { increment: 1 },
+        documentsProcessed: { increment: 1 },
+      },
+    });
+
+    return {
+      ...doc,
+      fileSize: doc.fileSize.toString(),
+      message: "Document created successfully",
+    };
+  }
+
   // ==================== Public Documents ====================
 
   /**
