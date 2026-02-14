@@ -61,6 +61,7 @@ export default function SystemDocumentDetailPage() {
   const [editContent, setEditContent] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [EditorComponent, setEditorComponent] = useState<React.ComponentType<any> | null>(null);
 
   // Publish modal
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -75,6 +76,13 @@ export default function SystemDocumentDetailPage() {
       loadCompanies();
     }
   }, [id]);
+
+  // Dynamically import RichTextEditor
+  useEffect(() => {
+    import("../../../components/RichTextEditor").then((mod) => {
+      setEditorComponent(() => mod.RichTextEditor);
+    });
+  }, []);
 
   async function loadDocument() {
     setLoading(true);
@@ -332,13 +340,14 @@ export default function SystemDocumentDetailPage() {
               />
             </label>
             <label style={{ fontSize: 13 }}>
-              <span style={{ display: "block", marginBottom: 4 }}>Content (HTML)</span>
-              <textarea
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                rows={15}
-                style={{ width: "100%", padding: 8, borderRadius: 4, border: "1px solid #d1d5db", fontFamily: "monospace", fontSize: 12 }}
-              />
+              <span style={{ display: "block", marginBottom: 4 }}>Content</span>
+              {EditorComponent ? (
+                <EditorComponent content={editContent} onChange={setEditContent} />
+              ) : (
+                <div style={{ padding: 16, color: "#9ca3af", border: "1px solid #d1d5db", borderRadius: 6 }}>
+                  Loading editor...
+                </div>
+              )}
             </label>
             <label style={{ fontSize: 13 }}>
               <span style={{ display: "block", marginBottom: 4 }}>Revision Notes</span>

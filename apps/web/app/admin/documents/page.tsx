@@ -2124,8 +2124,16 @@ function EditDocumentModal({ document, onClose, onSaved }: EditDocumentModalProp
   const [displayTitle, setDisplayTitle] = useState(document.displayTitle || document.fileName.replace(/\.[^/.]+$/, ""));
   const [displayDescription, setDisplayDescription] = useState(document.displayDescription || "");
   const [revisionNotes, setRevisionNotes] = useState("");
+  const [EditorComponent, setEditorComponent] = useState<React.ComponentType<any> | null>(null);
 
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+  // Dynamically import the RichTextEditor to avoid SSR issues
+  useEffect(() => {
+    import("../../components/RichTextEditor").then((mod) => {
+      setEditorComponent(() => mod.RichTextEditor);
+    });
+  }, []);
 
   useEffect(() => {
     const loadContent = async () => {
@@ -2271,25 +2279,21 @@ function EditDocumentModal({ document, onClose, onSaved }: EditDocumentModalProp
                 />
               </div>
 
-              {/* HTML Content */}
+              {/* Rich Text Content */}
               <div>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
-                  Content (HTML)
+                  Content
                 </label>
-                <textarea
-                  value={htmlContent}
-                  onChange={(e) => setHtmlContent(e.target.value)}
-                  rows={20}
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    fontSize: 13,
-                    fontFamily: "monospace",
-                    border: "1px solid #d1d5db",
-                    borderRadius: 6,
-                    resize: "vertical",
-                  }}
-                />
+                {EditorComponent ? (
+                  <EditorComponent
+                    content={htmlContent}
+                    onChange={setHtmlContent}
+                  />
+                ) : (
+                  <div style={{ padding: 16, color: "#9ca3af", border: "1px solid #d1d5db", borderRadius: 6 }}>
+                    Loading editor...
+                  </div>
+                )}
               </div>
 
               {/* Revision Notes */}
