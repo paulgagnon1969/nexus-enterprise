@@ -460,21 +460,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
       )}
 
-      {/* NEXUS System menu bar for SUPER_ADMIN on /system routes */}
-      {globalRole === "SUPER_ADMIN" && isSystemRoute && (
-        <>
-          <NavDropdown
-            label="Documents"
-            active={isActive("/documents") || isActive("/admin/documents")}
-            items={[
-              { label: "Unpublished eDocs", href: "/admin/documents" },
-              { label: "Published eDocs", href: "/documents" },
-              { label: "Templates", href: "/documents/templates" },
-            ]}
-          />
-        </>
-      )}
-
       {(!isSystemRoute || globalRole !== "SUPER_ADMIN") && (
         <>
           {/* Proj Overview = main project workspace (current /projects section) */}

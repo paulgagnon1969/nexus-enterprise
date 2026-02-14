@@ -423,6 +423,74 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
+        {/* Documents section */}
+        <div style={{ margin: "0 -8px 6px", borderBottom: "1px solid #e5e7eb" }}>
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              padding: "6px 12px",
+              color: "#0f172a",
+              background: pathname?.startsWith("/admin/documents") || pathname?.startsWith("/system/documents") || pathname?.startsWith("/documents") ? "#f3f4f6" : "#ffffff",
+            }}
+          >
+            Documents
+          </div>
+          <Link
+            href="/admin/documents"
+            style={{
+              fontSize: 11,
+              padding: "4px 12px 4px 20px",
+              display: "block",
+              textDecoration: "none",
+              color: pathname === "/admin/documents" ? "#1e40af" : "#6b7280",
+              background: pathname === "/admin/documents" ? "#dbeafe" : "transparent",
+            }}
+          >
+            Unpublished eDocs
+          </Link>
+          <Link
+            href="/documents"
+            style={{
+              fontSize: 11,
+              padding: "4px 12px 4px 20px",
+              display: "block",
+              textDecoration: "none",
+              color: pathname === "/documents" ? "#1e40af" : "#6b7280",
+              background: pathname === "/documents" ? "#dbeafe" : "transparent",
+            }}
+          >
+            Published eDocs
+          </Link>
+          <Link
+            href="/system/documents"
+            style={{
+              fontSize: 11,
+              padding: "4px 12px 4px 20px",
+              display: "block",
+              textDecoration: "none",
+              color: pathname?.startsWith("/system/documents") ? "#1e40af" : "#6b7280",
+              background: pathname?.startsWith("/system/documents") ? "#dbeafe" : "transparent",
+            }}
+          >
+            System Documents
+          </Link>
+          <Link
+            href="/documents/templates"
+            style={{
+              fontSize: 11,
+              padding: "4px 12px 4px 20px 4px",
+              display: "block",
+              textDecoration: "none",
+              color: pathname === "/documents/templates" ? "#1e40af" : "#6b7280",
+              background: pathname === "/documents/templates" ? "#dbeafe" : "transparent",
+              marginBottom: 4,
+            }}
+          >
+            Templates
+          </Link>
+        </div>
+
         <Link
           href="/system/templates"
           style={{
