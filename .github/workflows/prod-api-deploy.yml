@@ -34,7 +34,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies (root)
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
       # Authenticate to GCP using Workload Identity Federation (no keys needed)
       - name: Authenticate to GCP
