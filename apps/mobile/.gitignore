@@ -37,6 +37,6 @@ yarn-error.*
 *.tsbuildinfo
 
 # generated native folders
-/ios
+# /ios  # Committed for EAS Build
 /android
 .expo/

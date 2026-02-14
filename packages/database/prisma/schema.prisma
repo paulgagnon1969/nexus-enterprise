@@ -143,6 +143,10 @@ model Company {
 
   // Field-level security policies
   fieldSecurityPolicies FieldSecurityPolicy[]
+
+  // NEXUS System Documents (publications targeting this company)
+  systemDocumentPublications SystemDocumentPublication[]
+  tenantDocumentCopies       TenantDocumentCopy[]
 }
 
 model OrganizationTemplate {
@@ -413,6 +417,14 @@ model User {
   dailyLogsDelayed   DailyLog[]         @relation("DailyLogDelayedBy")
   dailyLogsPublished DailyLog[]         @relation("DailyLogPublishedBy")
   dailyLogRevisions  DailyLogRevision[] @relation("DailyLogRevisionEditedBy")
+
+  // NEXUS System Documents
+  systemDocumentsCreated              SystemDocument[]              @relation("SystemDocumentCreatedBy")
+  systemDocumentVersionsCreated       SystemDocumentVersion[]       @relation("SystemDocVersionCreatedBy")
+  systemDocumentPublicationsPublished SystemDocumentPublication[]   @relation("SystemDocPubPublishedBy")
+  systemDocumentPublicationsRetracted SystemDocumentPublication[]   @relation("SystemDocPubRetractedBy")
+  tenantDocumentCopiesCopied          TenantDocumentCopy[]          @relation("TenantDocCopyCopiedBy")
+  tenantDocumentCopyVersionsCreated   TenantDocumentCopyVersion[]   @relation("TenantDocCopyVersionCreatedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -4772,4 +4784,125 @@ model FieldSecurityAuditLog {
 
   @@index([companyId, createdAt], map: "FieldSecurityAuditLog_company_created_idx")
   @@index([policyId], map: "FieldSecurityAuditLog_policy_idx")
+}
+
+// =============================================================================
+// NEXUS System Documents (Publication & Distribution)
+// =============================================================================
+
+/// Publication target type for system documents
+enum SystemDocumentPublicationTarget {
+  ALL_TENANTS   // Published to all tenant organizations
+  SINGLE_TENANT // Published to a specific tenant only
+}
+
+/// Master document owned by NEXUS System (not tenant-scoped)
+model SystemDocument {
+  id               String   @id @default(cuid())
+  code             String   @unique // Unique identifier code (e.g., "SOP-001")
+  title            String
+  description      String?
+  category         String?  // Primary category (e.g., "Safety", "HR", "Operations")
+  subcategory      String?  // Subcategory for finer organization
+  tags             String[] // Tags for filtering
+  active           Boolean  @default(true) // Soft delete
+  currentVersionId String?  @unique
+  createdByUserId  String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  currentVersion SystemDocumentVersion?      @relation("SystemDocCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions       SystemDocumentVersion[]
+  publications   SystemDocumentPublication[]
+  tenantCopies   TenantDocumentCopy[]
+  createdBy      User                        @relation("SystemDocumentCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([category], map: "SystemDocument_category_idx")
+  @@index([active], map: "SystemDocument_active_idx")
+}
+
+/// Immutable revision snapshot of a system document
+model SystemDocumentVersion {
+  id               String   @id @default(cuid())
+  systemDocumentId String
+  versionNo        Int      // Sequential version number (1, 2, 3...)
+  htmlContent      String   @db.Text // Rich text content
+  contentHash      String?  // Hash for change detection
+  notes            String?  // Revision notes (what changed)
+  createdByUserId  String
+  createdAt        DateTime @default(now())
+
+  systemDocument     SystemDocument              @relation(fields: [systemDocumentId], references: [id], onDelete: Cascade)
+  currentForDocument SystemDocument?             @relation("SystemDocCurrentVersion")
+  publications       SystemDocumentPublication[]
+  createdBy          User                        @relation("SystemDocVersionCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@unique([systemDocumentId, versionNo], map: "SystemDocVersion_doc_version_key")
+  @@index([systemDocumentId], map: "SystemDocVersion_doc_idx")
+}
+
+/// Publication record for distributing system documents to tenants
+model SystemDocumentPublication {
+  id                      String                          @id @default(cuid())
+  systemDocumentId        String
+  systemDocumentVersionId String
+  targetType              SystemDocumentPublicationTarget
+  targetCompanyId         String?                         // Null for ALL_TENANTS
+  publishedAt             DateTime                        @default(now())
+  publishedByUserId       String
+  retractedAt             DateTime?                       // When unpublished (null = active)
+  retractedByUserId       String?
+
+  systemDocument        SystemDocument        @relation(fields: [systemDocumentId], references: [id], onDelete: Cascade)
+  systemDocumentVersion SystemDocumentVersion @relation(fields: [systemDocumentVersionId], references: [id], onDelete: Cascade)
+  targetCompany         Company?              @relation(fields: [targetCompanyId], references: [id], onDelete: Cascade)
+  publishedBy           User                  @relation("SystemDocPubPublishedBy", fields: [publishedByUserId], references: [id])
+  retractedBy           User?                 @relation("SystemDocPubRetractedBy", fields: [retractedByUserId], references: [id])
+
+  @@index([systemDocumentId], map: "SystemDocPub_doc_idx")
+  @@index([targetCompanyId], map: "SystemDocPub_company_idx")
+  @@index([targetType, retractedAt], map: "SystemDocPub_target_active_idx")
+}
+
+/// Tenant's editable copy of a system document
+model TenantDocumentCopy {
+  id                     String   @id @default(cuid())
+  companyId              String
+  sourceSystemDocumentId String   // Reference back to source for audit
+  sourceVersionNo        Int      // Version number when copied
+  title                  String   // Can be modified by tenant
+  currentVersionId       String?  @unique
+  copiedByUserId         String
+  copiedAt               DateTime @default(now())
+  hasNewerSystemVersion  Boolean  @default(false) // Flag for update indicator
+  updatedAt              DateTime @updatedAt
+
+  company              Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sourceSystemDocument SystemDocument             @relation(fields: [sourceSystemDocumentId], references: [id])
+  currentVersion       TenantDocumentCopyVersion? @relation("TenantDocCopyCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions             TenantDocumentCopyVersion[]
+  copiedBy             User                       @relation("TenantDocCopyCopiedBy", fields: [copiedByUserId], references: [id])
+
+  @@index([companyId], map: "TenantDocCopy_company_idx")
+  @@index([sourceSystemDocumentId], map: "TenantDocCopy_source_idx")
+  @@index([companyId, hasNewerSystemVersion], map: "TenantDocCopy_updates_idx")
+}
+
+/// Version history for tenant's document copy
+model TenantDocumentCopyVersion {
+  id                   String   @id @default(cuid())
+  tenantDocumentCopyId String
+  versionNo            Int      // Sequential version number
+  htmlContent          String   @db.Text
+  contentHash          String?
+  notes                String?  // What changed in this revision
+  createdByUserId      String
+  createdAt            DateTime @default(now())
+
+  tenantDocumentCopy TenantDocumentCopy  @relation(fields: [tenantDocumentCopyId], references: [id], onDelete: Cascade)
+  currentForCopy     TenantDocumentCopy? @relation("TenantDocCopyCurrentVersion")
+  createdBy          User                @relation("TenantDocCopyVersionCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@unique([tenantDocumentCopyId, versionNo], map: "TenantDocCopyVersion_copy_version_key")
+  @@index([tenantDocumentCopyId], map: "TenantDocCopyVersion_copy_idx")
 }

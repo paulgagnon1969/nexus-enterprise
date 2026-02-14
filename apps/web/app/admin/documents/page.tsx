@@ -109,6 +109,7 @@ export default function DocumentImportPage() {
   // Modals
   const [showScanModal, setShowScanModal] = useState(false);
   const [quickLookDoc, setQuickLookDoc] = useState<StagedDocument | null>(null);
+  const [editDoc, setEditDoc] = useState<StagedDocument | null>(null);
   const [importDoc, setImportDoc] = useState<StagedDocument | null>(null);
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -867,6 +868,7 @@ export default function DocumentImportPage() {
                   selected={selectedIds.has(doc.id)}
                   onSelect={() => toggleSelect(doc.id)}
                   onQuickLook={() => setQuickLookDoc(doc)}
+                  onEdit={() => setEditDoc(doc)}
                   onToggleStatus={() =>
                     handleUpdateStatus(doc.id, doc.status === "ACTIVE" ? "ARCHIVED" : "ACTIVE")
                   }
@@ -944,6 +946,18 @@ export default function DocumentImportPage() {
         <QuickLookModal document={quickLookDoc} onClose={() => setQuickLookDoc(null)} />
       )}
 
+      {/* Edit Document Modal */}
+      {editDoc && (
+        <EditDocumentModal
+          document={editDoc}
+          onClose={() => setEditDoc(null)}
+          onSaved={() => {
+            loadDocuments();
+            setEditDoc(null);
+          }}
+        />
+      )}
+
       {/* Import Modal (single document) */}
       {importDoc && (
         <ImportModal
@@ -1006,6 +1020,7 @@ interface DocumentCardProps {
   selected: boolean;
   onSelect: () => void;
   onQuickLook: () => void;
+  onEdit: () => void;
   onToggleStatus: () => void;
   onImport: () => void;
 }
@@ -1020,7 +1035,7 @@ const CLASSIFICATION_CONFIG: Record<DocumentTypeGuess, { emoji: string; label: s
   UNKNOWN: { emoji: "❓", label: "Unknown", bgColor: "#f3f4f6", textColor: "#6b7280" },
 };
 
-function DocumentCard({ document, selected, onSelect, onQuickLook, onToggleStatus, onImport }: DocumentCardProps) {
+function DocumentCard({ document, selected, onSelect, onQuickLook, onEdit, onToggleStatus, onImport }: DocumentCardProps) {
   const isArchived = document.status === "ARCHIVED";
   const isPublished = document.status === "PUBLISHED";
 
@@ -1173,6 +1188,22 @@ function DocumentCard({ document, selected, onSelect, onQuickLook, onToggleStatu
           }}
         >
           👁️
+        </button>
+        <button
+          type="button"
+          onClick={onEdit}
+          title="Edit Document"
+          style={{
+            padding: "6px 10px",
+            fontSize: 12,
+            backgroundColor: "#dbeafe",
+            color: "#1e40af",
+            border: "none",
+            borderRadius: 4,
+            cursor: "pointer",
+          }}
+        >
+          ✏️
         </button>
         {!isPublished && !isArchived && (
           <button
@@ -2072,6 +2103,261 @@ function QuickLookModal({ document, onClose }: QuickLookModalProps) {
             </a>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// --- Edit Document Modal Component ---
+
+interface EditDocumentModalProps {
+  document: StagedDocument;
+  onClose: () => void;
+  onSaved: () => void;
+}
+
+function EditDocumentModal({ document, onClose, onSaved }: EditDocumentModalProps) {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [htmlContent, setHtmlContent] = useState("");
+  const [displayTitle, setDisplayTitle] = useState(document.displayTitle || document.fileName.replace(/\.[^/.]+$/, ""));
+  const [displayDescription, setDisplayDescription] = useState(document.displayDescription || "");
+  const [revisionNotes, setRevisionNotes] = useState("");
+
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+  useEffect(() => {
+    const loadContent = async () => {
+      try {
+        const token = localStorage.getItem("accessToken");
+        const res = await fetch(`${API_BASE}/document-import/documents/${document.id}/html`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error("Failed to load document content");
+        const data = await res.json();
+        setHtmlContent(data.htmlContent || data.html || data.content || "");
+      } catch (err: any) {
+        setError(err?.message || "Failed to load document");
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadContent();
+  }, [document.id]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem("accessToken");
+
+      // Update content
+      const contentRes = await fetch(`${API_BASE}/document-import/documents/${document.id}/content`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          htmlContent,
+          revisionNotes: revisionNotes.trim() || undefined,
+        }),
+      });
+      if (!contentRes.ok) throw new Error("Failed to save content");
+
+      // Update details (title, description)
+      const detailsRes = await fetch(`${API_BASE}/document-import/documents/${document.id}/details`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          displayTitle: displayTitle.trim(),
+          displayDescription: displayDescription.trim() || undefined,
+        }),
+      });
+      if (!detailsRes.ok) throw new Error("Failed to save details");
+
+      onSaved();
+    } catch (err: any) {
+      setError(err?.message || "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0, 0, 0, 0.7)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          backgroundColor: "#ffffff",
+          borderRadius: 12,
+          width: "95%",
+          maxWidth: 900,
+          maxHeight: "90vh",
+          display: "flex",
+          flexDirection: "column",
+          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ padding: "16px 24px", borderBottom: "1px solid #e5e7eb" }}>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Edit Document</h2>
+          <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
+            {document.fileName} · Revision {document.revisionNumber || 1}
+          </div>
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
+          {loading ? (
+            <div style={{ textAlign: "center", color: "#6b7280", padding: 40 }}>Loading...</div>
+          ) : error ? (
+            <div style={{ color: "#b91c1c", padding: 16, backgroundColor: "#fef2f2", borderRadius: 8 }}>
+              {error}
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Title */}
+              <div>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                  Display Title
+                </label>
+                <input
+                  type="text"
+                  value={displayTitle}
+                  onChange={(e) => setDisplayTitle(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    fontSize: 14,
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                  }}
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                  Description
+                </label>
+                <input
+                  type="text"
+                  value={displayDescription}
+                  onChange={(e) => setDisplayDescription(e.target.value)}
+                  placeholder="Brief description of this document"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    fontSize: 14,
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                  }}
+                />
+              </div>
+
+              {/* HTML Content */}
+              <div>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                  Content (HTML)
+                </label>
+                <textarea
+                  value={htmlContent}
+                  onChange={(e) => setHtmlContent(e.target.value)}
+                  rows={20}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    fontSize: 13,
+                    fontFamily: "monospace",
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+
+              {/* Revision Notes */}
+              <div>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+                  Revision Notes (optional)
+                </label>
+                <input
+                  type="text"
+                  value={revisionNotes}
+                  onChange={(e) => setRevisionNotes(e.target.value)}
+                  placeholder="What changed in this revision?"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    fontSize: 14,
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div
+          style={{
+            padding: "16px 24px",
+            borderTop: "1px solid #e5e7eb",
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 12,
+          }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: "10px 20px",
+              fontSize: 14,
+              backgroundColor: "#ffffff",
+              color: "#374151",
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || loading}
+            style={{
+              padding: "10px 20px",
+              fontSize: 14,
+              fontWeight: 500,
+              backgroundColor: saving || loading ? "#9ca3af" : "#2563eb",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: 6,
+              cursor: saving || loading ? "not-allowed" : "pointer",
+            }}
+          >
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
       </div>
     </div>
   );

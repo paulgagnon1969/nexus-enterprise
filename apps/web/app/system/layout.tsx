@@ -439,21 +439,6 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
           SORM — Templates
         </Link>
 
-        <Link
-          href="/admin/documents"
-          style={{
-            margin: "0 -8px 6px",
-            fontSize: 12,
-            padding: "6px 12px",
-            display: "block",
-            textDecoration: "none",
-            background: pathname?.startsWith("/admin/documents") ? "#f3f4f6" : "#ffffff",
-            color: "#0f172a",
-            borderBottom: "1px solid #e5e7eb",
-          }}
-        >
-          📄 Documents
-        </Link>
 
         <Link
           href="/system"

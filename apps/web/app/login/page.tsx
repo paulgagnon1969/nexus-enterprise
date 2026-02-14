@@ -127,10 +127,11 @@ export default function LoginPage() {
           }
         }
 
-        if (me?.userType === "APPLICANT") {
+        if (me?.globalRole === "SUPER_ADMIN") {
+          router.push("/system");
+        } else if (me?.userType === "APPLICANT") {
           router.push("/settings/profile");
         } else {
-          // All internal users (including SUPER_ADMIN) land in the project workspace.
           router.push("/projects");
         }
       } catch {
