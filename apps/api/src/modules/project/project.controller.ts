@@ -22,6 +22,7 @@ import {
   AddInvoiceLineItemDto,
   ApplyInvoiceToInvoiceDto,
   ApplyPaymentToInvoiceDto,
+  AttachInvoiceFileDto,
   CreateOrGetDraftInvoiceDto,
   IssueInvoiceDto,
   RecordInvoicePaymentDto,
@@ -224,6 +225,7 @@ export class ProjectController {
       mimeType?: string;
       sizeBytes?: number;
       folderId?: string | null;
+      contentHash?: string | null;
     },
   ) {
     const user = req.user as AuthenticatedUser;
@@ -235,6 +237,7 @@ export class ProjectController {
       mimeType: body.mimeType,
       sizeBytes: typeof body.sizeBytes === "number" ? body.sizeBytes : null,
       folderId: body.folderId ?? null,
+      contentHash: body.contentHash ?? null,
     });
   }
 
@@ -1336,6 +1339,18 @@ export class ProjectController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post(":id/invoices/:invoiceId/attachments")
+  attachInvoiceFile(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() dto: AttachInvoiceFileDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.attachInvoiceFile(projectId, invoiceId, dto, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post(":id/invoices/:invoiceId/issue")
   issueInvoice(
     @Req() req: any,
@@ -1356,6 +1371,16 @@ export class ProjectController {
   ) {
     const user = req.user as AuthenticatedUser;
     return this.projects.syncDraftInvoiceFromPetl(projectId, invoiceId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/invoices/sync-billable-expenses")
+  syncBillableExpensesInvoice(
+    @Req() req: any,
+    @Param("id") projectId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.syncBillableExpensesInvoice(projectId, user);
   }
 
   @UseGuards(JwtAuthGuard)

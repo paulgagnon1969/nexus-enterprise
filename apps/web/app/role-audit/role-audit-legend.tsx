@@ -65,10 +65,10 @@ export function RoleAuditLegend() {
       </div>
 
       <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 14 }}>
-        Fields are highlighted by minimum visibility level:
+        Fields show a <strong>colored dot</strong> + <strong>underline</strong>:
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {ROLE_HIERARCHY.map((role) => {
           const colors = ROLE_COLORS[role];
           return (
@@ -78,21 +78,26 @@ export function RoleAuditLegend() {
                 display: "flex",
                 alignItems: "center",
                 gap: 12,
+                background: colors.bg,
+                borderBottom: `4px solid ${colors.border}`,
+                borderRadius: 4,
+                padding: "6px 10px",
               }}
             >
-              <div
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 6,
-                  background: colors.bg,
-                  border: `3px solid ${colors.border}`,
-                  flexShrink: 0,
-                }}
-              />
-              <span style={{ fontSize: 16, color: colors.text, fontWeight: 600 }}>
+              <span style={{ flex: 1, fontSize: 15, color: colors.text, fontWeight: 600 }}>
                 {ROLE_LABELS[role]}
               </span>
+              {/* Dot indicator */}
+              <span
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: "50%",
+                  background: colors.border,
+                  flexShrink: 0,
+                  boxShadow: `0 0 0 3px ${colors.bg}, 0 2px 4px rgba(0,0,0,0.2)`,
+                }}
+              />
             </div>
           );
         })}

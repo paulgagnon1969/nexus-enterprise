@@ -39,6 +39,7 @@ import {
   AddInvoiceLineItemDto,
   ApplyInvoiceToInvoiceDto,
   ApplyPaymentToInvoiceDto,
+  AttachInvoiceFileDto,
   CreateOrGetDraftInvoiceDto,
   IssueInvoiceDto,
   RecordInvoicePaymentDto,
@@ -551,8 +552,9 @@ export class ProjectService {
     mimeType?: string;
     sizeBytes?: number | null;
     folderId?: string | null;
+    contentHash?: string | null;
   }) {
-    const { projectId, actor, fileUri, fileName, mimeType, sizeBytes, folderId } = options;
+    const { projectId, actor, fileUri, fileName, mimeType, sizeBytes, folderId, contentHash } = options;
     const { companyId, userId } = actor;
 
     if (!fileUri || !fileUri.trim()) {
@@ -565,6 +567,39 @@ export class ProjectService {
     // Validate project access (throws if not allowed)
     await this.getProjectByIdForUser(projectId, actor);
 
+    // Deduplication: Check if a file with the same content hash already exists
+    // in this project (project-scoped only for security - no cross-tenant linking)
+    if (contentHash && contentHash.trim()) {
+      const existingFile = await this.prisma.projectFile.findFirst({
+        where: {
+          companyId,
+          projectId,
+          contentHash: contentHash.trim(),
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      if (existingFile) {
+        this.logger.log(
+          `Dedup: Found existing file with hash ${contentHash.substring(0, 12)}... in project ${projectId}, returning link to ${existingFile.id}`,
+        );
+
+        await this.audit.log(actor, "PROJECT_FILE_DEDUP_LINKED", {
+          companyId,
+          projectId,
+          metadata: {
+            existingFileId: existingFile.id,
+            fileName: existingFile.fileName,
+            contentHash,
+            newFileUri: fileUri,
+          },
+        });
+
+        // Return the existing file instead of creating a duplicate
+        return { ...existingFile, isDuplicate: true };
+      }
+    }
+
     const file = await this.prisma.projectFile.create({
       data: {
         companyId,
@@ -574,6 +609,7 @@ export class ProjectService {
         fileName,
         mimeType: mimeType || null,
         sizeBytes: typeof sizeBytes === "number" ? sizeBytes : null,
+        contentHash: contentHash?.trim() || null,
         createdById: userId,
       },
     });
@@ -9172,6 +9208,76 @@ export class ProjectService {
     }
   }
 
+  async attachInvoiceFile(
+    projectId: string,
+    invoiceId: string,
+    dto: AttachInvoiceFileDto,
+    actor: AuthenticatedUser,
+  ) {
+    this.ensureBillingModelsAvailable();
+
+    try {
+      const project = await this.getProjectByIdForUser(projectId, actor);
+
+      const invoice = await this.prisma.projectInvoice.findFirst({
+        where: {
+          id: invoiceId,
+          projectId: project.id,
+          companyId: project.companyId,
+        },
+        select: { id: true },
+      });
+
+      if (!invoice) {
+        throw new NotFoundException("Invoice not found for this project");
+      }
+
+      const file = await this.prisma.projectFile.findFirst({
+        where: {
+          id: dto.projectFileId,
+          projectId: project.id,
+          companyId: project.companyId,
+        },
+        select: {
+          id: true,
+          storageUrl: true,
+          fileName: true,
+          mimeType: true,
+          sizeBytes: true,
+        },
+      });
+
+      if (!file) {
+        throw new NotFoundException("Project file not found for this project");
+      }
+
+      try {
+        await (this.prisma as any).projectInvoiceAttachment.create({
+          data: {
+            invoiceId: invoice.id,
+            projectFileId: file.id,
+            fileUrl: file.storageUrl,
+            fileName: file.fileName ?? null,
+            mimeType: file.mimeType ?? null,
+            sizeBytes: file.sizeBytes ?? null,
+          },
+        });
+      } catch (err: any) {
+        // Ignore duplicate attaches.
+        if (String(err?.code ?? "") !== "P2002") {
+          throw err;
+        }
+      }
+
+      return this.getProjectInvoice(projectId, invoice.id, actor);
+    } catch (err: any) {
+      if (this.isBillingTableMissingError(err)) {
+        this.throwBillingTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
   /**
    * Get or create a draft invoice for a specific category (EXPENSE or HOURS).
    * Used for billable expenses and billable hours invoices.
@@ -9217,11 +9323,20 @@ export class ProjectService {
   /**
    * Sync a billable expense from a bill to an invoice line item.
    * Creates or updates a line item on the EXPENSE draft invoice.
+   * Also copies bill attachments to the invoice.
    */
   private async syncBillableExpenseInvoiceLine(
     projectId: string,
     companyId: string,
-    bill: { id: string; vendorName: string; billNumber?: string | null; billableAmount: number; markupPercent: number; totalAmount: number },
+    bill: {
+      id: string;
+      vendorName: string;
+      billNumber?: string | null;
+      billableAmount: number;
+      markupPercent: number;
+      totalAmount: number;
+      attachments?: { projectFileId: string; fileUrl: string; fileName?: string | null; mimeType?: string | null; sizeBytes?: number | null }[];
+    },
     actor: AuthenticatedUser,
   ) {
     try {
@@ -9241,8 +9356,8 @@ export class ProjectService {
       });
 
       const description = bill.billNumber
-        ? `${bill.vendorName} (#${bill.billNumber}) + ${bill.markupPercent}% markup`
-        : `${bill.vendorName} + ${bill.markupPercent}% markup`;
+        ? `${bill.vendorName} (#${bill.billNumber})`
+        : bill.vendorName;
 
       if (existingLine) {
         // Update existing line
@@ -9273,6 +9388,31 @@ export class ProjectService {
 
       // Recompute invoice total
       await this.recomputeInvoiceTotal(invoice.id);
+
+      // Copy bill attachments to the invoice (if any)
+      if (bill.attachments && bill.attachments.length > 0) {
+        for (const att of bill.attachments) {
+          try {
+            await (this.prisma as any).projectInvoiceAttachment.create({
+              data: {
+                invoiceId: invoice.id,
+                projectFileId: att.projectFileId,
+                fileUrl: att.fileUrl,
+                fileName: att.fileName ?? null,
+                mimeType: att.mimeType ?? null,
+                sizeBytes: att.sizeBytes ?? null,
+              },
+            });
+          } catch (attachErr: any) {
+            // Ignore duplicate attaches (P2002 = unique constraint violation)
+            if (String(attachErr?.code ?? "") !== "P2002") {
+              this.logger.warn(
+                `Failed to copy bill attachment ${att.projectFileId} to invoice ${invoice.id}: ${attachErr?.message ?? attachErr}`,
+              );
+            }
+          }
+        }
+      }
     } catch (err: any) {
       // Non-fatal: log but don't fail the bill operation
       this.logger.warn(
@@ -9320,6 +9460,79 @@ export class ProjectService {
     }
   }
 
+  /**
+   * Create or sync the EXPENSE category invoice from all billable bills.
+   * This is called from the frontend to create the expense invoice if it doesn't exist,
+   * or to sync all billable bills to the existing expense invoice.
+   */
+  async syncBillableExpensesInvoice(projectId: string, actor: AuthenticatedUser) {
+    this.ensureBillingModelsAvailable();
+
+    try {
+      const project = await this.getProjectByIdForUser(projectId, actor);
+
+      // Get all billable bills for this project (including attachments)
+      const billableBills = await this.prisma.projectBill.findMany({
+        where: {
+          projectId: project.id,
+          companyId: project.companyId,
+          isBillable: true,
+        },
+        include: {
+          lineItems: { orderBy: { createdAt: "asc" } },
+          attachments: true,
+        },
+      });
+
+      if (billableBills.length === 0) {
+        throw new BadRequestException("No billable bills found for this project");
+      }
+
+      // Get or create the EXPENSE draft invoice
+      const invoice = await this.getOrCreateCategoryDraftInvoice(
+        project.id,
+        project.companyId,
+        ProjectInvoiceCategory.EXPENSE,
+        actor,
+      );
+
+      // Sync each billable bill to the invoice (including attachments)
+      for (const bill of billableBills) {
+        await this.syncBillableExpenseInvoiceLine(
+          project.id,
+          project.companyId,
+          {
+            id: bill.id,
+            vendorName: bill.vendorName,
+            billNumber: bill.billNumber,
+            billableAmount: Number(bill.billableAmount) || 0,
+            markupPercent: Number(bill.markupPercent) || 0,
+            totalAmount: Number(bill.totalAmount) || 0,
+            attachments: (bill.attachments ?? []).map((a) => ({
+              projectFileId: a.projectFileId,
+              fileUrl: a.fileUrl,
+              fileName: a.fileName,
+              mimeType: a.mimeType,
+              sizeBytes: a.sizeBytes,
+            })),
+          },
+          actor,
+        );
+      }
+
+      // Return the full invoice with line items
+      return this.getProjectInvoice(projectId, invoice.id, actor);
+    } catch (err: any) {
+      if (this.isBillTableMissingError(err)) {
+        this.throwBillTablesNotMigrated();
+      }
+      if (this.isBillingTableMissingError(err)) {
+        this.throwBillingTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
   async listProjectInvoices(projectId: string, actor: AuthenticatedUser) {
     this.ensureBillingModelsAvailable();
 
@@ -9333,6 +9546,7 @@ export class ProjectService {
           id: true,
           projectId: true,
           companyId: true,
+          category: true,
           status: true,
           invoiceSequenceNo: true,
           invoiceNo: true,
@@ -9629,7 +9843,21 @@ export class ProjectService {
       const paidAmount = payments.reduce((sum, p) => sum + (p.amount ?? 0), 0);
       const balanceDue = Math.max(0, (invoice.totalAmount ?? 0) - paidAmount);
 
-      return { ...invoice, payments, petlLines, paidAmount, balanceDue };
+      // Load attachments (best effort; table may not exist yet)
+      let attachments: any[] = [];
+      try {
+        attachments = await (this.prisma as any).projectInvoiceAttachment.findMany({
+          where: { invoiceId: invoice.id },
+          orderBy: [{ createdAt: "asc" }],
+        });
+      } catch (err: any) {
+        if (!this.isMissingPrismaTableError(err, "ProjectInvoiceAttachment")) {
+          throw err;
+        }
+        attachments = [];
+      }
+
+      return { ...invoice, payments, petlLines, attachments, paidAmount, balanceDue };
     } catch (err: any) {
       if (this.isBillingTableMissingError(err)) {
         this.throwBillingTablesNotMigrated();

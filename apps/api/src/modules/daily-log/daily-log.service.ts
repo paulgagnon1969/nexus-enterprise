@@ -1,28 +1,34 @@
-import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuditService } from "../../common/audit.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { CreateDailyLogDto } from "./dto/create-daily-log.dto";
+import { CreateDailyLogDto, DailyLogTypeDto } from "./dto/create-daily-log.dto";
 import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
-import { Role, DailyLogStatus, $Enums } from "@prisma/client";
+import { Role, DailyLogStatus, DailyLogType, ProjectBillStatus, $Enums } from "@prisma/client";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { NotificationsService } from "../notifications/notifications.service";
 import { TaskService } from "../task/task.service";
 import { TaskPriorityEnum } from "../task/dto/task.dto";
+import { ReceiptOcrService } from "../ocr/receipt-ocr.service";
 
 // Profile codes that are considered PM+ level (can edit logs, see delayed logs, publish)
 const PM_PLUS_PROFILES = new Set(["PM", "EXECUTIVE"]);
 // Profile codes that can flag logs as delayed (foreman/super)
 const CAN_DELAY_PROFILES = new Set(["FOREMAN", "SUPERINTENDENT"]);
+// Profile codes that can view RECEIPT_EXPENSE logs (Foreman+)
+const RECEIPT_VISIBLE_PROFILES = new Set(["FOREMAN", "SUPERINTENDENT", "PM", "EXECUTIVE"]);
 
 @Injectable()
 export class DailyLogService {
+  private readonly logger = new Logger(DailyLogService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
     private readonly tasks: TaskService,
+    private readonly receiptOcr: ReceiptOcrService,
   ) {}
 
   private async assertProjectAccess(
@@ -102,15 +108,29 @@ export class DailyLogService {
   }
 
   /**
+   * Check if actor can view RECEIPT_EXPENSE logs (Foreman+ or author).
+   */
+  private canViewReceiptExpense(actor: AuthenticatedUser, createdById: string): boolean {
+    // Author can always see their own receipts
+    if (actor.userId === createdById) return true;
+    // Company Owner/Admin can see all
+    if (actor.role === Role.OWNER || actor.role === Role.ADMIN) return true;
+    // Foreman+ profiles can see
+    if (actor.profileCode && RECEIPT_VISIBLE_PROFILES.has(actor.profileCode)) return true;
+    return false;
+  }
+
+  /**
    * Visibility rules for daily logs:
    * - Company must match
    * - Clients only see effectiveShareClient logs
    * - Delayed logs only visible to: author, PM+
+   * - RECEIPT_EXPENSE logs only visible to: author, Foreman+
    * - Otherwise, project members can see all logs
    */
   private canViewDailyLog(
     actor: AuthenticatedUser,
-    log: { projectId: string; effectiveShareClient?: boolean; isDelayedPublish?: boolean; createdById: string },
+    log: { projectId: string; effectiveShareClient?: boolean; isDelayedPublish?: boolean; createdById: string; type?: DailyLogType | null },
     project: { id: string; companyId: string },
     companyId: string
   ): boolean {
@@ -120,6 +140,11 @@ export class DailyLogService {
     // Clients should only see logs that are effectively client-visible.
     if (actor.role === Role.CLIENT || actor.profileCode === "CLIENT") {
       return !!log.effectiveShareClient;
+    }
+
+    // RECEIPT_EXPENSE logs: only author or Foreman+ can see
+    if (log.type === DailyLogType.RECEIPT_EXPENSE) {
+      return this.canViewReceiptExpense(actor, log.createdById);
     }
 
     // Delayed logs: only author or PM+ can see
@@ -364,11 +389,22 @@ export class DailyLogService {
         ? JSON.stringify(dto.notifyUserIds)
         : null;
 
+    // Determine log type (default PUDL)
+    const logType = dto.type ? (dto.type as unknown as DailyLogType) : DailyLogType.PUDL;
+    const isReceiptExpense = logType === DailyLogType.RECEIPT_EXPENSE;
+
+    // For RECEIPT_EXPENSE, override visibility to private
+    const shareInternal = isReceiptExpense ? false : (dto.shareInternal ?? true);
+    const shareSubs = isReceiptExpense ? false : (dto.shareSubs ?? false);
+    const shareClient = isReceiptExpense ? false : (dto.shareClient ?? false);
+    const sharePrivate = isReceiptExpense ? true : (dto.sharePrivate ?? false);
+
     const created = await this.prisma.dailyLog.create({
       data: {
         projectId,
         createdById: actor.userId,
         logDate: new Date(dto.logDate),
+        type: logType,
         title: dto.title ?? null,
         tagsJson,
         weatherSummary: dto.weatherSummary ?? null,
@@ -383,13 +419,17 @@ export class DailyLogService {
         unitId: dto.unitId ?? null,
         roomParticleId: dto.roomParticleId ?? null,
         sowItemId: dto.sowItemId ?? null,
-        shareInternal: dto.shareInternal ?? true,
-        shareSubs: dto.shareSubs ?? false,
-        shareClient: dto.shareClient ?? false,
-        sharePrivate: dto.sharePrivate ?? false,
+        shareInternal,
+        shareSubs,
+        shareClient,
+        sharePrivate,
         status: DailyLogStatus.SUBMITTED,
         effectiveShareClient: false,
         notifyUserIdsJson,
+        // Receipt/expense fields
+        expenseVendor: isReceiptExpense ? (dto.expenseVendor ?? null) : null,
+        expenseAmount: isReceiptExpense && dto.expenseAmount != null ? dto.expenseAmount : null,
+        expenseDate: isReceiptExpense && dto.expenseDate ? new Date(dto.expenseDate) : null,
       },
       include: {
         createdBy: {
@@ -434,9 +474,47 @@ export class DailyLogService {
       metadata: {
         dailyLogId: created.id,
         logDate: created.logDate,
-        title: created.title
+        title: created.title,
+        type: logType,
       }
     });
+
+    // Handle attachments from projectFileIds
+    const attachedProjectFiles: { id: string; storageUrl: string; fileName: string; mimeType: string | null }[] = [];
+    if (dto.attachmentProjectFileIds && dto.attachmentProjectFileIds.length > 0) {
+      for (const fileId of dto.attachmentProjectFileIds) {
+        try {
+          const projectFile = await this.prisma.projectFile.findFirst({
+            where: { id: fileId, projectId, companyId },
+          });
+          if (projectFile) {
+            await this.prisma.dailyLogAttachment.create({
+              data: {
+                dailyLogId: created.id,
+                projectFileId: projectFile.id,
+                fileUrl: projectFile.storageUrl,
+                fileName: projectFile.fileName,
+                mimeType: projectFile.mimeType,
+                sizeBytes: projectFile.sizeBytes,
+              },
+            });
+            attachedProjectFiles.push({
+              id: projectFile.id,
+              storageUrl: projectFile.storageUrl,
+              fileName: projectFile.fileName,
+              mimeType: projectFile.mimeType,
+            });
+          }
+        } catch (err: any) {
+          this.logger.warn(`Failed to attach file ${fileId}: ${err?.message ?? err}`);
+        }
+      }
+    }
+
+    // For RECEIPT_EXPENSE logs: create draft bill and trigger OCR
+    if (isReceiptExpense) {
+      await this.handleReceiptExpenseLog(created.id, projectId, companyId, actor, dto, attachedProjectFiles);
+    }
 
     // If the Person Onsite is not currently a project participant, create a
     // follow-up Task for tenant admins to add them to the project roster.
@@ -556,6 +634,108 @@ export class DailyLogService {
       } catch {
         // Best-effort only; do not block log save on task failures.
       }
+    }
+  }
+
+  /**
+   * Handle RECEIPT_EXPENSE daily log:
+   * 1. Create a draft ProjectBill linked to this daily log
+   * 2. Copy attachments to the bill
+   * 3. Trigger OCR for image attachments
+   */
+  private async handleReceiptExpenseLog(
+    dailyLogId: string,
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    dto: CreateDailyLogDto,
+    attachedFiles: { id: string; storageUrl: string; fileName: string; mimeType: string | null }[],
+  ): Promise<void> {
+    try {
+      // Determine vendor name and amount
+      const vendorName = dto.expenseVendor?.trim() || 'Receipt from Daily Log';
+      const totalAmount = dto.expenseAmount ?? 0;
+      const billDate = dto.expenseDate ? new Date(dto.expenseDate) : new Date(dto.logDate);
+
+      // Create draft bill
+      const bill = await this.prisma.projectBill.create({
+        data: {
+          companyId,
+          projectId,
+          vendorName,
+          billDate,
+          totalAmount,
+          status: ProjectBillStatus.DRAFT,
+          memo: `Auto-created from Daily Log receipt submission`,
+          sourceDailyLogId: dailyLogId,
+          createdByUserId: actor.userId,
+        },
+      });
+
+      // Link the bill back to the daily log
+      await this.prisma.dailyLog.update({
+        where: { id: dailyLogId },
+        data: { sourceBillId: bill.id },
+      });
+
+      // Create a line item for the bill
+      await this.prisma.projectBillLineItem.create({
+        data: {
+          billId: bill.id,
+          kind: 'OTHER',
+          description: dto.title || `Receipt - ${vendorName}`,
+          amount: totalAmount,
+        },
+      });
+
+      this.logger.log(`Created draft bill ${bill.id} for receipt daily log ${dailyLogId}`);
+
+      // Copy attachments to the bill and trigger OCR for images
+      for (const file of attachedFiles) {
+        // Create bill attachment
+        await this.prisma.projectBillAttachment.create({
+          data: {
+            billId: bill.id,
+            projectFileId: file.id,
+            fileUrl: file.storageUrl,
+            fileName: file.fileName,
+            mimeType: file.mimeType,
+          },
+        });
+
+        // Trigger OCR for image files
+        const isImage = file.mimeType && (
+          file.mimeType.startsWith('image/') ||
+          file.mimeType === 'application/pdf'
+        );
+
+        if (isImage) {
+          try {
+            await this.receiptOcr.processReceiptAsync({
+              projectFileId: file.id,
+              dailyLogId,
+              billId: bill.id,
+            });
+            this.logger.log(`Triggered OCR for file ${file.id} on daily log ${dailyLogId}`);
+          } catch (ocrErr: any) {
+            this.logger.warn(`OCR trigger failed for file ${file.id}: ${ocrErr?.message ?? ocrErr}`);
+          }
+        }
+      }
+
+      await this.audit.log(actor, "RECEIPT_BILL_CREATED", {
+        companyId,
+        projectId,
+        metadata: {
+          dailyLogId,
+          billId: bill.id,
+          vendorName,
+          totalAmount,
+        },
+      });
+    } catch (err: any) {
+      this.logger.error(`Failed to create bill for receipt daily log ${dailyLogId}: ${err?.message ?? err}`);
+      // Don't throw - let the daily log creation succeed even if bill creation fails
     }
   }
 

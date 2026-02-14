@@ -181,3 +181,9 @@ export class UpdateInvoicePetlLineDto {
   @IsEnum(ProjectInvoicePetlLineBillingTag)
   billingTag!: ProjectInvoicePetlLineBillingTag;
 }
+
+export class AttachInvoiceFileDto {
+  @IsString()
+  @IsNotEmpty()
+  projectFileId!: string;
+}
