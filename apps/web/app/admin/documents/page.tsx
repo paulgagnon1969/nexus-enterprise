@@ -111,6 +111,7 @@ export default function DocumentImportPage() {
   const [quickLookDoc, setQuickLookDoc] = useState<StagedDocument | null>(null);
   const [importDoc, setImportDoc] = useState<StagedDocument | null>(null);
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -610,6 +611,27 @@ export default function DocumentImportPage() {
             📁 Browse & Upload
           </button>
 
+          {/* Create Document Button */}
+          <button
+            type="button"
+            onClick={() => setShowCreateModal(true)}
+            style={{
+              padding: "8px 16px",
+              fontSize: 14,
+              fontWeight: 500,
+              backgroundColor: "#16a34a",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: 6,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            ✏️ Create Document
+          </button>
+
           {/* Search */}
           <div style={{ flex: 1, minWidth: 200 }}>
             <input
@@ -937,6 +959,18 @@ export default function DocumentImportPage() {
           count={selectedIds.size}
           onClose={() => setShowBulkImportModal(false)}
           onImport={handleBulkImport}
+        />
+      )}
+
+      {/* Create Document Modal */}
+      {showCreateModal && (
+        <CreateDocumentModal
+          onClose={() => setShowCreateModal(false)}
+          onCreate={() => {
+            loadDocuments();
+            loadStats();
+            setShowCreateModal(false);
+          }}
         />
       )}
 
@@ -2250,6 +2284,264 @@ function BulkImportModal({ count, onClose, onImport }: BulkImportModalProps) {
             }}
           >
             {isSubmitting ? "Importing..." : `Import ${count} Document${count !== 1 ? "s" : ""}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Create Document Modal Component ---
+
+interface CreateDocumentModalProps {
+  onClose: () => void;
+  onCreate: () => void;
+}
+
+function CreateDocumentModal({ onClose, onCreate }: CreateDocumentModalProps) {
+  const [title, setTitle] = useState("");
+  const [htmlContent, setHtmlContent] = useState("");
+  const [tags, setTags] = useState("");
+  const [category, setCategory] = useState("");
+  const [description, setDescription] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem("accessToken");
+    return {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    };
+  };
+
+  const handleSubmit = async () => {
+    if (!title.trim()) {
+      setError("Title is required");
+      return;
+    }
+    if (!htmlContent.trim()) {
+      setError("Content is required");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"}/document-import/documents/create`,
+        {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            title: title.trim(),
+            htmlContent: htmlContent.trim(),
+            tags: tags
+              .split(",")
+              .map((t) => t.trim())
+              .filter(Boolean),
+            category: category.trim() || undefined,
+            description: description.trim() || undefined,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || `Failed to create document: ${res.status}`);
+      }
+
+      onCreate();
+    } catch (err: any) {
+      setError(err?.message ?? "Failed to create document");
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0, 0, 0, 0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          backgroundColor: "#ffffff",
+          borderRadius: 12,
+          padding: 24,
+          width: "100%",
+          maxWidth: 600,
+          maxHeight: "90vh",
+          overflowY: "auto",
+          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 style={{ margin: 0, fontSize: 18 }}>Create New Document</h2>
+        <p style={{ marginTop: 8, marginBottom: 16, fontSize: 14, color: "#6b7280" }}>
+          Create a new document from scratch with HTML content.
+        </p>
+
+        {error && (
+          <div
+            style={{
+              padding: 12,
+              backgroundColor: "#fef2f2",
+              border: "1px solid #fecaca",
+              borderRadius: 6,
+              marginBottom: 16,
+            }}
+          >
+            <p style={{ margin: 0, fontSize: 13, color: "#991b1b" }}>{error}</p>
+          </div>
+        )}
+
+        {/* Title */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+            Title *
+          </label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g., Privacy Policy"
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              fontSize: 14,
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+            }}
+          />
+        </div>
+
+        {/* HTML Content */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+            HTML Content *
+          </label>
+          <textarea
+            value={htmlContent}
+            onChange={(e) => setHtmlContent(e.target.value)}
+            placeholder="<h1>Title</h1>\n<p>Content goes here...</p>"
+            rows={10}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              fontSize: 14,
+              fontFamily: "monospace",
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              resize: "vertical",
+            }}
+          />
+        </div>
+
+        {/* Tags */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+            Tags (comma-separated)
+          </label>
+          <input
+            type="text"
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+            placeholder="e.g., public:privacy-policy, legal, app-store"
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              fontSize: 14,
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+            }}
+          />
+          <p style={{ margin: "4px 0 0", fontSize: 11, color: "#6b7280" }}>
+            Use <code>public:slug</code> format for documents accessible via public URL (e.g., /privacy)
+          </p>
+        </div>
+
+        {/* Category */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+            Category
+          </label>
+          <input
+            type="text"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            placeholder="e.g., Legal, Policies, Help"
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              fontSize: 14,
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+            }}
+          />
+        </div>
+
+        {/* Description */}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+            Description
+          </label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Brief description of this document"
+            rows={2}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              fontSize: 14,
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              resize: "vertical",
+            }}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              padding: "8px 16px",
+              fontSize: 14,
+              backgroundColor: "#ffffff",
+              color: "#374151",
+              border: "1px solid #d1d5db",
+              borderRadius: 6,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            style={{
+              padding: "8px 16px",
+              fontSize: 14,
+              fontWeight: 500,
+              backgroundColor: isSubmitting ? "#9ca3af" : "#16a34a",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: 6,
+              cursor: isSubmitting ? "not-allowed" : "pointer",
+            }}
+          >
+            {isSubmitting ? "Creating..." : "Create Document"}
           </button>
         </div>
       </div>
