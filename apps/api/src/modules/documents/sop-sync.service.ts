@@ -226,15 +226,8 @@ export class SopSyncService {
         data: { currentVersionId: version.id },
       });
 
-      // Auto-publish to all tenants
-      await tx.systemDocumentPublication.create({
-        data: {
-          systemDocumentId: doc.id,
-          systemDocumentVersionId: version.id,
-          targetType: "ALL_TENANTS",
-          publishedByUserId: actor.userId,
-        },
-      });
+      // NOTE: Document is NOT auto-published. It goes to "Unpublished" state.
+      // Admin must manually publish via the System Documents UI.
 
       return { doc, version };
     });
@@ -303,15 +296,7 @@ export class SopSyncService {
         },
       });
 
-      // Auto-publish new version to all tenants
-      await tx.systemDocumentPublication.create({
-        data: {
-          systemDocumentId,
-          systemDocumentVersionId: version.id,
-          targetType: "ALL_TENANTS",
-          publishedByUserId: actor.userId,
-        },
-      });
+      // NOTE: New version is NOT auto-published. Admin must manually publish.
 
       // Flag existing tenant copies that a newer version exists
       await tx.tenantDocumentCopy.updateMany({

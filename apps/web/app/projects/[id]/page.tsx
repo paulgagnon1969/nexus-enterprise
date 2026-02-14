@@ -3685,6 +3685,21 @@ ${htmlBody}
   const [attachmentsUploading, setAttachmentsUploading] = useState(false);
   const [showPendingClientOnly, setShowPendingClientOnly] = useState(false);
 
+  // Edit daily log modal state
+  const [editDailyLog, setEditDailyLog] = useState<{
+    open: boolean;
+    log: DailyLog | null;
+    draft: NewDailyLogState | null;
+    saving: boolean;
+    error: string | null;
+  }>({ open: false, log: null, draft: null, saving: false, error: null });
+
+  // Attachments viewer modal state
+  const [attachmentsViewer, setAttachmentsViewer] = useState<{
+    open: boolean;
+    log: DailyLog | null;
+  }>({ open: false, log: null });
+
   // Field PETL (scope-only) view for Daily Logs.
   const [fieldPetlItems, setFieldPetlItems] = useState<FieldPetlItem[]>([]);
   const [fieldPetlLoading, setFieldPetlLoading] = useState(false);
@@ -10026,6 +10041,113 @@ ${htmlBody}
     }
   };
 
+  // Open edit daily log modal
+  const openEditDailyLog = (log: DailyLog) => {
+    setEditDailyLog({
+      open: true,
+      log,
+      draft: {
+        logDate: log.logDate ? log.logDate.slice(0, 10) : "",
+        title: log.title || "",
+        tags: "",
+        type: log.type || "PUDL",
+        weatherSummary: log.weatherSummary || "",
+        workPerformed: log.workPerformed || "",
+        crewOnSite: log.crewOnSite || "",
+        issues: log.issues || "",
+        safetyIncidents: log.safetyIncidents || "",
+        manpowerOnsite: log.manpowerOnsite || "",
+        personOnsite: log.personOnsite || "",
+        confidentialNotes: log.confidentialNotes || "",
+        shareInternal: log.shareInternal,
+        shareSubs: log.shareSubs,
+        shareClient: log.shareClient,
+        sharePrivate: log.sharePrivate,
+        expenseVendor: log.expenseVendor || "",
+        expenseAmount: log.expenseAmount != null ? String(log.expenseAmount) : "",
+        expenseDate: log.expenseDate ? log.expenseDate.slice(0, 10) : "",
+      },
+      saving: false,
+      error: null,
+    });
+  };
+
+  const closeEditDailyLog = () => {
+    setEditDailyLog({ open: false, log: null, draft: null, saving: false, error: null });
+  };
+
+  const handleUpdateDailyLog = async () => {
+    if (!editDailyLog.log || !editDailyLog.draft) return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setEditDailyLog(prev => ({ ...prev, error: "Missing access token." }));
+      return;
+    }
+
+    setEditDailyLog(prev => ({ ...prev, saving: true, error: null }));
+
+    try {
+      const draft = editDailyLog.draft;
+      const isReceiptExpense = draft.type === "RECEIPT_EXPENSE";
+
+      const body: any = {
+        logDate: draft.logDate || null,
+        title: draft.title || null,
+        type: draft.type,
+        weatherSummary: draft.weatherSummary || null,
+        crewOnSite: draft.crewOnSite || null,
+        workPerformed: draft.workPerformed || null,
+        issues: draft.issues || null,
+        safetyIncidents: draft.safetyIncidents || null,
+        manpowerOnsite: draft.manpowerOnsite || null,
+        personOnsite: draft.personOnsite || null,
+        confidentialNotes: draft.confidentialNotes || null,
+        shareInternal: isReceiptExpense ? false : draft.shareInternal,
+        shareSubs: isReceiptExpense ? false : draft.shareSubs,
+        shareClient: isReceiptExpense ? false : draft.shareClient,
+        sharePrivate: isReceiptExpense ? true : draft.sharePrivate,
+      };
+
+      if (isReceiptExpense) {
+        body.expenseVendor = draft.expenseVendor || null;
+        const amt = parseFloat(draft.expenseAmount);
+        body.expenseAmount = !isNaN(amt) ? amt : null;
+        body.expenseDate = draft.expenseDate || null;
+      }
+
+      const res = await fetch(`${API_BASE}/projects/${id}/daily-logs/${editDailyLog.log.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        setEditDailyLog(prev => ({ ...prev, saving: false, error: `Update failed (${res.status}) ${text}` }));
+        return;
+      }
+
+      const updated: DailyLog = await res.json();
+      setDailyLogs(prev => prev.map(l => (l.id === updated.id ? { ...l, ...updated } : l)));
+      closeEditDailyLog();
+    } catch (err: any) {
+      setEditDailyLog(prev => ({ ...prev, saving: false, error: err?.message || "Update failed." }));
+    }
+  };
+
+  // Open attachments viewer
+  const openAttachmentsViewer = (log: DailyLog) => {
+    setAttachmentsViewer({ open: true, log });
+  };
+
+  const closeAttachmentsViewer = () => {
+    setAttachmentsViewer({ open: false, log: null });
+  };
+
   if (loading) {
     return (
       <div className="app-card">
@@ -10248,6 +10370,47 @@ ${htmlBody}
                   )}
                 </p>
               </RoleVisible>
+              {/* Client Contact Info */}
+              {(project.primaryContactName || project.primaryContactEmail || project.primaryContactPhone) && (
+                <RoleVisible minRole="FOREMAN">
+                  <div
+                    style={{
+                      marginTop: 8,
+                      padding: "8px 10px",
+                      backgroundColor: "#f9fafb",
+                      borderRadius: 6,
+                      border: "1px solid #e5e7eb",
+                    }}
+                  >
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 4 }}>
+                      Client Contact
+                    </div>
+                    {project.primaryContactName && (
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#111827" }}>
+                        {project.primaryContactName}
+                      </div>
+                    )}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 2 }}>
+                      {project.primaryContactPhone && (
+                        <a
+                          href={`tel:${project.primaryContactPhone}`}
+                          style={{ fontSize: 12, color: "#2563eb", textDecoration: "none" }}
+                        >
+                          📞 {project.primaryContactPhone}
+                        </a>
+                      )}
+                      {project.primaryContactEmail && (
+                        <a
+                          href={`mailto:${project.primaryContactEmail}`}
+                          style={{ fontSize: 12, color: "#2563eb", textDecoration: "none" }}
+                        >
+                          ✉️ {project.primaryContactEmail}
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                </RoleVisible>
+              )}
             </>
           )}
 
@@ -19444,10 +19607,8 @@ ${htmlBody}
                   )}
                 </form>
               </div>
-            </div>
 
-            {/* Right column: notes + weather + list */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {/* Notes card - moved to left column */}
               <div
                 style={{
                   borderRadius: 8,
@@ -19524,6 +19685,7 @@ ${htmlBody}
                 </div>
               </div>
 
+              {/* Weather card - moved to left column */}
               <div
                 style={{
                   borderRadius: 8,
@@ -19565,7 +19727,10 @@ ${htmlBody}
                   </div>
                 </div>
               </div>
+            </div>
 
+            {/* Right column: Daily Logs list at top */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div
                 style={{
                   borderRadius: 8,
@@ -19616,7 +19781,7 @@ ${htmlBody}
                         </label>
                       </div>
 
-                      <div style={{ maxHeight: 260, overflowY: "auto" }}>
+                      <div style={{ maxHeight: 400, overflowY: "auto" }}>
                         <table
                         style={{
                           width: "100%",
@@ -19626,29 +19791,17 @@ ${htmlBody}
                       >
                         <thead>
                           <tr style={{ backgroundColor: "#f9fafb" }}>
+                            <th style={{ textAlign: "center", padding: "4px 6px", width: 32 }}></th>
                             <th style={{ textAlign: "left", padding: "4px 6px" }}>Date</th>
+                            <th style={{ textAlign: "left", padding: "4px 6px" }}>Type</th>
                             <th style={{ textAlign: "left", padding: "4px 6px" }}>Title</th>
                             <th style={{ textAlign: "left", padding: "4px 6px" }}>
                               Work Performed
                             </th>
                             <th style={{ textAlign: "left", padding: "4px 6px" }}>
-                              Manpower
-                            </th>
-                            <th style={{ textAlign: "left", padding: "4px 6px" }}>
-                              Person Onsite
-                            </th>
-                            <th style={{ textAlign: "left", padding: "4px 6px" }}>
-                              Weather
-                            </th>
-                            <th style={{ textAlign: "left", padding: "4px 6px" }}>
-                              Photos
-                            </th>
-                            <th style={{ textAlign: "left", padding: "4px 6px" }}>
                               Status
                             </th>
-                            <th style={{ textAlign: "left", padding: "4px 6px" }}>
-                              Created By
-                            </th>
+                            <th style={{ textAlign: "center", padding: "4px 6px", width: 40 }}></th>
                           </tr>
                         </thead>
                         <tbody>
@@ -19658,57 +19811,114 @@ ${htmlBody}
                                 ? true
                                 : log.shareClient && !log.effectiveShareClient,
                             )
+                            .slice(0, 10)
                             .map(log => (
                             <tr key={log.id}>
+                              {/* Edit pencil icon */}
                               <td
                                 style={{
                                   padding: "4px 6px",
                                   borderTop: "1px solid #e5e7eb",
+                                  textAlign: "center",
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    console.log("Edit clicked for log:", log.id, log);
+                                    openEditDailyLog(log);
+                                  }}
+                                  title="Edit daily log"
+                                  style={{
+                                    border: "1px solid #d1d5db",
+                                    background: "#f9fafb",
+                                    borderRadius: 4,
+                                    cursor: "pointer",
+                                    padding: "4px 6px",
+                                    fontSize: 12,
+                                    color: "#374151",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                              </td>
+                              {/* Date */}
+                              <td
+                                style={{
+                                  padding: "4px 6px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  whiteSpace: "nowrap",
                                 }}
                               >
                                 {log.logDate
                                   ? new Date(log.logDate).toLocaleDateString()
                                   : ""}
                               </td>
+                              {/* Type */}
                               <td
                                 style={{
                                   padding: "4px 6px",
                                   borderTop: "1px solid #e5e7eb",
                                 }}
                               >
-                                <div>{log.title || ""}</div>
-                                {log.roomParticle || log.unit || log.building ? (
-                                  <div
-                                    style={{
-                                      marginTop: 2,
-                                      fontSize: 11,
-                                      color: "#6b7280",
-                                    }}
-                                  >
-                                    {(() => {
-                                      const parts: string[] = [];
-                                      if (log.building) {
-                                        parts.push(
-                                          `${log.building.code || ""} ${log.building.name}`.trim(),
-                                        );
-                                      }
-                                      if (log.unit) {
-                                        const floorLabel =
-                                          typeof log.unit.floor === "number"
-                                            ? ` (Floor ${log.unit.floor})`
-                                            : "";
-                                        parts.push(`${log.unit.label}${floorLabel}`);
-                                      }
-                                      if (log.roomParticle) {
-                                        parts.push(
-                                          log.roomParticle.fullLabel || log.roomParticle.name,
-                                        );
-                                      }
-                                      return parts.filter(Boolean).join(" · ");
-                                    })()}
-                                  </div>
-                                ) : null}
+                                <span
+                                  style={{
+                                    display: "inline-block",
+                                    padding: "1px 6px",
+                                    borderRadius: 4,
+                                    fontSize: 10,
+                                    backgroundColor:
+                                      log.type === "RECEIPT_EXPENSE"
+                                        ? "#fef3c7"
+                                        : log.type === "JSA"
+                                        ? "#dbeafe"
+                                        : log.type === "INCIDENT"
+                                        ? "#fee2e2"
+                                        : log.type === "QUALITY"
+                                        ? "#d1fae5"
+                                        : "#f3f4f6",
+                                    color:
+                                      log.type === "RECEIPT_EXPENSE"
+                                        ? "#92400e"
+                                        : log.type === "JSA"
+                                        ? "#1e40af"
+                                        : log.type === "INCIDENT"
+                                        ? "#991b1b"
+                                        : log.type === "QUALITY"
+                                        ? "#065f46"
+                                        : "#374151",
+                                  }}
+                                >
+                                  {log.type === "RECEIPT_EXPENSE"
+                                    ? "Receipt"
+                                    : log.type === "JSA"
+                                    ? "JSA"
+                                    : log.type === "INCIDENT"
+                                    ? "Incident"
+                                    : log.type === "QUALITY"
+                                    ? "Quality"
+                                    : "PUDL"}
+                                </span>
                               </td>
+                              {/* Title */}
+                              <td
+                                style={{
+                                  padding: "4px 6px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  maxWidth: 180,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {log.title || "(Untitled)"}
+                              </td>
+                              {/* Work Performed */}
                               <td
                                 style={{
                                   padding: "4px 6px",
@@ -19721,122 +19931,7 @@ ${htmlBody}
                               >
                                 {log.workPerformed || ""}
                               </td>
-                              <td
-                                style={{
-                                  padding: "4px 6px",
-                                  borderTop: "1px solid #e5e7eb",
-                                }}
-                              >
-                                {log.manpowerOnsite || ""}
-                              </td>
-                              <td
-                                style={{
-                                  padding: "4px 6px",
-                                  borderTop: "1px solid #e5e7eb",
-                                }}
-                              >
-                                {log.personOnsite || ""}
-                              </td>
-                              <td
-                                style={{
-                                  padding: "4px 6px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  maxWidth: 180,
-                                  whiteSpace: "nowrap",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                }}
-                              >
-                                {log.weatherSummary || ""}
-                              </td>
-                              <td
-                                style={{
-                                  padding: "4px 6px",
-                                  borderTop: "1px solid #e5e7eb",
-                                }}
-                              >
-                                {log.attachments && log.attachments.length > 0 ? (
-                                  <div
-                                    style={{
-                                      display: "flex",
-                                      flexWrap: "wrap",
-                                      gap: 4,
-                                      maxWidth: 200,
-                                    }}
-                                  >
-                                    {log.attachments.map(att => {
-                                      const url = att.fileUrl;
-                                      const name = att.fileName || "attachment";
-                                      const lower = (url || "").toLowerCase();
-                                      const isImage =
-                                        lower.endsWith(".png") ||
-                                        lower.endsWith(".jpg") ||
-                                        lower.endsWith(".jpeg") ||
-                                        lower.endsWith(".gif") ||
-                                        lower.endsWith(".webp") ||
-                                        (att.mimeType || "").startsWith("image/");
-                                      if (!isImage) {
-                                        return (
-                                          <a
-                                            key={att.id}
-                                            href={url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            style={{
-                                              fontSize: 11,
-                                              color: "#2563eb",
-                                              textDecoration: "none",
-                                            }}
-                                          >
-                                            {name}
-                                          </a>
-                                        );
-                                      }
-                                      return (
-                                        <a
-                                          key={att.id}
-                                          href={url}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          style={{
-                                            display: "inline-flex",
-                                            flexDirection: "column",
-                                            alignItems: "center",
-                                            textDecoration: "none",
-                                          }}
-                                        >
-                                          <img
-                                            src={url}
-                                            alt={name}
-                                            style={{
-                                              width: 56,
-                                              height: 56,
-                                              objectFit: "cover",
-                                              borderRadius: 4,
-                                              border: "1px solid #e5e7eb",
-                                            }}
-                                          />
-                                          <span
-                                            style={{
-                                              marginTop: 2,
-                                              maxWidth: 80,
-                                              overflow: "hidden",
-                                              textOverflow: "ellipsis",
-                                              whiteSpace: "nowrap",
-                                              fontSize: 10,
-                                              color: "#4b5563",
-                                            }}
-                                          >
-                                            {name}
-                                          </span>
-                                        </a>
-                                      );
-                                    })}
-                                  </div>
-                                ) : (
-                                  log.attachments?.length ?? 0
-                                )}
-                              </td>
+                              {/* Status */}
                               <td
                                 style={{
                                   padding: "4px 6px",
@@ -19848,7 +19943,7 @@ ${htmlBody}
                                     display: "inline-block",
                                     padding: "1px 6px",
                                     borderRadius: 999,
-                                    fontSize: 11,
+                                    fontSize: 10,
                                     backgroundColor:
                                       log.status === "APPROVED"
                                         ? "#dcfce7"
@@ -19864,116 +19959,35 @@ ${htmlBody}
                                   }}
                                 >
                                   {log.status || "SUBMITTED"}
-                                  {log.effectiveShareClient
-                                    ? " • Client Visible"
-                                    : log.shareClient
-                                    ? " • Client Pending"
-                                    : ""}
                                 </span>
                               </td>
+                              {/* Attachment paperclip icon */}
                               <td
                                 style={{
                                   padding: "4px 6px",
                                   borderTop: "1px solid #e5e7eb",
-                                  fontSize: 12,
+                                  textAlign: "center",
                                 }}
                               >
-                                <div>{log.createdByUser?.email ?? ""}</div>
-                                {log.shareClient && !log.effectiveShareClient && (
-                                  <div style={{ marginTop: 2, display: "flex", gap: 4 }}>
-                                    <button
-                                      type="button"
-                                      onClick={async () => {
-                                        const token = localStorage.getItem("accessToken");
-                                        if (!token) {
-                                          alert("Missing access token; please log in again.");
-                                          return;
-                                        }
-                                        try {
-                                          const res = await fetch(
-                                            `${API_BASE}/projects/${id}/daily-logs/${log.id}/approve`,
-                                            {
-                                              method: "POST",
-                                              headers: {
-                                                Authorization: `Bearer ${token}`,
-                                              },
-                                            },
-                                          );
-                                          if (!res.ok) {
-                                            alert(`Approve failed (${res.status}).`);
-                                            return;
-                                          }
-                                          const updated: any = await res.json();
-                                          setDailyLogs(prev =>
-                                            prev.map(l =>
-                                              l.id === log.id
-                                                ? { ...l, ...updated }
-                                                : l,
-                                            ),
-                                          );
-                                        } catch (err: any) {
-                                          alert(err?.message || "Approve failed.");
-                                        }
-                                      }}
-                                      style={{
-                                        padding: "2px 6px",
-                                        borderRadius: 4,
-                                        border: "1px solid #16a34a",
-                                        backgroundColor: "#dcfce7",
-                                        color: "#166534",
-                                        fontSize: 11,
-                                        cursor: "pointer",
-                                      }}
-                                    >
-                                      Approve
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={async () => {
-                                        const token = localStorage.getItem("accessToken");
-                                        if (!token) {
-                                          alert("Missing access token; please log in again.");
-                                          return;
-                                        }
-                                        try {
-                                          const res = await fetch(
-                                            `${API_BASE}/projects/${id}/daily-logs/${log.id}/reject`,
-                                            {
-                                              method: "POST",
-                                              headers: {
-                                                Authorization: `Bearer ${token}`,
-                                              },
-                                            },
-                                          );
-                                          if (!res.ok) {
-                                            alert(`Reject failed (${res.status}).`);
-                                            return;
-                                          }
-                                          const updated: any = await res.json();
-                                          setDailyLogs(prev =>
-                                            prev.map(l =>
-                                              l.id === log.id
-                                                ? { ...l, ...updated }
-                                                : l,
-                                            ),
-                                          );
-                                        } catch (err: any) {
-                                          alert(err?.message || "Reject failed.");
-                                        }
-                                      }}
-                                      style={{
-                                        padding: "2px 6px",
-                                        borderRadius: 4,
-                                        border: "1px solid #b91c1c",
-                                        backgroundColor: "#fee2e2",
-                                        color: "#991b1b",
-                                        fontSize: 11,
-                                        cursor: "pointer",
-                                      }}
-                                    >
-                                      Reject
-                                    </button>
-                                  </div>
+                                {log.attachments && log.attachments.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openAttachmentsViewer(log)}
+                                    title={`${log.attachments.length} attachment(s)`}
+                                    style={{
+                                      border: "none",
+                                      background: "transparent",
+                                      cursor: "pointer",
+                                      padding: 2,
+                                      fontSize: 14,
+                                      color: "#2563eb",
+                                    }}
+                                  >
+                                    📎
+                                    <span style={{ fontSize: 10, marginLeft: 2 }}>
+                                      {log.attachments.length}
+                                    </span>
+                                  </button>
                                 )}
                               </td>
                             </tr>
@@ -21464,6 +21478,523 @@ ${htmlBody}
       )}
 
       {/* Project grouping: Units → Rooms (expandable) */}
+
+      {/* Edit Daily Log Modal */}
+      {editDailyLog.open && editDailyLog.draft && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 70,
+            backgroundColor: "rgba(15, 23, 42, 0.4)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+          onClick={closeEditDailyLog}
+        >
+          <div
+            style={{
+              width: 600,
+              maxWidth: "96vw",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              backgroundColor: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 16px 40px rgba(15,23,42,0.35)",
+              padding: 16,
+              fontSize: 13,
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ fontSize: 15, fontWeight: 600 }}>Edit Daily Log</div>
+              <button
+                type="button"
+                onClick={closeEditDailyLog}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: 18,
+                  lineHeight: 1,
+                  padding: 4,
+                }}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Type</label>
+                <select
+                  value={editDailyLog.draft.type}
+                  onChange={e =>
+                    setEditDailyLog(prev => ({
+                      ...prev,
+                      draft: prev.draft ? { ...prev.draft, type: e.target.value as DailyLogType } : null,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                >
+                  <option value="PUDL">Daily Log (PUDL)</option>
+                  <option value="RECEIPT_EXPENSE">Receipt / Expense</option>
+                  <option value="JSA">Job Safety Assessment</option>
+                  <option value="INCIDENT">Incident Report</option>
+                  <option value="QUALITY">Quality Inspection</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Date</label>
+                <input
+                  type="date"
+                  value={editDailyLog.draft.logDate}
+                  onChange={e =>
+                    setEditDailyLog(prev => ({
+                      ...prev,
+                      draft: prev.draft ? { ...prev.draft, logDate: e.target.value } : null,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Title</label>
+              <input
+                type="text"
+                value={editDailyLog.draft.title}
+                onChange={e =>
+                  setEditDailyLog(prev => ({
+                    ...prev,
+                    draft: prev.draft ? { ...prev.draft, title: e.target.value } : null,
+                  }))
+                }
+                style={{
+                  width: "100%",
+                  padding: "6px 8px",
+                  borderRadius: 4,
+                  border: "1px solid #d1d5db",
+                  fontSize: 12,
+                }}
+              />
+            </div>
+
+            {editDailyLog.draft.type === "RECEIPT_EXPENSE" && (
+              <div style={{ marginBottom: 12, padding: 10, background: "#fef3c7", borderRadius: 6, border: "1px solid #fcd34d" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#92400e" }}>Receipt Details</div>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Vendor</label>
+                    <input
+                      type="text"
+                      value={editDailyLog.draft.expenseVendor}
+                      onChange={e =>
+                        setEditDailyLog(prev => ({
+                          ...prev,
+                          draft: prev.draft ? { ...prev.draft, expenseVendor: e.target.value } : null,
+                        }))
+                      }
+                      style={{
+                        width: "100%",
+                        padding: "4px 6px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Amount</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editDailyLog.draft.expenseAmount}
+                      onChange={e =>
+                        setEditDailyLog(prev => ({
+                          ...prev,
+                          draft: prev.draft ? { ...prev.draft, expenseAmount: e.target.value } : null,
+                        }))
+                      }
+                      style={{
+                        width: "100%",
+                        padding: "4px 6px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Receipt Date</label>
+                    <input
+                      type="date"
+                      value={editDailyLog.draft.expenseDate}
+                      onChange={e =>
+                        setEditDailyLog(prev => ({
+                          ...prev,
+                          draft: prev.draft ? { ...prev.draft, expenseDate: e.target.value } : null,
+                        }))
+                      }
+                      style={{
+                        width: "100%",
+                        padding: "4px 6px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Work Performed</label>
+              <textarea
+                value={editDailyLog.draft.workPerformed}
+                onChange={e =>
+                  setEditDailyLog(prev => ({
+                    ...prev,
+                    draft: prev.draft ? { ...prev.draft, workPerformed: e.target.value } : null,
+                  }))
+                }
+                rows={3}
+                style={{
+                  width: "100%",
+                  padding: "6px 8px",
+                  borderRadius: 4,
+                  border: "1px solid #d1d5db",
+                  fontSize: 12,
+                  resize: "vertical",
+                }}
+              />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Issues</label>
+                <textarea
+                  value={editDailyLog.draft.issues}
+                  onChange={e =>
+                    setEditDailyLog(prev => ({
+                      ...prev,
+                      draft: prev.draft ? { ...prev.draft, issues: e.target.value } : null,
+                    }))
+                  }
+                  rows={2}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Safety Incidents</label>
+                <textarea
+                  value={editDailyLog.draft.safetyIncidents}
+                  onChange={e =>
+                    setEditDailyLog(prev => ({
+                      ...prev,
+                      draft: prev.draft ? { ...prev.draft, safetyIncidents: e.target.value } : null,
+                    }))
+                  }
+                  rows={2}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Weather</label>
+                <input
+                  type="text"
+                  value={editDailyLog.draft.weatherSummary}
+                  onChange={e =>
+                    setEditDailyLog(prev => ({
+                      ...prev,
+                      draft: prev.draft ? { ...prev.draft, weatherSummary: e.target.value } : null,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Crew / Person Onsite</label>
+                <input
+                  type="text"
+                  value={editDailyLog.draft.personOnsite}
+                  onChange={e =>
+                    setEditDailyLog(prev => ({
+                      ...prev,
+                      draft: prev.draft ? { ...prev.draft, personOnsite: e.target.value } : null,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Confidential Notes (NO PRINT)</label>
+              <textarea
+                value={editDailyLog.draft.confidentialNotes}
+                onChange={e =>
+                  setEditDailyLog(prev => ({
+                    ...prev,
+                    draft: prev.draft ? { ...prev.draft, confidentialNotes: e.target.value } : null,
+                  }))
+                }
+                rows={2}
+                style={{
+                  width: "100%",
+                  padding: "6px 8px",
+                  borderRadius: 4,
+                  border: "1px solid #d1d5db",
+                  fontSize: 12,
+                  resize: "vertical",
+                }}
+              />
+            </div>
+
+            {editDailyLog.error && (
+              <div style={{ marginBottom: 12, fontSize: 12, color: "#b91c1c" }}>
+                {editDailyLog.error}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button
+                type="button"
+                onClick={closeEditDailyLog}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 4,
+                  border: "1px solid #d1d5db",
+                  backgroundColor: "#ffffff",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleUpdateDailyLog}
+                disabled={editDailyLog.saving}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 4,
+                  border: "1px solid #0f172a",
+                  backgroundColor: editDailyLog.saving ? "#e5e7eb" : "#0f172a",
+                  color: editDailyLog.saving ? "#4b5563" : "#f9fafb",
+                  fontSize: 12,
+                  cursor: editDailyLog.saving ? "default" : "pointer",
+                }}
+              >
+                {editDailyLog.saving ? "Saving…" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Attachments Viewer Modal */}
+      {attachmentsViewer.open && attachmentsViewer.log && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 70,
+            backgroundColor: "rgba(15, 23, 42, 0.4)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+          onClick={closeAttachmentsViewer}
+        >
+          <div
+            style={{
+              width: 700,
+              maxWidth: "96vw",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              backgroundColor: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 16px 40px rgba(15,23,42,0.35)",
+              padding: 16,
+              fontSize: 13,
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>Attachments</div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>
+                  {attachmentsViewer.log.title || "Daily Log"} –{" "}
+                  {attachmentsViewer.log.logDate
+                    ? new Date(attachmentsViewer.log.logDate).toLocaleDateString()
+                    : ""}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeAttachmentsViewer}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: 18,
+                  lineHeight: 1,
+                  padding: 4,
+                }}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            {attachmentsViewer.log.attachments && attachmentsViewer.log.attachments.length > 0 ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
+                {attachmentsViewer.log.attachments.map(att => {
+                  const url = att.fileUrl;
+                  const name = att.fileName || "attachment";
+                  const lower = (url || "").toLowerCase();
+                  const isImage =
+                    lower.endsWith(".png") ||
+                    lower.endsWith(".jpg") ||
+                    lower.endsWith(".jpeg") ||
+                    lower.endsWith(".gif") ||
+                    lower.endsWith(".webp") ||
+                    (att.mimeType || "").startsWith("image/");
+
+                  return (
+                    <a
+                      key={att.id}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        padding: 8,
+                        borderRadius: 6,
+                        border: "1px solid #e5e7eb",
+                        textDecoration: "none",
+                        background: "#f9fafb",
+                      }}
+                    >
+                      {isImage ? (
+                        <img
+                          src={url}
+                          alt={name}
+                          style={{
+                            width: "100%",
+                            height: 100,
+                            objectFit: "cover",
+                            borderRadius: 4,
+                            marginBottom: 6,
+                          }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: "100%",
+                            height: 100,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: "#e5e7eb",
+                            borderRadius: 4,
+                            marginBottom: 6,
+                            fontSize: 32,
+                          }}
+                        >
+                          📄
+                        </div>
+                      )}
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: "#374151",
+                          textAlign: "center",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          width: "100%",
+                        }}
+                      >
+                        {name}
+                      </span>
+                    </a>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ color: "#6b7280", textAlign: "center", padding: 20 }}>
+                No attachments
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Field PETL edit modal */}
       {fieldPetlEdit && (
         <div
