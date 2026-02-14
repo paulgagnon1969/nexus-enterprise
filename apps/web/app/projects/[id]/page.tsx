@@ -19824,24 +19824,21 @@ ${htmlBody}
                               >
                                 <button
                                   type="button"
-                                  onClick={(e) => {
+                                  onMouseDown={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    console.log("Edit clicked for log:", log.id, log);
                                     openEditDailyLog(log);
                                   }}
                                   title="Edit daily log"
                                   style={{
-                                    border: "1px solid #d1d5db",
-                                    background: "#f9fafb",
+                                    border: "1px solid #2563eb",
+                                    background: "#2563eb",
                                     borderRadius: 4,
                                     cursor: "pointer",
-                                    padding: "4px 6px",
+                                    padding: "6px 10px",
                                     fontSize: 12,
-                                    color: "#374151",
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
+                                    color: "#ffffff",
+                                    fontWeight: 500,
                                   }}
                                 >
                                   Edit
@@ -21480,13 +21477,37 @@ ${htmlBody}
       {/* Project grouping: Units → Rooms (expandable) */}
 
       {/* Edit Daily Log Modal */}
+      {editDailyLog.open && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            zIndex: 99999,
+            backgroundColor: "red",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            color: "white",
+            fontSize: 48,
+          }}
+          onClick={closeEditDailyLog}
+        >
+          MODAL IS OPEN - CLICK TO CLOSE
+        </div>
+      )}
       {editDailyLog.open && editDailyLog.draft && (
         <div
           style={{
             position: "fixed",
-            inset: 0,
-            zIndex: 70,
-            backgroundColor: "rgba(15, 23, 42, 0.4)",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 99999,
+            backgroundColor: "rgba(15, 23, 42, 0.6)",
             display: "flex",
             justifyContent: "center",
             alignItems: "center",

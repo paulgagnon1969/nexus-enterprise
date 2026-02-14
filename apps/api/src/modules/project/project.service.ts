@@ -203,6 +203,7 @@ export class ProjectService {
         primaryContactName: dto.primaryContactName,
         primaryContactPhone: dto.primaryContactPhone,
         primaryContactEmail: dto.primaryContactEmail,
+        tenantClientId: dto.tenantClientId ?? undefined,
         createdByUserId: userId
       }
     });
@@ -326,6 +327,7 @@ export class ProjectService {
         primaryContactName: dto.primaryContactName ?? project.primaryContactName ?? undefined,
         primaryContactPhone: dto.primaryContactPhone ?? project.primaryContactPhone ?? undefined,
         primaryContactEmail: dto.primaryContactEmail ?? project.primaryContactEmail ?? undefined,
+        tenantClientId: dto.tenantClientId !== undefined ? (dto.tenantClientId || null) : project.tenantClientId,
         status: dto.status ?? project.status
       }
     });
