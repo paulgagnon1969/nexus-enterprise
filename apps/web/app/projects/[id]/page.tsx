@@ -424,6 +424,10 @@ interface Project {
   createdAt: string;
   // Optional per-project role of the current user (OWNER, ADMIN, PM, VIEWER, etc.)
   userRole?: string;
+  // Client contact for invoices & correspondence
+  primaryContactName?: string | null;
+  primaryContactEmail?: string | null;
+  primaryContactPhone?: string | null;
 }
 
 interface PetlItem {
@@ -2940,6 +2944,21 @@ ${htmlBody}
       `
       : ``;
 
+    // Attachments section
+    const attachmentsHtml = (() => {
+      const attachments = Array.isArray(activeInvoice?.attachments) ? activeInvoice.attachments : [];
+      if (attachments.length === 0) return ``;
+      const attachList = attachments.map((a: any) => `<li>${htmlEscape(String(a?.fileName ?? "Attachment"))}</li>`).join("\n");
+      return `
+        <div class="invoice-notes" style="margin-top: 16px;">
+          <div class="invoice-notes-label">Supporting Documents</div>
+          <ul style="margin: 4px 0 0 0; padding-left: 20px; font-size: 11px;">
+            ${attachList}
+          </ul>
+        </div>
+      `;
+    })();
+
     // Footer
     const footerHtml = `
       <div class="invoice-footer">
@@ -2950,7 +2969,7 @@ ${htmlBody}
     // Yield before final print
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const body = `${headerHtml}\n${petlHtml}\n${invoiceLinesHtml}\n${memoHtml}\n${footerHtml}`;
+    const body = `${headerHtml}\n${petlHtml}\n${invoiceLinesHtml}\n${memoHtml}\n${attachmentsHtml}\n${footerHtml}`;
     printHtmlDocument(title, body);
     } finally {
       done();
@@ -4368,6 +4387,9 @@ ${htmlBody}
         addressLine2: string | null;
         city: string;
         state: string;
+        primaryContactName: string | null;
+        primaryContactEmail: string | null;
+        primaryContactPhone: string | null;
       }
   >(null);
   const [editProjectSaving, setEditProjectSaving] = useState(false);
@@ -7281,9 +7303,10 @@ ${htmlBody}
     };
   }, [activeTab, project, projectBills]);
 
-  // Lazy-load project files for bill attachment picker
+  // Lazy-load project files for bill/invoice attachment picker
   useEffect(() => {
-    if (!billModalOpen) return;
+    // Load when bill modal is open, invoice fullscreen, OR viewing an active invoice
+    if (!billModalOpen && !invoiceFullscreen && !activeInvoice) return;
     if (!project) return;
     const token = localStorage.getItem("accessToken");
     if (!token) return;
@@ -7314,7 +7337,7 @@ ${htmlBody}
     return () => {
       cancelled = true;
     };
-  }, [billModalOpen, project, billAttachmentFileOptions]);
+  }, [billModalOpen, invoiceFullscreen, activeInvoice, project, billAttachmentFileOptions]);
 
   // Lazy-load invoices list when Financial tab is opened
   useEffect(() => {
@@ -7430,13 +7453,19 @@ ${htmlBody}
   }, [activeTab, project, projectPayments, paymentsCollapsed]);
 
   // Keep issue form defaults in sync with the currently opened invoice
+  // If invoice has no bill-to info, fall back to project's primary contact
+  const projectPrimaryContactName = (project as any)?.primaryContactName ?? "";
+  const projectPrimaryContactEmail = (project as any)?.primaryContactEmail ?? "";
+  const activeInvoiceId = activeInvoice?.id ?? null;
   useEffect(() => {
     if (!activeInvoice) return;
-    setIssueBillToName(String(activeInvoice.billToName ?? ""));
-    setIssueBillToEmail(String(activeInvoice.billToEmail ?? ""));
+    const billToName = activeInvoice.billToName || projectPrimaryContactName || "";
+    const billToEmail = activeInvoice.billToEmail || projectPrimaryContactEmail || "";
+    setIssueBillToName(String(billToName));
+    setIssueBillToEmail(String(billToEmail));
     setIssueMemo(String(activeInvoice.memo ?? ""));
     setIssueDueAt(activeInvoice.dueAt ? String(activeInvoice.dueAt).slice(0, 10) : "");
-  }, [activeInvoice?.id]);
+  }, [activeInvoiceId, projectPrimaryContactName, projectPrimaryContactEmail, activeInvoice]);
 
   // Lazy-load payroll roster when Financial tab is opened (first time).
   useEffect(() => {
@@ -9992,6 +10021,9 @@ ${htmlBody}
         addressLine2: project.addressLine2 ?? null,
         city: project.city,
         state: project.state,
+        primaryContactName: project.primaryContactName ?? null,
+        primaryContactEmail: project.primaryContactEmail ?? null,
+        primaryContactPhone: project.primaryContactPhone ?? null,
       });
 
       const s = (project.status || "").toLowerCase();
@@ -10043,6 +10075,9 @@ ${htmlBody}
           addressLine2: editProject.addressLine2,
           city: editProject.city,
           state: editProject.state,
+          primaryContactName: editProject.primaryContactName,
+          primaryContactEmail: editProject.primaryContactEmail,
+          primaryContactPhone: editProject.primaryContactPhone,
         };
         const res = await fetch(`${API_BASE}/projects/${project.id}`, {
           method: "PATCH",
@@ -10303,6 +10338,105 @@ ${htmlBody}
                       fontSize: 13,
                     }}
                   />
+                </div>
+              </div>
+
+              {/* Client Contact Section */}
+              <div
+                style={{
+                  marginTop: 12,
+                  paddingTop: 10,
+                  borderTop: "1px solid #e5e7eb",
+                }}
+              >
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+                  Client Contact (for invoices & correspondence)
+                </label>
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 6,
+                    alignItems: "flex-start",
+                  }}
+                >
+                  <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+                    <label
+                      style={{ display: "block", fontSize: 12, fontWeight: 600 }}
+                    >
+                      Client Name
+                    </label>
+                    <input
+                      value={editProject.primaryContactName ?? ""}
+                      onChange={e =>
+                        setEditProject(prev =>
+                          prev
+                            ? { ...prev, primaryContactName: e.target.value || null }
+                            : prev,
+                        )
+                      }
+                      placeholder="Full name"
+                      style={{
+                        width: "100%",
+                        padding: "4px 6px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 13,
+                      }}
+                    />
+                  </div>
+                  <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+                    <label
+                      style={{ display: "block", fontSize: 12, fontWeight: 600 }}
+                    >
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      value={editProject.primaryContactEmail ?? ""}
+                      onChange={e =>
+                        setEditProject(prev =>
+                          prev
+                            ? { ...prev, primaryContactEmail: e.target.value || null }
+                            : prev,
+                        )
+                      }
+                      placeholder="email@example.com"
+                      style={{
+                        width: "100%",
+                        padding: "4px 6px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 13,
+                      }}
+                    />
+                  </div>
+                  <div style={{ flex: "0 0 160px", minWidth: 140 }}>
+                    <label
+                      style={{ display: "block", fontSize: 12, fontWeight: 600 }}
+                    >
+                      Phone
+                    </label>
+                    <input
+                      type="tel"
+                      value={editProject.primaryContactPhone ?? ""}
+                      onChange={e =>
+                        setEditProject(prev =>
+                          prev
+                            ? { ...prev, primaryContactPhone: e.target.value || null }
+                            : prev,
+                        )
+                      }
+                      placeholder="(555) 123-4567"
+                      style={{
+                        width: "100%",
+                        padding: "4px 6px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 13,
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -13356,6 +13490,9 @@ ${htmlBody}
             const costTotal = billableBills.reduce((sum: number, b: any) => sum + (Number(b?.totalAmount) || 0), 0);
             const gmTotal = billableTotal - costTotal;
 
+            // Find the EXPENSE category invoice
+            const expenseInvoice = (projectInvoices ?? []).find((inv: any) => inv?.category === "EXPENSE");
+
             if (billableBills.length === 0) return null;
 
             return (
@@ -13384,7 +13521,55 @@ ${htmlBody}
                     <span>💰 Billable Expenses Invoice</span>
                     <span style={{ fontSize: 11, fontWeight: 500, color: "#166534" }}>
                       · {billableBills.length} item{billableBills.length !== 1 ? "s" : ""} · Total {formatMoney(billableTotal)}
+                      {expenseInvoice && ` · ${expenseInvoice.status}`}
+                      {expenseInvoice?.invoiceNo && ` · ${expenseInvoice.invoiceNo}`}
                     </span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!project) return;
+                        const token = localStorage.getItem("accessToken");
+                        if (!token) return;
+                        try {
+                          // Create/sync the expense invoice
+                          const res = await fetch(
+                            `${API_BASE}/projects/${project.id}/invoices/sync-billable-expenses`,
+                            {
+                              method: "POST",
+                              headers: {
+                                Authorization: `Bearer ${token}`,
+                                "Content-Type": "application/json",
+                              },
+                              body: JSON.stringify({}),
+                            }
+                          );
+                          if (res.ok) {
+                            const fullInvoice = await res.json();
+                            setActiveInvoice(fullInvoice);
+                            // Navigate to fullscreen invoice view
+                            router.push(`/projects/${id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${fullInvoice.id}`);
+                            // Refresh invoices list
+                            setProjectInvoices(null);
+                          }
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 4,
+                        border: "1px solid #166534",
+                        background: "#166534",
+                        color: "#ffffff",
+                        fontSize: 11,
+                        cursor: "pointer",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {expenseInvoice ? "Open Invoice" : "Create Invoice"}
+                    </button>
                   </div>
                 </div>
                 <div style={{ padding: 12, fontSize: 12 }}>
@@ -13412,20 +13597,23 @@ ${htmlBody}
                           <th style={{ padding: "4px 6px" }}>Vendor</th>
                           <th style={{ padding: "4px 6px" }}>Description</th>
                           <th style={{ padding: "4px 6px", textAlign: "right" }}>Cost</th>
-                          <th style={{ padding: "4px 6px", textAlign: "right" }}>Markup</th>
+                          <th style={{ padding: "4px 6px", textAlign: "right" }}>GM%</th>
                           <th style={{ padding: "4px 6px", textAlign: "right" }}>Billable</th>
                         </tr>
                       </thead>
                       <tbody>
                         {billableBills.map((b: any) => {
                           const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                          const cost = Number(b?.totalAmount) || 0;
+                          const billable = Number(b?.billableAmount) || 0;
+                          const gmPct = billable > 0 ? ((billable - cost) / billable) * 100 : 0;
                           return (
                             <tr key={String(b?.id ?? Math.random())} style={{ borderTop: "1px solid #bbf7d0" }}>
                               <td style={{ padding: "4px 6px" }}>{b?.vendorName ?? "—"}</td>
                               <td style={{ padding: "4px 6px", color: "#166534" }}>{li?.description ?? "—"}</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right" }}>{formatMoney(b?.totalAmount)}</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right" }}>{b?.markupPercent ?? 0}%</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 600 }}>{formatMoney(b?.billableAmount)}</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right" }}>{formatMoney(cost)}</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right", color: "#16a34a" }}>{gmPct.toFixed(1)}%</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 600 }}>{formatMoney(billable)}</td>
                             </tr>
                           );
                         })}
@@ -14585,9 +14773,12 @@ ${htmlBody}
                 <div
                   data-print-scope="invoice"
                   style={{
-                    marginTop: 12,
-                    borderTop: "1px solid #e5e7eb",
-                    paddingTop: 10,
+                    marginTop: 16,
+                    padding: 16,
+                    borderRadius: 8,
+                    border: activeInvoice.status === "DRAFT" ? "2px solid #3b82f6" : "1px solid #e5e7eb",
+                    background: activeInvoice.status === "DRAFT" ? "#eff6ff" : "#ffffff",
+                    boxShadow: activeInvoice.status === "DRAFT" ? "0 4px 12px rgba(59, 130, 246, 0.15)" : "none",
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
@@ -16668,7 +16859,7 @@ ${htmlBody}
 
                                             const nextKindRaw =
                                               prompt(
-                                                "Kind (MANUAL, BILLABLE_HOURS, EQUIPMENT_RENTAL, COST_BOOK, OTHER)",
+                                                "Kind (MANUAL, BILLABLE_HOURS, EQUIPMENT_RENTAL, LABOR_ONLY, MATERIALS_ONLY, LABOR_AND_MATERIALS, COST_BOOK, OTHER)",
                                                 String(li.kind ?? "MANUAL"),
                                               ) ?? String(li.kind ?? "MANUAL");
                                             const nextKind = nextKindRaw.trim().toUpperCase();
@@ -16676,6 +16867,9 @@ ${htmlBody}
                                               "MANUAL",
                                               "BILLABLE_HOURS",
                                               "EQUIPMENT_RENTAL",
+                                              "LABOR_ONLY",
+                                              "MATERIALS_ONLY",
+                                              "LABOR_AND_MATERIALS",
                                               "COST_BOOK",
                                               "OTHER",
                                             ]);
@@ -16817,6 +17011,9 @@ ${htmlBody}
                           <option value="MANUAL">Manual</option>
                           <option value="BILLABLE_HOURS">Billable hours</option>
                           <option value="EQUIPMENT_RENTAL">Equipment rental</option>
+                          <option value="LABOR_ONLY">Labor Only</option>
+                          <option value="MATERIALS_ONLY">Materials only</option>
+                          <option value="LABOR_AND_MATERIALS">Labor & Materials</option>
                           <option value="OTHER">Other</option>
                         </select>
 
@@ -16964,8 +17161,96 @@ ${htmlBody}
                             cursor: "pointer",
                           }}
                         >
-                          Add line
+                        Add line
                         </button>
+                      </div>
+
+                      {/* Attachments section */}
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 6 }}>Attachments</div>
+                        {Array.isArray(activeInvoice?.attachments) && activeInvoice.attachments.length > 0 && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+                            {activeInvoice.attachments.map((a: any) => (
+                              <a
+                                key={String(a?.id ?? a?.projectFileId ?? Math.random())}
+                                href={String(a?.fileUrl ?? "#")}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ fontSize: 12, color: "#2563eb", textDecoration: "none" }}
+                              >
+                                📎 {String(a?.fileName ?? "Attachment")}
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <select
+                            id="invoice-attach-file-select"
+                            style={{
+                              flex: "1 1 200px",
+                              padding: "6px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 12,
+                            }}
+                          >
+                            <option value="">Select a project file...</option>
+                            {Array.isArray(billAttachmentFileOptions) && billAttachmentFileOptions.map((f: any) => (
+                              <option key={f.id} value={f.id}>{f.fileName}</option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!project || !activeInvoice?.id) return;
+                              const token = localStorage.getItem("accessToken");
+                              if (!token) {
+                                setInvoiceMessage("Missing access token.");
+                                return;
+                              }
+                              const select = document.getElementById("invoice-attach-file-select") as HTMLSelectElement;
+                              const projectFileId = select?.value;
+                              if (!projectFileId) {
+                                setInvoiceMessage("Select a file to attach.");
+                                return;
+                              }
+                              try {
+                                const res = await fetch(
+                                  `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/attachments`,
+                                  {
+                                    method: "POST",
+                                    headers: {
+                                      "Content-Type": "application/json",
+                                      Authorization: `Bearer ${token}`,
+                                    },
+                                    body: JSON.stringify({ projectFileId }),
+                                  }
+                                );
+                                if (!res.ok) {
+                                  const text = await res.text().catch(() => "");
+                                  setInvoiceMessage(`Attach failed (${res.status}) ${text}`);
+                                  return;
+                                }
+                                const json: any = await res.json();
+                                setActiveInvoice(json);
+                                setInvoiceMessage("File attached.");
+                                select.value = "";
+                              } catch (err: any) {
+                                setInvoiceMessage(err?.message ?? "Attach failed.");
+                              }
+                            }}
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              background: "#f9fafb",
+                              fontSize: 12,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Attach
+                          </button>
+                        </div>
                       </div>
 
                       <div style={{ marginTop: 12 }}>
