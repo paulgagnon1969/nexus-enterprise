@@ -659,6 +659,8 @@ interface NewDailyLogState {
   sowItemId?: string | null;
   // Attachment file IDs to include
   attachmentProjectFileIds?: string[];
+  // Metadata for display (parallel array to attachmentProjectFileIds)
+  attachmentFiles?: { id: string; fileName: string; mimeType: string | null; storageUrl: string }[];
 }
 
 interface RoomComponentAgg {
@@ -10205,6 +10207,7 @@ ${htmlBody}
           expenseAmount: "",
           expenseDate: new Date().toISOString().slice(0, 10),
           attachmentProjectFileIds: [],
+          attachmentFiles: [],
           buildingId: undefined,
           unitId: undefined,
           roomParticleId: undefined,
@@ -20808,7 +20811,12 @@ ${htmlBody}
                               continue;
                             }
                             const uploaded = await registerRes.json();
-                            uploadedIds.push(uploaded.id);
+                            uploadedIds.push({
+                              id: uploaded.id,
+                              fileName: uploaded.fileName || file.name,
+                              mimeType: uploaded.mimeType || file.type || null,
+                              storageUrl: uploaded.storageUrl || fileUri,
+                            });
                           } catch (err: any) {
                             errors.push(`${file.name}: ${err?.message || "Unknown error"}`);
                           }
@@ -20819,6 +20827,10 @@ ${htmlBody}
                             ...prev,
                             attachmentProjectFileIds: [
                               ...(prev.attachmentProjectFileIds || []),
+                              ...uploadedIds.map(f => f.id),
+                            ],
+                            attachmentFiles: [
+                              ...(prev.attachmentFiles || []),
                               ...uploadedIds,
                             ],
                           }));
@@ -20831,9 +20843,102 @@ ${htmlBody}
                         }
                       }}
                     />
-                    {newDailyLog.attachmentProjectFileIds && newDailyLog.attachmentProjectFileIds.length > 0 && (
-                      <div style={{ marginTop: 6, fontSize: 11, color: "#059669" }}>
-                        ✓ {newDailyLog.attachmentProjectFileIds.length} file(s) attached
+                    {/* Display attached files with thumbnails */}
+                    {newDailyLog.attachmentFiles && newDailyLog.attachmentFiles.length > 0 && (
+                      <div style={{ 
+                        marginTop: 8, 
+                        display: "flex", 
+                        flexWrap: "wrap", 
+                        gap: 8,
+                        padding: 8,
+                        background: "#f0fdf4",
+                        borderRadius: 6,
+                        border: "1px solid #bbf7d0",
+                      }}>
+                        {newDailyLog.attachmentFiles.map((file, idx) => (
+                          <div 
+                            key={file.id} 
+                            style={{ 
+                              position: "relative",
+                              width: 80, 
+                              textAlign: "center",
+                            }}
+                          >
+                            {/* Remove button */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewDailyLog(prev => ({
+                                  ...prev,
+                                  attachmentProjectFileIds: (prev.attachmentProjectFileIds || []).filter((_, i) => i !== idx),
+                                  attachmentFiles: (prev.attachmentFiles || []).filter((_, i) => i !== idx),
+                                }));
+                              }}
+                              style={{
+                                position: "absolute",
+                                top: -6,
+                                right: -6,
+                                width: 20,
+                                height: 20,
+                                borderRadius: "50%",
+                                border: "none",
+                                background: "#ef4444",
+                                color: "white",
+                                fontSize: 12,
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                zIndex: 1,
+                              }}
+                              title="Remove"
+                            >
+                              ×
+                            </button>
+                            {/* Thumbnail or icon */}
+                            {file.mimeType?.startsWith("image/") ? (
+                              <img
+                                src={file.storageUrl.startsWith("gs://") 
+                                  ? `https://storage.googleapis.com/${file.storageUrl.replace("gs://", "")}`
+                                  : file.storageUrl}
+                                alt={file.fileName}
+                                style={{
+                                  width: 60,
+                                  height: 60,
+                                  objectFit: "cover",
+                                  borderRadius: 4,
+                                  border: "1px solid #d1d5db",
+                                }}
+                              />
+                            ) : (
+                              <div style={{
+                                width: 60,
+                                height: 60,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                background: "white",
+                                borderRadius: 4,
+                                border: "1px solid #d1d5db",
+                                fontSize: 24,
+                              }}>
+                                📄
+                              </div>
+                            )}
+                            {/* File name */}
+                            <div style={{ 
+                              fontSize: 9, 
+                              color: "#374151",
+                              marginTop: 2,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              maxWidth: 80,
+                            }}>
+                              {file.fileName}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
