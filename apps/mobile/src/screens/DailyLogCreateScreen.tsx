@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import * as ImagePicker from "expo-image-picker";
-import { apiJson } from "../api/client";
+import { apiFetch, apiJson } from "../api/client";
 import { fetchUserProjects } from "../api/dailyLog";
 import { enqueueOutbox } from "../offline/outbox";
 import { triggerSync } from "../offline/autoSync";
@@ -89,17 +89,24 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
     const newAttachments: StoredFile[] = [];
     for (const asset of res.assets) {
       if (!asset.uri) continue;
-      const stored = await copyToAppStorage({
-        uri: asset.uri,
-        name: (asset as any).fileName ?? null,
-        mimeType: (asset as any).mimeType ?? "image/jpeg",
-      });
-      newAttachments.push(stored);
+      try {
+        const stored = await copyToAppStorage({
+          uri: asset.uri,
+          name: (asset as any).fileName ?? null,
+          mimeType: (asset as any).mimeType ?? "image/jpeg",
+        });
+        newAttachments.push(stored);
+      } catch (err) {
+        console.error(`[DailyLogCreate] Failed to copy photo to storage:`, err);
+        setStatus(`Failed to save photo: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
 
     setAttachments((prev) => [...prev, ...newAttachments]);
     if (newAttachments.length > 1) {
       setStatus(`Added ${newAttachments.length} photos`);
+    } else if (newAttachments.length === 1) {
+      setStatus(null); // Clear status for single successful photo
     }
   };
 
@@ -120,13 +127,18 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
       const a = res.assets?.[0];
       if (!a?.uri) return;
 
-      const stored = await copyToAppStorage({
-        uri: a.uri,
-        name: (a as any).fileName ?? null,
-        mimeType: (a as any).mimeType ?? "image/jpeg",
-      });
-
-      setAttachments((prev) => [...prev, stored]);
+      try {
+        const stored = await copyToAppStorage({
+          uri: a.uri,
+          name: (a as any).fileName ?? null,
+          mimeType: (a as any).mimeType ?? "image/jpeg",
+        });
+        setAttachments((prev) => [...prev, stored]);
+      } catch (err) {
+        console.error(`[DailyLogCreate] Failed to copy camera photo to storage:`, err);
+        setStatus(`Failed to save photo: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
 
       // Ask if they want to take another photo
       return new Promise((resolve) => {
@@ -202,6 +214,7 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
       let attachmentsFailed = 0;
       for (const a of attachments) {
         try {
+          console.log(`[DailyLogCreate] Uploading attachment: ${a.name} (${a.uri})`);
           const formData = new FormData();
           formData.append("file", {
             uri: a.uri,
@@ -209,11 +222,20 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
             type: a.mimeType,
           } as any);
 
-          await apiJson(`/daily-logs/${result.id}/attachments`, {
+          // Use apiFetch for FormData uploads (don't try to parse JSON response)
+          const uploadRes = await apiFetch(`/daily-logs/${result.id}/attachments`, {
             method: "POST",
             body: formData,
           });
-        } catch {
+
+          if (!uploadRes.ok) {
+            const errText = await uploadRes.text().catch(() => "");
+            console.error(`[DailyLogCreate] Upload failed: ${uploadRes.status} ${errText}`);
+            throw new Error(`Upload failed: ${uploadRes.status}`);
+          }
+          console.log(`[DailyLogCreate] Attachment uploaded successfully`);
+        } catch (uploadErr) {
+          console.error(`[DailyLogCreate] Attachment upload error:`, uploadErr);
           // Attachment upload failed — queue for retry
           attachmentsFailed++;
           await enqueueOutbox("dailyLog.uploadAttachment", {

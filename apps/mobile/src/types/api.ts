@@ -46,6 +46,34 @@ export interface ProjectListItem {
   id: string;
   name: string;
   status?: string | null;
+  // Location fields
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  // Primary contact
+  primaryContactName?: string | null;
+  primaryContactPhone?: string | null;
+  primaryContactEmail?: string | null;
+}
+
+// Contact categories for the Contacts screen
+export type ContactCategory = "internal" | "external" | "subs" | "clients";
+
+export interface Contact {
+  id: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  displayName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  role?: string | null;
+  title?: string | null;
+  company?: string | null;
+  category: ContactCategory;
 }
 
 export interface DailyLogCreateRequest {

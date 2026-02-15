@@ -98,6 +98,9 @@ export async function uploadAttachment(
   fileName: string,
   mimeType: string,
 ): Promise<void> {
+  console.log(`[dailyLog.uploadAttachment] Uploading ${fileName} to log ${logId}`);
+  console.log(`[dailyLog.uploadAttachment] File URI: ${fileUri}`);
+
   const formData = new FormData();
   formData.append("file", {
     uri: fileUri,
@@ -105,10 +108,19 @@ export async function uploadAttachment(
     type: mimeType,
   } as any);
 
-  await apiJson(`/daily-logs/${encodeURIComponent(logId)}/attachments`, {
+  // Use apiFetch for FormData uploads (don't try to parse JSON response)
+  const res = await apiFetch(`/daily-logs/${encodeURIComponent(logId)}/attachments`, {
     method: "POST",
     body: formData,
   });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    console.error(`[dailyLog.uploadAttachment] Failed: ${res.status} ${errText}`);
+    throw new Error(`Upload failed: ${res.status} ${errText || res.statusText}`);
+  }
+
+  console.log(`[dailyLog.uploadAttachment] Success`);
 }
 
 /**

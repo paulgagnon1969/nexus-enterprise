@@ -42,6 +42,39 @@ async function computeFileHash(file: File | Blob): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Simple text summarizer - extracts first sentence or key phrase for title.
+ * Used to auto-generate daily log titles from note content.
+ */
+function summarizeToTitle(text: string, maxLength = 60): string {
+  if (!text || !text.trim()) return "";
+  
+  // Clean up the text
+  let cleaned = text.trim();
+  
+  // Try to get first sentence
+  const sentenceMatch = cleaned.match(/^[^.!?\n]+[.!?]?/);
+  if (sentenceMatch) {
+    cleaned = sentenceMatch[0].trim();
+  }
+  
+  // Remove common filler words at start
+  cleaned = cleaned.replace(/^(today |we |i |the team |crew |worked on |completed |finished |started )/i, "");
+  
+  // Capitalize first letter
+  cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  
+  // Truncate if too long
+  if (cleaned.length > maxLength) {
+    cleaned = cleaned.substring(0, maxLength - 3).trim() + "...";
+  }
+  
+  // Remove trailing period if present
+  cleaned = cleaned.replace(/\.$/, "");
+  
+  return cleaned;
+}
+
 type CheckboxMultiSelectOption = { value: string; label: string };
 
 function CheckboxMultiSelect(props: {

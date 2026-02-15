@@ -26,9 +26,10 @@ export async function copyToAppStorage(opts: {
     (opts.name && opts.name.trim()) ||
     `attachment_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
-  const documentDir = (FileSystem as any).Paths?.document?.uri as string | undefined;
+  // Use FileSystem.documentDirectory (the standard API)
+  const documentDir = FileSystem.documentDirectory;
   if (!documentDir) {
-    throw new Error("Missing FileSystem.Paths.document.uri");
+    throw new Error("FileSystem.documentDirectory is not available");
   }
 
   const dir = `${documentDir}attachments/`;
