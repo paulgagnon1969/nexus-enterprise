@@ -372,7 +372,113 @@ export class DailyLogService {
       },
     });
 
+    // Auto-trigger OCR for image attachments on RECEIPT_EXPENSE logs
+    if (log.type === DailyLogType.RECEIPT_EXPENSE) {
+      const isImage = payload.mimeType?.startsWith('image/') || 
+        payload.fileUrl?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/);
+      if (isImage) {
+        try {
+          // Create a temporary ProjectFile record for OCR
+          const projectFile = await this.prisma.projectFile.create({
+            data: {
+              companyId,
+              projectId: log.projectId,
+              storageUrl: payload.fileUrl,
+              fileName: payload.fileName ?? 'receipt',
+              mimeType: payload.mimeType ?? 'image/jpeg',
+              createdById: actor.userId,
+            },
+          });
+          // Update attachment with projectFileId
+          await this.prisma.dailyLogAttachment.update({
+            where: { id: attachment.id },
+            data: { projectFileId: projectFile.id },
+          });
+          // Trigger OCR
+          await this.receiptOcr.processReceiptAsync({
+            projectFileId: projectFile.id,
+            dailyLogId,
+          });
+          this.logger.log(`Triggered OCR for attachment ${attachment.id} on receipt log ${dailyLogId}`);
+        } catch (ocrErr: any) {
+          this.logger.warn(`OCR trigger failed for attachment ${attachment.id}: ${ocrErr?.message ?? ocrErr}`);
+        }
+      }
+    }
+
     return attachment;
+  }
+
+  /**
+   * Manually trigger OCR for all image attachments on a daily log
+   */
+  async triggerOcrForLog(
+    dailyLogId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+  ) {
+    const log = await this.prisma.dailyLog.findFirst({
+      where: { id: dailyLogId, project: { companyId } },
+      include: {
+        project: true,
+        attachments: true,
+      },
+    });
+
+    if (!log) {
+      throw new NotFoundException("Daily log not found in this company");
+    }
+
+    await this.assertProjectAccess(log.projectId, companyId, actor, null);
+
+    const results: { attachmentId: string; status: string; error?: string }[] = [];
+
+    for (const attachment of log.attachments) {
+      const isImage = attachment.mimeType?.startsWith('image/') ||
+        attachment.fileUrl?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/);
+
+      if (!isImage) {
+        results.push({ attachmentId: attachment.id, status: 'skipped', error: 'Not an image' });
+        continue;
+      }
+
+      try {
+        let projectFileId = attachment.projectFileId;
+
+        // Create ProjectFile if needed
+        if (!projectFileId) {
+          const projectFile = await this.prisma.projectFile.create({
+            data: {
+              companyId,
+              projectId: log.projectId,
+              storageUrl: attachment.fileUrl,
+              fileName: attachment.fileName ?? 'attachment',
+              mimeType: attachment.mimeType ?? 'image/jpeg',
+              createdById: actor.userId,
+            },
+          });
+          projectFileId = projectFile.id;
+
+          await this.prisma.dailyLogAttachment.update({
+            where: { id: attachment.id },
+            data: { projectFileId },
+          });
+        }
+
+        await this.receiptOcr.processReceiptAsync({
+          projectFileId,
+          dailyLogId,
+        });
+
+        results.push({ attachmentId: attachment.id, status: 'triggered' });
+        this.logger.log(`Triggered OCR for attachment ${attachment.id}`);
+      } catch (err: any) {
+        results.push({ attachmentId: attachment.id, status: 'failed', error: err?.message });
+        this.logger.warn(`OCR trigger failed for attachment ${attachment.id}: ${err?.message ?? err}`);
+      }
+    }
+
+    return { dailyLogId, results };
   }
 
   async createForProject(
