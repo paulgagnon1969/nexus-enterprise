@@ -1246,6 +1246,17 @@ export class ProjectController {
     return this.projects.attachProjectBillFile(projectId, billId, dto, user);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Delete(":id/bills/:billId")
+  deleteProjectBill(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("billId") billId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.deleteProjectBill(projectId, billId, user);
+  }
+
   // Project billing (invoices + payments)
 
   @UseGuards(JwtAuthGuard)

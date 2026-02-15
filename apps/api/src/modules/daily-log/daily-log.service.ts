@@ -301,6 +301,98 @@ export class DailyLogService {
     return { success: true, id: logId };
   }
 
+  /**
+   * Reassign a daily log to a different project.
+   * Only the creator or PM+ can reassign logs.
+   * Also moves any linked draft bill to the new project.
+   */
+  async reassignLog(
+    logId: string,
+    targetProjectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+  ): Promise<{ success: boolean; id: string; newProjectId: string; newProjectName: string }> {
+    // Fetch the log with its current project
+    const log = await this.prisma.dailyLog.findFirst({
+      where: { id: logId, project: { companyId } },
+      include: { project: true, attachments: true },
+    });
+
+    if (!log) {
+      throw new NotFoundException("Daily log not found in this company");
+    }
+
+    // Verify access to current project
+    await this.assertProjectAccess(log.projectId, companyId, actor, null);
+
+    // Check permission: creator or PM+ can reassign
+    const canReassign = log.createdById === actor.userId || this.isPmOrAbove(actor);
+    if (!canReassign) {
+      throw new ForbiddenException("Only the creator or PM+ can reassign this log");
+    }
+
+    // Verify target project exists and user has access
+    const targetProject = await this.assertProjectAccess(targetProjectId, companyId, actor, null);
+
+    if (log.projectId === targetProjectId) {
+      throw new ForbiddenException("Daily log is already in this project");
+    }
+
+    // Clear any PETL context since it's project-specific
+    const updateData: any = {
+      projectId: targetProjectId,
+      buildingId: null,
+      unitId: null,
+      roomParticleId: null,
+      sowItemId: null,
+    };
+
+    // Update the daily log
+    const updated = await this.prisma.dailyLog.update({
+      where: { id: logId },
+      data: updateData,
+      include: {
+        project: { select: { id: true, name: true } },
+      },
+    });
+
+    // If there's a linked draft bill, move it to the new project too
+    const linkedBill = await this.prisma.projectBill.findFirst({
+      where: { sourceDailyLogId: logId, status: ProjectBillStatus.DRAFT },
+    });
+    if (linkedBill) {
+      await this.prisma.projectBill.update({
+        where: { id: linkedBill.id },
+        data: { projectId: targetProjectId },
+      });
+      this.logger.log(`Moved linked draft bill ${linkedBill.id} to project ${targetProjectId}`);
+    }
+
+    await this.audit.log(actor, "DAILY_LOG_REASSIGNED", {
+      companyId,
+      projectId: targetProjectId,
+      metadata: {
+        dailyLogId: logId,
+        title: log.title,
+        type: log.type,
+        previousProjectId: log.projectId,
+        previousProjectName: log.project.name,
+        newProjectId: targetProjectId,
+        newProjectName: targetProject.name,
+        linkedBillId: linkedBill?.id ?? null,
+      },
+    });
+
+    this.logger.log(`Daily log ${logId} reassigned from project ${log.projectId} to ${targetProjectId} by ${actor.userId}`);
+
+    return {
+      success: true,
+      id: logId,
+      newProjectId: updated.project.id,
+      newProjectName: updated.project.name,
+    };
+  }
+
   async listForProject(projectId: string, companyId: string, actor: AuthenticatedUser) {
     const project = await this.assertProjectAccess(projectId, companyId, actor, null);
 
