@@ -20890,14 +20890,21 @@ ${htmlBody}
                                 if (ocrRes.ok) {
                                   const ocrData = await ocrRes.json();
                                   if (ocrData.success) {
+                                    // Build auto-generated title: "Expense - Vendor $Amount"
+                                    const vendorName = ocrData.vendor || "Unknown Vendor";
+                                    const amountStr = ocrData.amount != null ? `$${ocrData.amount.toFixed(2)}` : "";
+                                    const autoTitle = `Expense - ${vendorName}${amountStr ? " " + amountStr : ""}`;
+                                    
                                     setNewDailyLog(prev => ({
                                       ...prev,
+                                      title: autoTitle,
                                       expenseVendor: ocrData.vendor || prev.expenseVendor,
                                       expenseAmount: ocrData.amount != null ? String(ocrData.amount) : prev.expenseAmount,
                                       expenseDate: ocrData.date || prev.expenseDate,
+                                      workPerformed: "This note was automatically created by OCR, review needed.",
                                     }));
                                     const conf = ocrData.confidence ? `(${Math.round(ocrData.confidence * 100)}% confidence)` : "";
-                                    setDailyLogMessage(`✓ OCR extracted: ${ocrData.vendor || "Unknown vendor"} - $${ocrData.amount ?? "?"} ${conf}`);
+                                    setDailyLogMessage(`✓ OCR extracted: ${vendorName} - ${amountStr || "$?"} ${conf}`);
                                   } else {
                                     setDailyLogMessage(`OCR: ${ocrData.error || "Could not extract data"}`);
                                   }
