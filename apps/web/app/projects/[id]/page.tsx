@@ -10326,6 +10326,8 @@ ${htmlBody}
 
   // Open attachments viewer (gallery mode)
   const openAttachmentsViewer = (log: DailyLog, startIndex = 0) => {
+    console.log("Opening gallery for log:", log.id, "attachments:", log.attachments);
+    alert(`Opening gallery: ${log.attachments?.length || 0} attachments`);
     setAttachmentsViewer({ open: true, log, currentIndex: startIndex });
   };
 
