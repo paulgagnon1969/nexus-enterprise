@@ -22336,13 +22336,16 @@ ${htmlBody}
       {/* Project grouping: Units → Rooms (expandable) */}
 
       {/* Attachments Gallery Modal - Simple inline version */}
-      {attachmentsViewer.open && attachmentsViewer.log && attachmentsViewer.log.attachments && attachmentsViewer.log.attachments.length > 0 && (
+      {attachmentsViewer.open && (
         <div
           style={{
             position: "fixed",
-            inset: 0,
-            zIndex: 99999,
-            backgroundColor: "rgba(15, 23, 42, 0.9)",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 999999,
+            backgroundColor: "red",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -22350,6 +22353,9 @@ ${htmlBody}
           }}
           onClick={closeAttachmentsViewer}
         >
+          <div style={{ color: "white", fontSize: 48, fontWeight: "bold" }}>
+            GALLERY IS OPEN - {attachmentsViewer.log?.attachments?.length || 0} ATTACHMENTS
+          </div>
           {/* Close button */}
           <button
             type="button"
