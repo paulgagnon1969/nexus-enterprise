@@ -21404,7 +21404,7 @@ ${htmlBody}
                 </div>
                 <div style={{ padding: 10, fontSize: 13 }}>
                   {/* Manual OCR trigger even for non-receipt logs if there are image attachments */}
-                  {editDailyLog.log?.attachments && editDailyLog.log.attachments.length > 0 && editDailyLog.draft.type !== "RECEIPT_EXPENSE" && (
+                  {editDailyLog.log?.attachments && editDailyLog.log.attachments.length > 0 && editDailyLog.draft?.type !== "RECEIPT_EXPENSE" && (
                     <div style={{ marginBottom: 8, display: "flex", justifyContent: "flex-end" }}>
                       <button
                         type="button"
