@@ -27408,7 +27408,7 @@ ${htmlBody}
                         >
                           ×
                         </button>
-                        <a href={url}
+                        <a href={url} target="_blank" rel="noopener noreferrer" style={{ display: "block" }}>
                           {isImage ? (
                             <img src={url} alt={name} style={{ width: "100%", height: 70, objectFit: "cover" }} />
                           ) : (
