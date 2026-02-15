@@ -1,4 +1,5 @@
-import { IsArray, IsBoolean, IsDateString, IsOptional, IsString } from "class-validator";
+import { IsArray, IsBoolean, IsDateString, IsEnum, IsNumber, IsOptional, IsString } from "class-validator";
+import { DailyLogType } from "@prisma/client";
 
 export class UpdateDailyLogDto {
   @IsOptional()
@@ -77,4 +78,20 @@ export class UpdateDailyLogDto {
   @IsOptional()
   @IsBoolean()
   sharePrivate?: boolean;
+
+  @IsOptional()
+  @IsEnum(DailyLogType)
+  type?: DailyLogType;
+
+  @IsOptional()
+  @IsString()
+  expenseVendor?: string | null;
+
+  @IsOptional()
+  @IsNumber()
+  expenseAmount?: number | null;
+
+  @IsOptional()
+  @IsDateString()
+  expenseDate?: string | null;
 }
