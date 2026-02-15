@@ -514,23 +514,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             {h.files}
           </Link>
-          {/* Documents dropdown: show for all users when not on /system routes */}
-          <NavDropdown
-            label="Documents"
-            active={isActive("/documents") || isActive("/admin/documents")}
-            items={
-              companyRole === "OWNER" || companyRole === "ADMIN" || globalRole === "SUPER_ADMIN"
-                ? [
-                    { label: "Unpublished eDocs", href: "/admin/documents" },
-                    { label: "Published eDocs", href: "/documents" },
-                    { label: "Templates", href: "/documents/templates" },
-                  ]
-                : [
-                    { label: "Published eDocs", href: "/documents" },
-                    { label: "Templates", href: "/documents/templates" },
-                  ]
+          {/* Documents link: single dashboard for all document management */}
+          <Link
+            href="/documents"
+            className={
+              "app-nav-link" +
+              (isActive("/documents") || isActive("/admin/documents")
+                ? " app-nav-link-active"
+                : "")
             }
-          />
+          >
+            Documents
+          </Link>
           <Link
             href="/messaging"
             className={
