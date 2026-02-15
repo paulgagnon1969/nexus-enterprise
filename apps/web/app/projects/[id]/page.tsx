@@ -11090,6 +11090,14 @@ ${htmlBody}
         const attachments = log.attachments || [];
         const currentIndex = attachmentsViewer.currentIndex;
         const currentAttachment = attachments[currentIndex];
+        
+        // Helper to detect image by mimeType OR file extension
+        const isImageFile = (att: { mimeType?: string | null; fileUrl?: string; fileName?: string | null }) => {
+          if (att.mimeType?.startsWith("image/")) return true;
+          const url = att.fileUrl || att.fileName || "";
+          const ext = url.split(".").pop()?.toLowerCase() || "";
+          return ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "heic", "heif"].includes(ext);
+        };
         return (
           <div
             id="gallery-modal-inline"
@@ -11165,7 +11173,7 @@ ${htmlBody}
               {/* Image/file display */}
               {currentAttachment && (
                 <div style={{ textAlign: "center" }}>
-                  {currentAttachment.mimeType?.startsWith("image/") ? (
+                  {isImageFile(currentAttachment) ? (
                     <img
                       src={currentAttachment.fileUrl}
                       alt={currentAttachment.fileName || "Attachment"}
@@ -11253,7 +11261,7 @@ ${htmlBody}
                       background: "white",
                     }}
                   >
-                    {att.mimeType?.startsWith("image/") ? (
+                    {isImageFile(att) ? (
                       <img
                         src={att.fileUrl}
                         alt=""
