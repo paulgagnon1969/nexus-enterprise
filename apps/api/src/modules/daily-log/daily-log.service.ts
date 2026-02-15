@@ -1177,6 +1177,10 @@ export class DailyLogService {
       throw new ForbiddenException("You do not have permission to edit this daily log");
     }
 
+    // Debug: log incoming DTO
+    this.logger.log(`[updateLog] Incoming DTO: ${JSON.stringify({ type: dto.type, expenseVendor: dto.expenseVendor, expenseAmount: dto.expenseAmount })}`);
+    this.logger.log(`[updateLog] Current log type: ${log.type}`);
+
     // Build the changes object (only include fields that are actually changing)
     const editableFields = [
       "logDate", "title", "weatherSummary", "crewOnSite", "workPerformed",
@@ -1208,6 +1212,9 @@ export class DailyLogService {
         }
       }
     }
+
+    // Debug: log changes
+    this.logger.log(`[updateLog] Changes to apply: ${JSON.stringify(changes)}`);
 
     // Handle tags separately
     if (dto.tags !== undefined) {
