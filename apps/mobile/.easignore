@@ -1,55 +1,64 @@
 # ====================================
 # EAS Build Ignore File
 # Reduces upload size by excluding unnecessary files
+# NOTE: Paths are relative to monorepo root (where EAS runs from)
 # ====================================
 
-# Node modules (EAS installs fresh)
-node_modules/
+# Node modules everywhere (EAS installs fresh)
 **/node_modules/
 
 # Native build folders (EAS runs prebuild)
-ios/
-android/
+apps/mobile/ios/
+apps/mobile/android/
 
 # Build artifacts
-dist/
-build/
-.expo/
-*.tsbuildinfo
+**/dist/
+**/build/
+**/.expo/
+**/*.tsbuildinfo
 
 # Test files
 **/*.test.ts
 **/*.test.tsx
 **/*.spec.ts
 **/*.spec.tsx
-__tests__/
-coverage/
+**/__tests__/
+**/coverage/
 
 # Dev/IDE files
 .git/
 **/.git/
 *.log
+**/*.log
 .DS_Store
 **/.DS_Store
 .vscode/
 .idea/
-*.swp
-*.swo
+**/*.swp
+**/*.swo
+.turbo/
+**/.turbo/
 
-# Monorepo - exclude other apps and unnecessary packages
-../../apps/api/
-../../apps/web/
-../../apps/nexus-applet/
-../../apps/contact-sync/
-../../docs/
-../../infra/
-../../.git/
-../../node_modules/
-../../packages/database/node_modules/
+# Monorepo - exclude other apps (not needed for mobile build)
+apps/api/
+apps/web/
+apps/nexus-applet/
+apps/contact-sync/
+
+# Exclude docs and infra
+docs/
+infra/
+
+# Exclude database package internals (only types needed)
+packages/database/prisma/
+packages/database/src/
+packages/database/dist/
 
 # Large/unnecessary files
-*.zip
-*.tar.gz
-*.mp4
-*.mov
-*.avi
+**/*.zip
+**/*.tar.gz
+**/*.mp4
+**/*.mov
+**/*.avi
+**/*.sqlite
+**/*.db
