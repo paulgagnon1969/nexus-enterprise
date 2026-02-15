@@ -1422,6 +1422,8 @@ enum ProjectBillStatus {
 enum ProjectBillLineItemKind {
   MATERIALS
   LABOR
+  EQUIPMENT
+  LABOR_AND_MATERIALS
   OTHER
 }
 

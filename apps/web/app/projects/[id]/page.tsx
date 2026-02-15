@@ -14045,6 +14045,8 @@ ${htmlBody}
                       >
                         <option value="MATERIALS">Materials</option>
                         <option value="LABOR">Labor</option>
+                        <option value="EQUIPMENT">Equipment</option>
+                        <option value="LABOR_AND_MATERIALS">Labor & Materials</option>
                         <option value="OTHER">Other</option>
                       </select>
                     </div>
