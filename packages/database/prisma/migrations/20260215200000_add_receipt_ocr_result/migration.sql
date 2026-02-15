@@ -1,8 +1,12 @@
--- CreateEnum
-CREATE TYPE "OcrStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
+-- CreateEnum (idempotent)
+DO $$ BEGIN
+    CREATE TYPE "OcrStatus" AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
--- CreateTable
-CREATE TABLE "ReceiptOcrResult" (
+-- CreateTable (idempotent)
+CREATE TABLE IF NOT EXISTS "ReceiptOcrResult" (
     "id" TEXT NOT NULL,
     "dailyLogId" TEXT,
     "billId" TEXT,
@@ -27,23 +31,35 @@ CREATE TABLE "ReceiptOcrResult" (
     CONSTRAINT "ReceiptOcrResult_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX "ReceiptOcrResult_dailyLogId_key" ON "ReceiptOcrResult"("dailyLogId");
+-- CreateIndex (idempotent)
+CREATE UNIQUE INDEX IF NOT EXISTS "ReceiptOcrResult_dailyLogId_key" ON "ReceiptOcrResult"("dailyLogId");
 
--- CreateIndex
-CREATE UNIQUE INDEX "ReceiptOcrResult_billId_key" ON "ReceiptOcrResult"("billId");
+-- CreateIndex (idempotent)
+CREATE UNIQUE INDEX IF NOT EXISTS "ReceiptOcrResult_billId_key" ON "ReceiptOcrResult"("billId");
 
--- CreateIndex
-CREATE INDEX "ReceiptOcrResult_status_idx" ON "ReceiptOcrResult"("status");
+-- CreateIndex (idempotent)
+CREATE INDEX IF NOT EXISTS "ReceiptOcrResult_status_idx" ON "ReceiptOcrResult"("status");
 
--- CreateIndex
-CREATE INDEX "ReceiptOcrResult_project_file_idx" ON "ReceiptOcrResult"("projectFileId");
+-- CreateIndex (idempotent)
+CREATE INDEX IF NOT EXISTS "ReceiptOcrResult_project_file_idx" ON "ReceiptOcrResult"("projectFileId");
 
--- AddForeignKey
-ALTER TABLE "ReceiptOcrResult" ADD CONSTRAINT "ReceiptOcrResult_dailyLogId_fkey" FOREIGN KEY ("dailyLogId") REFERENCES "DailyLog"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- AddForeignKey (idempotent - check if constraint exists)
+DO $$ BEGIN
+    ALTER TABLE "ReceiptOcrResult" ADD CONSTRAINT "ReceiptOcrResult_dailyLogId_fkey" FOREIGN KEY ("dailyLogId") REFERENCES "DailyLog"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "ReceiptOcrResult" ADD CONSTRAINT "ReceiptOcrResult_billId_fkey" FOREIGN KEY ("billId") REFERENCES "ProjectBill"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- AddForeignKey (idempotent)
+DO $$ BEGIN
+    ALTER TABLE "ReceiptOcrResult" ADD CONSTRAINT "ReceiptOcrResult_billId_fkey" FOREIGN KEY ("billId") REFERENCES "ProjectBill"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "ReceiptOcrResult" ADD CONSTRAINT "ReceiptOcrResult_projectFileId_fkey" FOREIGN KEY ("projectFileId") REFERENCES "ProjectFile"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- AddForeignKey (idempotent)
+DO $$ BEGIN
+    ALTER TABLE "ReceiptOcrResult" ADD CONSTRAINT "ReceiptOcrResult_projectFileId_fkey" FOREIGN KEY ("projectFileId") REFERENCES "ProjectFile"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
