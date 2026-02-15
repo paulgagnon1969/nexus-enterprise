@@ -14084,7 +14084,14 @@ ${htmlBody}
                         <input
                           type="checkbox"
                           checked={billBillable}
-                          onChange={(e) => setBillBillable(e.target.checked)}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setBillBillable(checked);
+                            // Default to 25% markup when checking billable
+                            if (checked && (!billMarkupPercent || billMarkupPercent === "0")) {
+                              setBillMarkupPercent("25");
+                            }
+                          }}
                         />
                         <span style={{ fontSize: 12, fontWeight: 500 }}>Billable?</span>
                       </label>
