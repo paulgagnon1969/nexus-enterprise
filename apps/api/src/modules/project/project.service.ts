@@ -8773,6 +8773,14 @@ export class ProjectService {
         include: {
           lineItems: true,
           attachments: { orderBy: { createdAt: "asc" } },
+          // Include source daily log to check if it still exists and is still a receipt
+          sourceDailyLog: {
+            select: {
+              id: true,
+              type: true,
+              title: true,
+            },
+          },
         },
       });
 
@@ -9216,6 +9224,81 @@ export class ProjectService {
       }
 
       return out;
+    } catch (err: any) {
+      if (this.isBillTableMissingError(err)) {
+        this.throwBillTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Delete a project bill. Used primarily for orphaned receipt bills
+   * where the source daily log was deleted or changed from RECEIPT_EXPENSE type.
+   */
+  async deleteProjectBill(
+    projectId: string,
+    billId: string,
+    actor: AuthenticatedUser,
+  ) {
+    this.ensureBillModelsAvailable();
+
+    try {
+      const project = await this.getProjectByIdForUser(projectId, actor);
+
+      const bill = await this.prisma.projectBill.findFirst({
+        where: {
+          id: billId,
+          projectId: project.id,
+          companyId: project.companyId,
+        },
+        include: {
+          sourceDailyLog: { select: { id: true, type: true } },
+        },
+      });
+
+      if (!bill) {
+        throw new NotFoundException("Bill not found for this project");
+      }
+
+      // If this bill is linked to an existing receipt daily log, prevent deletion
+      // unless the daily log type has changed away from RECEIPT_EXPENSE
+      if (bill.sourceDailyLogId && bill.sourceDailyLog) {
+        if (bill.sourceDailyLog.type === "RECEIPT_EXPENSE") {
+          throw new BadRequestException(
+            "Cannot delete this bill because it is linked to an active receipt daily log. " +
+            "To remove this bill, either change the daily log type or delete the daily log first."
+          );
+        }
+      }
+
+      // If billable, remove any associated invoice line items first
+      if ((bill as any).isBillable && this.billingModelsAvailable()) {
+        try {
+          await this.removeBillableExpenseInvoiceLine(project.id, project.companyId, bill.id);
+        } catch (syncErr: any) {
+          this.logger.warn(`Failed to remove invoice line for bill ${bill.id}: ${syncErr?.message ?? syncErr}`);
+          // Non-fatal
+        }
+      }
+
+      // Delete the bill (cascade will remove line items and attachments)
+      await this.prisma.projectBill.delete({
+        where: { id: bill.id },
+      });
+
+      await this.audit.log(actor, "PROJECT_BILL_DELETED", {
+        companyId: project.companyId,
+        projectId: project.id,
+        metadata: {
+          billId: bill.id,
+          vendorName: bill.vendorName,
+          totalAmount: bill.totalAmount,
+          wasOrphaned: bill.sourceDailyLogId && !bill.sourceDailyLog,
+        },
+      });
+
+      return { deleted: true, billId: bill.id };
     } catch (err: any) {
       if (this.isBillTableMissingError(err)) {
         this.throwBillTablesNotMigrated();

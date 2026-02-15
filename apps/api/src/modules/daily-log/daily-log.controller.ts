@@ -5,6 +5,7 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateDailyLogDto } from "./dto/create-daily-log.dto";
 import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
 import { OcrFileDto } from "./dto/ocr-file.dto";
+import { ReassignDailyLogDto } from "./dto/reassign-daily-log.dto";
 
 /**
  * Cross-project daily logs endpoint.
@@ -78,6 +79,17 @@ export class DailyLogFeedController {
   getRevisions(@Req() req: any, @Param("logId") logId: string) {
     const user = req.user as AuthenticatedUser;
     return this.dailyLogs.getRevisions(logId, user.companyId, user);
+  }
+
+  @UseGuards(CombinedAuthGuard)
+  @Post(":logId/reassign")
+  reassign(
+    @Req() req: any,
+    @Param("logId") logId: string,
+    @Body() dto: ReassignDailyLogDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.reassignLog(logId, dto.targetProjectId, user.companyId, user);
   }
 }
 

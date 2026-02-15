@@ -2312,6 +2312,83 @@ export default function ProjectDetailPage({
     setBillModalOpen(false);
   };
 
+  // Quick disposition for uncommitted receipts - update billable status without opening modal
+  const quickSetBillBillable = async (billId: string, isBillable: boolean, markupPercent?: number) => {
+    if (!project) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setBillsMessage("Missing access token.");
+      return;
+    }
+
+    setBillsMessage(null);
+    try {
+      const payload: any = {
+        isBillable,
+        status: "APPROVED", // Auto-approve when dispositioning
+      };
+      if (isBillable && markupPercent !== undefined) {
+        payload.markupPercent = markupPercent;
+      }
+
+      const res = await fetch(`${API_BASE}/projects/${project.id}/bills/${billId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Update failed (${res.status}) ${text}`);
+      }
+
+      // Refresh bills list and financial summary
+      setProjectBills(null);
+      setFinancialSummary(null);
+      setBillsMessage(isBillable ? "Marked as billable." : "Marked as not billable.");
+    } catch (err: any) {
+      setBillsMessage(err?.message ?? "Failed to update bill.");
+    }
+  };
+
+  // Delete orphaned receipt bill (only allowed when source daily log is missing or changed type)
+  const deleteOrphanedReceiptBill = async (billId: string, vendorName: string) => {
+    if (!project) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setBillsMessage("Missing access token.");
+      return;
+    }
+
+    const ok = window.confirm(
+      `Delete this orphaned receipt from "${vendorName}"?\n\nThis action cannot be undone.`
+    );
+    if (!ok) return;
+
+    setBillsMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/projects/${project.id}/bills/${billId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Delete failed (${res.status}) ${text}`);
+      }
+
+      // Refresh bills list and financial summary
+      setProjectBills(null);
+      setFinancialSummary(null);
+      setBillsMessage("Receipt deleted.");
+    } catch (err: any) {
+      setBillsMessage(err?.message ?? "Failed to delete receipt.");
+    }
+  };
+
   const submitBillModal = async () => {
     if (!project) return;
     const token = localStorage.getItem("accessToken");
@@ -3849,6 +3926,18 @@ ${htmlBody}
     saving: boolean;
     error: string | null;
   }>({ open: false, log: null, draft: null, editing: false, saving: false, error: null });
+
+  // Reassign daily log state
+  const [reassignDailyLog, setReassignDailyLog] = useState<{
+    open: boolean;
+    logId: string | null;
+    logTitle: string | null;
+    targetProjectId: string;
+    availableProjects: { id: string; name: string }[];
+    loading: boolean;
+    saving: boolean;
+    error: string | null;
+  }>({ open: false, logId: null, logTitle: null, targetProjectId: "", availableProjects: [], loading: false, saving: false, error: null });
 
   // Attachments viewer modal state (gallery with navigation)
   const [attachmentsViewer, setAttachmentsViewer] = useState<{
@@ -10465,6 +10554,87 @@ ${htmlBody}
     setAttachmentsViewer({ open: false, log: null, currentIndex: 0 });
   };
 
+  // Open reassign daily log modal
+  const openReassignDailyLog = async (log: DailyLog) => {
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token.");
+      return;
+    }
+
+    setReassignDailyLog({
+      open: true,
+      logId: log.id,
+      logTitle: log.title,
+      targetProjectId: "",
+      availableProjects: [],
+      loading: true,
+      saving: false,
+      error: null,
+    });
+
+    try {
+      const res = await fetch(`${API_BASE}/projects`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load projects");
+      const projects = await res.json();
+      // Filter out current project
+      const available = (Array.isArray(projects) ? projects : [])
+        .filter((p: any) => p.id !== id)
+        .map((p: any) => ({ id: p.id, name: p.name }))
+        .sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
+      setReassignDailyLog(prev => ({ ...prev, availableProjects: available, loading: false }));
+    } catch (err: any) {
+      setReassignDailyLog(prev => ({ ...prev, loading: false, error: err?.message || "Failed to load projects" }));
+    }
+  };
+
+  const handleReassignDailyLog = async () => {
+    if (!reassignDailyLog.logId || !reassignDailyLog.targetProjectId) return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setReassignDailyLog(prev => ({ ...prev, error: "Missing access token." }));
+      return;
+    }
+
+    setReassignDailyLog(prev => ({ ...prev, saving: true, error: null }));
+
+    try {
+      const res = await fetch(`${API_BASE}/daily-logs/${reassignDailyLog.logId}/reassign`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ targetProjectId: reassignDailyLog.targetProjectId }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Reassign failed (${res.status})`);
+      }
+
+      const result = await res.json();
+
+      // Remove from local state since it's now in a different project
+      setDailyLogs(prev => prev.filter(l => l.id !== reassignDailyLog.logId));
+
+      // Close view modal if open
+      if (viewDailyLog.log?.id === reassignDailyLog.logId) {
+        setViewDailyLog({ open: false, log: null, draft: null, editing: false, saving: false, error: null });
+      }
+
+      // Close reassign modal
+      setReassignDailyLog({ open: false, logId: null, logTitle: null, targetProjectId: "", availableProjects: [], loading: false, saving: false, error: null });
+
+      setDailyLogMessage(`Daily log reassigned to ${result.newProjectName}.`);
+    } catch (err: any) {
+      setReassignDailyLog(prev => ({ ...prev, saving: false, error: err?.message || "Reassign failed" }));
+    }
+  };
+
   const goToPrevAttachment = () => {
     setAttachmentsViewer(prev => {
       if (!prev.log?.attachments?.length) return prev;
@@ -15344,6 +15514,11 @@ ${htmlBody}
                         {uncommittedReceipts.map((b: any) => {
                           const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
                           const attachments: any[] = Array.isArray(b?.attachments) ? b.attachments : [];
+                          // Determine if receipt is "orphaned" - source daily log is missing or changed type
+                          const sourceDailyLog = b?.sourceDailyLog;
+                          const isOrphaned = b?.sourceDailyLogId && (
+                            !sourceDailyLog || sourceDailyLog.type !== "RECEIPT_EXPENSE"
+                          );
                           return (
                             <div
                               key={String(b?.id ?? Math.random())}
@@ -15354,12 +15529,18 @@ ${htmlBody}
                                 gap: 8,
                                 padding: "6px 8px",
                                 borderRadius: 4,
-                                background: "#fffbeb",
+                                background: isOrphaned ? "#fef2f2" : "#fffbeb",
+                                border: isOrphaned ? "1px dashed #f87171" : "none",
                               }}
                             >
                               <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600, fontSize: 12 }}>
+                                <div style={{ fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
                                   {b?.vendorName ?? "Unknown Vendor"}
+                                  {isOrphaned && (
+                                    <span style={{ fontSize: 10, color: "#dc2626", fontWeight: 400 }} title="Source daily log was deleted or changed">
+                                      (orphaned)
+                                    </span>
+                                  )}
                                 </div>
                                 <div style={{ fontSize: 11, color: "#6b7280" }}>
                                   {b?.billDate ? String(b.billDate).slice(0, 10) : "No date"}
@@ -15380,6 +15561,43 @@ ${htmlBody}
                                   🖼️ View
                                 </a>
                               )}
+                              {/* Quick disposition buttons */}
+                              <div style={{ display: "flex", gap: 4 }}>
+                                <button
+                                  type="button"
+                                  onClick={() => quickSetBillBillable(String(b?.id), true, 25)}
+                                  style={{
+                                    padding: "3px 6px",
+                                    borderRadius: 4,
+                                    border: "1px solid #16a34a",
+                                    background: "#dcfce7",
+                                    color: "#166534",
+                                    cursor: "pointer",
+                                    fontSize: 10,
+                                    fontWeight: 500,
+                                  }}
+                                  title="Mark as billable expense (25% markup)"
+                                >
+                                  ✓ Billable
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => quickSetBillBillable(String(b?.id), false)}
+                                  style={{
+                                    padding: "3px 6px",
+                                    borderRadius: 4,
+                                    border: "1px solid #6b7280",
+                                    background: "#f3f4f6",
+                                    color: "#374151",
+                                    cursor: "pointer",
+                                    fontSize: 10,
+                                    fontWeight: 500,
+                                  }}
+                                  title="Mark as non-billable expense"
+                                >
+                                  ✗ Not Billable
+                                </button>
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => openEditBillModal(b)}
@@ -15396,6 +15614,26 @@ ${htmlBody}
                               >
                                 Review
                               </button>
+                              {/* Delete button - only shown for orphaned receipts */}
+                              {isOrphaned && (
+                                <button
+                                  type="button"
+                                  onClick={() => deleteOrphanedReceiptBill(String(b?.id), b?.vendorName ?? "Unknown")}
+                                  style={{
+                                    padding: "3px 6px",
+                                    borderRadius: 4,
+                                    border: "1px solid #dc2626",
+                                    background: "#fef2f2",
+                                    color: "#dc2626",
+                                    cursor: "pointer",
+                                    fontSize: 10,
+                                    fontWeight: 500,
+                                  }}
+                                  title="Delete this orphaned receipt"
+                                >
+                                  🗑️ Delete
+                                </button>
+                              )}
                             </div>
                           );
                         })}
@@ -28855,22 +29093,41 @@ ${htmlBody}
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={{ fontSize: 15, fontWeight: 600 }}>Daily Log Details</div>
                 {!viewDailyLog.editing && isPmOrAbove && (
-                  <button
-                    type="button"
-                    onClick={() => setViewDailyLog(prev => ({ ...prev, editing: true }))}
-                    style={{
-                      padding: "4px 10px",
-                      borderRadius: 4,
-                      border: "1px solid #2563eb",
-                      background: "#2563eb",
-                      color: "#ffffff",
-                      fontSize: 11,
-                      fontWeight: 500,
-                      cursor: "pointer",
-                    }}
-                  >
-                    ✏️ Edit
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setViewDailyLog(prev => ({ ...prev, editing: true }))}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 4,
+                        border: "1px solid #2563eb",
+                        background: "#2563eb",
+                        color: "#ffffff",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                      }}
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => viewDailyLog.log && openReassignDailyLog(viewDailyLog.log)}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 4,
+                        border: "1px solid #6b7280",
+                        background: "#6b7280",
+                        color: "#ffffff",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                      }}
+                      title="Move this daily log to a different project"
+                    >
+                      📁 Move
+                    </button>
+                  </>
                 )}
                 {viewDailyLog.editing && (
                   <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "#fef3c7", color: "#92400e", fontWeight: 500 }}>Editing Mode</span>
@@ -29430,6 +29687,117 @@ ${htmlBody}
                   Close
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reassign Daily Log Modal */}
+      {reassignDailyLog.open && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 100000,
+            backgroundColor: "rgba(15, 23, 42, 0.7)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+          onClick={() => setReassignDailyLog({ open: false, logId: null, logTitle: null, targetProjectId: "", availableProjects: [], loading: false, saving: false, error: null })}
+        >
+          <div
+            style={{
+              width: 450,
+              maxWidth: "90vw",
+              backgroundColor: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 16px 40px rgba(15,23,42,0.4)",
+              padding: 16,
+              fontSize: 13,
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>📁 Move Daily Log to Another Project</div>
+              <button
+                type="button"
+                onClick={() => setReassignDailyLog({ open: false, logId: null, logTitle: null, targetProjectId: "", availableProjects: [], loading: false, saving: false, error: null })}
+                style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4 }}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            {reassignDailyLog.logTitle && (
+              <div style={{ marginBottom: 12, padding: 8, background: "#f9fafb", borderRadius: 4, border: "1px solid #e5e7eb" }}>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Daily Log</div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{reassignDailyLog.logTitle}</div>
+              </div>
+            )}
+
+            {reassignDailyLog.loading ? (
+              <div style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>Loading projects...</div>
+            ) : reassignDailyLog.availableProjects.length === 0 ? (
+              <div style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>No other projects available</div>
+            ) : (
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: "block", fontSize: 12, marginBottom: 4, fontWeight: 500 }}>Target Project</label>
+                <select
+                  value={reassignDailyLog.targetProjectId}
+                  onChange={e => setReassignDailyLog(prev => ({ ...prev, targetProjectId: e.target.value }))}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 13,
+                  }}
+                >
+                  <option value="">Select a project...</option>
+                  {reassignDailyLog.availableProjects.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div style={{ marginBottom: 12, padding: 8, background: "#fef3c7", borderRadius: 4, border: "1px solid #fcd34d", fontSize: 11, color: "#92400e" }}>
+              ⚠️ Moving will clear any PETL context (building, unit, room, SOW item) since they are project-specific. If this is a receipt, the linked bill will also move.
+            </div>
+
+            {reassignDailyLog.error && <div style={{ marginBottom: 12, color: "#b91c1c", fontSize: 12 }}>{reassignDailyLog.error}</div>}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setReassignDailyLog({ open: false, logId: null, logTitle: null, targetProjectId: "", availableProjects: [], loading: false, saving: false, error: null })}
+                style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #d1d5db", background: "#ffffff", cursor: "pointer", fontSize: 12 }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleReassignDailyLog}
+                disabled={reassignDailyLog.saving || !reassignDailyLog.targetProjectId}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 6,
+                  border: "1px solid #0f172a",
+                  background: reassignDailyLog.saving || !reassignDailyLog.targetProjectId ? "#e5e7eb" : "#0f172a",
+                  color: reassignDailyLog.saving || !reassignDailyLog.targetProjectId ? "#4b5563" : "#ffffff",
+                  cursor: reassignDailyLog.saving || !reassignDailyLog.targetProjectId ? "default" : "pointer",
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+              >
+                {reassignDailyLog.saving ? "Moving..." : "Move Daily Log"}
+              </button>
             </div>
           </div>
         </div>
