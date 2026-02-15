@@ -80,19 +80,27 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       quality: 0.8,
+      allowsMultipleSelection: true,
+      selectionLimit: 10, // Allow up to 10 photos at once
     });
-    if (res.canceled) return;
+    if (res.canceled || !res.assets?.length) return;
 
-    const a = res.assets?.[0];
-    if (!a?.uri) return;
+    // Process all selected photos
+    const newAttachments: StoredFile[] = [];
+    for (const asset of res.assets) {
+      if (!asset.uri) continue;
+      const stored = await copyToAppStorage({
+        uri: asset.uri,
+        name: (asset as any).fileName ?? null,
+        mimeType: (asset as any).mimeType ?? "image/jpeg",
+      });
+      newAttachments.push(stored);
+    }
 
-    const stored = await copyToAppStorage({
-      uri: a.uri,
-      name: (a as any).fileName ?? null,
-      mimeType: (a as any).mimeType ?? "image/jpeg",
-    });
-
-    setAttachments((prev) => [...prev, stored]);
+    setAttachments((prev) => [...prev, ...newAttachments]);
+    if (newAttachments.length > 1) {
+      setStatus(`Added ${newAttachments.length} photos`);
+    }
   };
 
   const takePhoto = async () => {

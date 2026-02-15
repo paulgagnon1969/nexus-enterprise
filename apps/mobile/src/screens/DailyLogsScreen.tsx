@@ -156,19 +156,27 @@ export function DailyLogsScreen({
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       quality: 0.8,
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
     });
-    if (res.canceled) return;
+    if (res.canceled || !res.assets?.length) return;
 
-    const a = res.assets?.[0];
-    if (!a?.uri) return;
+    // Process all selected photos
+    const newPhotos: StoredFile[] = [];
+    for (const asset of res.assets) {
+      if (!asset.uri) continue;
+      const stored = await copyToAppStorage({
+        uri: asset.uri,
+        name: (asset as any).fileName ?? null,
+        mimeType: (asset as any).mimeType ?? "image/jpeg",
+      });
+      newPhotos.push(stored);
+    }
 
-    const stored = await copyToAppStorage({
-      uri: a.uri,
-      name: (a as any).fileName ?? null,
-      mimeType: (a as any).mimeType ?? "image/jpeg",
-    });
-
-    setAttachments((prev) => [...prev, stored]);
+    setAttachments((prev) => [...prev, ...newPhotos]);
+    if (newPhotos.length > 1) {
+      setStatus(`Added ${newPhotos.length} photos`);
+    }
   };
 
   const takePhoto = async () => {
