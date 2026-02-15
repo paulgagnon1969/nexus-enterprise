@@ -21000,15 +21000,23 @@ ${htmlBody}
                                 {log.attachments && log.attachments.length > 0 && (
                                   <button
                                     type="button"
-                                    onClick={() => openAttachmentsViewer(log)}
-                                    title={`${log.attachments.length} attachment(s)`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      console.log("Paperclip clicked for log:", log.id);
+                                      openAttachmentsViewer(log);
+                                    }}
+                                    title={`${log.attachments.length} attachment(s) - click to view`}
                                     style={{
-                                      border: "none",
-                                      background: "transparent",
+                                      border: "1px solid #2563eb",
+                                      background: "#eff6ff",
+                                      borderRadius: 4,
                                       cursor: "pointer",
-                                      padding: 2,
+                                      padding: "2px 6px",
                                       fontSize: 14,
                                       color: "#2563eb",
+                                      position: "relative",
+                                      zIndex: 10,
                                     }}
                                   >
                                     📎
