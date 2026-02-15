@@ -11083,6 +11083,192 @@ ${htmlBody}
           : undefined
       }
     >
+      {/* GALLERY MODAL - INLINE TEST */}
+      {attachmentsViewer.open && attachmentsViewer.log && (() => {
+        console.log("[GALLERY-INLINE] Rendering inline gallery");
+        const log = attachmentsViewer.log;
+        const attachments = log.attachments || [];
+        const currentIndex = attachmentsViewer.currentIndex;
+        const currentAttachment = attachments[currentIndex];
+        return (
+          <div
+            id="gallery-modal-inline"
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: "100vw",
+              height: "100vh",
+              backgroundColor: "rgba(0, 0, 0, 0.95)",
+              zIndex: 2147483647,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            onClick={() => setAttachmentsViewer({ open: false, log: null, currentIndex: 0 })}
+          >
+            {/* Close button */}
+            <button
+              onClick={() => setAttachmentsViewer({ open: false, log: null, currentIndex: 0 })}
+              style={{
+                position: "absolute",
+                top: 20,
+                right: 20,
+                background: "white",
+                border: "none",
+                borderRadius: "50%",
+                width: 40,
+                height: 40,
+                fontSize: 24,
+                cursor: "pointer",
+                zIndex: 2147483647,
+              }}
+            >
+              ×
+            </button>
+            {/* Title */}
+            <div style={{ color: "white", fontSize: 18, marginBottom: 20 }}>
+              Attachments ({currentIndex + 1} of {attachments.length})
+            </div>
+            {/* Main content area */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 20,
+                maxWidth: "90vw",
+                maxHeight: "70vh",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Left arrow */}
+              {attachments.length > 1 && (
+                <button
+                  onClick={() => goToPrevAttachment()}
+                  style={{
+                    background: "white",
+                    border: "none",
+                    borderRadius: "50%",
+                    width: 50,
+                    height: 50,
+                    fontSize: 24,
+                    cursor: "pointer",
+                  }}
+                >
+                  ←
+                </button>
+              )}
+              {/* Image/file display */}
+              {currentAttachment && (
+                <div style={{ textAlign: "center" }}>
+                  {currentAttachment.fileType?.startsWith("image/") ? (
+                    <img
+                      src={currentAttachment.fileUrl}
+                      alt={currentAttachment.fileName || "Attachment"}
+                      style={{
+                        maxWidth: "70vw",
+                        maxHeight: "60vh",
+                        objectFit: "contain",
+                        borderRadius: 8,
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        padding: 40,
+                        background: "white",
+                        borderRadius: 8,
+                        textAlign: "center",
+                      }}
+                    >
+                      <div style={{ fontSize: 48, marginBottom: 10 }}>📄</div>
+                      <div style={{ fontWeight: 600 }}>{currentAttachment.fileName}</div>
+                      <a
+                        href={currentAttachment.fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: "inline-block",
+                          marginTop: 10,
+                          padding: "8px 16px",
+                          background: "#2563eb",
+                          color: "white",
+                          borderRadius: 4,
+                          textDecoration: "none",
+                        }}
+                      >
+                        Open File
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* Right arrow */}
+              {attachments.length > 1 && (
+                <button
+                  onClick={() => goToNextAttachment()}
+                  style={{
+                    background: "white",
+                    border: "none",
+                    borderRadius: "50%",
+                    width: 50,
+                    height: 50,
+                    fontSize: 24,
+                    cursor: "pointer",
+                  }}
+                >
+                  →
+                </button>
+              )}
+            </div>
+            {/* Thumbnail strip */}
+            {attachments.length > 1 && (
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  marginTop: 20,
+                  padding: 10,
+                  background: "rgba(255,255,255,0.1)",
+                  borderRadius: 8,
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {attachments.map((att: any, idx: number) => (
+                  <button
+                    key={att.id}
+                    onClick={() => setAttachmentsViewer(prev => ({ ...prev, currentIndex: idx }))}
+                    style={{
+                      width: 60,
+                      height: 60,
+                      border: idx === currentIndex ? "3px solid #2563eb" : "2px solid transparent",
+                      borderRadius: 4,
+                      padding: 0,
+                      cursor: "pointer",
+                      overflow: "hidden",
+                      background: "white",
+                    }}
+                  >
+                    {att.fileType?.startsWith("image/") ? (
+                      <img
+                        src={att.fileUrl}
+                        alt=""
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      />
+                    ) : (
+                      <div style={{ fontSize: 24, lineHeight: "60px" }}>📄</div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
       <div
         style={{
           display: "flex",
