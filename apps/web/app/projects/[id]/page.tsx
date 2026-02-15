@@ -27575,7 +27575,68 @@ ${htmlBody}
 
             {editDailyLog.draft.type === "RECEIPT_EXPENSE" && (
               <div style={{ marginBottom: 12, padding: 10, background: "#fef3c7", borderRadius: 6, border: "1px solid #fcd34d" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#92400e" }}>Receipt Details</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#92400e" }}>Receipt Details</div>
+                  {editDailyLog.log?.attachments && editDailyLog.log.attachments.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const token = localStorage.getItem("accessToken");
+                        if (!token) { alert("Missing access token"); return; }
+                        try {
+                          setEditDailyLog(prev => ({ ...prev, saving: true, error: null }));
+                          const resp = await fetch(`${API_BASE}/daily-logs/${editDailyLog.log!.id}/attachments/ocr`, {
+                            method: "POST",
+                            headers: { Authorization: `Bearer ${token}` },
+                          });
+                          if (resp.ok) {
+                            // Wait a moment for OCR to process, then reload the log
+                            setTimeout(async () => {
+                              const logResp = await fetch(`${API_BASE}/daily-logs/${editDailyLog.log!.id}`, {
+                                headers: { Authorization: `Bearer ${token}` },
+                              });
+                              if (logResp.ok) {
+                                const updatedLog = await logResp.json();
+                                setEditDailyLog(prev => ({
+                                  ...prev,
+                                  log: updatedLog,
+                                  draft: prev.draft ? {
+                                    ...prev.draft,
+                                    expenseVendor: updatedLog.expenseVendor || prev.draft.expenseVendor,
+                                    expenseAmount: updatedLog.expenseAmount != null ? String(updatedLog.expenseAmount) : prev.draft.expenseAmount,
+                                    expenseDate: updatedLog.expenseDate ? updatedLog.expenseDate.slice(0, 10) : prev.draft.expenseDate,
+                                  } : null,
+                                  saving: false,
+                                }));
+                                setDailyLogs(prev => prev.map(l => l.id === updatedLog.id ? { ...l, ...updatedLog } : l));
+                              } else {
+                                setEditDailyLog(prev => ({ ...prev, saving: false }));
+                              }
+                            }, 5000); // Wait 5 seconds for OCR to complete
+                          } else {
+                            const text = await resp.text().catch(() => "");
+                            setEditDailyLog(prev => ({ ...prev, saving: false, error: `OCR failed: ${text}` }));
+                          }
+                        } catch (err: any) {
+                          setEditDailyLog(prev => ({ ...prev, saving: false, error: err?.message || "OCR failed" }));
+                        }
+                      }}
+                      disabled={editDailyLog.saving}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 4,
+                        border: "1px solid #d97706",
+                        background: editDailyLog.saving ? "#fef3c7" : "#f59e0b",
+                        color: editDailyLog.saving ? "#92400e" : "#ffffff",
+                        fontSize: 10,
+                        fontWeight: 600,
+                        cursor: editDailyLog.saving ? "default" : "pointer",
+                      }}
+                    >
+                      {editDailyLog.saving ? "🔄 Processing OCR..." : "🔍 Run OCR"}
+                    </button>
+                  )}
+                </div>
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
                   <div>
                     <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Vendor</label>
