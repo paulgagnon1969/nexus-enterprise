@@ -1,14 +1,20 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { OcrProvider, ReceiptOcrData } from './ocr-provider.interface';
+import { GcsService } from '../../infra/storage/gcs.service';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as fsPromises from 'fs/promises';
 
-const RECEIPT_EXTRACTION_PROMPT = `You are a receipt OCR system. Extract the following data from this receipt image and return ONLY valid JSON (no markdown, no explanation):
+const RECEIPT_EXTRACTION_PROMPT = `You are an expert receipt OCR system. Analyze this receipt image carefully and extract data. The image may be a phone photo with varying quality, angles, or lighting.
+
+Extract the following data and return ONLY valid JSON (no markdown, no explanation):
 
 {
-  "vendor_name": "Store/business name",
+  "vendor_name": "Store/business name (look for logo, header, or printed store name)",
   "vendor_address": "Full address if visible",
-  "receipt_date": "YYYY-MM-DD format",
+  "receipt_date": "YYYY-MM-DD format (look for date stamps, transaction date)",
   "subtotal": 0.00,
   "tax_amount": 0.00,
   "total_amount": 0.00,
@@ -17,14 +23,18 @@ const RECEIPT_EXTRACTION_PROMPT = `You are a receipt OCR system. Extract the fol
   "line_items": [
     {"description": "Item name", "quantity": 1, "unit_price": 0.00, "amount": 0.00}
   ],
-  "confidence": 0.95
+  "confidence": 0.95,
+  "extraction_notes": "Any notes about image quality or partial reads"
 }
 
 Rules:
-- All amounts should be numbers (not strings)
-- Date must be ISO format (YYYY-MM-DD)
-- If a field is not visible/readable, omit it or use null
-- Confidence should be 0-1 based on image quality and readability
+- Look carefully at the ENTIRE image, including rotated or angled text
+- All amounts should be numbers (not strings), e.g. 12.99 not "$12.99"
+- Date must be ISO format (YYYY-MM-DD). Common formats: MM/DD/YY, MM-DD-YYYY, etc.
+- The TOTAL is usually the largest amount, often at the bottom, sometimes labeled "TOTAL", "AMOUNT DUE", "BALANCE"
+- If a field is unclear or not visible, set it to null (don't guess)
+- For confidence: 0.9+ = clear/readable, 0.7-0.9 = some blur/glare, 0.5-0.7 = difficult to read, <0.5 = very poor quality
+- If the image is NOT a receipt (e.g., blank, unrelated), set confidence to 0 and note this
 - Return ONLY the JSON object, nothing else`;
 
 @Injectable()
@@ -33,7 +43,10 @@ export class OpenAiOcrProvider implements OcrProvider {
   private readonly logger = new Logger(OpenAiOcrProvider.name);
   private client: OpenAI | null = null;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() private readonly gcsService?: GcsService,
+  ) {}
 
   private getClient(): OpenAI {
     if (!this.client) {
@@ -46,12 +59,104 @@ export class OpenAiOcrProvider implements OcrProvider {
     return this.client;
   }
 
+  /**
+   * Check if a URL is a local/relative path or GCS URI that needs conversion
+   */
+  private isLocalOrGcsUrl(url: string): boolean {
+    return (
+      url.startsWith('/') ||
+      url.startsWith('gs://') ||
+      url.startsWith('file://') ||
+      !url.startsWith('http')
+    );
+  }
+
+  /**
+   * Convert local file path to base64 data URL
+   */
+  private async localFileToBase64(localPath: string): Promise<string> {
+    // Handle relative paths (e.g., /uploads/daily-logs/file.jpg)
+    let fullPath = localPath;
+    if (localPath.startsWith('/uploads/')) {
+      fullPath = path.resolve(process.cwd(), localPath.substring(1));
+    }
+
+    if (!fs.existsSync(fullPath)) {
+      throw new Error(`Local file not found: ${fullPath}`);
+    }
+
+    const buffer = fs.readFileSync(fullPath);
+    const base64 = buffer.toString('base64');
+
+    // Detect mime type from extension
+    const ext = path.extname(fullPath).toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+    };
+    const mimeType = mimeTypes[ext] || 'image/jpeg';
+
+    return `data:${mimeType};base64,${base64}`;
+  }
+
+  /**
+   * Prepare image URL for OpenAI - convert local/GCS paths to base64
+   */
+  private async prepareImageUrl(imageUrl: string): Promise<string> {
+    if (!this.isLocalOrGcsUrl(imageUrl)) {
+      // Already a public HTTP URL
+      return imageUrl;
+    }
+
+    if (imageUrl.startsWith('/uploads/') || imageUrl.startsWith('/')) {
+      this.logger.log(`Converting local file to base64: ${imageUrl}`);
+      return this.localFileToBase64(imageUrl);
+    }
+
+    if (imageUrl.startsWith('gs://')) {
+      // Download from GCS and convert to base64
+      if (this.gcsService) {
+        try {
+          this.logger.log(`Downloading GCS file for OCR: ${imageUrl}`);
+          const localPath = await this.gcsService.downloadToTmp(imageUrl);
+          const base64Url = await this.localFileToBase64(localPath);
+          // Clean up temp file
+          await fsPromises.unlink(localPath).catch(() => {});
+          return base64Url;
+        } catch (gcsErr: any) {
+          this.logger.warn(`GCS download failed, trying public URL: ${gcsErr?.message}`);
+        }
+      }
+
+      // Fallback: try converting to public URL format
+      const match = imageUrl.match(/^gs:\/\/([^/]+)\/(.+)$/);
+      if (match) {
+        const publicUrl = `https://storage.googleapis.com/${match[1]}/${match[2]}`;
+        this.logger.log(`Converted GCS URI to public URL: ${publicUrl}`);
+        return publicUrl;
+      }
+    }
+
+    throw new Error(`Unsupported image URL format: ${imageUrl}`);
+  }
+
   async extractReceipt(imageUrl: string): Promise<ReceiptOcrData> {
     const client = this.getClient();
 
-    this.logger.log(`Extracting receipt data from: ${imageUrl.substring(0, 50)}...`);
+    this.logger.log(`Extracting receipt data from: ${imageUrl.substring(0, 80)}...`);
 
     try {
+      // Convert local/GCS URLs to a format OpenAI can use
+      const processedUrl = await this.prepareImageUrl(imageUrl);
+      const isBase64 = processedUrl.startsWith('data:');
+
+      this.logger.log(
+        `Image prepared for OCR: ${isBase64 ? 'base64 encoded' : processedUrl.substring(0, 60)}...`,
+      );
+
       const response = await client.chat.completions.create({
         model: 'gpt-4o', // GPT-4 Vision model
         messages: [
@@ -62,7 +167,7 @@ export class OpenAiOcrProvider implements OcrProvider {
               {
                 type: 'image_url',
                 image_url: {
-                  url: imageUrl,
+                  url: processedUrl,
                   detail: 'high', // High detail for receipt text
                 },
               },
@@ -105,11 +210,12 @@ export class OpenAiOcrProvider implements OcrProvider {
             }))
           : undefined,
         confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
+        extractionNotes: parsed.extraction_notes ?? undefined,
         rawResponse: content,
       };
 
       this.logger.log(
-        `Receipt extracted: ${result.vendorName ?? 'Unknown'} - $${result.totalAmount ?? 0}`,
+        `Receipt extracted: vendor=${result.vendorName ?? 'Unknown'}, total=$${result.totalAmount ?? 0}, confidence=${result.confidence}${result.extractionNotes ? `, notes: ${result.extractionNotes}` : ''}`,
       );
 
       return result;
