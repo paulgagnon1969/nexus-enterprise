@@ -481,6 +481,51 @@ export class DailyLogService {
     return { dailyLogId, results };
   }
 
+  /**
+   * Delete an attachment from a daily log
+   */
+  async deleteAttachment(
+    dailyLogId: string,
+    attachmentId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+  ) {
+    const log = await this.prisma.dailyLog.findFirst({
+      where: { id: dailyLogId, project: { companyId } },
+      include: { project: true },
+    });
+
+    if (!log) {
+      throw new NotFoundException("Daily log not found in this company");
+    }
+
+    await this.assertProjectAccess(log.projectId, companyId, actor, null);
+
+    const attachment = await this.prisma.dailyLogAttachment.findFirst({
+      where: { id: attachmentId, dailyLogId },
+    });
+
+    if (!attachment) {
+      throw new NotFoundException("Attachment not found");
+    }
+
+    await this.prisma.dailyLogAttachment.delete({
+      where: { id: attachmentId },
+    });
+
+    await this.audit.log(actor, "DAILY_LOG_ATTACHMENT_DELETED", {
+      companyId,
+      projectId: log.projectId,
+      metadata: {
+        dailyLogId,
+        attachmentId,
+        fileName: attachment.fileName,
+      },
+    });
+
+    return { success: true, attachmentId };
+  }
+
   async createForProject(
     projectId: string,
     companyId: string,

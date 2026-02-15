@@ -27318,6 +27318,56 @@ ${htmlBody}
                     const isImage = lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".webp") || (att.mimeType || "").startsWith("image/");
                     return (
                       <div key={att.id} style={{ position: "relative", borderRadius: 4, border: "1px solid #e5e7eb", background: "#ffffff", overflow: "hidden" }}>
+                        {/* Delete button */}
+                        <button
+                          type="button"
+                          onClick={async e => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (!confirm("Delete this attachment?")) return;
+                            const token = localStorage.getItem("accessToken");
+                            if (!token) { alert("Missing access token"); return; }
+                            try {
+                              const resp = await fetch(`${API_BASE}/daily-logs/${editDailyLog.log!.id}/attachments/${att.id}`, {
+                                method: "DELETE",
+                                headers: { Authorization: `Bearer ${token}` },
+                              });
+                              if (resp.ok) {
+                                setEditDailyLog(prev => ({
+                                  ...prev,
+                                  log: prev.log ? { ...prev.log, attachments: (prev.log.attachments || []).filter(a => a.id !== att.id) } : null,
+                                }));
+                                setDailyLogs(prev => prev.map(l => l.id === editDailyLog.log?.id ? { ...l, attachments: (l.attachments || []).filter(a => a.id !== att.id) } : l));
+                              } else {
+                                alert("Failed to delete attachment");
+                              }
+                            } catch (err: any) {
+                              alert(err?.message || "Delete failed");
+                            }
+                          }}
+                          style={{
+                            position: "absolute",
+                            top: 2,
+                            right: 2,
+                            width: 20,
+                            height: 20,
+                            borderRadius: "50%",
+                            border: "none",
+                            background: "rgba(239, 68, 68, 0.9)",
+                            color: "#ffffff",
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            lineHeight: 1,
+                            zIndex: 10,
+                          }}
+                          title="Delete attachment"
+                        >
+                          ×
+                        </button>
                         <a href={url} target="_blank" rel="noopener noreferrer" style={{ display: "block" }}>
                           {isImage ? (
                             <img src={url} alt={name} style={{ width: "100%", height: 70, objectFit: "cover" }} />

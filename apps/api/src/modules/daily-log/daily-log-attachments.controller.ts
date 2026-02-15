@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { CombinedAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { DailyLogService } from "./daily-log.service";
@@ -81,5 +81,17 @@ export class DailyLogAttachmentsController {
   ) {
     const user = req.user as AuthenticatedUser;
     return this.dailyLogs.triggerOcrForLog(logId, user.companyId, user);
+  }
+
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Delete(":attachmentId")
+  async deleteAttachment(
+    @Req() req: any,
+    @Param("logId") logId: string,
+    @Param("attachmentId") attachmentId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.deleteAttachment(logId, attachmentId, user.companyId, user);
   }
 }
