@@ -3807,6 +3807,12 @@ ${htmlBody}
     error: string | null;
   }>({ open: false, log: null, draft: null, saving: false, error: null });
 
+  // View daily log modal state (read-only)
+  const [viewDailyLog, setViewDailyLog] = useState<{
+    open: boolean;
+    log: DailyLog | null;
+  }>({ open: false, log: null });
+
   // Attachments viewer modal state (gallery with navigation)
   const [attachmentsViewer, setAttachmentsViewer] = useState<{
     open: boolean;
@@ -21843,7 +21849,7 @@ ${htmlBody}
                             .slice(0, 10)
                             .map(log => (
                             <tr key={log.id}>
-                              {/* Edit & Delete actions - PM+ only */}
+                              {/* View, Edit & Delete actions */}
                               <td
                                 style={{
                                   padding: "4px 6px",
@@ -21851,44 +21857,65 @@ ${htmlBody}
                                   textAlign: "center",
                                 }}
                               >
-                                {isPmOrAbove && (
-                                  <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => openEditDailyLog(log)}
-                                      title="Edit daily log"
-                                      style={{
-                                        border: "1px solid #2563eb",
-                                        background: "#2563eb",
-                                        borderRadius: 4,
-                                        cursor: "pointer",
-                                        padding: "4px 8px",
-                                        fontSize: 11,
-                                        color: "#ffffff",
-                                        fontWeight: 500,
-                                      }}
-                                    >
-                                      Edit
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteDailyLog(log.id, log.title)}
-                                      title="Delete daily log"
-                                      style={{
-                                        border: "1px solid #dc2626",
-                                        background: "#dc2626",
-                                        borderRadius: 4,
-                                        cursor: "pointer",
-                                        padding: "4px 8px",
-                                        fontSize: 11,
-                                        color: "#ffffff",
-                                        fontWeight: 500,
-                                      }}
-                                    >
-                                      🗑
-                                    </button>
-                                  </div>
-                                )}
+                                <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
+                                  {/* View button - available to all */}
+                                  <button
+                                    type="button"
+                                    onClick={() => setViewDailyLog({ open: true, log })}
+                                    title="View daily log"
+                                    style={{
+                                      border: "1px solid #6b7280",
+                                      background: "#6b7280",
+                                      borderRadius: 4,
+                                      cursor: "pointer",
+                                      padding: "4px 8px",
+                                      fontSize: 11,
+                                      color: "#ffffff",
+                                      fontWeight: 500,
+                                    }}
+                                  >
+                                    👁
+                                  </button>
+                                  {/* Edit & Delete - PM+ only */}
+                                  {isPmOrAbove && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => openEditDailyLog(log)}
+                                        title="Edit daily log"
+                                        style={{
+                                          border: "1px solid #2563eb",
+                                          background: "#2563eb",
+                                          borderRadius: 4,
+                                          cursor: "pointer",
+                                          padding: "4px 8px",
+                                          fontSize: 11,
+                                          color: "#ffffff",
+                                          fontWeight: 500,
+                                        }}
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteDailyLog(log.id, log.title)}
+                                        title="Delete daily log"
+                                        style={{
+                                          border: "1px solid #dc2626",
+                                          background: "#dc2626",
+                                          borderRadius: 4,
+                                          cursor: "pointer",
+                                          padding: "4px 8px",
+                                          fontSize: 11,
+                                          color: "#ffffff",
+                                          fontWeight: 500,
+                                        }}
+                                      >
+                                        🗑
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
                               </td>
                               {/* Date */}
                               <td
@@ -28669,6 +28696,341 @@ ${htmlBody}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button type="button" onClick={closeEditDailyLog} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #d1d5db", background: "#ffffff", cursor: "pointer", fontSize: 12 }}>Cancel</button>
               <button type="button" onClick={handleUpdateDailyLog} disabled={editDailyLog.saving} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #0f172a", background: editDailyLog.saving ? "#e5e7eb" : "#0f172a", color: editDailyLog.saving ? "#4b5563" : "#f9fafb", cursor: editDailyLog.saving ? "default" : "pointer", fontSize: 12 }}>{editDailyLog.saving ? "Saving…" : "Save Changes"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Daily Log Modal (read-only) */}
+      {viewDailyLog.open && viewDailyLog.log && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 99999,
+            backgroundColor: "rgba(15, 23, 42, 0.6)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+          onClick={() => setViewDailyLog({ open: false, log: null })}
+        >
+          <div
+            style={{
+              width: 700,
+              maxWidth: "96vw",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              backgroundColor: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 16px 40px rgba(15,23,42,0.35)",
+              padding: 16,
+              fontSize: 13,
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>Daily Log Details</div>
+              <button
+                type="button"
+                onClick={() => setViewDailyLog({ open: false, log: null })}
+                style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4 }}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Type & Date */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Type</div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>
+                  <span
+                    style={{
+                      display: "inline-block",
+                      padding: "2px 8px",
+                      borderRadius: 4,
+                      fontSize: 11,
+                      backgroundColor:
+                        viewDailyLog.log.type === "RECEIPT_EXPENSE" ? "#fef3c7"
+                        : viewDailyLog.log.type === "JSA" ? "#dbeafe"
+                        : viewDailyLog.log.type === "INCIDENT" ? "#fee2e2"
+                        : viewDailyLog.log.type === "QUALITY" ? "#d1fae5"
+                        : "#f3f4f6",
+                      color:
+                        viewDailyLog.log.type === "RECEIPT_EXPENSE" ? "#92400e"
+                        : viewDailyLog.log.type === "JSA" ? "#1e40af"
+                        : viewDailyLog.log.type === "INCIDENT" ? "#991b1b"
+                        : viewDailyLog.log.type === "QUALITY" ? "#065f46"
+                        : "#374151",
+                    }}
+                  >
+                    {viewDailyLog.log.type === "RECEIPT_EXPENSE" ? "Receipt / Expense"
+                      : viewDailyLog.log.type === "JSA" ? "Job Safety Assessment"
+                      : viewDailyLog.log.type === "INCIDENT" ? "Incident Report"
+                      : viewDailyLog.log.type === "QUALITY" ? "Quality Inspection"
+                      : "Daily Log (PUDL)"}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Date</div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>
+                  {viewDailyLog.log.logDate ? new Date(viewDailyLog.log.logDate).toLocaleDateString() : "(no date)"}
+                </div>
+              </div>
+            </div>
+
+            {/* Title */}
+            {viewDailyLog.log.title && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Title</div>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{viewDailyLog.log.title}</div>
+              </div>
+            )}
+
+            {/* Receipt/Expense Details */}
+            {viewDailyLog.log.type === "RECEIPT_EXPENSE" && (
+              <div style={{ marginBottom: 12, padding: 10, background: "#fef3c7", borderRadius: 6, border: "1px solid #fcd34d" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#92400e", marginBottom: 6 }}>Receipt Details</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: "#92400e" }}>Vendor</div>
+                    <div style={{ fontSize: 12, fontWeight: 500 }}>{viewDailyLog.log.expenseVendor || "(not specified)"}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: "#92400e" }}>Amount</div>
+                    <div style={{ fontSize: 12, fontWeight: 500 }}>
+                      {viewDailyLog.log.expenseAmount != null
+                        ? `$${Number(viewDailyLog.log.expenseAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : "(not specified)"}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: "#92400e" }}>Expense Date</div>
+                    <div style={{ fontSize: 12, fontWeight: 500 }}>
+                      {viewDailyLog.log.expenseDate ? new Date(viewDailyLog.log.expenseDate).toLocaleDateString() : "(not specified)"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PETL Context */}
+            {(viewDailyLog.log.building || viewDailyLog.log.unit || viewDailyLog.log.roomParticle || viewDailyLog.log.sowItem) && (
+              <div style={{ marginBottom: 12, padding: 10, background: "#eff6ff", borderRadius: 6, border: "1px solid #bfdbfe" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#1e40af", marginBottom: 6 }}>PETL Context</div>
+                <div style={{ fontSize: 11, color: "#374151", display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px" }}>
+                  {viewDailyLog.log.building && (
+                    <>
+                      <span style={{ fontWeight: 500 }}>Building:</span>
+                      <span>{viewDailyLog.log.building.name}{viewDailyLog.log.building.code ? ` (${viewDailyLog.log.building.code})` : ""}</span>
+                    </>
+                  )}
+                  {viewDailyLog.log.unit && (
+                    <>
+                      <span style={{ fontWeight: 500 }}>Unit:</span>
+                      <span>{viewDailyLog.log.unit.label}{viewDailyLog.log.unit.floor != null ? ` (Floor ${viewDailyLog.log.unit.floor})` : ""}</span>
+                    </>
+                  )}
+                  {viewDailyLog.log.roomParticle && (
+                    <>
+                      <span style={{ fontWeight: 500 }}>Room:</span>
+                      <span>{viewDailyLog.log.roomParticle.fullLabel || viewDailyLog.log.roomParticle.name}</span>
+                    </>
+                  )}
+                  {viewDailyLog.log.sowItem && (
+                    <>
+                      <span style={{ fontWeight: 500 }}>SOW Item:</span>
+                      <span>{viewDailyLog.log.sowItem.code ? `${viewDailyLog.log.sowItem.code} - ` : ""}{viewDailyLog.log.sowItem.description || "(No description)"}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Work Performed */}
+            {viewDailyLog.log.workPerformed && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Work Performed</div>
+                <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: "#f9fafb", borderRadius: 4, border: "1px solid #e5e7eb" }}>
+                  {viewDailyLog.log.workPerformed}
+                </div>
+              </div>
+            )}
+
+            {/* Weather */}
+            {viewDailyLog.log.weatherSummary && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Weather</div>
+                <div style={{ fontSize: 12 }}>{viewDailyLog.log.weatherSummary}</div>
+              </div>
+            )}
+
+            {/* Crew On Site */}
+            {viewDailyLog.log.crewOnSite && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Crew On Site</div>
+                <div style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>{viewDailyLog.log.crewOnSite}</div>
+              </div>
+            )}
+
+            {/* Person(s) On Site */}
+            {viewDailyLog.log.personOnsite && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Person(s) On Site</div>
+                <div style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>{viewDailyLog.log.personOnsite}</div>
+              </div>
+            )}
+
+            {/* Manpower */}
+            {viewDailyLog.log.manpowerOnsite && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Manpower On Site</div>
+                <div style={{ fontSize: 12 }}>{viewDailyLog.log.manpowerOnsite}</div>
+              </div>
+            )}
+
+            {/* Issues */}
+            {viewDailyLog.log.issues && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Issues / Delays</div>
+                <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: "#fef2f2", borderRadius: 4, border: "1px solid #fecaca" }}>
+                  {viewDailyLog.log.issues}
+                </div>
+              </div>
+            )}
+
+            {/* Safety Incidents */}
+            {viewDailyLog.log.safetyIncidents && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Safety Incidents</div>
+                <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: "#fef2f2", borderRadius: 4, border: "1px solid #fecaca" }}>
+                  {viewDailyLog.log.safetyIncidents}
+                </div>
+              </div>
+            )}
+
+            {/* Confidential Notes */}
+            {viewDailyLog.log.confidentialNotes && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Confidential Notes</div>
+                <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: "#fefce8", borderRadius: 4, border: "1px solid #fde047" }}>
+                  {viewDailyLog.log.confidentialNotes}
+                </div>
+              </div>
+            )}
+
+            {/* Sharing Status */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Sharing</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {viewDailyLog.log.shareInternal && (
+                  <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#dbeafe", color: "#1e40af" }}>Internal</span>
+                )}
+                {viewDailyLog.log.shareSubs && (
+                  <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#d1fae5", color: "#065f46" }}>Subs</span>
+                )}
+                {viewDailyLog.log.shareClient && (
+                  <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#fef3c7", color: "#92400e" }}>Client</span>
+                )}
+                {viewDailyLog.log.sharePrivate && (
+                  <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#f3f4f6", color: "#374151" }}>Private</span>
+                )}
+                {!viewDailyLog.log.shareInternal && !viewDailyLog.log.shareSubs && !viewDailyLog.log.shareClient && !viewDailyLog.log.sharePrivate && (
+                  <span style={{ fontSize: 10, color: "#9ca3af" }}>No sharing configured</span>
+                )}
+              </div>
+            </div>
+
+            {/* Attachments */}
+            {viewDailyLog.log.attachments && viewDailyLog.log.attachments.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>Attachments ({viewDailyLog.log.attachments.length})</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {viewDailyLog.log.attachments.map((att: any, idx: number) => {
+                    const url = att.fileUrl || att.storageUrl || "";
+                    const displayUrl = url.startsWith("gs://")
+                      ? `https://storage.googleapis.com/${url.replace("gs://", "")}`
+                      : url;
+                    const isImage = att.mimeType?.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp)$/i.test(att.fileName || "");
+                    return (
+                      <div key={att.id || idx} style={{ textAlign: "center", width: 80 }}>
+                        {isImage ? (
+                          <img
+                            src={displayUrl}
+                            alt={att.fileName || "attachment"}
+                            style={{
+                              width: 60,
+                              height: 60,
+                              objectFit: "cover",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              cursor: "pointer",
+                            }}
+                            onClick={() => window.open(displayUrl, "_blank")}
+                          />
+                        ) : (
+                          <a
+                            href={displayUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              display: "flex",
+                              width: 60,
+                              height: 60,
+                              alignItems: "center",
+                              justifyContent: "center",
+                              background: "#f3f4f6",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              fontSize: 24,
+                              textDecoration: "none",
+                            }}
+                          >
+                            📄
+                          </a>
+                        )}
+                        <div style={{ fontSize: 9, color: "#6b7280", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {att.fileName || "File"}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Created Info */}
+            <div style={{ fontSize: 10, color: "#9ca3af", borderTop: "1px solid #e5e7eb", paddingTop: 8, marginTop: 8 }}>
+              {viewDailyLog.log.createdAt && (
+                <span>Created: {new Date(viewDailyLog.log.createdAt).toLocaleString()}</span>
+              )}
+            </div>
+
+            {/* Close Button */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+              <button
+                type="button"
+                onClick={() => setViewDailyLog({ open: false, log: null })}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 6,
+                  border: "1px solid #0f172a",
+                  background: "#0f172a",
+                  color: "#ffffff",
+                  cursor: "pointer",
+                  fontSize: 12,
+                }}
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
