@@ -79,11 +79,11 @@ async function loadMermaid(): Promise<NonNullable<Window["mermaid"]>> {
   return mermaidLoadPromise;
 }
 
-function makeMermaidSafeId(input: string) {
+export function makeMermaidSafeId(input: string) {
   return input.replace(/[^A-Za-z0-9_]/g, "_");
 }
 
-function scheduleExtractGroupCode(label: any): string | null {
+export function scheduleExtractGroupCode(label: any): string | null {
   const s = String(label ?? "").trim();
   if (!s) return null;
 
@@ -96,8 +96,8 @@ function scheduleExtractGroupCode(label: any): string | null {
   return null;
 }
 
-// MermaidGantt component (local to schedule section)
-const MermaidGantt = memo(function MermaidGantt(props: {
+// MermaidGantt component - exported for use in page.tsx
+export const MermaidGantt = memo(function MermaidGantt(props: {
   ganttText: string;
   stickyHeader?: boolean;
   maxHeightPx?: number;

@@ -25,7 +25,7 @@ import { useDraggable } from "../../hooks/use-draggable";
 import { JournalTab } from "./journal";
 import { RoleVisible } from "../../role-audit";
 import { FileDropZone } from "../../components/file-drop-zone";
-import { ScheduleSection } from "./schedule-section";
+import { ScheduleSection, makeMermaidSafeId, scheduleExtractGroupCode, MermaidGantt } from "./schedule-section";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -38,203 +38,6 @@ async function computeFileHash(file: File | Blob): Promise<string> {
   const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-declare global {
-  interface Window {
-    mermaid?: {
-      initialize: (config: any) => void;
-      render: (id: string, text: string) => Promise<{ svg: string; bindFunctions?: (el: Element) => void }>;
-    };
-  }
-}
-
-const MERMAID_CDN_SRC = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js";
-
-// Mermaid has a default maxTextSize guardrail; large projects can exceed it.
-// We raise it since this is an internal, authenticated UI.
-const MERMAID_INIT_CONFIG = {
-  startOnLoad: false,
-  maxTextSize: 2_000_000,
-  // Put the time axis on top so it can stay visible in our sticky header.
-  gantt: {
-    topAxis: true,
-    // Work-week semantics: week-based tick intervals should start on Monday.
-    weekday: "monday",
-  },
-};
-
-let mermaidLoadPromise: Promise<NonNullable<Window["mermaid"]>> | null = null;
-let mermaidInitialized = false;
-
-async function loadMermaid(): Promise<NonNullable<Window["mermaid"]>> {
-  if (typeof window === "undefined") {
-    throw new Error("Mermaid can only be loaded in the browser");
-  }
-
-  if (window.mermaid) {
-    if (!mermaidInitialized) {
-      window.mermaid.initialize(MERMAID_INIT_CONFIG);
-      mermaidInitialized = true;
-    }
-    return window.mermaid;
-  }
-
-  if (!mermaidLoadPromise) {
-    mermaidLoadPromise = new Promise((resolve, reject) => {
-      const existing = document.querySelector('script[data-nexus-mermaid="true"]') as
-        | HTMLScriptElement
-        | null;
-
-      const onLoaded = () => {
-        if (!window.mermaid) {
-          reject(new Error("Mermaid script loaded, but window.mermaid is missing"));
-          return;
-        }
-        if (!mermaidInitialized) {
-          window.mermaid.initialize(MERMAID_INIT_CONFIG);
-          mermaidInitialized = true;
-        }
-        resolve(window.mermaid);
-      };
-
-      if (existing) {
-        // If a script tag exists already, attach listeners and hope it loads.
-        existing.addEventListener("load", onLoaded);
-        existing.addEventListener("error", () => reject(new Error("Failed to load Mermaid")));
-        // If it already loaded, resolve immediately.
-        if ((existing as any).readyState === "complete" || (existing as any).readyState === "loaded") {
-          onLoaded();
-        }
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.src = MERMAID_CDN_SRC;
-      script.async = true;
-      script.dataset.nexusMermaid = "true";
-      script.addEventListener("load", onLoaded);
-      script.addEventListener("error", () => reject(new Error("Failed to load Mermaid")));
-      document.head.appendChild(script);
-    });
-  }
-
-  return mermaidLoadPromise;
-}
-
-function makeMermaidSafeId(input: string) {
-  return input.replace(/[^A-Za-z0-9_]/g, "_");
-}
-
-// Derive a top-level org grouping code from a label such as
-// "RISK__E - Risk - Exterior" or "ELECTRI Electrical Room". This mirrors the
-// behavior used by invoice grouping helpers but is scoped to the schedule view.
-function scheduleExtractGroupCode(label: any): string | null {
-  const s = String(label ?? "").trim();
-  if (!s) return null;
-
-  // e.g. "RISK__E - Risk - Exterior" → "RISK__E"
-  const dashMatch = s.match(/^([A-Za-z0-9_]+)\s*[-–—].+$/);
-  if (dashMatch) return dashMatch[1];
-
-  // e.g. "ELECTRI Electrical Room" → "ELECTRI"
-  const firstToken = s.split(/\s+/)[0] ?? "";
-  if (/^[A-Z0-9_]{3,}$/.test(firstToken)) return firstToken;
-
-  return null;
-}
-
-function MermaidGantt(props: {
-  ganttText: string;
-  stickyHeader?: boolean;
-  maxHeightPx?: number;
-}) {
-  const { ganttText, stickyHeader = true, maxHeightPx = 560 } = props;
-
-  const headerRef = useRef<HTMLDivElement | null>(null);
-  const bodyRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const render = async () => {
-      const headerEl = headerRef.current;
-      const bodyEl = bodyRef.current;
-      if (!headerEl || !bodyEl) return;
-
-      if (!ganttText.trim()) {
-        headerEl.innerHTML = "";
-        bodyEl.innerHTML = "";
-        return;
-      }
-
-      const mermaid = await loadMermaid();
-      if (cancelled) return;
-
-      const id = `gantt_${makeMermaidSafeId(String(Date.now()))}`;
-      const { svg, bindFunctions } = await mermaid.render(id, ganttText);
-      if (cancelled) return;
-
-      // We duplicate the SVG into a sticky header and a scrollable body.
-      headerEl.innerHTML = svg;
-      bodyEl.innerHTML = svg;
-
-      try {
-        if (bindFunctions) {
-          bindFunctions(headerEl);
-          bindFunctions(bodyEl);
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    void render();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [ganttText]);
-
-  const headerHeightPx = 64;
-
-  return (
-    <div
-      style={{
-        maxHeight: maxHeightPx,
-        overflow: "auto",
-        position: "relative",
-        borderRadius: 8,
-        border: "1px solid #e5e7eb",
-        background: "#ffffff",
-      }}
-    >
-      {stickyHeader && (
-        <div
-          style={{
-            position: "sticky",
-            top: 0,
-            zIndex: 5,
-            height: headerHeightPx,
-            overflow: "hidden",
-            background: "#ffffff",
-            borderBottom: "1px solid #e5e7eb",
-          }}
-        >
-          <div ref={headerRef} />
-        </div>
-      )}
-
-      <div
-        style={{
-          // Hide the original SVG header area underneath the sticky header.
-          marginTop: stickyHeader ? -headerHeightPx : 0,
-        }}
-      >
-        <div ref={bodyRef} />
-      </div>
-    </div>
-  );
 }
 
 type CheckboxMultiSelectOption = { value: string; label: string };
@@ -22530,351 +22333,167 @@ ${htmlBody}
 
       {/* Project grouping: Units → Rooms (expandable) */}
 
-      {/* Attachments Gallery Modal */}
-      {attachmentsViewer.open && attachmentsViewer.log && (() => {
-        const attachments = attachmentsViewer.log.attachments || [];
-        const currentIndex = attachmentsViewer.currentIndex;
-        const currentAtt = attachments[currentIndex];
-        const currentUrl = currentAtt?.fileUrl || "";
-        const currentName = currentAtt?.fileName || "attachment";
-        const currentLower = currentUrl.toLowerCase();
-        const currentIsImage =
-          currentLower.endsWith(".png") ||
-          currentLower.endsWith(".jpg") ||
-          currentLower.endsWith(".jpeg") ||
-          currentLower.endsWith(".gif") ||
-          currentLower.endsWith(".webp") ||
-          (currentAtt?.mimeType || "").startsWith("image/");
-        const hasMultiple = attachments.length > 1;
-
-        return (
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 99999,
-              backgroundColor: "rgba(15, 23, 42, 0.85)",
-              display: "flex",
-              flexDirection: "column",
-            }}
+      {/* Attachments Gallery Modal - Simple inline version */}
+      {attachmentsViewer.open && attachmentsViewer.log && attachmentsViewer.log.attachments && attachmentsViewer.log.attachments.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 99999,
+            backgroundColor: "rgba(15, 23, 42, 0.9)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          onClick={closeAttachmentsViewer}
+        >
+          {/* Close button */}
+          <button
+            type="button"
             onClick={closeAttachmentsViewer}
-            onKeyDown={(e) => {
-              if (e.key === "ArrowLeft") goToPrevAttachment();
-              else if (e.key === "ArrowRight") goToNextAttachment();
-              else if (e.key === "Escape") closeAttachmentsViewer();
+            style={{
+              position: "absolute",
+              top: 20,
+              right: 20,
+              border: "none",
+              background: "rgba(255,255,255,0.2)",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontSize: 24,
+              padding: "8px 16px",
+              color: "#ffffff",
+              zIndex: 10,
             }}
-            tabIndex={0}
-            ref={(el) => el?.focus()}
           >
-            {/* Header */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "12px 20px",
-                borderBottom: "1px solid rgba(255,255,255,0.1)",
-              }}
-              onClick={e => e.stopPropagation()}
-            >
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 600, color: "#ffffff" }}>
-                  {attachmentsViewer.log.title || "Daily Log"}
-                </div>
-                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>
-                  {attachmentsViewer.log.logDate
-                    ? new Date(attachmentsViewer.log.logDate).toLocaleDateString()
-                    : ""}
-                  {hasMultiple && ` · ${currentIndex + 1} of ${attachments.length}`}
-                </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {/* Download button */}
-                <a
-                  href={currentUrl}
-                  download={currentName}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    padding: "6px 12px",
-                    borderRadius: 6,
-                    border: "1px solid rgba(255,255,255,0.3)",
-                    background: "rgba(255,255,255,0.1)",
-                    color: "#ffffff",
-                    fontSize: 12,
-                    textDecoration: "none",
-                    cursor: "pointer",
-                  }}
-                  onClick={e => e.stopPropagation()}
-                >
-                  ⬇ Download
-                </a>
-                {/* Open in new tab */}
-                <a
-                  href={currentUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    padding: "6px 12px",
-                    borderRadius: 6,
-                    border: "1px solid rgba(255,255,255,0.3)",
-                    background: "rgba(255,255,255,0.1)",
-                    color: "#ffffff",
-                    fontSize: 12,
-                    textDecoration: "none",
-                    cursor: "pointer",
-                  }}
-                  onClick={e => e.stopPropagation()}
-                >
-                  ↗ Open
-                </a>
-                {/* Close button */}
-                <button
-                  type="button"
-                  onClick={closeAttachmentsViewer}
-                  style={{
-                    border: "none",
-                    background: "rgba(255,255,255,0.1)",
-                    borderRadius: 6,
-                    cursor: "pointer",
-                    fontSize: 20,
-                    lineHeight: 1,
-                    padding: "4px 10px",
-                    color: "#ffffff",
-                  }}
-                  aria-label="Close"
-                >
-                  ×
-                </button>
-              </div>
+            ✕ Close
+          </button>
+
+          {/* Header info */}
+          <div style={{ position: "absolute", top: 20, left: 20, color: "#ffffff" }}>
+            <div style={{ fontSize: 16, fontWeight: 600 }}>
+              {attachmentsViewer.log.title || "Daily Log"}
             </div>
-
-            {/* Main gallery area */}
-            <div
-              style={{
-                flex: 1,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                position: "relative",
-                padding: "20px 60px",
-                minHeight: 0,
-              }}
-              onClick={e => e.stopPropagation()}
-            >
-              {/* Left arrow */}
-              {hasMultiple && (
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); goToPrevAttachment(); }}
-                  style={{
-                    position: "absolute",
-                    left: 12,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    width: 44,
-                    height: 44,
-                    borderRadius: "50%",
-                    border: "none",
-                    background: "rgba(255,255,255,0.15)",
-                    color: "#ffffff",
-                    fontSize: 24,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    transition: "background 0.15s",
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.25)")}
-                  onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.15)")}
-                  aria-label="Previous"
-                >
-                  ‹
-                </button>
-              )}
-
-              {/* Main content */}
-              <div
-                style={{
-                  maxWidth: "100%",
-                  maxHeight: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                {currentIsImage ? (
-                  <img
-                    src={currentUrl}
-                    alt={currentName}
-                    style={{
-                      maxWidth: "100%",
-                      maxHeight: "calc(100vh - 200px)",
-                      objectFit: "contain",
-                      borderRadius: 8,
-                      boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-                    }}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      width: 300,
-                      height: 300,
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: "rgba(255,255,255,0.1)",
-                      borderRadius: 12,
-                      gap: 16,
-                    }}
-                  >
-                    <span style={{ fontSize: 64 }}>📄</span>
-                    <span style={{ color: "#ffffff", fontSize: 14, textAlign: "center", padding: "0 20px" }}>
-                      {currentName}
-                    </span>
-                    <a
-                      href={currentUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        padding: "8px 16px",
-                        borderRadius: 6,
-                        background: "#2563eb",
-                        color: "#ffffff",
-                        fontSize: 13,
-                        textDecoration: "none",
-                      }}
-                    >
-                      Open File
-                    </a>
-                  </div>
-                )}
-              </div>
-
-              {/* Right arrow */}
-              {hasMultiple && (
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); goToNextAttachment(); }}
-                  style={{
-                    position: "absolute",
-                    right: 12,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    width: 44,
-                    height: 44,
-                    borderRadius: "50%",
-                    border: "none",
-                    background: "rgba(255,255,255,0.15)",
-                    color: "#ffffff",
-                    fontSize: 24,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    transition: "background 0.15s",
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.25)")}
-                  onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.15)")}
-                  aria-label="Next"
-                >
-                  ›
-                </button>
-              )}
-            </div>
-
-            {/* Thumbnail strip */}
-            {hasMultiple && (
-              <div
-                style={{
-                  padding: "12px 20px",
-                  borderTop: "1px solid rgba(255,255,255,0.1)",
-                  display: "flex",
-                  justifyContent: "center",
-                  gap: 8,
-                  overflowX: "auto",
-                }}
-                onClick={e => e.stopPropagation()}
-              >
-                {attachments.map((att, idx) => {
-                  const url = att.fileUrl || "";
-                  const lower = url.toLowerCase();
-                  const isImage =
-                    lower.endsWith(".png") ||
-                    lower.endsWith(".jpg") ||
-                    lower.endsWith(".jpeg") ||
-                    lower.endsWith(".gif") ||
-                    lower.endsWith(".webp") ||
-                    (att.mimeType || "").startsWith("image/");
-                  const isActive = idx === currentIndex;
-
-                  return (
-                    <button
-                      key={att.id}
-                      type="button"
-                      onClick={() => setAttachmentsViewer(prev => ({ ...prev, currentIndex: idx }))}
-                      style={{
-                        width: 60,
-                        height: 60,
-                        borderRadius: 6,
-                        border: isActive ? "2px solid #2563eb" : "2px solid transparent",
-                        padding: 0,
-                        cursor: "pointer",
-                        overflow: "hidden",
-                        opacity: isActive ? 1 : 0.6,
-                        transition: "opacity 0.15s, border-color 0.15s",
-                        flexShrink: 0,
-                      }}
-                      onMouseEnter={e => { if (!isActive) e.currentTarget.style.opacity = "0.85"; }}
-                      onMouseLeave={e => { if (!isActive) e.currentTarget.style.opacity = "0.6"; }}
-                    >
-                      {isImage ? (
-                        <img
-                          src={url}
-                          alt={att.fileName || "thumbnail"}
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "cover",
-                          }}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            backgroundColor: "rgba(255,255,255,0.1)",
-                            fontSize: 24,
-                          }}
-                        >
-                          📄
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* File name footer */}
-            <div
-              style={{
-                padding: "8px 20px 12px",
-                textAlign: "center",
-                color: "rgba(255,255,255,0.7)",
-                fontSize: 12,
-              }}
-              onClick={e => e.stopPropagation()}
-            >
-              {currentName}
+            <div style={{ fontSize: 13, opacity: 0.7 }}>
+              {attachmentsViewer.currentIndex + 1} of {attachmentsViewer.log.attachments.length}
             </div>
           </div>
-        );
-      })()}
+
+          {/* Main image */}
+          <div
+            style={{ maxWidth: "90vw", maxHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onClick={e => e.stopPropagation()}
+          >
+            {(() => {
+              const att = attachmentsViewer.log.attachments[attachmentsViewer.currentIndex];
+              if (!att) return <div style={{ color: "#fff" }}>No attachment</div>;
+              const url = att.fileUrl || "";
+              const name = att.fileName || "attachment";
+              const isImg = /\.(png|jpe?g|gif|webp)$/i.test(url) || (att.mimeType || "").startsWith("image/");
+              return isImg ? (
+                <img src={url} alt={name} style={{ maxWidth: "90vw", maxHeight: "75vh", objectFit: "contain", borderRadius: 8 }} />
+              ) : (
+                <div style={{ padding: 40, background: "rgba(255,255,255,0.1)", borderRadius: 12, textAlign: "center" }}>
+                  <div style={{ fontSize: 64, marginBottom: 16 }}>📄</div>
+                  <div style={{ color: "#fff", marginBottom: 16 }}>{name}</div>
+                  <a href={url} target="_blank" rel="noopener noreferrer" style={{ color: "#60a5fa", fontSize: 14 }}>Open file →</a>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Navigation arrows */}
+          {attachmentsViewer.log.attachments.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); goToPrevAttachment(); }}
+                style={{
+                  position: "absolute",
+                  left: 20,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  width: 50,
+                  height: 50,
+                  borderRadius: "50%",
+                  border: "none",
+                  background: "rgba(255,255,255,0.2)",
+                  color: "#ffffff",
+                  fontSize: 28,
+                  cursor: "pointer",
+                }}
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); goToNextAttachment(); }}
+                style={{
+                  position: "absolute",
+                  right: 20,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  width: 50,
+                  height: 50,
+                  borderRadius: "50%",
+                  border: "none",
+                  background: "rgba(255,255,255,0.2)",
+                  color: "#ffffff",
+                  fontSize: 28,
+                  cursor: "pointer",
+                }}
+              >
+                ›
+              </button>
+            </>
+          )}
+
+          {/* Thumbnail strip */}
+          {attachmentsViewer.log.attachments.length > 1 && (
+            <div
+              style={{
+                position: "absolute",
+                bottom: 20,
+                display: "flex",
+                gap: 8,
+                padding: "10px 16px",
+                background: "rgba(0,0,0,0.5)",
+                borderRadius: 8,
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              {attachmentsViewer.log.attachments.map((att, idx) => {
+                const isActive = idx === attachmentsViewer.currentIndex;
+                const url = att.fileUrl || "";
+                const isImg = /\.(png|jpe?g|gif|webp)$/i.test(url) || (att.mimeType || "").startsWith("image/");
+                return (
+                  <button
+                    key={att.id}
+                    type="button"
+                    onClick={() => setAttachmentsViewer(prev => ({ ...prev, currentIndex: idx }))}
+                    style={{
+                      width: 50,
+                      height: 50,
+                      borderRadius: 4,
+                      border: isActive ? "2px solid #60a5fa" : "2px solid transparent",
+                      padding: 0,
+                      cursor: "pointer",
+                      overflow: "hidden",
+                      opacity: isActive ? 1 : 0.5,
+                    }}
+                  >
+                    {isImg ? (
+                      <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    ) : (
+                      <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#374151", fontSize: 20 }}>📄</div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Field PETL edit modal */}
       {fieldPetlEdit && (
