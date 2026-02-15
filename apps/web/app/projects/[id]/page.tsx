@@ -17373,8 +17373,90 @@ ${htmlBody}
                             </>
                           )}
 
+                          {/* Void button for issued/locked invoices (not draft, not already void) */}
+                          {activeInvoice.status !== "DRAFT" && activeInvoice.status !== "VOID" && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!project || !activeInvoice?.id) return;
+                                const reason = window.prompt(
+                                  `Void invoice ${activeInvoice.invoiceNo ?? "this invoice"}?\n\nEnter a reason (optional):`,
+                                  ""
+                                );
+                                if (reason === null) return; // User cancelled
+
+                                const ok = window.confirm(
+                                  `Are you sure you want to void invoice ${activeInvoice.invoiceNo ?? "this invoice"}?\n\n` +
+                                  "This action cannot be undone. The invoice will be marked as VOID and no further payments can be recorded against it."
+                                );
+                                if (!ok) return;
+
+                                const token = localStorage.getItem("accessToken");
+                                if (!token) {
+                                  setInvoiceMessage("Missing access token.");
+                                  return;
+                                }
+
+                                setInvoiceMessage("Voiding invoice...");
+                                try {
+                                  const res = await fetch(
+                                    `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/void`,
+                                    {
+                                      method: "POST",
+                                      headers: {
+                                        "Content-Type": "application/json",
+                                        Authorization: `Bearer ${token}`,
+                                      },
+                                      body: JSON.stringify({ reason: reason.trim() || undefined }),
+                                    }
+                                  );
+                                  if (!res.ok) {
+                                    const text = await res.text().catch(() => "");
+                                    setInvoiceMessage(`Void failed (${res.status}) ${text}`);
+                                    return;
+                                  }
+                                  const json: any = await res.json();
+                                  setActiveInvoice(json);
+                                  setProjectInvoices(null);
+                                  setFinancialSummary(null);
+                                  setInvoiceMessage("Invoice voided.");
+                                } catch (err: any) {
+                                  setInvoiceMessage(err?.message ?? "Void failed.");
+                                }
+                              }}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 6,
+                                border: "1px solid #dc2626",
+                                background: "#fef2f2",
+                                color: "#b91c1c",
+                                fontSize: 12,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Void Invoice
+                            </button>
+                          )}
+
+                          {/* Show void status badge */}
+                          {activeInvoice.status === "VOID" && (
+                            <span
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: 6,
+                                background: "#fef2f2",
+                                border: "1px solid #fecaca",
+                                color: "#b91c1c",
+                                fontSize: 11,
+                                fontWeight: 600,
+                              }}
+                            >
+                              VOIDED
+                            </span>
+                          )}
+
                           <div style={{ fontSize: 11, color: "#6b7280", alignSelf: "center" }}>
-                            Tip: choose “Save as PDF” in the print dialog.
+                            Tip: choose "Save as PDF" in the print dialog.
                           </div>
                         </div>
                       )}

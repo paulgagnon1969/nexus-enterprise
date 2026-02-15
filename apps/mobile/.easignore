@@ -1,26 +1,55 @@
-# Ignore node_modules - EAS will install fresh
-node_modules/
+# ====================================
+# EAS Build Ignore File
+# Reduces upload size by excluding unnecessary files
+# ====================================
 
-# Ignore build artifacts
+# Node modules (EAS installs fresh)
+node_modules/
+**/node_modules/
+
+# Native build folders (EAS runs prebuild)
+ios/
+android/
+
+# Build artifacts
 dist/
 build/
 .expo/
-android/
-ios/
+*.tsbuildinfo
 
-# Ignore test files
+# Test files
 **/*.test.ts
 **/*.test.tsx
 **/*.spec.ts
 **/*.spec.tsx
 __tests__/
+coverage/
 
-# Ignore dev files
+# Dev/IDE files
 .git/
+**/.git/
 *.log
 .DS_Store
+**/.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# Ignore docs and non-essential files from monorepo root
+# Monorepo - exclude other apps and unnecessary packages
+../../apps/api/
+../../apps/web/
+../../apps/nexus-applet/
+../../apps/contact-sync/
 ../../docs/
+../../infra/
 ../../.git/
 ../../node_modules/
+../../packages/database/node_modules/
+
+# Large/unnecessary files
+*.zip
+*.tar.gz
+*.mp4
+*.mov
+*.avi
