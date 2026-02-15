@@ -446,14 +446,16 @@ export class DailyLogService {
 
         // Create ProjectFile if needed
         if (!projectFileId) {
+          const createData = {
+            companyId,
+            projectId: log.projectId,
+            storageUrl: attachment.fileUrl,
+            fileName: attachment.fileName ?? 'attachment',
+            mimeType: attachment.mimeType ?? 'image/jpeg',
+          };
+          this.logger.log(`[triggerOcrForLog] Creating ProjectFile with: ${JSON.stringify(createData)}`);
           const projectFile = await this.prisma.projectFile.create({
-            data: {
-              companyId,
-              projectId: log.projectId,
-              storageUrl: attachment.fileUrl,
-              fileName: attachment.fileName ?? 'attachment',
-              mimeType: attachment.mimeType ?? 'image/jpeg',
-            },
+            data: createData,
           });
           projectFileId = projectFile.id;
 
