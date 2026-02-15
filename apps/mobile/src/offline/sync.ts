@@ -1,4 +1,5 @@
 import NetInfo from "@react-native-community/netinfo";
+import * as FileSystem from "expo-file-system";
 import { apiFetch, apiJson } from "../api/client";
 import type { DailyLogCreateRequest } from "../types/api";
 import { getWifiOnlySync } from "../storage/settings";
@@ -51,6 +52,21 @@ async function uploadDailyLogAttachment(params: {
 }): Promise<void> {
   const { logId, fileUri, fileName, mimeType } = params;
 
+  console.log(`[Sync] Uploading attachment: ${fileName} to log ${logId}`);
+  console.log(`[Sync] File URI: ${fileUri}`);
+
+  // Check if the file exists before attempting upload
+  try {
+    const fileInfo = await FileSystem.getInfoAsync(fileUri);
+    console.log(`[Sync] File info:`, JSON.stringify(fileInfo));
+    if (!fileInfo.exists) {
+      throw new Error(`File does not exist at URI: ${fileUri}`);
+    }
+  } catch (err) {
+    console.error(`[Sync] Error checking file:`, err);
+    throw new Error(`File check failed for ${fileUri}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   const form = new FormData();
   form.append(
     "file",
@@ -61,6 +77,8 @@ async function uploadDailyLogAttachment(params: {
     } as any,
   );
 
+  console.log(`[Sync] Sending POST to /daily-logs/${logId}/attachments`);
+
   const res = await apiFetch(`/daily-logs/${encodeURIComponent(logId)}/attachments`, {
     method: "POST",
     // Let fetch set the multipart boundary.
@@ -68,10 +86,15 @@ async function uploadDailyLogAttachment(params: {
     body: form as any,
   });
 
+  console.log(`[Sync] Upload response status: ${res.status}`);
+
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    console.error(`[Sync] Upload failed: ${res.status} ${text}`);
     throw new Error(`Attachment upload failed: ${res.status} ${text || res.statusText}`);
   }
+
+  console.log(`[Sync] Attachment uploaded successfully`);
 }
 
 async function processOutboxItem(type: string, payloadStr: string): Promise<void> {
