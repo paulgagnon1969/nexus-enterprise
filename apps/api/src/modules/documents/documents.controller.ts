@@ -9,6 +9,14 @@ import { CreateDocumentTemplateDto, UpdateDocumentTemplateDto } from "./dto/docu
 export class DocumentsController {
   constructor(private readonly docs: DocumentsService) {}
 
+  // Dashboard stats for Documents landing page
+  @Roles(Role.MEMBER, Role.ADMIN, Role.OWNER)
+  @Get("dashboard-stats")
+  async getDashboardStats(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.docs.getDashboardStats(actor);
+  }
+
   // View templates (member+)
   @Roles(Role.MEMBER, Role.ADMIN, Role.OWNER)
   @Get("templates")

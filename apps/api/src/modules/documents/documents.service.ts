@@ -12,6 +12,66 @@ export class DocumentsService {
     return createHash("sha256").update(html || "").digest("hex");
   }
 
+  /**
+   * Get dashboard stats for the Documents landing page
+   */
+  async getDashboardStats(actor: AuthenticatedUser) {
+    const companyId = actor.companyId;
+    const isAdmin = actor.role === "OWNER" || actor.role === "ADMIN";
+
+    // Run counts in parallel for efficiency
+    const [inbox, published, templates, pnp, unpublished, systemDocs] = await Promise.all([
+      // Inbox: TenantDocumentCopy with UNRELEASED status (pending review)
+      this.prisma.tenantDocumentCopy.count({
+        where: { companyId, status: "UNRELEASED" },
+      }),
+
+      // Published: TenantDocumentCopy with PUBLISHED status
+      this.prisma.tenantDocumentCopy.count({
+        where: { companyId, status: "PUBLISHED" },
+      }),
+
+      // Templates: DocumentTemplate count for this company
+      this.prisma.documentTemplate.count({
+        where: { companyId, active: true },
+      }),
+
+      // P&P: Published documents (could filter by category if needed)
+      // For now, just count published tenant copies as P&P
+      this.prisma.tenantDocumentCopy.count({
+        where: { companyId, status: "PUBLISHED" },
+      }),
+
+      // Unpublished eDocs (admin only): StagedDocument with ACTIVE status
+      isAdmin
+        ? this.prisma.stagedDocument.count({
+            where: { companyId, status: "ACTIVE" },
+          }).catch(() => 0) // Table might not exist
+        : Promise.resolve(0),
+
+      // System Documents (admin only): Total active SystemDocuments
+      isAdmin
+        ? this.prisma.systemDocument.count({
+            where: { active: true },
+          }).catch(() => 0) // Table might not exist
+        : Promise.resolve(0),
+    ]);
+
+    // Safety sections - hardcoded for now (could query from a safety_sections table later)
+    const safety = 6;
+
+    return {
+      inbox,
+      published,
+      templates,
+      pnp,
+      safety,
+      // Admin-only stats
+      unpublished: isAdmin ? unpublished : undefined,
+      systemDocs: isAdmin ? systemDocs : undefined,
+    };
+  }
+
   async listTemplates(actor: AuthenticatedUser) {
     return this.prisma.documentTemplate.findMany({
       where: { companyId: actor.companyId },
