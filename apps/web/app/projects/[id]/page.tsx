@@ -11085,7 +11085,6 @@ ${htmlBody}
     >
       {/* GALLERY MODAL - INLINE TEST */}
       {attachmentsViewer.open && attachmentsViewer.log && (() => {
-        console.log("[GALLERY-INLINE] Rendering inline gallery");
         const log = attachmentsViewer.log;
         const attachments = log.attachments || [];
         const currentIndex = attachmentsViewer.currentIndex;
@@ -11098,6 +11097,67 @@ ${htmlBody}
           const ext = url.split(".").pop()?.toLowerCase() || "";
           return ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "heic", "heif"].includes(ext);
         };
+        
+        // Touch/swipe state tracking
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let initialPinchDistance = 0;
+        let currentScale = 1;
+        
+        const handleTouchStart = (e: React.TouchEvent) => {
+          if (e.touches.length === 1) {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+          } else if (e.touches.length === 2) {
+            // Pinch start
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            initialPinchDistance = Math.sqrt(dx * dx + dy * dy);
+          }
+        };
+        
+        const handleTouchMove = (e: React.TouchEvent) => {
+          if (e.touches.length === 2 && initialPinchDistance > 0) {
+            // Pinch zoom
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const scale = Math.max(0.5, Math.min(4, distance / initialPinchDistance * currentScale));
+            const img = document.getElementById("gallery-main-image") as HTMLImageElement;
+            if (img) {
+              img.style.transform = `scale(${scale})`;
+            }
+          }
+        };
+        
+        const handleTouchEnd = (e: React.TouchEvent) => {
+          if (e.changedTouches.length === 1 && initialPinchDistance === 0) {
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
+            const deltaX = touchEndX - touchStartX;
+            const deltaY = touchEndY - touchStartY;
+            
+            // Only trigger swipe if horizontal movement > 50px and greater than vertical
+            if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
+              if (deltaX > 0 && attachments.length > 1) {
+                goToPrevAttachment();
+              } else if (deltaX < 0 && attachments.length > 1) {
+                goToNextAttachment();
+              }
+            }
+          }
+          // Reset pinch tracking
+          initialPinchDistance = 0;
+        };
+        
+        const resetZoom = () => {
+          currentScale = 1;
+          const img = document.getElementById("gallery-main-image") as HTMLImageElement;
+          if (img) {
+            img.style.transform = "scale(1)";
+          }
+        };
+        
         return (
           <div
             id="gallery-modal-inline"
@@ -11115,98 +11175,171 @@ ${htmlBody}
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
+              touchAction: "none", // Prevent browser handling of touch
             }}
             onClick={() => setAttachmentsViewer({ open: false, log: null, currentIndex: 0 })}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
           >
-            {/* Close button */}
+            {/* Close button - larger for mobile */}
             <button
-              onClick={() => setAttachmentsViewer({ open: false, log: null, currentIndex: 0 })}
+              onClick={(e) => {
+                e.stopPropagation();
+                setAttachmentsViewer({ open: false, log: null, currentIndex: 0 });
+              }}
               style={{
                 position: "absolute",
-                top: 20,
-                right: 20,
+                top: 16,
+                right: 16,
                 background: "white",
                 border: "none",
                 borderRadius: "50%",
-                width: 40,
-                height: 40,
-                fontSize: 24,
+                width: 48,
+                height: 48,
+                minWidth: 48,
+                minHeight: 48,
+                fontSize: 28,
                 cursor: "pointer",
                 zIndex: 2147483647,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
               }}
             >
               ×
             </button>
+            
+            {/* Reset zoom button (shows when zoomed) */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                resetZoom();
+              }}
+              style={{
+                position: "absolute",
+                top: 16,
+                left: 16,
+                background: "white",
+                border: "none",
+                borderRadius: 8,
+                padding: "8px 12px",
+                fontSize: 14,
+                cursor: "pointer",
+                zIndex: 2147483647,
+                boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+              }}
+            >
+              Reset Zoom
+            </button>
+            
             {/* Title */}
-            <div style={{ color: "white", fontSize: 18, marginBottom: 20 }}>
-              Attachments ({currentIndex + 1} of {attachments.length})
+            <div style={{ color: "white", fontSize: 16, marginBottom: 12, padding: "0 60px", textAlign: "center" }}>
+              {attachments.length > 1 ? `${currentIndex + 1} of ${attachments.length}` : "Attachment"}
             </div>
+            
+            {/* Swipe hint for mobile */}
+            {attachments.length > 1 && (
+              <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginBottom: 8 }}>
+                Swipe to navigate • Pinch to zoom
+              </div>
+            )}
+            
             {/* Main content area */}
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 20,
-                maxWidth: "90vw",
-                maxHeight: "70vh",
+                gap: 12,
+                maxWidth: "95vw",
+                maxHeight: "65vh",
+                flex: 1,
+                width: "100%",
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Left arrow */}
+              {/* Left arrow - larger touch target, hidden on very small screens */}
               {attachments.length > 1 && (
                 <button
                   onClick={() => goToPrevAttachment()}
                   style={{
-                    background: "white",
+                    background: "rgba(255,255,255,0.9)",
                     border: "none",
                     borderRadius: "50%",
-                    width: 50,
-                    height: 50,
-                    fontSize: 24,
+                    width: 56,
+                    height: 56,
+                    minWidth: 56,
+                    minHeight: 56,
+                    fontSize: 28,
                     cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                    flexShrink: 0,
                   }}
+                  aria-label="Previous"
                 >
-                  ←
+                  ‹
                 </button>
               )}
+              
               {/* Image/file display */}
               {currentAttachment && (
-                <div style={{ textAlign: "center" }}>
+                <div style={{ textAlign: "center", overflow: "hidden", maxWidth: "80vw", maxHeight: "60vh" }}>
                   {isImageFile(currentAttachment) ? (
                     <img
+                      id="gallery-main-image"
                       src={currentAttachment.fileUrl}
                       alt={currentAttachment.fileName || "Attachment"}
                       style={{
-                        maxWidth: "70vw",
+                        maxWidth: "80vw",
                         maxHeight: "60vh",
                         objectFit: "contain",
                         borderRadius: 8,
+                        transition: "transform 0.1s ease-out",
+                        transformOrigin: "center center",
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        const img = e.currentTarget;
+                        if (currentScale === 1) {
+                          currentScale = 2;
+                          img.style.transform = "scale(2)";
+                        } else {
+                          currentScale = 1;
+                          img.style.transform = "scale(1)";
+                        }
                       }}
                     />
                   ) : (
                     <div
                       style={{
-                        padding: 40,
+                        padding: 32,
                         background: "white",
                         borderRadius: 8,
                         textAlign: "center",
+                        maxWidth: "80vw",
                       }}
                     >
                       <div style={{ fontSize: 48, marginBottom: 10 }}>📄</div>
-                      <div style={{ fontWeight: 600 }}>{currentAttachment.fileName}</div>
+                      <div style={{ fontWeight: 600, wordBreak: "break-word" }}>{currentAttachment.fileName}</div>
                       <a
                         href={currentAttachment.fileUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{
                           display: "inline-block",
-                          marginTop: 10,
-                          padding: "8px 16px",
+                          marginTop: 12,
+                          padding: "12px 24px",
                           background: "#2563eb",
                           color: "white",
-                          borderRadius: 4,
+                          borderRadius: 6,
                           textDecoration: "none",
+                          fontSize: 16,
+                          fontWeight: 500,
                         }}
                       >
                         Open File
@@ -11215,50 +11348,69 @@ ${htmlBody}
                   )}
                 </div>
               )}
-              {/* Right arrow */}
+              
+              {/* Right arrow - larger touch target */}
               {attachments.length > 1 && (
                 <button
                   onClick={() => goToNextAttachment()}
                   style={{
-                    background: "white",
+                    background: "rgba(255,255,255,0.9)",
                     border: "none",
                     borderRadius: "50%",
-                    width: 50,
-                    height: 50,
-                    fontSize: 24,
+                    width: 56,
+                    height: 56,
+                    minWidth: 56,
+                    minHeight: 56,
+                    fontSize: 28,
                     cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                    flexShrink: 0,
                   }}
+                  aria-label="Next"
                 >
-                  →
+                  ›
                 </button>
               )}
             </div>
-            {/* Thumbnail strip */}
+            
+            {/* Thumbnail strip - scrollable on mobile */}
             {attachments.length > 1 && (
               <div
                 style={{
                   display: "flex",
                   gap: 8,
-                  marginTop: 20,
-                  padding: 10,
+                  marginTop: 16,
+                  padding: 12,
                   background: "rgba(255,255,255,0.1)",
                   borderRadius: 8,
+                  overflowX: "auto",
+                  maxWidth: "90vw",
+                  WebkitOverflowScrolling: "touch",
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
                 {attachments.map((att: any, idx: number) => (
                   <button
                     key={att.id}
-                    onClick={() => setAttachmentsViewer(prev => ({ ...prev, currentIndex: idx }))}
+                    onClick={() => {
+                      resetZoom();
+                      setAttachmentsViewer(prev => ({ ...prev, currentIndex: idx }));
+                    }}
                     style={{
-                      width: 60,
-                      height: 60,
+                      width: 56,
+                      height: 56,
+                      minWidth: 56,
+                      minHeight: 56,
                       border: idx === currentIndex ? "3px solid #2563eb" : "2px solid transparent",
-                      borderRadius: 4,
+                      borderRadius: 6,
                       padding: 0,
                       cursor: "pointer",
                       overflow: "hidden",
                       background: "white",
+                      flexShrink: 0,
                     }}
                   >
                     {isImageFile(att) ? (
@@ -11268,7 +11420,7 @@ ${htmlBody}
                         style={{ width: "100%", height: "100%", objectFit: "cover" }}
                       />
                     ) : (
-                      <div style={{ fontSize: 24, lineHeight: "60px" }}>📄</div>
+                      <div style={{ fontSize: 24, lineHeight: "56px" }}>📄</div>
                     )}
                   </button>
                 ))}
