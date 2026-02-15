@@ -21403,6 +21403,33 @@ ${htmlBody}
                   Field PETL scope
                 </div>
                 <div style={{ padding: 10, fontSize: 13 }}>
+                  {/* Manual OCR trigger even for non-receipt logs if there are image attachments */}
+                  {editDailyLog.log?.attachments && editDailyLog.log.attachments.length > 0 && editDailyLog.draft.type !== "RECEIPT_EXPENSE" && (
+                    <div style={{ marginBottom: 8, display: "flex", justifyContent: "flex-end" }}>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const token = localStorage.getItem("accessToken");
+                          if (!token || !editDailyLog.log) { alert("Missing access token"); return; }
+                          try {
+                            setEditDailyLog(prev => ({ ...prev, saving: true, error: null }));
+                            const resp = await fetch(`${API_BASE}/daily-logs/${editDailyLog.log!.id}/attachments/ocr`, {
+                              method: "POST",
+                              headers: { Authorization: `Bearer ${token}` },
+                            });
+                            if (!resp.ok) alert("OCR trigger failed");
+                          } finally {
+                            setEditDailyLog(prev => ({ ...prev, saving: false }));
+                          }
+                        }}
+                        style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #2563eb", background: "#eff6ff", color: "#1e40af", fontSize: 11 }}
+                        title="Run OCR on image attachments"
+                      >
+                        Run OCR on attachments
+                      </button>
+                    </div>
+                  )}
+
                   {fieldPetlOrgGroupCodes.length > 0 && (
                     <div style={{ marginBottom: 8 }}>
                       <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>
@@ -27439,7 +27466,54 @@ ${htmlBody}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div>
                 <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Type</label>
-                <select value={editDailyLog.draft.type} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, type: e.target.value as DailyLogType } : null }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}>
+                <select
+                  value={editDailyLog.draft.type}
+                  onChange={async e => {
+                    const newType = e.target.value as DailyLogType;
+                    // Optimistically update UI
+                    setEditDailyLog(prev => ({
+                      ...prev,
+                      draft: prev.draft ? { ...prev.draft, type: newType } : null,
+                    }));
+                    if (!editDailyLog.log) return;
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) return;
+                    try {
+                      // For receipts, lock sharing defaults
+                      const isReceipt = newType === "RECEIPT_EXPENSE";
+                      const body: any = { type: newType };
+                      if (isReceipt) {
+                        body.shareInternal = false;
+                        body.shareSubs = false;
+                        body.shareClient = false;
+                        body.sharePrivate = true;
+                      }
+                      const resp = await fetch(`${API_BASE}/daily-logs/${editDailyLog.log.id}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                        body: JSON.stringify(body),
+                      });
+                      if (resp.ok) {
+                        const updated = await resp.json();
+                        // Sync UI state and list
+                        setEditDailyLog(prev => ({
+                          ...prev,
+                          log: updated,
+                          draft: prev.draft ? {
+                            ...prev.draft,
+                            type: updated.type,
+                            shareInternal: updated.shareInternal,
+                            shareSubs: updated.shareSubs,
+                            shareClient: updated.shareClient,
+                            sharePrivate: updated.sharePrivate,
+                          } : null,
+                        }));
+                        setDailyLogs(prev => prev.map(l => l.id === updated.id ? updated : l));
+                      }
+                    } catch {}
+                  }}
+                  style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                >
                   <option value="PUDL">Daily Log (PUDL)</option>
                   <option value="RECEIPT_EXPENSE">Receipt / Expense</option>
                   <option value="JSA">Job Safety Assessment</option>
