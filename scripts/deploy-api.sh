@@ -23,9 +23,29 @@ echo "[deploy-api] Using project: $PROJECT_ID"
 gcloud config set project "$PROJECT_ID" >/dev/null
 
 echo "[deploy-api] Building image with Cloud Build..."
-gcloud builds submit \
+# Use --async to avoid log streaming permission issues, then poll for completion
+BUILD_OP=$(gcloud builds submit \
   --tag "$IMAGE" \
-  --project "$PROJECT_ID"
+  --project "$PROJECT_ID" \
+  --async \
+  --format="value(id)")
+
+echo "[deploy-api] Build started: $BUILD_OP"
+echo "[deploy-api] Waiting for build to complete..."
+
+# Poll until build completes
+while true; do
+  STATUS=$(gcloud builds describe "$BUILD_OP" --project="$PROJECT_ID" --format="value(status)" 2>/dev/null || echo "UNKNOWN")
+  if [ "$STATUS" = "SUCCESS" ]; then
+    echo "[deploy-api] Build completed successfully!"
+    break
+  elif [ "$STATUS" = "FAILURE" ] || [ "$STATUS" = "CANCELLED" ] || [ "$STATUS" = "TIMEOUT" ]; then
+    echo "[deploy-api] Build failed with status: $STATUS"
+    exit 1
+  fi
+  echo "[deploy-api] Build status: $STATUS - waiting..."
+  sleep 10
+done
 
 echo "[deploy-api] Deploying to Cloud Run service: $SERVICE ($REGION)"
 gcloud run deploy "$SERVICE" \
