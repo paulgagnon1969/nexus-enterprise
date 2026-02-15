@@ -25,6 +25,7 @@ import { useDraggable } from "../../hooks/use-draggable";
 import { JournalTab } from "./journal";
 import { RoleVisible } from "../../role-audit";
 import { FileDropZone } from "../../components/file-drop-zone";
+import { ScheduleSection } from "./schedule-section";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -12323,7 +12324,14 @@ ${htmlBody}
             </div>
           </div>
 
-          {renderSchedulePanel({ mode: "SUMMARY" })}
+          <ScheduleSection
+            projectId={project.id}
+            petlEstimateVersionId={petlEstimateVersionId}
+            roomToUnitLabel={roomToUnitLabel}
+            unitGroups={unitGroups}
+            mode="SUMMARY"
+            apiBase={API_BASE}
+          />
 
           {/* Job Notes card */}
           <div
@@ -21267,7 +21275,16 @@ ${htmlBody}
       )}
 
       {/* SCHEDULE tab content */}
-      {activeTab === "SCHEDULE" && renderSchedulePanel({ mode: "SCHEDULE" })}
+      {activeTab === "SCHEDULE" && (
+        <ScheduleSection
+          projectId={project.id}
+          petlEstimateVersionId={petlEstimateVersionId}
+          roomToUnitLabel={roomToUnitLabel}
+          unitGroups={unitGroups}
+          mode="SCHEDULE"
+          apiBase={API_BASE}
+        />
+      )}
 
       {/* PETL tab content */}
       {activeTab === "PETL" && (
