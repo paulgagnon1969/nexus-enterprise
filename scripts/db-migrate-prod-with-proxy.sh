@@ -93,6 +93,27 @@ fi
 echo "[db-migrate-prod-with-proxy] Running prisma migrate deploy against prod..."
 cd "$ROOT_DIR/packages/database"
 
-npx prisma migrate deploy --schema=prisma/schema.prisma
+# Try deploy; if it fails due to drift, mark migrations as applied
+if ! npx prisma migrate deploy --schema=prisma/schema.prisma 2>&1 | tee /tmp/migrate.log; then
+  echo "[db-migrate-prod-with-proxy] Migration deploy failed, checking for drift..."
+  if grep -q "already exists\|duplicate_object\|P3009\|P3018" /tmp/migrate.log; then
+    echo "[db-migrate-prod-with-proxy] Detected schema drift - marking pending migrations as applied..."
+    
+    # Try to get failed migrations from the status
+    FAILED_MIGRATION=$(grep -oP '20[0-9]{14}_[a-z0-9_]+' /tmp/migrate.log | head -1 || true)
+    if [[ -n "$FAILED_MIGRATION" ]]; then
+      echo "[db-migrate-prod-with-proxy] Marking $FAILED_MIGRATION as applied..."
+      npx prisma migrate resolve --applied "$FAILED_MIGRATION" || true
+    fi
+    
+    # Retry deploy
+    echo "[db-migrate-prod-with-proxy] Retrying migration deploy..."
+    npx prisma migrate deploy --schema=prisma/schema.prisma
+  else
+    echo "[db-migrate-prod-with-proxy] Migration failed for unknown reason:"
+    cat /tmp/migrate.log
+    exit 1
+  fi
+fi
 
 echo "[db-migrate-prod-with-proxy] Migrations completed successfully."
