@@ -11165,7 +11165,7 @@ ${htmlBody}
               {/* Image/file display */}
               {currentAttachment && (
                 <div style={{ textAlign: "center" }}>
-                  {currentAttachment.fileType?.startsWith("image/") ? (
+                  {currentAttachment.mimeType?.startsWith("image/") ? (
                     <img
                       src={currentAttachment.fileUrl}
                       alt={currentAttachment.fileName || "Attachment"}
@@ -11253,7 +11253,7 @@ ${htmlBody}
                       background: "white",
                     }}
                   >
-                    {att.fileType?.startsWith("image/") ? (
+                    {att.mimeType?.startsWith("image/") ? (
                       <img
                         src={att.fileUrl}
                         alt=""
