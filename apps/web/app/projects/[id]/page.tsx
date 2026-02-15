@@ -3978,6 +3978,9 @@ ${htmlBody}
     error: string | null;
   }>({ open: false, log: null, percentComplete: "", saving: false, error: null });
 
+  // Drag state for Edit Daily Log attachments drop zone
+  const [editLogDragOver, setEditLogDragOver] = useState(false);
+
   // Field PETL
   const [fieldPetlItems, setFieldPetlItems] = useState<FieldPetlItem[]>([]);
   const [fieldPetlLoading, setFieldPetlLoading] = useState(false);
@@ -27333,10 +27336,69 @@ ${htmlBody}
                 <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 8 }}>No attachments</div>
               )}
               
-              {/* Add new attachment */}
-              <div style={{ marginTop: 8 }}>
-                <label style={{ display: "block", fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Add photos to this log:</label>
+              {/* Drag and drop zone */}
+              <div
+                onDragOver={e => { e.preventDefault(); e.stopPropagation(); setEditLogDragOver(true); }}
+                onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setEditLogDragOver(false); }}
+                onDrop={async e => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setEditLogDragOver(false);
+                  const files = e.dataTransfer.files;
+                  if (!files || files.length === 0 || !editDailyLog.log) return;
+                  const token = localStorage.getItem("accessToken");
+                  if (!token) {
+                    alert("Missing access token; please log in again.");
+                    return;
+                  }
+                  try {
+                    setEditDailyLog(prev => ({ ...prev, saving: true }));
+                    const uploaded: DailyLogAttachmentDto[] = [];
+                    for (const file of Array.from(files)) {
+                      if (!file.type.startsWith("image/")) continue;
+                      const link = await uploadImageFileToNexusUploads(file, "JOURNAL");
+                      const resp = await fetch(`${API_BASE}/daily-logs/${editDailyLog.log!.id}/attachments/link`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ fileUrl: link.url, fileName: link.label }),
+                      });
+                      if (resp.ok) {
+                        const att: DailyLogAttachmentDto = await resp.json();
+                        uploaded.push(att);
+                      }
+                    }
+                    if (uploaded.length > 0) {
+                      setEditDailyLog(prev => ({
+                        ...prev,
+                        log: prev.log ? { ...prev.log, attachments: [...(prev.log.attachments || []), ...uploaded] } : null,
+                      }));
+                      setDailyLogs(prev => prev.map(l => l.id === editDailyLog.log?.id ? { ...l, attachments: [...(l.attachments || []), ...uploaded] } : l));
+                    }
+                  } catch (err: any) {
+                    alert(err?.message || "Upload failed.");
+                  } finally {
+                    setEditDailyLog(prev => ({ ...prev, saving: false }));
+                  }
+                }}
+                style={{
+                  marginTop: 8,
+                  padding: 16,
+                  border: editLogDragOver ? "2px dashed #2563eb" : "2px dashed #d1d5db",
+                  borderRadius: 6,
+                  backgroundColor: editLogDragOver ? "#eff6ff" : "#ffffff",
+                  textAlign: "center",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+                onClick={() => document.getElementById("edit-log-file-input")?.click()}
+              >
+                <div style={{ fontSize: 24, marginBottom: 4 }}>{editLogDragOver ? "📥" : "📷"}</div>
+                <div style={{ fontSize: 12, color: editLogDragOver ? "#2563eb" : "#6b7280", fontWeight: 500 }}>
+                  {editLogDragOver ? "Drop files here" : "Drag & drop photos here"}
+                </div>
+                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>or click to browse</div>
                 <input
+                  id="edit-log-file-input"
                   type="file"
                   accept="image/*"
                   multiple
@@ -27377,9 +27439,12 @@ ${htmlBody}
                       e.target.value = "";
                     }
                   }}
-                  style={{ fontSize: 11 }}
+                  style={{ display: "none" }}
                 />
               </div>
+              {editDailyLog.saving && (
+                <div style={{ marginTop: 8, fontSize: 11, color: "#2563eb", textAlign: "center" }}>Uploading...</div>
+              )}
             </div>
 
             {/* PETL Context Section - show if log has any PETL linkage */}
