@@ -19247,9 +19247,10 @@ ${htmlBody}
                           }}
                         />
                         <input
-                          placeholder="Amount (optional)"
+                          placeholder="Amount (auto)"
                           value={newInvoiceLineAmount}
                           onChange={e => setNewInvoiceLineAmount(e.target.value)}
+                          title="Leave blank to auto-calculate from Qty × Unit $"
                           style={{
                             width: 140,
                             padding: "6px 8px",
@@ -19289,14 +19290,14 @@ ${htmlBody}
                               return;
                             }
 
-                            // For CREDIT kind, ensure amounts are negative
-                            if (newInvoiceLineKind === "CREDIT") {
-                              if (unitPrice !== undefined && unitPrice > 0) {
-                                unitPrice = -Math.abs(unitPrice);
-                              }
-                              if (amount !== undefined && amount > 0) {
-                                amount = -Math.abs(amount);
-                              }
+                            // Calculate amount from qty × unitPrice if not explicitly provided
+                            if (amount === undefined && qty !== undefined && unitPrice !== undefined) {
+                              amount = qty * unitPrice;
+                            }
+
+                            // For CREDIT kind, ensure amount is negative
+                            if (newInvoiceLineKind === "CREDIT" && amount !== undefined && amount > 0) {
+                              amount = -Math.abs(amount);
                             }
 
                             try {
