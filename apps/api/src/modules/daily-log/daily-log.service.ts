@@ -474,6 +474,11 @@ export class DailyLogService {
         this.logger.log(`Triggered OCR for attachment ${attachment.id}`);
       } catch (err: any) {
         results.push({ attachmentId: attachment.id, status: 'failed', error: err?.message });
+        // Log detailed Prisma error info
+        const errMeta = err?.meta ? JSON.stringify(err.meta) : 'no meta';
+        const errCode = err?.code ?? 'no code';
+        const errStack = err?.stack?.slice(0, 500) ?? 'no stack';
+        this.logger.error(`[triggerOcrForLog] Error details - code: ${errCode}, meta: ${errMeta}, stack: ${errStack}`);
         this.logger.warn(`OCR trigger failed for attachment ${attachment.id}: ${err?.message ?? err}`);
       }
     }
