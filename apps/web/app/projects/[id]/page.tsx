@@ -20754,7 +20754,7 @@ ${htmlBody}
                           return;
                         }
 
-                        const uploadedIds: string[] = [];
+                        const uploadedFiles: { id: string; fileName: string; mimeType: string | null; storageUrl: string }[] = [];
                         const errors: string[] = [];
 
                         for (const file of files) {
@@ -20811,7 +20811,7 @@ ${htmlBody}
                               continue;
                             }
                             const uploaded = await registerRes.json();
-                            uploadedIds.push({
+                            uploadedFiles.push({
                               id: uploaded.id,
                               fileName: uploaded.fileName || file.name,
                               mimeType: uploaded.mimeType || file.type || null,
@@ -20822,16 +20822,16 @@ ${htmlBody}
                           }
                         }
 
-                        if (uploadedIds.length > 0) {
+                        if (uploadedFiles.length > 0) {
                           setNewDailyLog(prev => ({
                             ...prev,
                             attachmentProjectFileIds: [
                               ...(prev.attachmentProjectFileIds || []),
-                              ...uploadedIds.map(f => f.id),
+                              ...uploadedFiles.map(f => f.id),
                             ],
                             attachmentFiles: [
                               ...(prev.attachmentFiles || []),
-                              ...uploadedIds,
+                              ...uploadedFiles,
                             ],
                           }));
                         }
@@ -20839,7 +20839,7 @@ ${htmlBody}
                         if (errors.length > 0) {
                           setDailyLogMessage(`Errors: ${errors.join(", ")}`);
                         } else {
-                          setDailyLogMessage(`✓ ${uploadedIds.length} file(s) attached`);
+                          setDailyLogMessage(`✓ ${uploadedFiles.length} file(s) attached`);
                         }
                       }}
                     />
