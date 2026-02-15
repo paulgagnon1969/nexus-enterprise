@@ -71,4 +71,15 @@ export class DailyLogAttachmentsController {
     const user = req.user as AuthenticatedUser;
     return this.dailyLogs.addAttachmentLink(logId, user.companyId, user, body);
   }
+
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Post("ocr")
+  async triggerOcr(
+    @Req() req: any,
+    @Param("logId") logId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.triggerOcrForLog(logId, user.companyId, user);
+  }
 }
