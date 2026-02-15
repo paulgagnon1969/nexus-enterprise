@@ -1511,6 +1511,11 @@ export default function ProjectDetailPage({
   const [billAttachmentFileLoading, setBillAttachmentFileLoading] = useState(false);
   const [billAttachmentFileError, setBillAttachmentFileError] = useState<string | null>(null);
 
+  // State for moving expense line items between invoices
+  const [selectedExpenseLineIds, setSelectedExpenseLineIds] = useState<Set<string>>(new Set());
+  const [moveExpenseLinesBusy, setMoveExpenseLinesBusy] = useState(false);
+  const [moveExpenseLinesMessage, setMoveExpenseLinesMessage] = useState<string | null>(null);
+
   // Invoices + payments (progress billing)
   const [projectInvoices, setProjectInvoices] = useState<any[] | null>(null);
   const [projectInvoicesLoading, setProjectInvoicesLoading] = useState(false);
@@ -15228,10 +15233,135 @@ ${htmlBody}
                   <div style={{ fontSize: 11, color: "#166534" }}>
                     This invoice is auto-generated from bills marked as &quot;Billable&quot;. Review the items below and issue when ready.
                   </div>
+                  {/* Move expense lines action bar */}
+                  {expenseInvoice && expenseInvoice.status === "DRAFT" && selectedExpenseLineIds.size > 0 && (
+                    <div style={{ marginTop: 8, padding: "8px 10px", background: "#dbeafe", borderRadius: 6, display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "#1d4ed8" }}>
+                        {selectedExpenseLineIds.size} line{selectedExpenseLineIds.size !== 1 ? "s" : ""} selected
+                      </span>
+                      <button
+                        type="button"
+                        disabled={moveExpenseLinesBusy}
+                        onClick={async () => {
+                          if (!project || !expenseInvoice) return;
+                          const token = localStorage.getItem("accessToken");
+                          if (!token) {
+                            setMoveExpenseLinesMessage("Missing access token.");
+                            return;
+                          }
+
+                          // Get the invoice line item IDs (not bill IDs) for selected bills
+                          const lineIds: string[] = [];
+                          for (const bill of billableBills) {
+                            if (selectedExpenseLineIds.has(String(bill?.id ?? ""))) {
+                              // Find the invoice line item for this bill from the expense invoice
+                              const invoiceLineItems = Array.isArray(expenseInvoice.lineItems) ? expenseInvoice.lineItems : [];
+                              const invoiceLine = invoiceLineItems.find((li: any) => li?.sourceBillId === bill?.id);
+                              if (invoiceLine) {
+                                lineIds.push(invoiceLine.id);
+                              }
+                            }
+                          }
+
+                          if (lineIds.length === 0) {
+                            setMoveExpenseLinesMessage("Could not find invoice line items for selected bills. Sync the invoice first.");
+                            return;
+                          }
+
+                          const ok = window.confirm(
+                            `Move ${lineIds.length} expense line item${lineIds.length !== 1 ? "s" : ""} to a new invoice?`
+                          );
+                          if (!ok) return;
+
+                          setMoveExpenseLinesBusy(true);
+                          setMoveExpenseLinesMessage(null);
+
+                          try {
+                            const res = await fetch(
+                              `${API_BASE}/projects/${project.id}/invoices/${expenseInvoice.id}/move-expense-lines`,
+                              {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  Authorization: `Bearer ${token}`,
+                                },
+                                body: JSON.stringify({ lineIds }),
+                              }
+                            );
+
+                            if (!res.ok) {
+                              const text = await res.text().catch(() => "");
+                              throw new Error(`Failed to move lines (${res.status}) ${text}`);
+                            }
+
+                            const result = await res.json();
+                            setMoveExpenseLinesMessage(
+                              `Moved ${result.movedLineCount ?? lineIds.length} line(s) to new invoice.`
+                            );
+                            setSelectedExpenseLineIds(new Set());
+                            // Refresh invoices and bills
+                            setProjectInvoices(null);
+                            setProjectBills(null);
+                          } catch (err: any) {
+                            setMoveExpenseLinesMessage(err?.message ?? "Failed to move lines.");
+                          } finally {
+                            setMoveExpenseLinesBusy(false);
+                          }
+                        }}
+                        style={{
+                          padding: "4px 10px",
+                          borderRadius: 4,
+                          border: "1px solid #1d4ed8",
+                          background: "#1d4ed8",
+                          color: "#ffffff",
+                          fontSize: 11,
+                          cursor: moveExpenseLinesBusy ? "wait" : "pointer",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {moveExpenseLinesBusy ? "Moving…" : "Move to New Invoice"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedExpenseLineIds(new Set())}
+                        style={{
+                          padding: "4px 10px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          background: "#ffffff",
+                          fontSize: 11,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+                  {moveExpenseLinesMessage && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: moveExpenseLinesMessage.includes("fail") || moveExpenseLinesMessage.includes("Failed") ? "#b91c1c" : "#166534" }}>
+                      {moveExpenseLinesMessage}
+                    </div>
+                  )}
                   <div style={{ marginTop: 12 }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                       <thead>
                         <tr style={{ textAlign: "left", borderBottom: "1px solid #bbf7d0" }}>
+                          {expenseInvoice && expenseInvoice.status === "DRAFT" && (
+                            <th style={{ padding: "4px 6px", width: 24 }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedExpenseLineIds.size === billableBills.length && billableBills.length > 0}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedExpenseLineIds(new Set(billableBills.map((b: any) => String(b?.id ?? ""))));
+                                  } else {
+                                    setSelectedExpenseLineIds(new Set());
+                                  }
+                                }}
+                                style={{ cursor: "pointer" }}
+                              />
+                            </th>
+                          )}
                           <th style={{ padding: "4px 6px" }}>Vendor</th>
                           <th style={{ padding: "4px 6px" }}>Description</th>
                           <th style={{ padding: "4px 6px", textAlign: "right" }}>Cost</th>
@@ -15245,8 +15375,30 @@ ${htmlBody}
                           const cost = Number(b?.totalAmount) || 0;
                           const billable = Number(b?.billableAmount) || 0;
                           const gmPct = billable > 0 ? ((billable - cost) / billable) * 100 : 0;
+                          const billId = String(b?.id ?? "");
+                          const isSelected = selectedExpenseLineIds.has(billId);
                           return (
-                            <tr key={String(b?.id ?? Math.random())} style={{ borderTop: "1px solid #bbf7d0" }}>
+                            <tr key={billId || Math.random()} style={{ borderTop: "1px solid #bbf7d0", background: isSelected ? "#dbeafe" : undefined }}>
+                              {expenseInvoice && expenseInvoice.status === "DRAFT" && (
+                                <td style={{ padding: "4px 6px" }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      setSelectedExpenseLineIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (e.target.checked) {
+                                          next.add(billId);
+                                        } else {
+                                          next.delete(billId);
+                                        }
+                                        return next;
+                                      });
+                                    }}
+                                    style={{ cursor: "pointer" }}
+                                  />
+                                </td>
+                              )}
                               <td style={{ padding: "4px 6px" }}>{b?.vendorName ?? "—"}</td>
                               <td style={{ padding: "4px 6px", color: "#166534" }}>{li?.description ?? "—"}</td>
                               <td style={{ padding: "4px 6px", textAlign: "right" }}>{formatMoney(cost)}</td>

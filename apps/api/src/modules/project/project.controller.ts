@@ -1430,6 +1430,18 @@ export class ProjectController {
     return this.projects.moveInvoicePetlLinesToNewInvoice(projectId, invoiceId, dto, user);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/invoices/:invoiceId/move-expense-lines")
+  moveExpenseLineItemsToInvoice(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() dto: { lineIds: string[]; targetInvoiceId?: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.moveExpenseLineItemsToInvoice(projectId, invoiceId, dto, user);
+  }
+
   // Project payments (cash receipts) - can exist without being tied to an invoice.
 
   @UseGuards(JwtAuthGuard)
