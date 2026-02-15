@@ -10858,6 +10858,66 @@ export class ProjectService {
     }
   }
 
+  /**
+   * Void an issued (locked) invoice. This marks the invoice as VOID
+   * and prevents further payments or edits. Existing payments are preserved
+   * but the invoice balance is considered settled.
+   */
+  async voidInvoice(
+    projectId: string,
+    invoiceId: string,
+    dto: { reason?: string },
+    actor: AuthenticatedUser,
+  ) {
+    this.ensureBillingModelsAvailable();
+
+    try {
+      const { project, invoice } = await this.getInvoiceOrThrow(projectId, invoiceId, actor);
+
+      if (invoice.status === ProjectInvoiceStatus.DRAFT) {
+        throw new BadRequestException(
+          "Cannot void a draft invoice. Delete it instead or issue it first."
+        );
+      }
+
+      if (invoice.status === ProjectInvoiceStatus.VOID) {
+        throw new BadRequestException("Invoice is already voided");
+      }
+
+      // Update invoice status to VOID
+      await this.prisma.projectInvoice.update({
+        where: { id: invoice.id },
+        data: {
+          status: ProjectInvoiceStatus.VOID,
+          memo: dto.reason
+            ? `${invoice.memo ? invoice.memo + "\n" : ""}[VOIDED: ${dto.reason}]`
+            : invoice.memo
+            ? `${invoice.memo}\n[VOIDED]`
+            : "[VOIDED]",
+        },
+      });
+
+      await this.audit.log(actor, "PROJECT_INVOICE_VOIDED", {
+        companyId: project.companyId,
+        projectId: project.id,
+        metadata: {
+          invoiceId: invoice.id,
+          invoiceNo: invoice.invoiceNo,
+          totalAmount: invoice.totalAmount,
+          previousStatus: invoice.status,
+          reason: dto.reason ?? null,
+        },
+      });
+
+      return this.getProjectInvoice(projectId, invoice.id, actor);
+    } catch (err: any) {
+      if (this.isBillingTableMissingError(err)) {
+        this.throwBillingTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
   async issueInvoice(
     projectId: string,
     invoiceId: string,
