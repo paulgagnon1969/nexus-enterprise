@@ -322,25 +322,23 @@ export class DailyLogService {
       },
     });
 
-    // Auto-trigger OCR for image attachments on RECEIPT_EXPENSE logs (upload path)
-    if (log.type === DailyLogType.RECEIPT_EXPENSE) {
-      const isImage = (file.mimetype?.startsWith('image/') ?? false) ||
-        (file.originalname?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/) != null) ||
-        publicUrl.toLowerCase().match(/\/(jpg|jpeg|png|gif|webp)$/) != null;
-      if (isImage) {
-        try {
-          await this.receiptOcr.processReceiptAsync({
-            projectFileId: projectFile.id,
-            dailyLogId,
-          });
-          this.logger.log(`Triggered OCR for uploaded attachment ${attachment.id} on receipt log ${dailyLogId}`);
-        } catch (ocrErr: any) {
-          const errMeta = ocrErr?.meta ? JSON.stringify(ocrErr.meta) : 'no meta';
-          const errCode = ocrErr?.code ?? 'no code';
-          const errStack = ocrErr?.stack?.slice(0, 500) ?? 'no stack';
-          this.logger.error(`[addAttachment] OCR trigger error - code: ${errCode}, meta: ${errMeta}, stack: ${errStack}`);
-          this.logger.warn(`OCR trigger failed for uploaded attachment ${attachment.id}: ${ocrErr?.message ?? ocrErr}`);
-        }
+    // Auto-trigger OCR for image attachments on any log type (upload path)
+    const isImageUpload = (file.mimetype?.startsWith('image/') ?? false) ||
+      (file.originalname?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/) != null) ||
+      publicUrl.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/) != null;
+    if (isImageUpload) {
+      try {
+        await this.receiptOcr.processReceiptAsync({
+          projectFileId: projectFile.id,
+          dailyLogId,
+        });
+        this.logger.log(`Triggered OCR for uploaded attachment ${attachment.id} on log ${dailyLogId}`);
+      } catch (ocrErr: any) {
+        const errMeta = ocrErr?.meta ? JSON.stringify(ocrErr.meta) : 'no meta';
+        const errCode = ocrErr?.code ?? 'no code';
+        const errStack = ocrErr?.stack?.slice(0, 500) ?? 'no stack';
+        this.logger.error(`[addAttachment] OCR trigger error - code: ${errCode}, meta: ${errMeta}, stack: ${errStack}`);
+        this.logger.warn(`OCR trigger failed for uploaded attachment ${attachment.id}: ${ocrErr?.message ?? ocrErr}`);
       }
     }
 
@@ -395,37 +393,39 @@ export class DailyLogService {
       },
     });
 
-    // Auto-trigger OCR for image attachments on RECEIPT_EXPENSE logs
-    if (log.type === DailyLogType.RECEIPT_EXPENSE) {
-      const isImage = payload.mimeType?.startsWith('image/') || 
-        payload.fileUrl?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/);
-      if (isImage) {
-        try {
-          // Create a temporary ProjectFile record for OCR
-          const projectFile = await this.prisma.projectFile.create({
-            data: {
-              companyId,
-              projectId: log.projectId,
-              storageUrl: payload.fileUrl,
-              fileName: payload.fileName ?? 'receipt',
-              mimeType: payload.mimeType ?? 'image/jpeg',
-            },
-            select: { id: true },
-          });
-          // Update attachment with projectFileId
-          await this.prisma.dailyLogAttachment.update({
-            where: { id: attachment.id },
-            data: { projectFileId: projectFile.id },
-          });
-          // Trigger OCR
-          await this.receiptOcr.processReceiptAsync({
-            projectFileId: projectFile.id,
-            dailyLogId,
-          });
-          this.logger.log(`Triggered OCR for attachment ${attachment.id} on receipt log ${dailyLogId}`);
-        } catch (ocrErr: any) {
-          this.logger.warn(`OCR trigger failed for attachment ${attachment.id}: ${ocrErr?.message ?? ocrErr}`);
-        }
+    // Auto-trigger OCR for image attachments on any log type (PUDL, JSA, etc.)
+    const isImage = payload.mimeType?.startsWith('image/') || 
+      payload.fileUrl?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/);
+    if (isImage) {
+      try {
+        // Create a temporary ProjectFile record for OCR
+        const projectFile = await this.prisma.projectFile.create({
+          data: {
+            companyId,
+            projectId: log.projectId,
+            storageUrl: payload.fileUrl,
+            fileName: payload.fileName ?? 'attachment',
+            mimeType: payload.mimeType ?? 'image/jpeg',
+          },
+          select: { id: true },
+        });
+        // Update attachment with projectFileId
+        await this.prisma.dailyLogAttachment.update({
+          where: { id: attachment.id },
+          data: { projectFileId: projectFile.id },
+        });
+        // Trigger OCR
+        await this.receiptOcr.processReceiptAsync({
+          projectFileId: projectFile.id,
+          dailyLogId,
+        });
+        this.logger.log(`Triggered OCR for attachment ${attachment.id} on log ${dailyLogId}`);
+      } catch (ocrErr: any) {
+        const errMeta = ocrErr?.meta ? JSON.stringify(ocrErr.meta) : 'no meta';
+        const errCode = ocrErr?.code ?? 'no code';
+        const errStack = ocrErr?.stack?.slice(0, 500) ?? 'no stack';
+        this.logger.error(`[addAttachmentLink] OCR trigger error - code: ${errCode}, meta: ${errMeta}, stack: ${errStack}`);
+        this.logger.warn(`OCR trigger failed for attachment ${attachment.id}: ${ocrErr?.message ?? ocrErr}`);
       }
     }
 
