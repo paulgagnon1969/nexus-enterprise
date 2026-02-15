@@ -21,7 +21,7 @@ export function extractImageFilesFromClipboard(
 
 export async function uploadImageFileToNexusUploads(
   file: File,
-  scope: "MESSAGE" | "JOURNAL" | "NTT" | "OTHER" = "MESSAGE",
+  scope: "MESSAGE" | "JOURNAL" | "NTT" | "BILL" | "OTHER" = "MESSAGE",
 ): Promise<UploadedImageLink> {
   if (typeof window === "undefined") {
     throw new Error("Window is not available");

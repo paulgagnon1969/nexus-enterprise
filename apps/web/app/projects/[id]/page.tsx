@@ -4621,6 +4621,7 @@ ${htmlBody}
   const [clientSearchResults, setClientSearchResults] = useState<TenantClientResult[]>([]);
   const [clientSearching, setClientSearching] = useState(false);
   const [selectedTenantClient, setSelectedTenantClient] = useState<TenantClientResult | null>(null);
+  const clientNameSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Search for tenant clients by name, email, or phone
   const searchTenantClients = async (query: string) => {
@@ -11732,29 +11733,16 @@ ${htmlBody}
                   borderTop: "1px solid #e5e7eb",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <div style={{ marginBottom: 6 }}>
                   <label style={{ fontSize: 12, fontWeight: 600 }}>
                     Client Contact (for invoices & correspondence)
                   </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={clientLinkMode}
-                      onChange={e => {
-                        setClientLinkMode(e.target.checked);
-                        if (!e.target.checked) {
-                          setSelectedTenantClient(null);
-                          setClientSearchQuery("");
-                          setClientSearchResults([]);
-                        }
-                      }}
-                      style={{ cursor: "pointer" }}
-                    />
-                    <span style={{ fontSize: 11, color: "#6b7280" }}>Search existing clients</span>
-                  </label>
+                  <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>
+                    Start typing to search existing clients
+                  </div>
                 </div>
 
-                {clientLinkMode ? (
+                {selectedTenantClient ? (
                   <div>
                     {selectedTenantClient ? (
                       <div
@@ -11890,28 +11878,95 @@ ${htmlBody}
                       alignItems: "flex-start",
                     }}
                   >
-                    <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+                    <div style={{ flex: "1 1 200px", minWidth: 180, position: "relative" }}>
                       <label style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
                         Client Name
                       </label>
-                      <input
-                        value={editProject.primaryContactName ?? ""}
-                        onChange={e =>
-                          setEditProject(prev =>
-                            prev
-                              ? { ...prev, primaryContactName: e.target.value || null }
-                              : prev,
-                          )
-                        }
-                        placeholder="Full name"
-                        style={{
-                          width: "100%",
-                          padding: "4px 6px",
-                          borderRadius: 4,
-                          border: "1px solid #d1d5db",
-                          fontSize: 13,
-                        }}
-                      />
+                      <div style={{ position: "relative" }}>
+                        <input
+                          value={editProject.primaryContactName ?? ""}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setEditProject(prev =>
+                              prev
+                                ? { ...prev, primaryContactName: val || null }
+                                : prev,
+                            );
+                            // Debounced search as user types
+                            if (clientNameSearchTimeoutRef.current) clearTimeout(clientNameSearchTimeoutRef.current);
+                            clientNameSearchTimeoutRef.current = setTimeout(() => {
+                              searchTenantClients(val);
+                            }, 300);
+                          }}
+                          onBlur={() => {
+                            // Delay to allow click on search result
+                            setTimeout(() => setClientSearchResults([]), 200);
+                          }}
+                          placeholder="Start typing to search..."
+                          style={{
+                            width: "100%",
+                            padding: "4px 6px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 13,
+                          }}
+                        />
+                        {clientSearching && (
+                          <div style={{ position: "absolute", right: 8, top: 6, fontSize: 10, color: "#9ca3af" }}>...</div>
+                        )}
+                        {clientSearchResults.length > 0 && (editProject.primaryContactName?.length ?? 0) >= 2 && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: "100%",
+                              left: 0,
+                              right: 0,
+                              zIndex: 100,
+                              background: "#fff",
+                              border: "1px solid #d1d5db",
+                              borderRadius: 6,
+                              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                              maxHeight: 200,
+                              overflowY: "auto",
+                            }}
+                          >
+                            <div style={{ padding: "4px 8px", fontSize: 10, color: "#6b7280", borderBottom: "1px solid #e5e7eb" }}>
+                              Select to auto-fill all fields
+                            </div>
+                            {clientSearchResults.map(client => (
+                              <div
+                                key={client.id}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  handleSelectTenantClient(client);
+                                }}
+                                style={{
+                                  padding: "8px 10px",
+                                  cursor: "pointer",
+                                  borderBottom: "1px solid #f3f4f6",
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = "#f9fafb")}
+                                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                              >
+                                <div style={{ fontSize: 13, fontWeight: 500 }}>
+                                  {client.displayName || `${client.firstName} ${client.lastName}`}
+                                </div>
+                                {client.email && (
+                                  <div style={{ fontSize: 11, color: "#6b7280" }}>{client.email}</div>
+                                )}
+                                {client.phone && (
+                                  <div style={{ fontSize: 11, color: "#6b7280" }}>{client.phone}</div>
+                                )}
+                                {client.projectCount != null && client.projectCount > 0 && (
+                                  <div style={{ fontSize: 10, color: "#2563eb", marginTop: 2 }}>
+                                    {client.projectCount} project(s)
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div style={{ flex: "1 1 200px", minWidth: 180 }}>
                       <label style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
