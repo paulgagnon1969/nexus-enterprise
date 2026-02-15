@@ -20998,16 +20998,23 @@ ${htmlBody}
                                 }}
                               >
                                 {log.attachments && log.attachments.length > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
+                                  <span
+                                    role="button"
+                                    tabIndex={0}
+                                    onMouseDown={(e) => {
                                       e.stopPropagation();
-                                      e.preventDefault();
-                                      console.log("Paperclip clicked for log:", log.id);
+                                      console.log("Paperclip MOUSEDOWN for log:", log.id);
                                       openAttachmentsViewer(log);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        openAttachmentsViewer(log);
+                                      }
                                     }}
                                     title={`${log.attachments.length} attachment(s) - click to view`}
                                     style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
                                       border: "1px solid #2563eb",
                                       background: "#eff6ff",
                                       borderRadius: 4,
@@ -21015,15 +21022,14 @@ ${htmlBody}
                                       padding: "2px 6px",
                                       fontSize: 14,
                                       color: "#2563eb",
-                                      position: "relative",
-                                      zIndex: 10,
+                                      userSelect: "none",
                                     }}
                                   >
                                     📎
                                     <span style={{ fontSize: 10, marginLeft: 2 }}>
                                       {log.attachments.length}
                                     </span>
-                                  </button>
+                                  </span>
                                 )}
                               </td>
                             </tr>
