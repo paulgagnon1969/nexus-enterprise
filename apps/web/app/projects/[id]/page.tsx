@@ -1512,6 +1512,12 @@ export default function ProjectDetailPage({
   const [billAttachmentFileLoading, setBillAttachmentFileLoading] = useState(false);
   const [billAttachmentFileError, setBillAttachmentFileError] = useState<string | null>(null);
 
+  // Bill modal drag-drop upload state
+  const [billDragOver, setBillDragOver] = useState(false);
+  const [billUploadedFiles, setBillUploadedFiles] = useState<Array<{ id: string; fileName: string; mimeType: string | null; storageUrl: string }>>([]);
+  const [billUploading, setBillUploading] = useState(false);
+  const [billOcrMessage, setBillOcrMessage] = useState<string | null>(null);
+
   // State for moving expense line items between invoices
   const [selectedExpenseLineIds, setSelectedExpenseLineIds] = useState<Set<string>>(new Set());
   const [moveExpenseLinesBusy, setMoveExpenseLinesBusy] = useState(false);
@@ -2226,6 +2232,10 @@ export default function ProjectDetailPage({
 
     setBillAttachmentProjectFileIds([]);
     setBillEditingExistingAttachmentIds([]);
+
+    // Reset drag-drop upload state
+    setBillUploadedFiles([]);
+    setBillOcrMessage(null);
   };
 
   const openCreateBillModal = () => {
@@ -2338,7 +2348,12 @@ export default function ProjectDetailPage({
     const isEdit = !!billEditingId;
 
     if (!isEdit) {
-      payload.attachmentProjectFileIds = billAttachmentProjectFileIds;
+      // Include both checkbox-selected files and drag-drop uploaded files
+      const allFileIds = [
+        ...billAttachmentProjectFileIds,
+        ...billUploadedFiles.map(f => f.id),
+      ];
+      payload.attachmentProjectFileIds = allFileIds;
     }
 
     setBillModalSaving(true);
@@ -14197,66 +14212,339 @@ ${htmlBody}
 
                     <div style={{ gridColumn: "1 / -1" }}>
                       <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 6 }}>Attachments</div>
+                      
+                      {/* Drag-drop upload zone */}
                       <div
+                        onDragOver={e => { e.preventDefault(); e.stopPropagation(); setBillDragOver(true); }}
+                        onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setBillDragOver(false); }}
+                        onDrop={async e => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setBillDragOver(false);
+                          const files = e.dataTransfer.files;
+                          if (!files || files.length === 0 || !project) return;
+                          const token = localStorage.getItem("accessToken");
+                          if (!token) {
+                            setBillsMessage("Missing access token.");
+                            return;
+                          }
+                          setBillUploading(true);
+                          setBillOcrMessage(null);
+                          const uploadedFiles: Array<{ id: string; fileName: string; mimeType: string | null; storageUrl: string }> = [];
+                          const errors: string[] = [];
+                          for (const file of Array.from(files)) {
+                            try {
+                              // Upload via the nexus uploads utility
+                              const link = await uploadImageFileToNexusUploads(file, "BILL");
+                              // Register the file in the project
+                              const registerRes = await fetch(`${API_BASE}/projects/${id}/files`, {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  Authorization: `Bearer ${token}`,
+                                },
+                                body: JSON.stringify({
+                                  fileUri: link.url,
+                                  fileName: link.label || file.name,
+                                  mimeType: file.type || null,
+                                  sizeBytes: file.size || null,
+                                }),
+                              });
+                              if (registerRes.ok) {
+                                const registered = await registerRes.json();
+                                uploadedFiles.push({
+                                  id: registered.id,
+                                  fileName: registered.fileName || file.name,
+                                  mimeType: registered.mimeType || file.type || null,
+                                  storageUrl: registered.storageUrl || link.url,
+                                });
+                              } else {
+                                errors.push(`${file.name}: Failed to register`);
+                              }
+                            } catch (err: any) {
+                              errors.push(`${file.name}: ${err?.message || "Upload failed"}`);
+                            }
+                          }
+                          if (uploadedFiles.length > 0) {
+                            setBillUploadedFiles(prev => [...prev, ...uploadedFiles]);
+                            // Run OCR on first image file for auto-fill
+                            const firstImage = uploadedFiles.find(f =>
+                              f.mimeType?.startsWith("image/") ||
+                              f.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/)
+                            );
+                            if (firstImage) {
+                              setBillOcrMessage("Running OCR...");
+                              try {
+                                const ocrRes = await fetch(`${API_BASE}/projects/${id}/daily-logs/ocr`, {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                  body: JSON.stringify({ projectFileId: firstImage.id }),
+                                });
+                                if (ocrRes.ok) {
+                                  const ocrData = await ocrRes.json();
+                                  if (ocrData.success) {
+                                    // Auto-fill bill fields from OCR
+                                    if (ocrData.vendor && !billVendorName) {
+                                      setBillVendorName(ocrData.vendor);
+                                    }
+                                    if (ocrData.amount != null && !billLineAmount) {
+                                      setBillLineAmount(String(ocrData.amount));
+                                    }
+                                    if (ocrData.date && !billBillDate) {
+                                      setBillBillDate(ocrData.date);
+                                    }
+                                    const conf = ocrData.confidence ? `(${Math.round(ocrData.confidence * 100)}% confidence)` : "";
+                                    setBillOcrMessage(`✓ OCR: ${ocrData.vendor || "?"} - $${ocrData.amount?.toFixed(2) || "?"} ${conf}`);
+                                  } else {
+                                    setBillOcrMessage(`OCR: ${ocrData.error || "Could not extract data"}`);
+                                  }
+                                } else {
+                                  setBillOcrMessage("✓ File attached (OCR unavailable)");
+                                }
+                              } catch (ocrErr: any) {
+                                setBillOcrMessage(`✓ File attached (OCR error: ${ocrErr?.message || "failed"})`);
+                              }
+                            } else {
+                              setBillOcrMessage(`✓ ${uploadedFiles.length} file(s) attached`);
+                            }
+                          }
+                          if (errors.length > 0) {
+                            setBillsMessage(`Errors: ${errors.join(", ")}`);
+                          }
+                          setBillUploading(false);
+                        }}
                         style={{
-                          border: "1px solid #e5e7eb",
+                          padding: 20,
+                          border: billDragOver ? "2px dashed #2563eb" : "2px dashed #d1d5db",
                           borderRadius: 8,
-                          padding: 8,
-                          maxHeight: 220,
-                          overflowY: "auto",
-                          background: "#f9fafb",
+                          backgroundColor: billDragOver ? "#eff6ff" : "#f9fafb",
+                          textAlign: "center",
+                          cursor: billUploading ? "wait" : "pointer",
+                          transition: "all 0.15s ease",
+                        }}
+                        onClick={() => {
+                          if (billUploading) return;
+                          document.getElementById("bill-file-input")?.click();
                         }}
                       >
-                        {billAttachmentFileLoading && (
-                          <div style={{ color: "#6b7280" }}>Loading files…</div>
-                        )}
-                        {billAttachmentFileError && !billAttachmentFileLoading && (
-                          <div style={{ color: "#b91c1c" }}>{billAttachmentFileError}</div>
-                        )}
-                        {!billAttachmentFileLoading &&
-                          !billAttachmentFileError &&
-                          billAttachmentFileOptions &&
-                          billAttachmentFileOptions.length === 0 && (
-                            <div style={{ color: "#6b7280" }}>No project files found.</div>
-                          )}
-                        {!billAttachmentFileLoading &&
-                          !billAttachmentFileError &&
-                          billAttachmentFileOptions &&
-                          billAttachmentFileOptions.length > 0 && (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                              {billAttachmentFileOptions.slice(0, 50).map((f: any) => {
-                                const fileId = String(f?.id ?? "");
-                                if (!fileId) return null;
-                                const checked = billAttachmentProjectFileIds.includes(fileId);
-                                const label = String(f?.fileName ?? f?.name ?? "File");
-                                return (
-                                  <label
-                                    key={fileId}
-                                    style={{ display: "flex", alignItems: "center", gap: 8 }}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      onChange={() => {
-                                        setBillAttachmentProjectFileIds((prev) =>
-                                          prev.includes(fileId)
-                                            ? prev.filter((x) => x !== fileId)
-                                            : [...prev, fileId],
-                                        );
-                                      }}
-                                    />
-                                    <span style={{ fontSize: 12, color: "#111827" }}>{label}</span>
-                                  </label>
-                                );
-                              })}
-                              {billAttachmentFileOptions.length > 50 && (
-                                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                                  Showing first 50 files. (Use the Files tab to manage more.)
+                        <div style={{ fontSize: 28, marginBottom: 4 }}>{billDragOver ? "📥" : billUploading ? "⏳" : "📎"}</div>
+                        <div style={{ fontSize: 12, color: billDragOver ? "#2563eb" : "#6b7280", fontWeight: 500 }}>
+                          {billUploading ? "Uploading..." : billDragOver ? "Drop files here" : "Drag & drop receipt or invoice"}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
+                          {billUploading ? "Please wait" : "or click to browse • OCR will auto-fill fields"}
+                        </div>
+                        <input
+                          id="bill-file-input"
+                          type="file"
+                          accept="image/*,.pdf"
+                          multiple
+                          onChange={async e => {
+                            const files = e.target.files;
+                            if (!files || files.length === 0 || !project) return;
+                            const token = localStorage.getItem("accessToken");
+                            if (!token) {
+                              setBillsMessage("Missing access token.");
+                              return;
+                            }
+                            setBillUploading(true);
+                            setBillOcrMessage(null);
+                            const uploadedFiles: Array<{ id: string; fileName: string; mimeType: string | null; storageUrl: string }> = [];
+                            const errors: string[] = [];
+                            for (const file of Array.from(files)) {
+                              try {
+                                const link = await uploadImageFileToNexusUploads(file, "BILL");
+                                const registerRes = await fetch(`${API_BASE}/projects/${id}/files`, {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                  body: JSON.stringify({
+                                    fileUri: link.url,
+                                    fileName: link.label || file.name,
+                                    mimeType: file.type || null,
+                                    sizeBytes: file.size || null,
+                                  }),
+                                });
+                                if (registerRes.ok) {
+                                  const registered = await registerRes.json();
+                                  uploadedFiles.push({
+                                    id: registered.id,
+                                    fileName: registered.fileName || file.name,
+                                    mimeType: registered.mimeType || file.type || null,
+                                    storageUrl: registered.storageUrl || link.url,
+                                  });
+                                } else {
+                                  errors.push(`${file.name}: Failed to register`);
+                                }
+                              } catch (err: any) {
+                                errors.push(`${file.name}: ${err?.message || "Upload failed"}`);
+                              }
+                            }
+                            if (uploadedFiles.length > 0) {
+                              setBillUploadedFiles(prev => [...prev, ...uploadedFiles]);
+                              const firstImage = uploadedFiles.find(f =>
+                                f.mimeType?.startsWith("image/") ||
+                                f.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/)
+                              );
+                              if (firstImage) {
+                                setBillOcrMessage("Running OCR...");
+                                try {
+                                  const ocrRes = await fetch(`${API_BASE}/projects/${id}/daily-logs/ocr`, {
+                                    method: "POST",
+                                    headers: {
+                                      "Content-Type": "application/json",
+                                      Authorization: `Bearer ${token}`,
+                                    },
+                                    body: JSON.stringify({ projectFileId: firstImage.id }),
+                                  });
+                                  if (ocrRes.ok) {
+                                    const ocrData = await ocrRes.json();
+                                    if (ocrData.success) {
+                                      if (ocrData.vendor && !billVendorName) {
+                                        setBillVendorName(ocrData.vendor);
+                                      }
+                                      if (ocrData.amount != null && !billLineAmount) {
+                                        setBillLineAmount(String(ocrData.amount));
+                                      }
+                                      if (ocrData.date && !billBillDate) {
+                                        setBillBillDate(ocrData.date);
+                                      }
+                                      const conf = ocrData.confidence ? `(${Math.round(ocrData.confidence * 100)}% confidence)` : "";
+                                      setBillOcrMessage(`✓ OCR: ${ocrData.vendor || "?"} - $${ocrData.amount?.toFixed(2) || "?"} ${conf}`);
+                                    } else {
+                                      setBillOcrMessage(`OCR: ${ocrData.error || "Could not extract data"}`);
+                                    }
+                                  } else {
+                                    setBillOcrMessage("✓ File attached (OCR unavailable)");
+                                  }
+                                } catch (ocrErr: any) {
+                                  setBillOcrMessage(`✓ File attached (OCR error: ${ocrErr?.message || "failed"})`);
+                                }
+                              } else {
+                                setBillOcrMessage(`✓ ${uploadedFiles.length} file(s) attached`);
+                              }
+                            }
+                            if (errors.length > 0) {
+                              setBillsMessage(`Errors: ${errors.join(", ")}`);
+                            }
+                            setBillUploading(false);
+                            e.target.value = "";
+                          }}
+                          style={{ display: "none" }}
+                        />
+                      </div>
+
+                      {/* OCR status message */}
+                      {billOcrMessage && (
+                        <div style={{
+                          marginTop: 8,
+                          fontSize: 11,
+                          color: billOcrMessage.startsWith("✓") ? "#16a34a" : billOcrMessage.includes("Running") ? "#2563eb" : "#6b7280",
+                          fontWeight: 500,
+                        }}>
+                          {billOcrMessage}
+                        </div>
+                      )}
+
+                      {/* Display uploaded files with thumbnails */}
+                      {billUploadedFiles.length > 0 && (
+                        <div style={{
+                          marginTop: 10,
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: 8,
+                          padding: 8,
+                          background: "#f0fdf4",
+                          borderRadius: 6,
+                          border: "1px solid #bbf7d0",
+                        }}>
+                          {billUploadedFiles.map((file, idx) => (
+                            <div
+                              key={file.id}
+                              style={{
+                                position: "relative",
+                                width: 70,
+                                textAlign: "center",
+                              }}
+                            >
+                              {/* Remove button */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBillUploadedFiles(prev => prev.filter((_, i) => i !== idx));
+                                }}
+                                style={{
+                                  position: "absolute",
+                                  top: -6,
+                                  right: -6,
+                                  width: 18,
+                                  height: 18,
+                                  borderRadius: "50%",
+                                  border: "none",
+                                  background: "#ef4444",
+                                  color: "white",
+                                  fontSize: 11,
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  zIndex: 1,
+                                }}
+                                title="Remove"
+                              >
+                                ×
+                              </button>
+                              {/* Thumbnail or icon */}
+                              {file.mimeType?.startsWith("image/") ? (
+                                <img
+                                  src={file.storageUrl.startsWith("gs://")
+                                    ? `https://storage.googleapis.com/${file.storageUrl.replace("gs://", "")}`
+                                    : file.storageUrl}
+                                  alt={file.fileName}
+                                  style={{
+                                    width: 50,
+                                    height: 50,
+                                    objectFit: "cover",
+                                    borderRadius: 4,
+                                    border: "1px solid #d1d5db",
+                                  }}
+                                />
+                              ) : (
+                                <div style={{
+                                  width: 50,
+                                  height: 50,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  background: "white",
+                                  borderRadius: 4,
+                                  border: "1px solid #d1d5db",
+                                  fontSize: 20,
+                                }}>
+                                  📄
                                 </div>
                               )}
+                              {/* File name */}
+                              <div style={{
+                                fontSize: 9,
+                                color: "#374151",
+                                marginTop: 2,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                maxWidth: 70,
+                              }}>
+                                {file.fileName}
+                              </div>
                             </div>
-                          )}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
 
