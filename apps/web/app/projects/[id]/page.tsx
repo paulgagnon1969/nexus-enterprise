@@ -3775,6 +3775,11 @@ ${htmlBody}
     currentIndex: number;
   }>({ open: false, log: null, currentIndex: 0 });
 
+  // Debug: log whenever attachmentsViewer changes
+  useEffect(() => {
+    console.log('[GALLERY] attachmentsViewer state changed:', { open: attachmentsViewer.open, hasLog: !!attachmentsViewer.log, currentIndex: attachmentsViewer.currentIndex });
+  }, [attachmentsViewer]);
+
   // PETL update modal (from Edit Daily Log)
   const [petlUpdateModal, setPetlUpdateModal] = useState<{
     open: boolean;
