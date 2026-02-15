@@ -22,6 +22,7 @@ import ProjectFilePicker, { type ProjectFileSummary } from "../../messaging/proj
 import { AdminPetlTools } from "./admin-petl-tools";
 import { PetlVirtualizedTable } from "./petl-virtualized-table";
 import { InvoicePetlVirtualizedTable } from "./invoice-petl-virtualized-table";
+import { InvoicePetlFlatVirtualizedTable } from "./invoice-petl-flat-virtualized";
 import { useDraggable } from "../../hooks/use-draggable";
 import { JournalTab } from "./journal";
 import { RoleVisible } from "../../role-audit";
@@ -3599,6 +3600,22 @@ ${htmlBody}
   const [issueBillToEmail, setIssueBillToEmail] = useState<string>("");
   const [issueMemo, setIssueMemo] = useState<string>("");
   const [issueDueAt, setIssueDueAt] = useState<string>("");
+
+  // Invoice issue preview modal state
+  const [invoiceIssuePreviewOpen, setInvoiceIssuePreviewOpen] = useState(false);
+  const [invoiceIssueSaving, setInvoiceIssueSaving] = useState(false);
+
+  // Default bill-to fields to project primary contact when opening a draft invoice
+  useEffect(() => {
+    if (!activeInvoice || activeInvoice.status !== "DRAFT") return;
+    // Only set defaults if the fields are empty
+    if (!issueBillToName && project?.primaryContactName) {
+      setIssueBillToName(project.primaryContactName);
+    }
+    if (!issueBillToEmail && project?.primaryContactEmail) {
+      setIssueBillToEmail(project.primaryContactEmail);
+    }
+  }, [activeInvoice?.id, project?.primaryContactName, project?.primaryContactEmail]);
 
   const [payAmount, setPayAmount] = useState<string>("");
   const [payMethod, setPayMethod] = useState<string>("ACH");
@@ -17005,6 +17022,318 @@ ${htmlBody}
         </div>
       )}
 
+      {/* Invoice Issue Preview Modal */}
+      {invoiceIssuePreviewOpen && activeInvoice && activeInvoice.status === "DRAFT" && (
+        <div
+          className="no-print"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 85,
+            background: "rgba(15,23,42,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 12,
+          }}
+          onClick={() => {
+            if (invoiceIssueSaving) return;
+            setInvoiceIssuePreviewOpen(false);
+          }}
+        >
+          <div
+            style={{
+              width: 700,
+              maxWidth: "96vw",
+              maxHeight: "90vh",
+              overflow: "auto",
+              background: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                padding: "12px 16px",
+                borderBottom: "1px solid #e5e7eb",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: 14,
+                fontWeight: 600,
+                background: "#f3f4f6",
+              }}
+            >
+              <div>
+                📄 Invoice Preview
+                <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>
+                  Review invoice details before issuing. Once issued, the invoice will be locked.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (invoiceIssueSaving) return;
+                  setInvoiceIssuePreviewOpen(false);
+                }}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: invoiceIssueSaving ? "default" : "pointer",
+                  fontSize: 20,
+                  lineHeight: 1,
+                }}
+                aria-label="Close invoice preview"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Invoice Preview Content */}
+            <div style={{ padding: 16 }}>
+              {/* Bill To Info */}
+              <div style={{ marginBottom: 16, padding: 12, background: "#f9fafb", borderRadius: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 8 }}>Bill To</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>Name</div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{issueBillToName || "(not specified)"}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>Email</div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{issueBillToEmail || "(not specified)"}</div>
+                  </div>
+                </div>
+                {issueMemo && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>Memo</div>
+                    <div style={{ fontSize: 12, color: "#374151" }}>{issueMemo}</div>
+                  </div>
+                )}
+                {issueDueAt && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>Due Date</div>
+                    <div style={{ fontSize: 12, color: "#374151" }}>{new Date(issueDueAt).toLocaleDateString()}</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Line Items Summary */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 8 }}>Line Items</div>
+                <div style={{ maxHeight: 200, overflow: "auto", border: "1px solid #e5e7eb", borderRadius: 6 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ background: "#f3f4f6" }}>
+                        <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>Description</th>
+                        <th style={{ padding: "6px 8px", textAlign: "right", borderBottom: "1px solid #e5e7eb", width: 100 }}>Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activeInvoiceLineItemGroups.flatMap((group) =>
+                        group.items.map((li: any) => {
+                          const isCredit = String(li.kind ?? "").toUpperCase() === "CREDIT" || (Number(li.amount ?? 0) < 0);
+                          const amt = Number(li.amount ?? 0);
+                          return (
+                            <tr key={li.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                              <td style={{ padding: "4px 8px", color: isCredit ? "#b91c1c" : undefined }}>
+                                {li.description ?? ""}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "4px 8px",
+                                  textAlign: "right",
+                                  color: isCredit ? "#b91c1c" : undefined,
+                                  fontWeight: isCredit ? 600 : undefined,
+                                }}
+                              >
+                                {isCredit || amt < 0
+                                  ? `-$${Math.abs(amt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                  : `$${amt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                      {(activeInvoicePetlLines as any[]).slice(0, 5).map((li: any) => (
+                        <tr key={li.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                          <td style={{ padding: "4px 8px" }}>{li.descriptionSnapshot ?? "PETL Line"}</td>
+                          <td style={{ padding: "4px 8px", textAlign: "right" }}>
+                            ${(Number(li.thisInvTotal ?? 0) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      ))}
+                      {(activeInvoicePetlLines as any[]).length > 5 && (
+                        <tr style={{ borderBottom: "1px solid #f3f4f6" }}>
+                          <td colSpan={2} style={{ padding: "4px 8px", color: "#6b7280", fontStyle: "italic" }}>
+                            + {(activeInvoicePetlLines as any[]).length - 5} more PETL lines…
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Total */}
+              <div style={{ textAlign: "right", marginBottom: 20, padding: "12px 16px", background: "#f0fdf4", borderRadius: 8, border: "1px solid #16a34a" }}>
+                <div style={{ fontSize: 11, color: "#166534" }}>Invoice Total</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#166534" }}>
+                  {formatMoney(activeInvoice.totalAmount ?? 0)}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  disabled={invoiceIssueSaving}
+                  onClick={() => setInvoiceIssuePreviewOpen(false)}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    fontSize: 12,
+                    cursor: invoiceIssueSaving ? "default" : "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={invoiceIssueSaving}
+                  onClick={async () => {
+                    if (!project) return;
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) {
+                      setInvoiceMessage("Missing access token.");
+                      return;
+                    }
+                    setInvoiceIssueSaving(true);
+                    setInvoiceMessage(null);
+                    try {
+                      const res = await fetch(
+                        `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/issue`,
+                        {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({
+                            billToName: issueBillToName.trim() || undefined,
+                            billToEmail: issueBillToEmail.trim() || undefined,
+                            memo: issueMemo.trim() || undefined,
+                            dueAt: issueDueAt || undefined,
+                          }),
+                        },
+                      );
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        setInvoiceMessage(`Issue failed (${res.status}) ${text}`);
+                        return;
+                      }
+                      const json: any = await res.json();
+                      setActiveInvoice(json);
+                      setProjectInvoices(null);
+                      setFinancialSummary(null);
+                      setInvoiceIssuePreviewOpen(false);
+                      setInvoiceMessage("Invoice issued and locked.");
+                    } catch (err: any) {
+                      setInvoiceMessage(err?.message ?? "Issue failed.");
+                    } finally {
+                      setInvoiceIssueSaving(false);
+                    }
+                  }}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 6,
+                    border: "1px solid #16a34a",
+                    background: "#16a34a",
+                    color: "#ffffff",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: invoiceIssueSaving ? "wait" : "pointer",
+                  }}
+                >
+                  {invoiceIssueSaving ? "Saving…" : "Save (Lock & Issue)"}
+                </button>
+                <button
+                  type="button"
+                  disabled={invoiceIssueSaving || !issueBillToEmail}
+                  onClick={async () => {
+                    if (!project) return;
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) {
+                      setInvoiceMessage("Missing access token.");
+                      return;
+                    }
+                    if (!issueBillToEmail.trim()) {
+                      setInvoiceMessage("Email is required to send to client.");
+                      return;
+                    }
+                    setInvoiceIssueSaving(true);
+                    setInvoiceMessage(null);
+                    try {
+                      // Issue the invoice
+                      const res = await fetch(
+                        `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/issue`,
+                        {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({
+                            billToName: issueBillToName.trim() || undefined,
+                            billToEmail: issueBillToEmail.trim() || undefined,
+                            memo: issueMemo.trim() || undefined,
+                            dueAt: issueDueAt || undefined,
+                            sendToClient: true, // Flag to send email
+                          }),
+                        },
+                      );
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        setInvoiceMessage(`Issue failed (${res.status}) ${text}`);
+                        return;
+                      }
+                      const json: any = await res.json();
+                      setActiveInvoice(json);
+                      setProjectInvoices(null);
+                      setFinancialSummary(null);
+                      setInvoiceIssuePreviewOpen(false);
+                      setInvoiceMessage(`Invoice issued and sent to ${issueBillToEmail}.`);
+                    } catch (err: any) {
+                      setInvoiceMessage(err?.message ?? "Issue failed.");
+                    } finally {
+                      setInvoiceIssueSaving(false);
+                    }
+                  }}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 6,
+                    border: "1px solid #2563eb",
+                    background: invoiceIssueSaving || !issueBillToEmail ? "#bfdbfe" : "#2563eb",
+                    color: invoiceIssueSaving || !issueBillToEmail ? "#6b7280" : "#ffffff",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: invoiceIssueSaving || !issueBillToEmail ? "not-allowed" : "pointer",
+                  }}
+                  title={!issueBillToEmail ? "Enter an email address to send to client" : ""}
+                >
+                  {invoiceIssueSaving ? "Sending…" : "Save & Send to Client"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {invoicePrintDialogOpen && (() => {
         // Compute preview data - filter excluded lines and apply view-specific filters
         // Sort by displayLineNo to match PETL view (1, 1.1, 1.2, 2, 2.1, etc.)
@@ -18127,358 +18456,60 @@ ${htmlBody}
                         containerHeight={invoiceFullscreen ? 500 : 360}
                       />
                     ) : (
-                      /* Flat view (non-grouped) - original table rendering */
-                      <div
-                        className="print-expand-scroll"
-                        style={{
-                          maxHeight: invoiceFullscreen ? "60vh" : 360,
-                          overflow: "auto",
-                          border: "1px solid #e5e7eb",
-                          borderRadius: 8,
-                        }}
-                      >
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                          <thead>
-                            <tr style={{ backgroundColor: "#f9fafb" }}>
-                              <th style={{ textAlign: "left", padding: "6px 8px" }}>Estimate Line Item</th>
-                              <th style={{ textAlign: "left", padding: "6px 8px" }}>Room</th>
-                              <th style={{ textAlign: "left", padding: "6px 8px" }}>Unit</th>
-                              <th style={{ textAlign: "left", padding: "6px 8px" }}>Building</th>
-                              <th style={{ textAlign: "right", padding: "6px 8px", width: 70 }}>%</th>
-                              <th style={{ textAlign: "right", padding: "6px 8px", width: 90 }}>Earned</th>
-                              <th style={{ textAlign: "right", padding: "6px 8px", width: 110 }}>Prev billed</th>
-                              <th style={{ textAlign: "right", padding: "6px 8px", width: 110 }}>This (Δ)</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(
-                              [...visibleInvoicePetlLines]
-                                .sort((a, b) => {
-                                  // Sort by displayLineNo for PETL-like ordering (1, 1.001, 1.002, 2, etc.)
-                                  const aDisplay = String(a?.displayLineNo ?? a?.lineNoSnapshot ?? "0");
-                                  const bDisplay = String(b?.displayLineNo ?? b?.lineNoSnapshot ?? "0");
-                                  const aParts = aDisplay.split(".").map((p: string) => Number(p) || 0);
-                                  const bParts = bDisplay.split(".").map((p: string) => Number(p) || 0);
-                                  for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-                                    const aVal = aParts[i] ?? 0;
-                                    const bVal = bParts[i] ?? 0;
-                                    if (aVal !== bVal) return aVal - bVal;
-                                  }
-                                  const ka = String(a?.kind ?? "");
-                                  const kb = String(b?.kind ?? "");
-                                  return ka.localeCompare(kb);
-                                })
-                                .map((li: any) => {
-                                  const isCredit = String(li.kind) === "ACV_HOLDBACK_CREDIT";
-                                  const cat = String(li.categoryCodeSnapshot ?? "").trim();
-                                  const sel = String(li.selectionCodeSnapshot ?? "").trim();
-                                  const task = String(li.descriptionSnapshot ?? "").trim();
-                                  const lineNoValue =
-                                    li.displayLineNo != null && String(li.displayLineNo).trim()
-                                      ? String(li.displayLineNo).trim()
-                                      : li.lineNoSnapshot != null
-                                        ? String(li.lineNoSnapshot)
-                                        : "";
-
-                                  const label = isCredit
-                                    ? "↳ ACV rebate (80%)"
-                                    : `${lineNoValue}${cat || sel ? ` · ${cat}${sel ? `/${sel}` : ""}` : ""}${task ? ` · ${task}` : ""}`;
-
-                                  const effectiveTag = getInvoicePetlEffectiveTag(li);
-                                  const tagLabel = formatBillingTag(effectiveTag);
-                                  const canEditTag = !isCredit && !li?.parentLineId;
-                                  const isEditingTag = canEditTag && invoicePetlTagEditingLineId === li.id;
-                                  const rowBg = getInvoiceLineBackground(li);
-
-                                  return (
-                                    <tr key={li.id ?? `${li.sowItemId}-${li.kind}-${label}`} style={{ background: rowBg }}>
-                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                                          <span
-                                            style={{
-                                              paddingLeft: isCredit ? 18 : 0,
-                                              color: isCredit ? "#b91c1c" : "#111827",
-                                              whiteSpace: "nowrap",
-                                              overflow: "hidden",
-                                              textOverflow: "ellipsis",
-                                            }}
-                                            title={label}
-                                          >
-                                            {label}
-                                          </span>
-
-                                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                            {tagLabel && !isEditingTag && (
-                                              <span
-                                                style={{
-                                                  fontSize: 10,
-                                                  fontWeight: 700,
-                                                  padding: "2px 8px",
-                                                  borderRadius: 999,
-                                                  border: "1px solid #d1d5db",
-                                                  background: "#ffffff",
-                                                  color: "#374151",
-                                                  whiteSpace: "nowrap",
-                                                }}
-                                              >
-                                                {tagLabel}
-                                              </span>
-                                            )}
-
-                                            {canEditTag && !isEditingTag && (
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setInvoicePetlTagEditingLineId(String(li.id));
-                                                  setInvoicePetlTagDraft(String(li?.billingTag ?? "NONE") || "NONE");
-                                                }}
-                                                style={{
-                                                  border: "1px solid #d1d5db",
-                                                  background: "#ffffff",
-                                                  cursor: "pointer",
-                                                  padding: "2px 8px",
-                                                  borderRadius: 999,
-                                                  fontSize: 11,
-                                                  whiteSpace: "nowrap",
-                                                }}
-                                              >
-                                                Edit
-                                              </button>
-                                            )}
-
-                                            {isEditingTag && (
-                                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                                <select
-                                                  value={invoicePetlTagDraft}
-                                                  onChange={(e) => setInvoicePetlTagDraft(e.target.value)}
-                                                  style={{
-                                                    padding: "2px 6px",
-                                                    borderRadius: 6,
-                                                    border: "1px solid #d1d5db",
-                                                    fontSize: 11,
-                                                  }}
-                                                >
-                                                  <option value="NONE">—</option>
-                                                  <option value="PETL_LINE_ITEM">PETL Line Item</option>
-                                                  <option value="CHANGE_ORDER">Change Order</option>
-                                                  <option value="SUPPLEMENT">Supplement</option>
-                                                  <option value="WARRANTY">Warranty</option>
-                                                </select>
-                                                <button
-                                                  type="button"
-                                                  disabled={invoicePetlTagSaving}
-                                                  onClick={async () => {
-                                                    if (!project || !activeInvoice?.id || !li?.id) return;
-                                                    const token = localStorage.getItem("accessToken");
-                                                    if (!token) {
-                                                      setInvoiceMessage("Missing access token.");
-                                                      return;
-                                                    }
-                                                    setInvoicePetlTagSaving(true);
-                                                    setInvoiceMessage(null);
-                                                    try {
-                                                      const res = await fetch(
-                                                        `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/petl-lines/${li.id}`,
-                                                        {
-                                                          method: "PATCH",
-                                                          headers: {
-                                                            "Content-Type": "application/json",
-                                                            Authorization: `Bearer ${token}`,
-                                                          },
-                                                          body: JSON.stringify({ billingTag: invoicePetlTagDraft }),
-                                                        },
-                                                      );
-                                                      if (!res.ok) {
-                                                        const text = await res.text().catch(() => "");
-                                                        setInvoiceMessage(`Update failed (${res.status}) ${text}`);
-                                                        return;
-                                                      }
-                                                      const updated = await res.json().catch(() => null);
-                                                      setActiveInvoice((prev: any) => {
-                                                        if (!prev) return prev;
-                                                        const lines = Array.isArray(prev.petlLines) ? prev.petlLines : [];
-                                                        return {
-                                                          ...prev,
-                                                          petlLines: lines.map((x: any) =>
-                                                            x?.id === updated?.id ? { ...x, ...updated } : x,
-                                                          ),
-                                                        };
-                                                      });
-                                                      setInvoicePetlTagEditingLineId(null);
-                                                    } catch (err: any) {
-                                                      setInvoiceMessage(err?.message ?? "Update failed.");
-                                                    } finally {
-                                                      setInvoicePetlTagSaving(false);
-                                                    }
-                                                  }}
-                                                  style={{
-                                                    padding: "2px 8px",
-                                                    borderRadius: 6,
-                                                    border: "1px solid #0f172a",
-                                                    background: "#0f172a",
-                                                    color: "#f9fafb",
-                                                    fontSize: 11,
-                                                    cursor: invoicePetlTagSaving ? "default" : "pointer",
-                                                    whiteSpace: "nowrap",
-                                                  }}
-                                                >
-                                                  {invoicePetlTagSaving ? "Saving…" : "Save"}
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  disabled={invoicePetlTagSaving}
-                                                  onClick={() => setInvoicePetlTagEditingLineId(null)}
-                                                  style={{
-                                                    padding: "2px 8px",
-                                                    borderRadius: 6,
-                                                    border: "1px solid #d1d5db",
-                                                    background: "#ffffff",
-                                                    fontSize: 11,
-                                                    cursor: invoicePetlTagSaving ? "default" : "pointer",
-                                                    whiteSpace: "nowrap",
-                                                  }}
-                                                >
-                                                  Cancel
-                                                </button>
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </td>
-                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                        {li.projectParticleLabelSnapshot ?? ""}
-                                      </td>
-                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
-                                        {li.projectUnitLabelSnapshot ?? ""}
-                                      </td>
-                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
-                                        {li.projectBuildingLabelSnapshot ?? ""}
-                                      </td>
-                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#4b5563" }}>
-                                        {li.percentCompleteSnapshot != null ? `${Number(li.percentCompleteSnapshot).toFixed(0)}%` : "—"}
-                                      </td>
-                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#4b5563" }}>
-                                        {formatMoney(li.earnedTotal)}
-                                      </td>
-                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#4b5563" }}>
-                                        {formatMoney(li.prevBilledTotal)}
-                                      </td>
-                                      <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", fontWeight: 600 }}>
-                                        {(() => {
-                                          const effectiveTag = getInvoicePetlEffectiveTag(li);
-                                          const isRejectedSupplement =
-                                            effectiveTag === "SUPPLEMENT" &&
-                                            Number(li.thisInvTotal ?? 0) === 0 &&
-                                            Number(li.contractTotal ?? 0) !== 0;
-
-                                          if (isRejectedSupplement) {
-                                            return (
-                                              <span
-                                                style={{
-                                                  fontWeight: 700,
-                                                  color: "#b91c1c",
-                                                  fontSize: 11,
-                                                  letterSpacing: "0.08em",
-                                                }}
-                                              >
-                                                REJECTED
-                                              </span>
-                                            );
-                                          }
-
-                                          return formatMoney(li.thisInvTotal);
-                                        })()}
-                                      </td>
-                                    </tr>
-                                  );
-                                })
-                            )}
-                          </tbody>
-                          <tfoot>
-                            <tr style={{ backgroundColor: "#f9fafb" }}>
-                              <td
-                                colSpan={invoiceGroupEnabled ? 4 : 7}
-                                style={{
-                                  padding: "6px 8px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  textAlign: "right",
-                                  fontWeight: 700,
-                                }}
-                              >
-                                {invoicePetlView === "ALL"
-                                  ? "Total PETL (Δ)"
-                                  : invoicePetlView === "CARRIER"
-                                  ? "Total PETL (Carrier, Δ)"
-                                  : "Total PETL (Client, Δ)"}
-                              </td>
-                              <td
-                                style={{
-                                  padding: "6px 8px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  textAlign: "right",
-                                  fontWeight: 700,
-                                }}
-                              >
-                                {formatMoney(visiblePetlTotal)}
-                              </td>
-                            </tr>
-                            {invoicePetlView === "ALL" && (
-                              <>
-                                <tr style={{ backgroundColor: "#f9fafb" }}>
-                                  <td
-                                    colSpan={invoiceGroupEnabled ? 4 : 7}
-                                    style={{
-                                      padding: "6px 8px",
-                                      borderTop: "1px solid #e5e7eb",
-                                      textAlign: "right",
-                                      fontWeight: 600,
-                                      color: "#4b5563",
-                                    }}
-                                  >
-                                    Carrier PETL (Δ)
-                                  </td>
-                                  <td
-                                    style={{
-                                      padding: "6px 8px",
-                                      borderTop: "1px solid #e5e7eb",
-                                      textAlign: "right",
-                                      fontWeight: 600,
-                                      color: "#4b5563",
-                                    }}
-                                  >
-                                    {formatMoney(petlCarrierTotal)}
-                                  </td>
-                                </tr>
-                                <tr style={{ backgroundColor: "#f9fafb" }}>
-                                  <td
-                                    colSpan={invoiceGroupEnabled ? 4 : 7}
-                                    style={{
-                                      padding: "6px 8px",
-                                      borderTop: "1px solid #e5e7eb",
-                                      textAlign: "right",
-                                      fontWeight: 600,
-                                      color: "#4b5563",
-                                    }}
-                                  >
-                                    Client PETL (Δ)
-                                  </td>
-                                  <td
-                                    style={{
-                                      padding: "6px 8px",
-                                      borderTop: "1px solid #e5e7eb",
-                                      textAlign: "right",
-                                      fontWeight: 600,
-                                      color: "#4b5563",
-                                    }}
-                                  >
-                                    {formatMoney(petlClientTotal)}
-                                  </td>
-                                </tr>
-                              </>
-                            )}
-                          </tfoot>
-                        </table>
-                      </div>
+                      /* Virtualized flat view for performance at scale */
+                      <>
+                        <InvoicePetlFlatVirtualizedTable
+                          lines={visibleInvoicePetlLines as any[]}
+                          editingLineId={invoicePetlTagEditingLineId}
+                          editDraft={invoicePetlTagDraft}
+                          editSaving={invoicePetlTagSaving}
+                          onStartEdit={handleStartInvoicePetlTagEdit}
+                          onEditDraftChange={handleInvoicePetlTagDraftChange}
+                          onSaveEdit={handleSaveInvoicePetlTag}
+                          onCancelEdit={handleCancelInvoicePetlTagEdit}
+                          formatMoney={formatMoney}
+                          formatBillingTag={formatBillingTag}
+                          getLineBackground={getInvoiceLineBackgroundMemo}
+                          getEffectiveTag={getInvoicePetlEffectiveTagMemo}
+                          containerHeight={invoiceFullscreen ? 500 : 360}
+                        />
+                        {/* Totals footer */}
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 4,
+                            marginTop: 8,
+                            padding: "8px 12px",
+                            background: "#f9fafb",
+                            borderRadius: 6,
+                            fontSize: 12,
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700 }}>
+                            <span>
+                              {invoicePetlView === "ALL"
+                                ? "Total PETL (Δ)"
+                                : invoicePetlView === "CARRIER"
+                                ? "Total PETL (Carrier, Δ)"
+                                : "Total PETL (Client, Δ)"}
+                            </span>
+                            <span>{formatMoney(visiblePetlTotal)}</span>
+                          </div>
+                          {invoicePetlView === "ALL" && (
+                            <>
+                              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, color: "#4b5563" }}>
+                                <span>Carrier PETL (Δ)</span>
+                                <span>{formatMoney(petlCarrierTotal)}</span>
+                              </div>
+                              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, color: "#4b5563" }}>
+                                <span>Client PETL (Δ)</span>
+                                <span>{formatMoney(petlClientTotal)}</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </>
                     )}
                   </div>
 
@@ -18566,12 +18597,14 @@ ${htmlBody}
                                 );
 
                                 for (const li of group.items) {
+                                  const isCredit = String(li.kind ?? "").toUpperCase() === "CREDIT" || (Number(li.amount ?? 0) < 0);
                                   rows.push(
                                     <tr key={li.id}>
                                       <td
                                         style={{
                                           padding: "6px 8px",
                                           borderTop: "1px solid #e5e7eb",
+                                          color: isCredit ? "#b91c1c" : undefined,
                                         }}
                                       >
                                         {li.description}
@@ -18581,7 +18614,7 @@ ${htmlBody}
                                           padding: "6px 8px",
                                           borderTop: "1px solid #e5e7eb",
                                           textAlign: "right",
-                                          color: "#4b5563",
+                                          color: isCredit ? "#b91c1c" : "#4b5563",
                                         }}
                                       >
                                         {li.qty != null ? li.qty : ""}
@@ -18591,30 +18624,31 @@ ${htmlBody}
                                           padding: "6px 8px",
                                           borderTop: "1px solid #e5e7eb",
                                           textAlign: "right",
+                                          color: isCredit ? "#b91c1c" : undefined,
                                         }}
                                       >
-                                        {li.unitPrice != null ? formatMoney(li.unitPrice) : ""}
-                                      </td>
-                                      <td
-                                        style={{
-                                        padding: "6px 8px",
-                                        borderTop: "1px solid #e5e7eb",
-                                        textAlign: "right",
-                                          color: "#4b5563",
-                                        }}
-                                      >
-                                        {li.unitPrice ?? "—"}
+                                        {li.unitPrice != null ? (
+                                          isCredit && li.unitPrice > 0 
+                                            ? `-${formatMoney(Math.abs(li.unitPrice))}`
+                                            : formatMoney(li.unitPrice)
+                                        ) : ""}
                                       </td>
                                       <td
                                         style={{
                                           padding: "6px 8px",
                                           borderTop: "1px solid #e5e7eb",
                                           textAlign: "right",
+                                          color: isCredit ? "#b91c1c" : "#4b5563",
+                                          fontWeight: isCredit ? 600 : undefined,
                                         }}
                                       >
-                                        {(li.amount ?? 0).toLocaleString(undefined, {
-                                          maximumFractionDigits: 2,
-                                        })}
+                                        {(() => {
+                                          const amt = Number(li.amount ?? 0);
+                                          if (isCredit || amt < 0) {
+                                            return `-$${Math.abs(amt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                                          }
+                                          return `$${amt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                                        })()}
                                       </td>
                                       <td
                                         style={{
@@ -18789,7 +18823,14 @@ ${htmlBody}
                       <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
                         <select
                           value={newInvoiceLineKind}
-                          onChange={e => setNewInvoiceLineKind(e.target.value)}
+                          onChange={e => {
+                            const kind = e.target.value;
+                            setNewInvoiceLineKind(kind);
+                            // Auto-set billing tag to CREDIT when CREDIT kind is selected
+                            if (kind === "CREDIT") {
+                              setNewInvoiceLineBillingTag("CREDIT");
+                            }
+                          }}
                           style={{
                             padding: "6px 8px",
                             borderRadius: 4,
@@ -18804,6 +18845,7 @@ ${htmlBody}
                           <option value="LABOR_ONLY">Labor Only</option>
                           <option value="MATERIALS_ONLY">Materials only</option>
                           <option value="LABOR_AND_MATERIALS">Labor & Materials</option>
+                          <option value="CREDIT">Credit</option>
                           <option value="OTHER">Other</option>
                         </select>
 
@@ -18823,6 +18865,7 @@ ${htmlBody}
                           <option value="CHANGE_ORDER">Change Order</option>
                           <option value="SUPPLEMENT">Supplement</option>
                           <option value="WARRANTY">Warranty</option>
+                          <option value="CREDIT">Credit</option>
                         </select>
                         <input
                           placeholder="Description"
@@ -18889,9 +18932,9 @@ ${htmlBody}
                             }
 
                             const qty = newInvoiceLineQty.trim() === "" ? undefined : Number(newInvoiceLineQty);
-                            const unitPrice =
+                            let unitPrice =
                               newInvoiceLineUnitPrice.trim() === "" ? undefined : Number(newInvoiceLineUnitPrice);
-                            const amount =
+                            let amount =
                               newInvoiceLineAmount.trim() === "" ? undefined : Number(newInvoiceLineAmount);
 
                             if (
@@ -18901,6 +18944,16 @@ ${htmlBody}
                             ) {
                               setInvoiceMessage("Qty / Unit / Amount must be valid numbers.");
                               return;
+                            }
+
+                            // For CREDIT kind, ensure amounts are negative
+                            if (newInvoiceLineKind === "CREDIT") {
+                              if (unitPrice !== undefined && unitPrice > 0) {
+                                unitPrice = -Math.abs(unitPrice);
+                              }
+                              if (amount !== undefined && amount > 0) {
+                                amount = -Math.abs(amount);
+                              }
                             }
 
                             try {
@@ -19379,47 +19432,7 @@ ${htmlBody}
                           />
                           <button
                             type="button"
-                            onClick={async () => {
-                              if (!project) return;
-                              const token = localStorage.getItem("accessToken");
-                              if (!token) {
-                                setInvoiceMessage("Missing access token.");
-                                return;
-                              }
-                              setInvoiceMessage(null);
-                              try {
-                                const res = await fetch(
-                                  `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/issue`,
-                                  {
-                                    method: "POST",
-                                    headers: {
-                                      "Content-Type": "application/json",
-                                      Authorization: `Bearer ${token}`,
-                                    },
-                                    body: JSON.stringify({
-                                      billToName: issueBillToName.trim() || undefined,
-                                      billToEmail: issueBillToEmail.trim() || undefined,
-                                      memo: issueMemo.trim() || undefined,
-                                      dueAt: issueDueAt || undefined,
-                                    }),
-                                  },
-                                );
-                                if (!res.ok) {
-                                  const text = await res.text().catch(() => "");
-                                  setInvoiceMessage(
-                                    `Issue failed (${res.status}) ${text}`,
-                                  );
-                                  return;
-                                }
-                                const json: any = await res.json();
-                                setActiveInvoice(json);
-                                setProjectInvoices(null);
-                                setFinancialSummary(null);
-                                setInvoiceMessage("Invoice issued and locked.");
-                              } catch (err: any) {
-                                setInvoiceMessage(err?.message ?? "Issue failed.");
-                              }
-                            }}
+                            onClick={() => setInvoiceIssuePreviewOpen(true)}
                             style={{
                               padding: "6px 10px",
                               borderRadius: 4,
@@ -19430,7 +19443,7 @@ ${htmlBody}
                               cursor: "pointer",
                             }}
                           >
-                            Issue &amp; lock
+                            Lock &amp; Issue
                           </button>
                         </div>
                       </div>
