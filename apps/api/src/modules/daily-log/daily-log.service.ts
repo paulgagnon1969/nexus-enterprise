@@ -832,6 +832,9 @@ export class DailyLogService {
     dto: CreateDailyLogDto,
     attachedFiles: { id: string; storageUrl: string; fileName: string; mimeType: string | null }[],
   ): Promise<void> {
+    this.logger.log(`[handleReceiptExpenseLog] Starting for dailyLogId=${dailyLogId}, projectId=${projectId}, companyId=${companyId}`);
+    this.logger.log(`[handleReceiptExpenseLog] DTO: vendor=${dto.expenseVendor}, amount=${dto.expenseAmount}, date=${dto.expenseDate}, attachedFiles=${attachedFiles.length}`);
+    
     try {
       // Determine vendor name and amount
       const vendorName = dto.expenseVendor?.trim() || 'Receipt from Daily Log';
@@ -915,7 +918,13 @@ export class DailyLogService {
         },
       });
     } catch (err: any) {
-      this.logger.error(`Failed to create bill for receipt daily log ${dailyLogId}: ${err?.message ?? err}`);
+      const errCode = err?.code ?? 'no code';
+      const errMeta = err?.meta ? JSON.stringify(err.meta) : 'no meta';
+      const errStack = err?.stack?.slice(0, 800) ?? 'no stack';
+      this.logger.error(`[handleReceiptExpenseLog] FAILED for dailyLogId=${dailyLogId}`);
+      this.logger.error(`[handleReceiptExpenseLog] Error: ${err?.message ?? err}`);
+      this.logger.error(`[handleReceiptExpenseLog] Code: ${errCode}, Meta: ${errMeta}`);
+      this.logger.error(`[handleReceiptExpenseLog] Stack: ${errStack}`);
       // Don't throw - let the daily log creation succeed even if bill creation fails
     }
   }
