@@ -10473,7 +10473,7 @@ ${htmlBody}
         body.expenseDate = draft.expenseDate || null;
       }
 
-      const res = await fetch(`${API_BASE}/projects/${id}/daily-logs/${editDailyLog.log.id}`, {
+      const res = await fetch(`${API_BASE}/daily-logs/${editDailyLog.log.id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
