@@ -22381,10 +22381,10 @@ ${htmlBody}
           {/* Header info */}
           <div style={{ position: "absolute", top: 20, left: 20, color: "#ffffff" }}>
             <div style={{ fontSize: 16, fontWeight: 600 }}>
-              {attachmentsViewer.log.title || "Daily Log"}
+              {attachmentsViewer.log?.title || "Daily Log"}
             </div>
             <div style={{ fontSize: 13, opacity: 0.7 }}>
-              {attachmentsViewer.currentIndex + 1} of {attachmentsViewer.log.attachments.length}
+              {attachmentsViewer.currentIndex + 1} of {attachmentsViewer.log?.attachments?.length || 0}
             </div>
           </div>
 
@@ -22393,8 +22393,8 @@ ${htmlBody}
             style={{ maxWidth: "90vw", maxHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center" }}
             onClick={e => e.stopPropagation()}
           >
-            {(() => {
-              const att = attachmentsViewer.log.attachments[attachmentsViewer.currentIndex];
+          {(() => {
+              const att = attachmentsViewer.log?.attachments?.[attachmentsViewer.currentIndex];
               if (!att) return <div style={{ color: "#fff" }}>No attachment</div>;
               const url = att.fileUrl || "";
               const name = att.fileName || "attachment";
@@ -22412,7 +22412,7 @@ ${htmlBody}
           </div>
 
           {/* Navigation arrows */}
-          {attachmentsViewer.log.attachments.length > 1 && (
+          {(attachmentsViewer.log?.attachments?.length || 0) > 1 && (
             <>
               <button
                 type="button"
@@ -22458,7 +22458,7 @@ ${htmlBody}
           )}
 
           {/* Thumbnail strip */}
-          {attachmentsViewer.log.attachments.length > 1 && (
+          {(attachmentsViewer.log?.attachments?.length || 0) > 1 && (
             <div
               style={{
                 position: "absolute",
@@ -22471,7 +22471,7 @@ ${htmlBody}
               }}
               onClick={e => e.stopPropagation()}
             >
-              {attachmentsViewer.log.attachments.map((att, idx) => {
+              {attachmentsViewer.log?.attachments?.map((att, idx) => {
                 const isActive = idx === attachmentsViewer.currentIndex;
                 const url = att.fileUrl || "";
                 const isImg = /\.(png|jpe?g|gif|webp)$/i.test(url) || (att.mimeType || "").startsWith("image/");
