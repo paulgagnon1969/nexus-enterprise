@@ -387,6 +387,7 @@ export class DailyLogService {
               fileName: payload.fileName ?? 'receipt',
               mimeType: payload.mimeType ?? 'image/jpeg',
             },
+            select: { id: true },
           });
           // Update attachment with projectFileId
           await this.prisma.dailyLogAttachment.update({
@@ -456,6 +457,7 @@ export class DailyLogService {
           this.logger.log(`[triggerOcrForLog] Creating ProjectFile with: ${JSON.stringify(createData)}`);
           const projectFile = await this.prisma.projectFile.create({
             data: createData,
+            select: { id: true },
           });
           projectFileId = projectFile.id;
 
