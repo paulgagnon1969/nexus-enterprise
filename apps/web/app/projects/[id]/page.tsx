@@ -20757,19 +20757,57 @@ ${htmlBody}
                         for (const file of files) {
                           try {
                             setDailyLogMessage(`Uploading ${file.name}...`);
-                            const formData = new FormData();
-                            formData.append("file", file);
-                            formData.append("folder", "daily-logs");
-                            const res = await fetch(`${API_BASE}/projects/${id}/files`, {
+                            
+                            // Step 1: Get signed upload URL from project files endpoint
+                            const urlRes = await fetch(`${API_BASE}/projects/${id}/files/upload-url`, {
                               method: "POST",
-                              headers: { Authorization: `Bearer ${token}` },
-                              body: formData,
+                              headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${token}`,
+                              },
+                              body: JSON.stringify({
+                                contentType: file.type || "application/octet-stream",
+                                fileName: file.name,
+                              }),
                             });
-                            if (!res.ok) {
-                              errors.push(`${file.name} failed (${res.status})`);
+                            if (!urlRes.ok) {
+                              errors.push(`${file.name}: Failed to get upload URL (${urlRes.status})`);
                               continue;
                             }
-                            const uploaded = await res.json();
+                            const { uploadUrl, fileUri } = await urlRes.json();
+
+                            // Step 2: Upload file to GCS via signed URL
+                            const putRes = await fetch(uploadUrl, {
+                              method: "PUT",
+                              headers: {
+                                "Content-Type": file.type || "application/octet-stream",
+                              },
+                              body: file,
+                            });
+                            if (!putRes.ok) {
+                              errors.push(`${file.name}: Upload failed (${putRes.status})`);
+                              continue;
+                            }
+
+                            // Step 3: Register the file in the project
+                            const registerRes = await fetch(`${API_BASE}/projects/${id}/files`, {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${token}`,
+                              },
+                              body: JSON.stringify({
+                                fileUri,
+                                fileName: file.name,
+                                mimeType: file.type || null,
+                                sizeBytes: file.size || null,
+                              }),
+                            });
+                            if (!registerRes.ok) {
+                              errors.push(`${file.name}: Failed to register file (${registerRes.status})`);
+                              continue;
+                            }
+                            const uploaded = await registerRes.json();
                             uploadedIds.push(uploaded.id);
                           } catch (err: any) {
                             errors.push(`${file.name}: ${err?.message || "Unknown error"}`);
