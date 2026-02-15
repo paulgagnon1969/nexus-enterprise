@@ -263,6 +263,23 @@ export class DailyLogService {
       where: { dailyLogId: logId },
     }).catch(() => {});
 
+    // Delete any linked draft bills (uncommitted receipts)
+    // Only delete bills in DRAFT status - committed bills should remain
+    const linkedBill = await this.prisma.projectBill.findFirst({
+      where: { sourceDailyLogId: logId, status: ProjectBillStatus.DRAFT },
+    });
+    if (linkedBill) {
+      // Delete bill attachments first
+      await this.prisma.projectBillAttachment.deleteMany({
+        where: { billId: linkedBill.id },
+      }).catch(() => {});
+      // Delete the bill
+      await this.prisma.projectBill.delete({
+        where: { id: linkedBill.id },
+      });
+      this.logger.log(`Deleted linked draft bill ${linkedBill.id} for daily log ${logId}`);
+    }
+
     // Delete the log
     await this.prisma.dailyLog.delete({
       where: { id: logId },
@@ -1444,6 +1461,24 @@ export class DailyLogService {
     if (Object.keys(changes).length === 0) {
       const { createdBy, notifyUserIdsJson: _n, tagsJson: _t, project, ...rest } = log as any;
       return { ...rest, projectId: project.id, projectName: project.name };
+    }
+
+    // If type is changing FROM RECEIPT_EXPENSE to something else, delete the linked draft bill
+    if (changes.type && log.type === DailyLogType.RECEIPT_EXPENSE && changes.type !== DailyLogType.RECEIPT_EXPENSE) {
+      const linkedBill = await this.prisma.projectBill.findFirst({
+        where: { sourceDailyLogId: logId, status: ProjectBillStatus.DRAFT },
+      });
+      if (linkedBill) {
+        // Delete bill attachments first
+        await this.prisma.projectBillAttachment.deleteMany({
+          where: { billId: linkedBill.id },
+        }).catch(() => {});
+        // Delete the bill
+        await this.prisma.projectBill.delete({
+          where: { id: linkedBill.id },
+        });
+        this.logger.log(`Deleted linked draft bill ${linkedBill.id} - daily log ${logId} type changed from RECEIPT_EXPENSE to ${changes.type}`);
+      }
     }
 
     // Get the next revision number
