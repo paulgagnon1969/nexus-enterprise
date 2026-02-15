@@ -25,7 +25,10 @@ import { useDraggable } from "../../hooks/use-draggable";
 import { JournalTab } from "./journal";
 import { RoleVisible } from "../../role-audit";
 import { FileDropZone } from "../../components/file-drop-zone";
+<<<<<<< HEAD
 import { ScheduleSection } from "./schedule-section";
+=======
+>>>>>>> feature/tenant-client-linking
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -3979,9 +3982,12 @@ ${htmlBody}
     error: string | null;
   }>({ open: false, log: null, percentComplete: "", saving: false, error: null });
 
+<<<<<<< HEAD
   // Drag state for Edit Daily Log attachments drop zone
   const [editLogDragOver, setEditLogDragOver] = useState(false);
 
+=======
+>>>>>>> feature/tenant-client-linking
   // Field PETL
   const [fieldPetlItems, setFieldPetlItems] = useState<FieldPetlItem[]>([]);
   const [fieldPetlLoading, setFieldPetlLoading] = useState(false);
@@ -27358,6 +27364,7 @@ ${htmlBody}
                     const isImage = lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".webp") || (att.mimeType || "").startsWith("image/");
                     return (
                       <div key={att.id} style={{ position: "relative", borderRadius: 4, border: "1px solid #e5e7eb", background: "#ffffff", overflow: "hidden" }}>
+<<<<<<< HEAD
                         {/* Delete button */}
                         <button
                           type="button"
@@ -27408,6 +27415,8 @@ ${htmlBody}
                         >
                           ×
                         </button>
+=======
+>>>>>>> feature/tenant-client-linking
                         <a href={url} target="_blank" rel="noopener noreferrer" style={{ display: "block" }}>
                           {isImage ? (
                             <img src={url} alt={name} style={{ width: "100%", height: 70, objectFit: "cover" }} />
@@ -27426,6 +27435,7 @@ ${htmlBody}
                 <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 8 }}>No attachments</div>
               )}
               
+<<<<<<< HEAD
               {/* Drag and drop zone */}
               <div
                 onDragOver={e => { e.preventDefault(); e.stopPropagation(); setEditLogDragOver(true); }}
@@ -27489,6 +27499,12 @@ ${htmlBody}
                 <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>or click to browse</div>
                 <input
                   id="edit-log-file-input"
+=======
+              {/* Add new attachment */}
+              <div style={{ marginTop: 8 }}>
+                <label style={{ display: "block", fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Add photos to this log:</label>
+                <input
+>>>>>>> feature/tenant-client-linking
                   type="file"
                   accept="image/*"
                   multiple
@@ -27529,12 +27545,18 @@ ${htmlBody}
                       e.target.value = "";
                     }
                   }}
+<<<<<<< HEAD
                   style={{ display: "none" }}
                 />
               </div>
               {editDailyLog.saving && (
                 <div style={{ marginTop: 8, fontSize: 11, color: "#2563eb", textAlign: "center" }}>Uploading...</div>
               )}
+=======
+                  style={{ fontSize: 11 }}
+                />
+              </div>
+>>>>>>> feature/tenant-client-linking
             </div>
 
             {/* PETL Context Section - show if log has any PETL linkage */}
@@ -27592,6 +27614,7 @@ ${htmlBody}
 
             {editDailyLog.draft.type === "RECEIPT_EXPENSE" && (
               <div style={{ marginBottom: 12, padding: 10, background: "#fef3c7", borderRadius: 6, border: "1px solid #fcd34d" }}>
+<<<<<<< HEAD
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#92400e" }}>Receipt Details</div>
                   {editDailyLog.log?.attachments && editDailyLog.log.attachments.length > 0 && (
@@ -27654,6 +27677,9 @@ ${htmlBody}
                     </button>
                   )}
                 </div>
+=======
+                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#92400e" }}>Receipt Details</div>
+>>>>>>> feature/tenant-client-linking
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
                   <div>
                     <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Vendor</label>
