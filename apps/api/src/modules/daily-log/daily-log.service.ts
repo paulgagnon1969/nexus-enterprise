@@ -1183,6 +1183,7 @@ export class DailyLogService {
       "issues", "safetyIncidents", "manpowerOnsite", "personOnsite",
       "confidentialNotes", "buildingId", "unitId", "roomParticleId", "sowItemId",
       "shareInternal", "shareSubs", "shareClient", "sharePrivate",
+      "type", "expenseVendor", "expenseAmount", "expenseDate",
     ] as const;
 
     const changes: Record<string, any> = {};
@@ -1191,9 +1192,14 @@ export class DailyLogService {
     for (const field of editableFields) {
       if (dto[field] !== undefined) {
         const currentValue = (log as any)[field];
-        const newValue = field === "logDate" && dto.logDate
-          ? new Date(dto.logDate)
-          : dto[field];
+        let newValue = dto[field];
+
+        // Convert date strings to Date objects
+        if (field === "logDate" && dto.logDate) {
+          newValue = new Date(dto.logDate);
+        } else if (field === "expenseDate" && dto.expenseDate) {
+          newValue = new Date(dto.expenseDate);
+        }
 
         // Only record if value actually changed
         if (JSON.stringify(currentValue) !== JSON.stringify(newValue)) {
