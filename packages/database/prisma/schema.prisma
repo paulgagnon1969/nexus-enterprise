@@ -151,6 +151,9 @@ model Company {
 
   // System Tags (NEXUS-level classification for selective distribution)
   systemTags CompanySystemTag[]
+
+  // Tenant Clients (shared client contacts for projects)
+  tenantClients TenantClient[]
 }
 
 model OrganizationTemplate {
@@ -992,6 +995,10 @@ model Project {
   taxJurisdictionId String?
   groupId           String?
 
+  /// Optional link to a shared tenant client record.
+  /// When set, client contact info is sourced from TenantClient.
+  tenantClientId    String?
+
   allocationRules           ComponentAllocationRule[]
   componentSummaries        ComponentSummary[]
   dailyLogs                 DailyLog[]
@@ -1019,6 +1026,7 @@ model Project {
   taxJurisdiction           TaxJurisdiction?          @relation(fields: [taxJurisdictionId], references: [id])
   payrollWeekRecords        PayrollWeekRecord[]
   group                     ProjectGroup?             @relation(fields: [groupId], references: [id])
+  tenantClient              TenantClient?             @relation(fields: [tenantClientId], references: [id])
   notifications             Notification[]
   messageThreads            MessageThread[]
   projectFileFolders        ProjectFileFolder[]
@@ -1053,6 +1061,35 @@ model Project {
   claimJournalEntries ClaimJournalEntry[]
 
   @@index([companyId, groupId], map: "Project_company_group_idx")
+  @@index([tenantClientId], map: "Project_tenant_client_idx")
+}
+
+/// Shared client contact record at the tenant level.
+/// Multiple projects can link to the same client, enabling
+/// shared contact info and cross-project visibility.
+model TenantClient {
+  id          String   @id @default(cuid())
+  companyId   String
+  firstName   String
+  lastName    String
+  displayName String?  // Computed or custom display name
+  email       String?  // Primary email
+  phone       String?  // Primary phone
+  additionalEmails Json?  // Array of additional email addresses
+  additionalPhones Json?  // Array of additional phone numbers
+  company     String?  // Company/organization name
+  notes       String?  @db.Text
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant   Company   @relation(fields: [companyId], references: [id])
+  projects Project[]
+
+  @@index([companyId], map: "TenantClient_company_idx")
+  @@index([companyId, email], map: "TenantClient_company_email_idx")
+  @@index([companyId, phone], map: "TenantClient_company_phone_idx")
+  @@index([companyId, lastName, firstName], map: "TenantClient_company_name_idx")
 }
 
 model ProjectGroup {

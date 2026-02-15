@@ -24,6 +24,7 @@ import { InvoicePetlVirtualizedTable } from "./invoice-petl-virtualized-table";
 import { useDraggable } from "../../hooks/use-draggable";
 import { JournalTab } from "./journal";
 import { RoleVisible } from "../../role-audit";
+import { FileDropZone } from "../../components/file-drop-zone";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -418,6 +419,274 @@ function CheckboxMultiSelect(props: {
               );
             })}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Client contact section with inline editing and auto-search
+interface TenantClientResult {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  displayName: string | null;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+}
+
+function ClientContactSection(props: {
+  projectId: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  canEdit: boolean;
+  onUpdate: (fields: { name?: string | null; email?: string | null; phone?: string | null }) => Promise<void>;
+}) {
+  const { projectId, name, email, phone, canEdit, onUpdate } = props;
+  const [editingField, setEditingField] = useState<"name" | "email" | "phone" | null>(null);
+  const [draft, setDraft] = useState({ name: name || "", email: email || "", phone: phone || "" });
+  const [saving, setSaving] = useState(false);
+  const [searchResults, setSearchResults] = useState<TenantClientResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    setDraft({ name: name || "", email: email || "", phone: phone || "" });
+  }, [name, email, phone]);
+
+  useEffect(() => {
+    if (editingField && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingField]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowResults(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const searchClients = async (query: string) => {
+    if (query.length < 2) {
+      setSearchResults([]);
+      setShowResults(false);
+      return;
+    }
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    setSearching(true);
+    try {
+      const res = await fetch(`${API_BASE}/clients/search?q=${encodeURIComponent(query)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSearchResults(Array.isArray(data) ? data : []);
+        setShowResults(true);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleInputChange = (field: "name" | "email" | "phone", value: string) => {
+    setDraft(prev => ({ ...prev, [field]: value }));
+
+    // Debounced search
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => {
+      searchClients(value);
+    }, 300);
+  };
+
+  const handleSelectClient = async (client: TenantClientResult) => {
+    const newName = client.displayName || [client.firstName, client.lastName].filter(Boolean).join(" ") || null;
+    const newEmail = client.email || null;
+    const newPhone = client.phone || null;
+
+    setDraft({ name: newName || "", email: newEmail || "", phone: newPhone || "" });
+    setShowResults(false);
+    setEditingField(null);
+    setSearchResults([]);
+
+    // Save all fields
+    setSaving(true);
+    try {
+      await onUpdate({
+        name: newName,
+        email: newEmail,
+        phone: newPhone,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSave = async (field: "name" | "email" | "phone") => {
+    const originalValue = field === "name" ? name : field === "email" ? email : phone;
+    if (draft[field] !== (originalValue || "")) {
+      setSaving(true);
+      try {
+        await onUpdate({ [field]: draft[field] || null });
+      } finally {
+        setSaving(false);
+      }
+    }
+    setEditingField(null);
+    setShowResults(false);
+    setSearchResults([]);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent, field: "name" | "email" | "phone") => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSave(field);
+    } else if (e.key === "Escape") {
+      setDraft({ name: name || "", email: email || "", phone: phone || "" });
+      setEditingField(null);
+      setShowResults(false);
+      setSearchResults([]);
+    }
+  };
+
+  const renderField = (field: "name" | "email" | "phone", label: string, linkPrefix?: string) => {
+    const value = field === "name" ? name : field === "email" ? email : phone;
+    const draftValue = draft[field];
+    const isEmpty = !value;
+    const isEditing = editingField === field;
+
+    if (isEditing) {
+      return (
+        <div style={{ position: "relative" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}>
+            <span style={{ fontSize: 12, color: "#6b7280", minWidth: 48 }}>{label}:</span>
+            <input
+              ref={inputRef}
+              type="text"
+              value={draftValue}
+              onChange={(e) => handleInputChange(field, e.target.value)}
+              onBlur={() => {
+                // Delay to allow click on search result
+                setTimeout(() => {
+                  if (!showResults) handleSave(field);
+                }, 150);
+              }}
+              onKeyDown={(e) => handleKeyDown(e, field)}
+              disabled={saving}
+              placeholder={`Search by ${label.toLowerCase()}...`}
+              style={{
+                flex: 1,
+                padding: "2px 4px",
+                fontSize: 13,
+                border: "1px solid #2563eb",
+                borderRadius: 3,
+                outline: "none",
+              }}
+            />
+            {searching && <span style={{ fontSize: 10, color: "#9ca3af" }}>...</span>}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+          marginTop: 4,
+          cursor: canEdit ? "pointer" : "default",
+        }}
+        onClick={() => canEdit && setEditingField(field)}
+        title={canEdit ? "Click to edit or search" : undefined}
+      >
+        <span style={{ fontSize: 12, color: "#6b7280", minWidth: 48 }}>{label}:</span>
+        {linkPrefix && !isEmpty ? (
+          <a
+            href={`${linkPrefix}${value}`}
+            onClick={(e) => e.stopPropagation()}
+            style={{ fontSize: 13, color: "#2563eb", textDecoration: "none" }}
+          >
+            {value}
+          </a>
+        ) : (
+          <span
+            style={{
+              fontSize: 13,
+              color: isEmpty ? "#9ca3af" : "#111827",
+              fontStyle: isEmpty ? "italic" : "normal",
+            }}
+          >
+            {value || `No ${label.toLowerCase()}`}
+          </span>
+        )}
+        {canEdit && <span style={{ fontSize: 11, color: "#9ca3af", marginLeft: 2 }}>✎</span>}
+      </div>
+    );
+  };
+
+  return (
+    <div ref={containerRef} style={{ position: "relative" }}>
+      {renderField("name", "Name")}
+      {renderField("phone", "Phone", "tel:")}
+      {renderField("email", "Email", "mailto:")}
+
+      {/* Search results dropdown */}
+      {showResults && searchResults.length > 0 && (
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            right: 0,
+            marginTop: 4,
+            background: "#ffffff",
+            border: "1px solid #d1d5db",
+            borderRadius: 6,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+            zIndex: 100,
+            maxHeight: 200,
+            overflow: "auto",
+          }}
+        >
+          <div style={{ padding: "4px 8px", fontSize: 10, color: "#6b7280", borderBottom: "1px solid #e5e7eb" }}>
+            Select to auto-fill all fields
+          </div>
+          {searchResults.map((client) => (
+            <div
+              key={client.id}
+              onClick={() => handleSelectClient(client)}
+              style={{
+                padding: "8px 10px",
+                cursor: "pointer",
+                borderBottom: "1px solid #f3f4f6",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#f3f4f6")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            >
+              <div style={{ fontSize: 13, fontWeight: 500, color: "#111827" }}>
+                {client.displayName || [client.firstName, client.lastName].filter(Boolean).join(" ") || "(No name)"}
+              </div>
+              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                {[client.email, client.phone, client.company].filter(Boolean).join(" • ")}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -3700,7 +3969,16 @@ ${htmlBody}
     log: DailyLog | null;
   }>({ open: false, log: null });
 
-  // Field PETL (scope-only) view for Daily Logs.
+  // PETL update modal (from Edit Daily Log)
+  const [petlUpdateModal, setPetlUpdateModal] = useState<{
+    open: boolean;
+    log: DailyLog | null;
+    percentComplete: string;
+    saving: boolean;
+    error: string | null;
+  }>({ open: false, log: null, percentComplete: "", saving: false, error: null });
+
+  // Field PETL
   const [fieldPetlItems, setFieldPetlItems] = useState<FieldPetlItem[]>([]);
   const [fieldPetlLoading, setFieldPetlLoading] = useState(false);
   const [fieldPetlError, setFieldPetlError] = useState<string | null>(null);
@@ -4444,6 +4722,82 @@ ${htmlBody}
   const [editProjectMessage, setEditProjectMessage] = useState<string | null>(null);
   const [deleteProjectMessage, setDeleteProjectMessage] = useState<string | null>(null);
   const [editProjectState, setEditProjectState] = useState<ProjectStateChoice>("OPEN");
+
+  // Tenant client search state for linking
+  interface TenantClientResult {
+    id: string;
+    firstName: string;
+    lastName: string;
+    displayName: string | null;
+    email: string | null;
+    phone: string | null;
+    company: string | null;
+    projectCount?: number;
+  }
+  const [clientLinkMode, setClientLinkMode] = useState(false);
+  const [clientSearchQuery, setClientSearchQuery] = useState("");
+  const [clientSearchResults, setClientSearchResults] = useState<TenantClientResult[]>([]);
+  const [clientSearching, setClientSearching] = useState(false);
+  const [selectedTenantClient, setSelectedTenantClient] = useState<TenantClientResult | null>(null);
+
+  // Search for tenant clients by name, email, or phone
+  const searchTenantClients = async (query: string) => {
+    if (!query || query.length < 2) {
+      setClientSearchResults([]);
+      return;
+    }
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    if (!token) return;
+
+    try {
+      setClientSearching(true);
+      const res = await fetch(
+        `${API_BASE}/clients/search?q=${encodeURIComponent(query)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setClientSearchResults(Array.isArray(data) ? data : []);
+      }
+    } catch {
+      // Ignore search errors
+    } finally {
+      setClientSearching(false);
+    }
+  };
+
+  // Handle selecting a client from search results
+  const handleSelectTenantClient = (client: TenantClientResult) => {
+    setSelectedTenantClient(client);
+    setClientSearchQuery("");
+    setClientSearchResults([]);
+    // Auto-fill contact fields from selected client
+    setEditProject(prev =>
+      prev
+        ? {
+            ...prev,
+            primaryContactName: client.displayName || `${client.firstName} ${client.lastName}`.trim(),
+            primaryContactEmail: client.email || null,
+            primaryContactPhone: client.phone || null,
+          }
+        : prev
+    );
+  };
+
+  // Clear client link
+  const handleClearTenantClientLink = () => {
+    setSelectedTenantClient(null);
+    setEditProject(prev =>
+      prev
+        ? {
+            ...prev,
+            primaryContactName: null,
+            primaryContactEmail: null,
+            primaryContactPhone: null,
+          }
+        : prev
+    );
+  };
 
   const searchParams = useSearchParams();
 
@@ -10148,20 +10502,483 @@ ${htmlBody}
     setAttachmentsViewer({ open: false, log: null });
   };
 
+  // PETL Update Modal handlers
+  const openPetlUpdateModal = (log: DailyLog) => {
+    // Find the linked SOW item's current percent from petlItems if available
+    let currentPercent = "";
+    if (log.sowItem?.id) {
+      const petlItem = petlItems.find(p => p.id === log.sowItem?.id);
+      if (petlItem && typeof petlItem.percentComplete === "number") {
+        currentPercent = String(petlItem.percentComplete);
+      }
+    }
+    setPetlUpdateModal({ open: true, log, percentComplete: currentPercent, saving: false, error: null });
+  };
+
+  const closePetlUpdateModal = () => {
+    setPetlUpdateModal({ open: false, log: null, percentComplete: "", saving: false, error: null });
+  };
+
+  const handleSavePetlUpdate = async () => {
+    if (!petlUpdateModal.log?.sowItem?.id) return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setPetlUpdateModal(prev => ({ ...prev, error: "Missing access token." }));
+      return;
+    }
+
+    const pct = parseFloat(petlUpdateModal.percentComplete);
+    if (isNaN(pct) || pct < 0 || pct > 100) {
+      setPetlUpdateModal(prev => ({ ...prev, error: "Percent must be between 0 and 100." }));
+      return;
+    }
+
+    setPetlUpdateModal(prev => ({ ...prev, saving: true, error: null }));
+
+    try {
+      const res = await fetch(`${API_BASE}/projects/${id}/petl/${petlUpdateModal.log!.sowItem!.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ percentComplete: pct }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        setPetlUpdateModal(prev => ({ ...prev, saving: false, error: `Update failed (${res.status}) ${text}` }));
+        return;
+      }
+
+      // Update local petlItems state
+      setPetlItems(prev => prev.map(p => p.id === petlUpdateModal.log!.sowItem!.id ? { ...p, percentComplete: pct } : p));
+      closePetlUpdateModal();
+    } catch (err: any) {
+      setPetlUpdateModal(prev => ({ ...prev, saving: false, error: err?.message || "Update failed." }));
+    }
+  };
+
+  // Edit Daily Log Modal - render BEFORE early returns so it shows regardless of loading state
+  const editDailyLogModal = editDailyLog.open && editDailyLog.draft && (
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 99999,
+        backgroundColor: "rgba(15, 23, 42, 0.6)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+      }}
+      onClick={closeEditDailyLog}
+    >
+      <div
+        style={{
+          width: 600,
+          maxWidth: "96vw",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          backgroundColor: "#ffffff",
+          borderRadius: 10,
+          border: "1px solid #e5e7eb",
+          boxShadow: "0 16px 40px rgba(15,23,42,0.35)",
+          padding: 16,
+          fontSize: 13,
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ fontSize: 15, fontWeight: 600 }}>Edit Daily Log</div>
+          <button
+            type="button"
+            onClick={closeEditDailyLog}
+            style={{
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              fontSize: 18,
+              lineHeight: 1,
+              padding: 4,
+            }}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Type</label>
+            <select
+              value={editDailyLog.draft.type}
+              onChange={e =>
+                setEditDailyLog(prev => ({
+                  ...prev,
+                  draft: prev.draft ? { ...prev.draft, type: e.target.value as DailyLogType } : null,
+                }))
+              }
+              style={{
+                width: "100%",
+                padding: "6px 8px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            >
+              <option value="PUDL">Daily Log (PUDL)</option>
+              <option value="RECEIPT_EXPENSE">Receipt / Expense</option>
+              <option value="JSA">Job Safety Assessment</option>
+              <option value="INCIDENT">Incident Report</option>
+              <option value="QUALITY">Quality Inspection</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Date</label>
+            <input
+              type="date"
+              value={editDailyLog.draft.logDate}
+              onChange={e =>
+                setEditDailyLog(prev => ({
+                  ...prev,
+                  draft: prev.draft ? { ...prev.draft, logDate: e.target.value } : null,
+                }))
+              }
+              style={{
+                width: "100%",
+                padding: "6px 8px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Title</label>
+          <input
+            type="text"
+            value={editDailyLog.draft.title}
+            onChange={e =>
+              setEditDailyLog(prev => ({
+                ...prev,
+                draft: prev.draft ? { ...prev.draft, title: e.target.value } : null,
+              }))
+            }
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              borderRadius: 4,
+              border: "1px solid #d1d5db",
+              fontSize: 12,
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Work Performed</label>
+          <textarea
+            value={editDailyLog.draft.workPerformed}
+            onChange={e =>
+              setEditDailyLog(prev => ({
+                ...prev,
+                draft: prev.draft ? { ...prev.draft, workPerformed: e.target.value } : null,
+              }))
+            }
+            rows={3}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              borderRadius: 4,
+              border: "1px solid #d1d5db",
+              fontSize: 12,
+              resize: "vertical",
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Crew On Site</label>
+          <textarea
+            value={editDailyLog.draft.crewOnSite}
+            onChange={e =>
+              setEditDailyLog(prev => ({
+                ...prev,
+                draft: prev.draft ? { ...prev.draft, crewOnSite: e.target.value } : null,
+              }))
+            }
+            rows={2}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              borderRadius: 4,
+              border: "1px solid #d1d5db",
+              fontSize: 12,
+              resize: "vertical",
+            }}
+          />
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Issues</label>
+            <textarea
+              value={editDailyLog.draft.issues}
+              onChange={e =>
+                setEditDailyLog(prev => ({
+                  ...prev,
+                  draft: prev.draft ? { ...prev.draft, issues: e.target.value } : null,
+                }))
+              }
+              rows={2}
+              style={{
+                width: "100%",
+                padding: "6px 8px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+                resize: "vertical",
+              }}
+            />
+          </div>
+          <div>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginBottom: 2 }}>
+              Safety Note
+              {editDailyLog.draft.safetyIncidents && editDailyLog.draft.safetyIncidents.trim() !== "" && (
+                <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 4, backgroundColor: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}>⚠️ Safety Review</span>
+              )}
+            </label>
+            <textarea
+              value={editDailyLog.draft.safetyIncidents}
+              onChange={e =>
+                setEditDailyLog(prev => ({
+                  ...prev,
+                  draft: prev.draft ? { ...prev.draft, safetyIncidents: e.target.value } : null,
+                }))
+              }
+              rows={2}
+              style={{
+                width: "100%",
+                padding: "6px 8px",
+                borderRadius: 4,
+                border: editDailyLog.draft.safetyIncidents && editDailyLog.draft.safetyIncidents.trim() !== "" ? "1px solid #fca5a5" : "1px solid #d1d5db",
+                fontSize: 12,
+                resize: "vertical",
+                backgroundColor: editDailyLog.draft.safetyIncidents && editDailyLog.draft.safetyIncidents.trim() !== "" ? "#fef2f2" : "#ffffff",
+              }}
+            />
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Weather</label>
+            <input
+              type="text"
+              value={editDailyLog.draft.weatherSummary}
+              onChange={e =>
+                setEditDailyLog(prev => ({
+                  ...prev,
+                  draft: prev.draft ? { ...prev.draft, weatherSummary: e.target.value } : null,
+                }))
+              }
+              style={{
+                width: "100%",
+                padding: "6px 8px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Person Onsite</label>
+            <input
+              type="text"
+              value={editDailyLog.draft.personOnsite}
+              onChange={e =>
+                setEditDailyLog(prev => ({
+                  ...prev,
+                  draft: prev.draft ? { ...prev.draft, personOnsite: e.target.value } : null,
+                }))
+              }
+              style={{
+                width: "100%",
+                padding: "6px 8px",
+                borderRadius: 4,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+              }}
+            />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Confidential Notes (NO PRINT)</label>
+          <textarea
+            value={editDailyLog.draft.confidentialNotes}
+            onChange={e =>
+              setEditDailyLog(prev => ({
+                ...prev,
+                draft: prev.draft ? { ...prev.draft, confidentialNotes: e.target.value } : null,
+              }))
+            }
+            rows={2}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              borderRadius: 4,
+              border: "1px solid #d1d5db",
+              fontSize: 12,
+              resize: "vertical",
+            }}
+          />
+        </div>
+
+        {/* Receipt/Expense fields - shown when type is RECEIPT_EXPENSE */}
+        {editDailyLog.draft.type === "RECEIPT_EXPENSE" && (
+          <div style={{ marginBottom: 12, padding: 10, background: "#fef3c7", borderRadius: 6, border: "1px solid #fcd34d" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#92400e" }}>Receipt Details</div>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Vendor</label>
+                <input
+                  type="text"
+                  value={editDailyLog.draft.expenseVendor}
+                  onChange={e =>
+                    setEditDailyLog(prev => ({
+                      ...prev,
+                      draft: prev.draft ? { ...prev.draft, expenseVendor: e.target.value } : null,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "4px 6px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Amount</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editDailyLog.draft.expenseAmount}
+                  onChange={e =>
+                    setEditDailyLog(prev => ({
+                      ...prev,
+                      draft: prev.draft ? { ...prev.draft, expenseAmount: e.target.value } : null,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "4px 6px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Receipt Date</label>
+                <input
+                  type="date"
+                  value={editDailyLog.draft.expenseDate}
+                  onChange={e =>
+                    setEditDailyLog(prev => ({
+                      ...prev,
+                      draft: prev.draft ? { ...prev.draft, expenseDate: e.target.value } : null,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "4px 6px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {editDailyLog.error && (
+          <div style={{ marginBottom: 12, color: "#b91c1c", fontSize: 12 }}>
+            {editDailyLog.error}
+          </div>
+        )}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button
+            type="button"
+            onClick={closeEditDailyLog}
+            style={{
+              padding: "8px 14px",
+              borderRadius: 6,
+              border: "1px solid #d1d5db",
+              background: "#ffffff",
+              cursor: "pointer",
+              fontSize: 12,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleUpdateDailyLog}
+            disabled={editDailyLog.saving}
+            style={{
+              padding: "8px 14px",
+              borderRadius: 6,
+              border: "1px solid #0f172a",
+              background: editDailyLog.saving ? "#e5e7eb" : "#0f172a",
+              color: editDailyLog.saving ? "#4b5563" : "#f9fafb",
+              cursor: editDailyLog.saving ? "default" : "pointer",
+              fontSize: 12,
+            }}
+          >
+            {editDailyLog.saving ? "Saving…" : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (loading) {
     return (
-      <div className="app-card">
-        <p style={{ fontSize: 14, color: "#6b7280" }}>Loading project…</p>
-      </div>
+      <>
+        {editDailyLogModal}
+        <div className="app-card">
+          <p style={{ fontSize: 14, color: "#6b7280" }}>Loading project…</p>
+        </div>
+      </>
     );
   }
 
   if (error || !project) {
     return (
-      <div className="app-card">
-        <h1 style={{ marginTop: 0, fontSize: 20 }}>Project</h1>
-        <p style={{ color: "#b91c1c" }}>{error ?? "Project not found."}</p>
-      </div>
+      <>
+        {editDailyLogModal}
+        <div className="app-card">
+          <h1 style={{ marginTop: 0, fontSize: 20 }}>Project</h1>
+          <p style={{ color: "#b91c1c" }}>{error ?? "Project not found."}</p>
+        </div>
+      </>
     );
   }
 
@@ -10370,47 +11187,6 @@ ${htmlBody}
                   )}
                 </p>
               </RoleVisible>
-              {/* Client Contact Info */}
-              {(project.primaryContactName || project.primaryContactEmail || project.primaryContactPhone) && (
-                <RoleVisible minRole="FOREMAN">
-                  <div
-                    style={{
-                      marginTop: 8,
-                      padding: "8px 10px",
-                      backgroundColor: "#f9fafb",
-                      borderRadius: 6,
-                      border: "1px solid #e5e7eb",
-                    }}
-                  >
-                    <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 4 }}>
-                      Client Contact
-                    </div>
-                    {project.primaryContactName && (
-                      <div style={{ fontSize: 13, fontWeight: 500, color: "#111827" }}>
-                        {project.primaryContactName}
-                      </div>
-                    )}
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 2 }}>
-                      {project.primaryContactPhone && (
-                        <a
-                          href={`tel:${project.primaryContactPhone}`}
-                          style={{ fontSize: 12, color: "#2563eb", textDecoration: "none" }}
-                        >
-                          📞 {project.primaryContactPhone}
-                        </a>
-                      )}
-                      {project.primaryContactEmail && (
-                        <a
-                          href={`mailto:${project.primaryContactEmail}`}
-                          style={{ fontSize: 12, color: "#2563eb", textDecoration: "none" }}
-                        >
-                          ✉️ {project.primaryContactEmail}
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                </RoleVisible>
-              )}
             </>
           )}
 
@@ -10566,95 +11342,237 @@ ${htmlBody}
                   borderTop: "1px solid #e5e7eb",
                 }}
               >
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
-                  Client Contact (for invoices & correspondence)
-                </label>
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: 6,
-                    alignItems: "flex-start",
-                  }}
-                >
-                  <div style={{ flex: "1 1 200px", minWidth: 180 }}>
-                    <label
-                      style={{ display: "block", fontSize: 12, fontWeight: 600 }}
-                    >
-                      Client Name
-                    </label>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600 }}>
+                    Client Contact (for invoices & correspondence)
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
                     <input
-                      value={editProject.primaryContactName ?? ""}
-                      onChange={e =>
-                        setEditProject(prev =>
-                          prev
-                            ? { ...prev, primaryContactName: e.target.value || null }
-                            : prev,
-                        )
-                      }
-                      placeholder="Full name"
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 13,
+                      type="checkbox"
+                      checked={clientLinkMode}
+                      onChange={e => {
+                        setClientLinkMode(e.target.checked);
+                        if (!e.target.checked) {
+                          setSelectedTenantClient(null);
+                          setClientSearchQuery("");
+                          setClientSearchResults([]);
+                        }
                       }}
+                      style={{ cursor: "pointer" }}
                     />
-                  </div>
-                  <div style={{ flex: "1 1 200px", minWidth: 180 }}>
-                    <label
-                      style={{ display: "block", fontSize: 12, fontWeight: 600 }}
-                    >
-                      Email
-                    </label>
-                    <input
-                      type="email"
-                      value={editProject.primaryContactEmail ?? ""}
-                      onChange={e =>
-                        setEditProject(prev =>
-                          prev
-                            ? { ...prev, primaryContactEmail: e.target.value || null }
-                            : prev,
-                        )
-                      }
-                      placeholder="email@example.com"
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 13,
-                      }}
-                    />
-                  </div>
-                  <div style={{ flex: "0 0 160px", minWidth: 140 }}>
-                    <label
-                      style={{ display: "block", fontSize: 12, fontWeight: 600 }}
-                    >
-                      Phone
-                    </label>
-                    <input
-                      type="tel"
-                      value={editProject.primaryContactPhone ?? ""}
-                      onChange={e =>
-                        setEditProject(prev =>
-                          prev
-                            ? { ...prev, primaryContactPhone: e.target.value || null }
-                            : prev,
-                        )
-                      }
-                      placeholder="(555) 123-4567"
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 13,
-                      }}
-                    />
-                  </div>
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>Search existing clients</span>
+                  </label>
                 </div>
+
+                {clientLinkMode ? (
+                  <div>
+                    {selectedTenantClient ? (
+                      <div
+                        style={{
+                          padding: 10,
+                          borderRadius: 6,
+                          border: "1px solid #10b981",
+                          background: "#ecfdf5",
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: 13, color: "#065f46" }}>
+                              {selectedTenantClient.displayName || `${selectedTenantClient.firstName} ${selectedTenantClient.lastName}`}
+                            </div>
+                            {selectedTenantClient.email && (
+                              <div style={{ fontSize: 12, color: "#047857" }}>{selectedTenantClient.email}</div>
+                            )}
+                            {selectedTenantClient.phone && (
+                              <div style={{ fontSize: 12, color: "#047857" }}>{selectedTenantClient.phone}</div>
+                            )}
+                            {selectedTenantClient.company && (
+                              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                                {selectedTenantClient.company}
+                              </div>
+                            )}
+                            {selectedTenantClient.projectCount != null && selectedTenantClient.projectCount > 0 && (
+                              <div style={{ fontSize: 10, color: "#065f46", marginTop: 4 }}>
+                                Linked to {selectedTenantClient.projectCount} other project(s)
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleClearTenantClientLink}
+                            style={{
+                              padding: "2px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #d1d5db",
+                              background: "#fff",
+                              fontSize: 11,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ position: "relative", marginBottom: 8 }}>
+                        <input
+                          type="text"
+                          value={clientSearchQuery}
+                          onChange={e => {
+                            setClientSearchQuery(e.target.value);
+                            searchTenantClients(e.target.value);
+                          }}
+                          placeholder="Search by name, email, or phone..."
+                          style={{
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 13,
+                          }}
+                        />
+                        {clientSearching && (
+                          <div style={{ position: "absolute", right: 8, top: 8, fontSize: 11, color: "#9ca3af" }}>
+                            Searching...
+                          </div>
+                        )}
+                        {clientSearchResults.length > 0 && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: "100%",
+                              left: 0,
+                              right: 0,
+                              zIndex: 10,
+                              background: "#fff",
+                              border: "1px solid #d1d5db",
+                              borderRadius: 6,
+                              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                              maxHeight: 240,
+                              overflowY: "auto",
+                            }}
+                          >
+                            {clientSearchResults.map(client => (
+                              <div
+                                key={client.id}
+                                onClick={() => handleSelectTenantClient(client)}
+                                style={{
+                                  padding: "8px 10px",
+                                  cursor: "pointer",
+                                  borderBottom: "1px solid #f3f4f6",
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = "#f9fafb")}
+                                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                              >
+                                <div style={{ fontSize: 13, fontWeight: 500 }}>
+                                  {client.displayName || `${client.firstName} ${client.lastName}`}
+                                </div>
+                                {client.email && (
+                                  <div style={{ fontSize: 11, color: "#6b7280" }}>{client.email}</div>
+                                )}
+                                {client.phone && (
+                                  <div style={{ fontSize: 11, color: "#6b7280" }}>{client.phone}</div>
+                                )}
+                                {client.projectCount != null && client.projectCount > 0 && (
+                                  <div style={{ fontSize: 10, color: "#2563eb", marginTop: 2 }}>
+                                    {client.projectCount} project(s)
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {clientSearchQuery.length >= 2 && clientSearchResults.length === 0 && !clientSearching && (
+                          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
+                            No clients found. Uncheck to enter new contact info manually.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 6,
+                      alignItems: "flex-start",
+                    }}
+                  >
+                    <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+                      <label style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
+                        Client Name
+                      </label>
+                      <input
+                        value={editProject.primaryContactName ?? ""}
+                        onChange={e =>
+                          setEditProject(prev =>
+                            prev
+                              ? { ...prev, primaryContactName: e.target.value || null }
+                              : prev,
+                          )
+                        }
+                        placeholder="Full name"
+                        style={{
+                          width: "100%",
+                          padding: "4px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 13,
+                        }}
+                      />
+                    </div>
+                    <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+                      <label style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
+                        Email
+                      </label>
+                      <input
+                        type="email"
+                        value={editProject.primaryContactEmail ?? ""}
+                        onChange={e =>
+                          setEditProject(prev =>
+                            prev
+                              ? { ...prev, primaryContactEmail: e.target.value || null }
+                              : prev,
+                          )
+                        }
+                        placeholder="email@example.com"
+                        style={{
+                          width: "100%",
+                          padding: "4px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 13,
+                        }}
+                      />
+                    </div>
+                    <div style={{ flex: "0 0 160px", minWidth: 140 }}>
+                      <label style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
+                        Phone
+                      </label>
+                      <input
+                        type="tel"
+                        value={editProject.primaryContactPhone ?? ""}
+                        onChange={e =>
+                          setEditProject(prev =>
+                            prev
+                              ? { ...prev, primaryContactPhone: e.target.value || null }
+                              : prev,
+                          )
+                        }
+                        placeholder="(555) 123-4567"
+                        style={{
+                          width: "100%",
+                          padding: "4px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 13,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Project state toggle (Open / Archived / Deleted / Warranty) */}
@@ -10736,6 +11654,52 @@ ${htmlBody}
             </div>
           )}
         </div>
+
+        {/* Client Contact Info - Always visible, inline editable with auto-search for Admin+ */}
+        {!editProjectMode && (
+          <RoleVisible minRole="FOREMAN">
+            <div
+              style={{
+                flex: "1 1 auto",
+                maxWidth: 320,
+                minWidth: 200,
+                marginLeft: 24,
+                padding: "8px 12px",
+                backgroundColor: "#f9fafb",
+                borderRadius: 6,
+                border: "1px solid #e5e7eb",
+              }}
+            >
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 6 }}>
+                Client Contact
+              </div>
+              <ClientContactSection
+                projectId={project.id}
+                name={project.primaryContactName || null}
+                email={project.primaryContactEmail || null}
+                phone={project.primaryContactPhone || null}
+                canEdit={isAdminOrAbove}
+                onUpdate={async (fields) => {
+                  const token = localStorage.getItem("accessToken");
+                  if (!token) return;
+                  const body: Record<string, string | null> = {};
+                  if ("name" in fields) body.primaryContactName = fields.name ?? null;
+                  if ("email" in fields) body.primaryContactEmail = fields.email ?? null;
+                  if ("phone" in fields) body.primaryContactPhone = fields.phone ?? null;
+                  const res = await fetch(`${API_BASE}/projects/${project.id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                    body: JSON.stringify(body),
+                  });
+                  if (res.ok) {
+                    const updated = await res.json();
+                    setProject(updated);
+                  }
+                }}
+              />
+            </div>
+          </RoleVisible>
+        )}
 
         {canEditProjectHeader && (
           <div
@@ -19444,79 +20408,72 @@ ${htmlBody}
                     />
                   </div>
 
-                  {/* Attachment Upload Section */}
+                  {/* Attachment Upload Section - Drag & Drop */}
                   <div style={{ marginTop: 8, marginBottom: 8 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
                       Attachments
                     </div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <label
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
-                          padding: "4px 8px",
-                          borderRadius: 4,
-                          border: "1px solid #d1d5db",
-                          background: "#f9fafb",
-                          fontSize: 11,
-                          cursor: "pointer",
-                        }}
-                      >
-                        <span>📷</span>
-                        <span>Upload Photo/File</span>
-                        <input
-                          type="file"
-                          accept="image/*,application/pdf"
-                          capture="environment"
-                          style={{ display: "none" }}
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            const token = localStorage.getItem("accessToken");
-                            if (!token) {
-                              setDailyLogMessage("Missing access token.");
-                              return;
+                    <FileDropZone
+                      accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx"
+                      multiple={true}
+                      buttonLabel="Browse Files"
+                      buttonIcon="📷"
+                      hint={newDailyLog.type === "RECEIPT_EXPENSE" 
+                        ? "Drag photos from Finder/Photos app, or use camera on mobile" 
+                        : "Drag files from Finder, Photos, or click to browse"}
+                      minHeight={100}
+                      onFiles={async (files) => {
+                        const token = localStorage.getItem("accessToken");
+                        if (!token) {
+                          setDailyLogMessage("Missing access token.");
+                          return;
+                        }
+
+                        const uploadedIds: string[] = [];
+                        const errors: string[] = [];
+
+                        for (const file of files) {
+                          try {
+                            setDailyLogMessage(`Uploading ${file.name}...`);
+                            const formData = new FormData();
+                            formData.append("file", file);
+                            formData.append("folder", "daily-logs");
+                            const res = await fetch(`${API_BASE}/projects/${id}/files`, {
+                              method: "POST",
+                              headers: { Authorization: `Bearer ${token}` },
+                              body: formData,
+                            });
+                            if (!res.ok) {
+                              errors.push(`${file.name} failed (${res.status})`);
+                              continue;
                             }
-                            try {
-                              setDailyLogMessage("Uploading file...");
-                              const formData = new FormData();
-                              formData.append("file", file);
-                              formData.append("folder", "daily-logs");
-                              const res = await fetch(`${API_BASE}/projects/${id}/files`, {
-                                method: "POST",
-                                headers: { Authorization: `Bearer ${token}` },
-                                body: formData,
-                              });
-                              if (!res.ok) {
-                                setDailyLogMessage(`Upload failed (${res.status})`);
-                                return;
-                              }
-                              const uploaded = await res.json();
-                              setNewDailyLog(prev => ({
-                                ...prev,
-                                attachmentProjectFileIds: [
-                                  ...(prev.attachmentProjectFileIds || []),
-                                  uploaded.id,
-                                ],
-                              }));
-                              setDailyLogMessage(`Attached: ${file.name}`);
-                            } catch (err: any) {
-                              setDailyLogMessage(`Upload error: ${err?.message || "Unknown"}`);
-                            }
-                            e.target.value = "";
-                          }}
-                        />
-                      </label>
-                      {newDailyLog.attachmentProjectFileIds && newDailyLog.attachmentProjectFileIds.length > 0 && (
-                        <span style={{ fontSize: 11, color: "#059669" }}>
-                          ✓ {newDailyLog.attachmentProjectFileIds.length} file(s) attached
-                        </span>
-                      )}
-                    </div>
-                    {newDailyLog.type === "RECEIPT_EXPENSE" && (
-                      <div style={{ fontSize: 10, color: "#6b7280", marginTop: 4 }}>
-                        Tip: On mobile, this will open your camera for quick receipt capture.
+                            const uploaded = await res.json();
+                            uploadedIds.push(uploaded.id);
+                          } catch (err: any) {
+                            errors.push(`${file.name}: ${err?.message || "Unknown error"}`);
+                          }
+                        }
+
+                        if (uploadedIds.length > 0) {
+                          setNewDailyLog(prev => ({
+                            ...prev,
+                            attachmentProjectFileIds: [
+                              ...(prev.attachmentProjectFileIds || []),
+                              ...uploadedIds,
+                            ],
+                          }));
+                        }
+
+                        if (errors.length > 0) {
+                          setDailyLogMessage(`Errors: ${errors.join(", ")}`);
+                        } else {
+                          setDailyLogMessage(`✓ ${uploadedIds.length} file(s) attached`);
+                        }
+                      }}
+                    />
+                    {newDailyLog.attachmentProjectFileIds && newDailyLog.attachmentProjectFileIds.length > 0 && (
+                      <div style={{ marginTop: 6, fontSize: 11, color: "#059669" }}>
+                        ✓ {newDailyLog.attachmentProjectFileIds.length} file(s) attached
                       </div>
                     )}
                   </div>
@@ -19665,7 +20622,12 @@ ${htmlBody}
                     />
                   </div>
                   <div>
-                    <div style={{ fontSize: 12, marginBottom: 2 }}>Safety Incidents</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginBottom: 2 }}>
+                      Safety Note
+                      {newDailyLog.safetyIncidents && newDailyLog.safetyIncidents.trim() !== "" && (
+                        <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 4, backgroundColor: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}>⚠️ Safety Review</span>
+                      )}
+                    </div>
                     <textarea
                       value={newDailyLog.safetyIncidents}
                       onChange={e =>
@@ -19676,9 +20638,10 @@ ${htmlBody}
                         width: "100%",
                         padding: "4px 6px",
                         borderRadius: 4,
-                        border: "1px solid #d1d5db",
+                        border: newDailyLog.safetyIncidents && newDailyLog.safetyIncidents.trim() !== "" ? "1px solid #fca5a5" : "1px solid #d1d5db",
                         fontSize: 12,
                         resize: "vertical",
+                        backgroundColor: newDailyLog.safetyIncidents && newDailyLog.safetyIncidents.trim() !== "" ? "#fef2f2" : "#ffffff",
                       }}
                     />
                   </div>
@@ -19814,7 +20777,7 @@ ${htmlBody}
                             .slice(0, 10)
                             .map(log => (
                             <tr key={log.id}>
-                              {/* Edit pencil icon */}
+                              {/* Edit pencil icon - PM+ only */}
                               <td
                                 style={{
                                   padding: "4px 6px",
@@ -19822,30 +20785,25 @@ ${htmlBody}
                                   textAlign: "center",
                                 }}
                               >
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    console.log("Edit clicked for log:", log.id, log);
-                                    openEditDailyLog(log);
-                                  }}
-                                  title="Edit daily log"
-                                  style={{
-                                    border: "1px solid #d1d5db",
-                                    background: "#f9fafb",
-                                    borderRadius: 4,
-                                    cursor: "pointer",
-                                    padding: "4px 6px",
-                                    fontSize: 12,
-                                    color: "#374151",
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                  }}
-                                >
-                                  Edit
-                                </button>
+                                {isPmOrAbove && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditDailyLog(log)}
+                                    title="Edit daily log"
+                                    style={{
+                                      border: "1px solid #2563eb",
+                                      background: "#2563eb",
+                                      borderRadius: 4,
+                                      cursor: "pointer",
+                                      padding: "4px 10px",
+                                      fontSize: 11,
+                                      color: "#ffffff",
+                                      fontWeight: 500,
+                                    }}
+                                  >
+                                    Edit
+                                  </button>
+                                )}
                               </td>
                               {/* Date */}
                               <td
@@ -19938,28 +20896,47 @@ ${htmlBody}
                                   borderTop: "1px solid #e5e7eb",
                                 }}
                               >
-                                <span
-                                  style={{
-                                    display: "inline-block",
-                                    padding: "1px 6px",
-                                    borderRadius: 999,
-                                    fontSize: 10,
-                                    backgroundColor:
-                                      log.status === "APPROVED"
-                                        ? "#dcfce7"
-                                        : log.status === "REJECTED"
-                                        ? "#fee2e2"
-                                        : "#e5e7eb",
-                                    color:
-                                      log.status === "APPROVED"
-                                        ? "#166534"
-                                        : log.status === "REJECTED"
-                                        ? "#991b1b"
-                                        : "#374151",
-                                  }}
-                                >
-                                  {log.status || "SUBMITTED"}
-                                </span>
+                                <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                                  <span
+                                    style={{
+                                      display: "inline-block",
+                                      padding: "1px 6px",
+                                      borderRadius: 999,
+                                      fontSize: 10,
+                                      backgroundColor:
+                                        log.status === "APPROVED"
+                                          ? "#dcfce7"
+                                          : log.status === "REJECTED"
+                                          ? "#fee2e2"
+                                          : "#e5e7eb",
+                                      color:
+                                        log.status === "APPROVED"
+                                          ? "#166534"
+                                          : log.status === "REJECTED"
+                                          ? "#991b1b"
+                                          : "#374151",
+                                    }}
+                                  >
+                                    {log.status || "SUBMITTED"}
+                                  </span>
+                                  {log.safetyIncidents && log.safetyIncidents.trim() !== "" && (
+                                    <span
+                                      style={{
+                                        display: "inline-block",
+                                        padding: "1px 6px",
+                                        borderRadius: 4,
+                                        fontSize: 9,
+                                        fontWeight: 600,
+                                        backgroundColor: "#fef2f2",
+                                        color: "#b91c1c",
+                                        border: "1px solid #fecaca",
+                                      }}
+                                      title={`Safety Note: ${log.safetyIncidents}`}
+                                    >
+                                      ⚠️ Safety Review
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               {/* Attachment paperclip icon */}
                               <td
@@ -21478,373 +22455,6 @@ ${htmlBody}
       )}
 
       {/* Project grouping: Units → Rooms (expandable) */}
-
-      {/* Edit Daily Log Modal */}
-      {editDailyLog.open && editDailyLog.draft && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 70,
-            backgroundColor: "rgba(15, 23, 42, 0.4)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-          }}
-          onClick={closeEditDailyLog}
-        >
-          <div
-            style={{
-              width: 600,
-              maxWidth: "96vw",
-              maxHeight: "90vh",
-              overflowY: "auto",
-              backgroundColor: "#ffffff",
-              borderRadius: 10,
-              border: "1px solid #e5e7eb",
-              boxShadow: "0 16px 40px rgba(15,23,42,0.35)",
-              padding: 16,
-              fontSize: 13,
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 12,
-              }}
-            >
-              <div style={{ fontSize: 15, fontWeight: 600 }}>Edit Daily Log</div>
-              <button
-                type="button"
-                onClick={closeEditDailyLog}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  cursor: "pointer",
-                  fontSize: 18,
-                  lineHeight: 1,
-                  padding: 4,
-                }}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Type</label>
-                <select
-                  value={editDailyLog.draft.type}
-                  onChange={e =>
-                    setEditDailyLog(prev => ({
-                      ...prev,
-                      draft: prev.draft ? { ...prev.draft, type: e.target.value as DailyLogType } : null,
-                    }))
-                  }
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                  }}
-                >
-                  <option value="PUDL">Daily Log (PUDL)</option>
-                  <option value="RECEIPT_EXPENSE">Receipt / Expense</option>
-                  <option value="JSA">Job Safety Assessment</option>
-                  <option value="INCIDENT">Incident Report</option>
-                  <option value="QUALITY">Quality Inspection</option>
-                </select>
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Date</label>
-                <input
-                  type="date"
-                  value={editDailyLog.draft.logDate}
-                  onChange={e =>
-                    setEditDailyLog(prev => ({
-                      ...prev,
-                      draft: prev.draft ? { ...prev.draft, logDate: e.target.value } : null,
-                    }))
-                  }
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Title</label>
-              <input
-                type="text"
-                value={editDailyLog.draft.title}
-                onChange={e =>
-                  setEditDailyLog(prev => ({
-                    ...prev,
-                    draft: prev.draft ? { ...prev.draft, title: e.target.value } : null,
-                  }))
-                }
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                }}
-              />
-            </div>
-
-            {editDailyLog.draft.type === "RECEIPT_EXPENSE" && (
-              <div style={{ marginBottom: 12, padding: 10, background: "#fef3c7", borderRadius: 6, border: "1px solid #fcd34d" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#92400e" }}>Receipt Details</div>
-                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
-                  <div>
-                    <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Vendor</label>
-                    <input
-                      type="text"
-                      value={editDailyLog.draft.expenseVendor}
-                      onChange={e =>
-                        setEditDailyLog(prev => ({
-                          ...prev,
-                          draft: prev.draft ? { ...prev.draft, expenseVendor: e.target.value } : null,
-                        }))
-                      }
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 12,
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Amount</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={editDailyLog.draft.expenseAmount}
-                      onChange={e =>
-                        setEditDailyLog(prev => ({
-                          ...prev,
-                          draft: prev.draft ? { ...prev.draft, expenseAmount: e.target.value } : null,
-                        }))
-                      }
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 12,
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Receipt Date</label>
-                    <input
-                      type="date"
-                      value={editDailyLog.draft.expenseDate}
-                      onChange={e =>
-                        setEditDailyLog(prev => ({
-                          ...prev,
-                          draft: prev.draft ? { ...prev.draft, expenseDate: e.target.value } : null,
-                        }))
-                      }
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 12,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Work Performed</label>
-              <textarea
-                value={editDailyLog.draft.workPerformed}
-                onChange={e =>
-                  setEditDailyLog(prev => ({
-                    ...prev,
-                    draft: prev.draft ? { ...prev.draft, workPerformed: e.target.value } : null,
-                  }))
-                }
-                rows={3}
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                  resize: "vertical",
-                }}
-              />
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Issues</label>
-                <textarea
-                  value={editDailyLog.draft.issues}
-                  onChange={e =>
-                    setEditDailyLog(prev => ({
-                      ...prev,
-                      draft: prev.draft ? { ...prev.draft, issues: e.target.value } : null,
-                    }))
-                  }
-                  rows={2}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                    resize: "vertical",
-                  }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Safety Incidents</label>
-                <textarea
-                  value={editDailyLog.draft.safetyIncidents}
-                  onChange={e =>
-                    setEditDailyLog(prev => ({
-                      ...prev,
-                      draft: prev.draft ? { ...prev.draft, safetyIncidents: e.target.value } : null,
-                    }))
-                  }
-                  rows={2}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                    resize: "vertical",
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Weather</label>
-                <input
-                  type="text"
-                  value={editDailyLog.draft.weatherSummary}
-                  onChange={e =>
-                    setEditDailyLog(prev => ({
-                      ...prev,
-                      draft: prev.draft ? { ...prev.draft, weatherSummary: e.target.value } : null,
-                    }))
-                  }
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                  }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Crew / Person Onsite</label>
-                <input
-                  type="text"
-                  value={editDailyLog.draft.personOnsite}
-                  onChange={e =>
-                    setEditDailyLog(prev => ({
-                      ...prev,
-                      draft: prev.draft ? { ...prev.draft, personOnsite: e.target.value } : null,
-                    }))
-                  }
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 4,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Confidential Notes (NO PRINT)</label>
-              <textarea
-                value={editDailyLog.draft.confidentialNotes}
-                onChange={e =>
-                  setEditDailyLog(prev => ({
-                    ...prev,
-                    draft: prev.draft ? { ...prev.draft, confidentialNotes: e.target.value } : null,
-                  }))
-                }
-                rows={2}
-                style={{
-                  width: "100%",
-                  padding: "6px 8px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                  fontSize: 12,
-                  resize: "vertical",
-                }}
-              />
-            </div>
-
-            {editDailyLog.error && (
-              <div style={{ marginBottom: 12, fontSize: 12, color: "#b91c1c" }}>
-                {editDailyLog.error}
-              </div>
-            )}
-
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button
-                type="button"
-                onClick={closeEditDailyLog}
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                  backgroundColor: "#ffffff",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleUpdateDailyLog}
-                disabled={editDailyLog.saving}
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: 4,
-                  border: "1px solid #0f172a",
-                  backgroundColor: editDailyLog.saving ? "#e5e7eb" : "#0f172a",
-                  color: editDailyLog.saving ? "#4b5563" : "#f9fafb",
-                  fontSize: 12,
-                  cursor: editDailyLog.saving ? "default" : "pointer",
-                }}
-              >
-                {editDailyLog.saving ? "Saving…" : "Save Changes"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Attachments Viewer Modal */}
       {attachmentsViewer.open && attachmentsViewer.log && (
@@ -26585,6 +27195,387 @@ ${htmlBody}
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Daily Log Modal - MOVED HERE at end of main return */}
+      {editDailyLog.open && editDailyLog.draft && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 99999,
+            backgroundColor: "rgba(15, 23, 42, 0.6)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+          onClick={closeEditDailyLog}
+        >
+          <div
+            style={{
+              width: 700,
+              maxWidth: "96vw",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              backgroundColor: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 16px 40px rgba(15,23,42,0.35)",
+              padding: 16,
+              fontSize: 13,
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>Edit Daily Log</div>
+              <button type="button" onClick={closeEditDailyLog} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Type</label>
+                <select value={editDailyLog.draft.type} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, type: e.target.value as DailyLogType } : null }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}>
+                  <option value="PUDL">Daily Log (PUDL)</option>
+                  <option value="RECEIPT_EXPENSE">Receipt / Expense</option>
+                  <option value="JSA">Job Safety Assessment</option>
+                  <option value="INCIDENT">Incident Report</option>
+                  <option value="QUALITY">Quality Inspection</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Date</label>
+                <input type="date" value={editDailyLog.draft.logDate} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, logDate: e.target.value } : null }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Title</label>
+              <input type="text" value={editDailyLog.draft.title} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, title: e.target.value } : null }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }} />
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Work Performed</label>
+              <textarea value={editDailyLog.draft.workPerformed} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, workPerformed: e.target.value } : null }))} rows={3} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12, resize: "vertical" }} />
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Crew On Site</label>
+              <textarea value={editDailyLog.draft.crewOnSite} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, crewOnSite: e.target.value } : null }))} rows={2} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12, resize: "vertical" }} />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Issues</label>
+                <textarea value={editDailyLog.draft.issues} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, issues: e.target.value } : null }))} rows={2} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12, resize: "vertical" }} />
+              </div>
+              <div>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginBottom: 2 }}>
+                  Safety Note
+                  {editDailyLog.draft.safetyIncidents && editDailyLog.draft.safetyIncidents.trim() !== "" && (
+                    <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 4, backgroundColor: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}>⚠️ Safety Review</span>
+                  )}
+                </label>
+                <textarea value={editDailyLog.draft.safetyIncidents} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, safetyIncidents: e.target.value } : null }))} rows={2} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: editDailyLog.draft.safetyIncidents && editDailyLog.draft.safetyIncidents.trim() !== "" ? "1px solid #fca5a5" : "1px solid #d1d5db", fontSize: 12, resize: "vertical", backgroundColor: editDailyLog.draft.safetyIncidents && editDailyLog.draft.safetyIncidents.trim() !== "" ? "#fef2f2" : "#ffffff" }} />
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Weather</label>
+                <input type="text" value={editDailyLog.draft.weatherSummary} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, weatherSummary: e.target.value } : null }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Person Onsite</label>
+                <input type="text" value={editDailyLog.draft.personOnsite} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, personOnsite: e.target.value } : null }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Confidential Notes (NO PRINT)</label>
+              <textarea value={editDailyLog.draft.confidentialNotes} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, confidentialNotes: e.target.value } : null }))} rows={2} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12, resize: "vertical" }} />
+            </div>
+
+            {/* Attachments Section */}
+            <div style={{ marginBottom: 12, padding: 10, background: "#f8fafc", borderRadius: 6, border: "1px solid #e5e7eb" }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "#374151" }}>Attachments</div>
+              
+              {/* Existing attachments */}
+              {editDailyLog.log?.attachments && editDailyLog.log.attachments.length > 0 && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: 8, marginBottom: 8 }}>
+                  {editDailyLog.log.attachments.map(att => {
+                    const url = att.fileUrl;
+                    const name = att.fileName || "attachment";
+                    const lower = (url || "").toLowerCase();
+                    const isImage = lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".webp") || (att.mimeType || "").startsWith("image/");
+                    return (
+                      <div key={att.id} style={{ position: "relative", borderRadius: 4, border: "1px solid #e5e7eb", background: "#ffffff", overflow: "hidden" }}>
+                        <a href={url} target="_blank" rel="noopener noreferrer" style={{ display: "block" }}>
+                          {isImage ? (
+                            <img src={url} alt={name} style={{ width: "100%", height: 70, objectFit: "cover" }} />
+                          ) : (
+                            <div style={{ width: "100%", height: 70, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#f3f4f6", fontSize: 24 }}>📄</div>
+                          )}
+                        </a>
+                        <div style={{ padding: "4px 6px", fontSize: 10, color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              
+              {(!editDailyLog.log?.attachments || editDailyLog.log.attachments.length === 0) && (
+                <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 8 }}>No attachments</div>
+              )}
+              
+              {/* Add new attachment */}
+              <div style={{ marginTop: 8 }}>
+                <label style={{ display: "block", fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Add photos to this log:</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={async e => {
+                    const files = e.target.files;
+                    if (!files || files.length === 0 || !editDailyLog.log) return;
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) {
+                      alert("Missing access token; please log in again.");
+                      return;
+                    }
+                    try {
+                      setEditDailyLog(prev => ({ ...prev, saving: true }));
+                      const uploaded: DailyLogAttachmentDto[] = [];
+                      for (const file of Array.from(files)) {
+                        const link = await uploadImageFileToNexusUploads(file, "JOURNAL");
+                        const resp = await fetch(`${API_BASE}/daily-logs/${editDailyLog.log!.id}/attachments/link`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ fileUrl: link.url, fileName: link.label }),
+                        });
+                        if (resp.ok) {
+                          const att: DailyLogAttachmentDto = await resp.json();
+                          uploaded.push(att);
+                        }
+                      }
+                      if (uploaded.length > 0) {
+                        setEditDailyLog(prev => ({
+                          ...prev,
+                          log: prev.log ? { ...prev.log, attachments: [...(prev.log.attachments || []), ...uploaded] } : null,
+                        }));
+                        setDailyLogs(prev => prev.map(l => l.id === editDailyLog.log?.id ? { ...l, attachments: [...(l.attachments || []), ...uploaded] } : l));
+                      }
+                    } catch (err: any) {
+                      alert(err?.message || "Upload failed.");
+                    } finally {
+                      setEditDailyLog(prev => ({ ...prev, saving: false }));
+                      e.target.value = "";
+                    }
+                  }}
+                  style={{ fontSize: 11 }}
+                />
+              </div>
+            </div>
+
+            {/* PETL Context Section - show if log has any PETL linkage */}
+            {(editDailyLog.log?.building || editDailyLog.log?.unit || editDailyLog.log?.roomParticle || editDailyLog.log?.sowItem) && (
+              <div style={{ marginBottom: 12, padding: 10, background: "#eff6ff", borderRadius: 6, border: "1px solid #bfdbfe" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#1e40af" }}>PETL Context</div>
+                  {isPmOrAbove && editDailyLog.log?.sowItem && (
+                    <button
+                      type="button"
+                      onClick={() => openPetlUpdateModal(editDailyLog.log!)}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 4,
+                        border: "1px solid #2563eb",
+                        background: "#2563eb",
+                        color: "#ffffff",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Update % Complete
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: "#374151", display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px" }}>
+                  {editDailyLog.log?.building && (
+                    <>
+                      <span style={{ fontWeight: 500 }}>Building:</span>
+                      <span>{editDailyLog.log.building.name}{editDailyLog.log.building.code ? ` (${editDailyLog.log.building.code})` : ""}</span>
+                    </>
+                  )}
+                  {editDailyLog.log?.unit && (
+                    <>
+                      <span style={{ fontWeight: 500 }}>Unit:</span>
+                      <span>{editDailyLog.log.unit.label}{editDailyLog.log.unit.floor != null ? ` (Floor ${editDailyLog.log.unit.floor})` : ""}</span>
+                    </>
+                  )}
+                  {editDailyLog.log?.roomParticle && (
+                    <>
+                      <span style={{ fontWeight: 500 }}>Room:</span>
+                      <span>{editDailyLog.log.roomParticle.fullLabel || editDailyLog.log.roomParticle.name}</span>
+                    </>
+                  )}
+                  {editDailyLog.log?.sowItem && (
+                    <>
+                      <span style={{ fontWeight: 500 }}>SOW Item:</span>
+                      <span>{editDailyLog.log.sowItem.code ? `${editDailyLog.log.sowItem.code} - ` : ""}{editDailyLog.log.sowItem.description || "(No description)"}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {editDailyLog.draft.type === "RECEIPT_EXPENSE" && (
+              <div style={{ marginBottom: 12, padding: 10, background: "#fef3c7", borderRadius: 6, border: "1px solid #fcd34d" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#92400e" }}>Receipt Details</div>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Vendor</label>
+                    <input type="text" value={editDailyLog.draft.expenseVendor} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, expenseVendor: e.target.value } : null }))} style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Amount</label>
+                    <input type="number" step="0.01" value={editDailyLog.draft.expenseAmount} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, expenseAmount: e.target.value } : null }))} style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Receipt Date</label>
+                    <input type="date" value={editDailyLog.draft.expenseDate} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, expenseDate: e.target.value } : null }))} style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {editDailyLog.error && <div style={{ marginBottom: 12, color: "#b91c1c", fontSize: 12 }}>{editDailyLog.error}</div>}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button type="button" onClick={closeEditDailyLog} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #d1d5db", background: "#ffffff", cursor: "pointer", fontSize: 12 }}>Cancel</button>
+              <button type="button" onClick={handleUpdateDailyLog} disabled={editDailyLog.saving} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #0f172a", background: editDailyLog.saving ? "#e5e7eb" : "#0f172a", color: editDailyLog.saving ? "#4b5563" : "#f9fafb", cursor: editDailyLog.saving ? "default" : "pointer", fontSize: 12 }}>{editDailyLog.saving ? "Saving…" : "Save Changes"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PETL Update Modal */}
+      {petlUpdateModal.open && petlUpdateModal.log && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 100000,
+            backgroundColor: "rgba(15, 23, 42, 0.7)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+          onClick={closePetlUpdateModal}
+        >
+          <div
+            style={{
+              width: 400,
+              maxWidth: "90vw",
+              backgroundColor: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 16px 40px rgba(15,23,42,0.4)",
+              padding: 16,
+              fontSize: 13,
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ fontSize: 15, fontWeight: 600 }}>Update PETL % Complete</div>
+              <button type="button" onClick={closePetlUpdateModal} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4 }} aria-label="Close">×</button>
+            </div>
+
+            {/* PETL Context Display */}
+            <div style={{ marginBottom: 12, padding: 10, background: "#f8fafc", borderRadius: 6, border: "1px solid #e5e7eb" }}>
+              <div style={{ fontSize: 11, color: "#374151", display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px" }}>
+                {petlUpdateModal.log.building && (
+                  <>
+                    <span style={{ fontWeight: 500 }}>Building:</span>
+                    <span>{petlUpdateModal.log.building.name}</span>
+                  </>
+                )}
+                {petlUpdateModal.log.unit && (
+                  <>
+                    <span style={{ fontWeight: 500 }}>Unit:</span>
+                    <span>{petlUpdateModal.log.unit.label}</span>
+                  </>
+                )}
+                {petlUpdateModal.log.roomParticle && (
+                  <>
+                    <span style={{ fontWeight: 500 }}>Room:</span>
+                    <span>{petlUpdateModal.log.roomParticle.fullLabel || petlUpdateModal.log.roomParticle.name}</span>
+                  </>
+                )}
+                {petlUpdateModal.log.sowItem && (
+                  <>
+                    <span style={{ fontWeight: 500 }}>SOW Item:</span>
+                    <span>{petlUpdateModal.log.sowItem.code ? `${petlUpdateModal.log.sowItem.code} - ` : ""}{petlUpdateModal.log.sowItem.description || "(No description)"}</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Percent Complete Input */}
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 12, marginBottom: 4, fontWeight: 500 }}>% Complete</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={petlUpdateModal.percentComplete}
+                  onChange={e => setPetlUpdateModal(prev => ({ ...prev, percentComplete: e.target.value }))}
+                  style={{
+                    width: 100,
+                    padding: "8px 12px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 14,
+                    textAlign: "center",
+                  }}
+                  placeholder="0-100"
+                />
+                <span style={{ fontSize: 14, color: "#6b7280" }}>%</span>
+              </div>
+            </div>
+
+            {petlUpdateModal.error && <div style={{ marginBottom: 12, color: "#b91c1c", fontSize: 12 }}>{petlUpdateModal.error}</div>}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button type="button" onClick={closePetlUpdateModal} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #d1d5db", background: "#ffffff", cursor: "pointer", fontSize: 12 }}>Cancel</button>
+              <button
+                type="button"
+                onClick={handleSavePetlUpdate}
+                disabled={petlUpdateModal.saving}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 6,
+                  border: "1px solid #059669",
+                  background: petlUpdateModal.saving ? "#e5e7eb" : "#059669",
+                  color: petlUpdateModal.saving ? "#4b5563" : "#ffffff",
+                  cursor: petlUpdateModal.saving ? "default" : "pointer",
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+              >
+                {petlUpdateModal.saving ? "Saving…" : "Save % Complete"}
+              </button>
             </div>
           </div>
         </div>
