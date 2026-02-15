@@ -10414,6 +10414,119 @@ ${htmlBody}
     }
   };
 
+  // Attachments Gallery Modal - render BEFORE early returns so it shows regardless of loading state
+  const attachmentsGalleryModal = attachmentsViewer.open && attachmentsViewer.log && (
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 999999,
+        backgroundColor: "rgba(0, 0, 0, 0.92)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+      onClick={closeAttachmentsViewer}
+    >
+      {(() => {
+        console.log('[GALLERY] Rendering attachmentsGalleryModal');
+        const att = attachmentsViewer.log?.attachments?.[attachmentsViewer.currentIndex];
+        const url = att?.fileUrl || "";
+        const name = att?.fileName || "attachment";
+        const isImg = /\.(png|jpe?g|gif|webp)$/i.test(url) || (att?.mimeType || "").startsWith("image/");
+        const total = attachmentsViewer.log?.attachments?.length || 0;
+        const hasMultiple = total > 1;
+        
+        return (
+          <>
+            {/* Close button */}
+            <button
+              type="button"
+              onClick={closeAttachmentsViewer}
+              style={{
+                position: "absolute",
+                top: 20,
+                right: 20,
+                border: "none",
+                background: "rgba(255,255,255,0.2)",
+                borderRadius: 8,
+                cursor: "pointer",
+                fontSize: 20,
+                padding: "8px 16px",
+                color: "#ffffff",
+              }}
+            >
+              ✕ Close
+            </button>
+
+            {/* Header info */}
+            <div style={{ position: "absolute", top: 20, left: 20, color: "#ffffff" }}>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>
+                {attachmentsViewer.log?.title || "Daily Log"}
+              </div>
+              <div style={{ fontSize: 13, opacity: 0.7 }}>
+                {attachmentsViewer.currentIndex + 1} of {total}
+              </div>
+            </div>
+
+            {/* Main content */}
+            <div onClick={e => e.stopPropagation()} style={{ maxWidth: "90vw", maxHeight: "75vh" }}>
+              {isImg ? (
+                <img src={url} alt={name} style={{ maxWidth: "90vw", maxHeight: "75vh", objectFit: "contain", borderRadius: 8 }} />
+              ) : (
+                <div style={{ padding: 40, background: "rgba(255,255,255,0.1)", borderRadius: 12, textAlign: "center" }}>
+                  <div style={{ fontSize: 64, marginBottom: 16 }}>📄</div>
+                  <div style={{ color: "#fff", marginBottom: 16 }}>{name}</div>
+                  <a href={url} target="_blank" rel="noopener noreferrer" style={{ color: "#60a5fa" }}>Open file →</a>
+                </div>
+              )}
+            </div>
+
+            {/* Navigation arrows */}
+            {hasMultiple && (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); goToPrevAttachment(); }}
+                  style={{ position: "absolute", left: 20, top: "50%", transform: "translateY(-50%)", width: 50, height: 50, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.2)", color: "#fff", fontSize: 28, cursor: "pointer" }}
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); goToNextAttachment(); }}
+                  style={{ position: "absolute", right: 20, top: "50%", transform: "translateY(-50%)", width: 50, height: 50, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.2)", color: "#fff", fontSize: 28, cursor: "pointer" }}
+                >
+                  ›
+                </button>
+              </>
+            )}
+
+            {/* Thumbnails */}
+            {hasMultiple && (
+              <div onClick={e => e.stopPropagation()} style={{ position: "absolute", bottom: 20, display: "flex", gap: 8, padding: "10px 16px", background: "rgba(0,0,0,0.5)", borderRadius: 8 }}>
+                {attachmentsViewer.log?.attachments?.map((a, idx) => {
+                  const thumbUrl = a.fileUrl || "";
+                  const isActive = idx === attachmentsViewer.currentIndex;
+                  const isThumbImg = /\.(png|jpe?g|gif|webp)$/i.test(thumbUrl);
+                  return (
+                    <button key={a.id} type="button" onClick={() => setAttachmentsViewer(prev => ({ ...prev, currentIndex: idx }))} style={{ width: 50, height: 50, borderRadius: 4, border: isActive ? "2px solid #60a5fa" : "2px solid transparent", padding: 0, cursor: "pointer", overflow: "hidden", opacity: isActive ? 1 : 0.5 }}>
+                      {isThumbImg ? <img src={thumbUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#374151", fontSize: 20 }}>📄</div>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        );
+      })()}
+    </div>
+  );
+
   // Edit Daily Log Modal - render BEFORE early returns so it shows regardless of loading state
   const editDailyLogModal = editDailyLog.open && editDailyLog.draft && (
     <div
@@ -10816,6 +10929,7 @@ ${htmlBody}
   if (loading) {
     return (
       <>
+        {attachmentsGalleryModal}
         {editDailyLogModal}
         <div className="app-card">
           <p style={{ fontSize: 14, color: "#6b7280" }}>Loading project…</p>
@@ -10827,6 +10941,7 @@ ${htmlBody}
   if (error || !project) {
     return (
       <>
+        {attachmentsGalleryModal}
         {editDailyLogModal}
         <div className="app-card">
           <h1 style={{ marginTop: 0, fontSize: 20 }}>Project</h1>
@@ -22340,174 +22455,8 @@ ${htmlBody}
 
       {/* Project grouping: Units → Rooms (expandable) */}
 
-      {/* Attachments Gallery Modal - Using Portal to render to body */}
-      {attachmentsViewer.open && (() => {
-        console.log('[GALLERY] Portal condition met, rendering gallery');
-        return typeof document !== "undefined" && createPortal(
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 999999,
-            backgroundColor: "rgba(0, 0, 0, 0.92)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-          onClick={closeAttachmentsViewer}
-        >
-          {/* Close button */}
-          <button
-            type="button"
-            onClick={closeAttachmentsViewer}
-            style={{
-              position: "absolute",
-              top: 20,
-              right: 20,
-              border: "none",
-              background: "rgba(255,255,255,0.2)",
-              borderRadius: 8,
-              cursor: "pointer",
-              fontSize: 24,
-              padding: "8px 16px",
-              color: "#ffffff",
-              zIndex: 10,
-            }}
-          >
-            ✕ Close
-          </button>
-
-          {/* Header info */}
-          <div style={{ position: "absolute", top: 20, left: 20, color: "#ffffff" }}>
-            <div style={{ fontSize: 16, fontWeight: 600 }}>
-              {attachmentsViewer.log?.title || "Daily Log"}
-            </div>
-            <div style={{ fontSize: 13, opacity: 0.7 }}>
-              {attachmentsViewer.currentIndex + 1} of {attachmentsViewer.log?.attachments?.length || 0}
-            </div>
-          </div>
-
-          {/* Main image */}
-          <div
-            style={{ maxWidth: "90vw", maxHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center" }}
-            onClick={e => e.stopPropagation()}
-          >
-          {(() => {
-              const att = attachmentsViewer.log?.attachments?.[attachmentsViewer.currentIndex];
-              if (!att) return <div style={{ color: "#fff" }}>No attachment</div>;
-              const url = att.fileUrl || "";
-              const name = att.fileName || "attachment";
-              const isImg = /\.(png|jpe?g|gif|webp)$/i.test(url) || (att.mimeType || "").startsWith("image/");
-              return isImg ? (
-                <img src={url} alt={name} style={{ maxWidth: "90vw", maxHeight: "75vh", objectFit: "contain", borderRadius: 8 }} />
-              ) : (
-                <div style={{ padding: 40, background: "rgba(255,255,255,0.1)", borderRadius: 12, textAlign: "center" }}>
-                  <div style={{ fontSize: 64, marginBottom: 16 }}>📄</div>
-                  <div style={{ color: "#fff", marginBottom: 16 }}>{name}</div>
-                  <a href={url} target="_blank" rel="noopener noreferrer" style={{ color: "#60a5fa", fontSize: 14 }}>Open file →</a>
-                </div>
-              );
-            })()}
-          </div>
-
-          {/* Navigation arrows */}
-          {(attachmentsViewer.log?.attachments?.length || 0) > 1 && (
-            <>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); goToPrevAttachment(); }}
-                style={{
-                  position: "absolute",
-                  left: 20,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  width: 50,
-                  height: 50,
-                  borderRadius: "50%",
-                  border: "none",
-                  background: "rgba(255,255,255,0.2)",
-                  color: "#ffffff",
-                  fontSize: 28,
-                  cursor: "pointer",
-                }}
-              >
-                ‹
-              </button>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); goToNextAttachment(); }}
-                style={{
-                  position: "absolute",
-                  right: 20,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  width: 50,
-                  height: 50,
-                  borderRadius: "50%",
-                  border: "none",
-                  background: "rgba(255,255,255,0.2)",
-                  color: "#ffffff",
-                  fontSize: 28,
-                  cursor: "pointer",
-                }}
-              >
-                ›
-              </button>
-            </>
-          )}
-
-          {/* Thumbnail strip */}
-          {(attachmentsViewer.log?.attachments?.length || 0) > 1 && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: 20,
-                display: "flex",
-                gap: 8,
-                padding: "10px 16px",
-                background: "rgba(0,0,0,0.5)",
-                borderRadius: 8,
-              }}
-              onClick={e => e.stopPropagation()}
-            >
-              {attachmentsViewer.log?.attachments?.map((att, idx) => {
-                const isActive = idx === attachmentsViewer.currentIndex;
-                const url = att.fileUrl || "";
-                const isImg = /\.(png|jpe?g|gif|webp)$/i.test(url) || (att.mimeType || "").startsWith("image/");
-                return (
-                  <button
-                    key={att.id}
-                    type="button"
-                    onClick={() => setAttachmentsViewer(prev => ({ ...prev, currentIndex: idx }))}
-                    style={{
-                      width: 50,
-                      height: 50,
-                      borderRadius: 4,
-                      border: isActive ? "2px solid #60a5fa" : "2px solid transparent",
-                      padding: 0,
-                      cursor: "pointer",
-                      overflow: "hidden",
-                      opacity: isActive ? 1 : 0.5,
-                    }}
-                  >
-                    {isImg ? (
-                      <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    ) : (
-                      <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "#374151", fontSize: 20 }}>📄</div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>,
-        document.body
-      );
-      })()}
+      {/* Attachments Gallery Modal - rendered via variable */}
+      {attachmentsGalleryModal}
 
       {/* Field PETL edit modal */}
       {fieldPetlEdit && (
