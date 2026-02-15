@@ -11,6 +11,16 @@ import React, {
   memo,
 } from "react";
 
+// Extend Window type for Mermaid
+declare global {
+  interface Window {
+    mermaid?: {
+      initialize: (config: typeof MERMAID_INIT_CONFIG) => void;
+      render: (id: string, text: string) => Promise<{ svg: string; bindFunctions?: (el: HTMLElement) => void }>;
+    };
+  }
+}
+
 // Mermaid configuration
 const MERMAID_CDN_SRC = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js";
 
