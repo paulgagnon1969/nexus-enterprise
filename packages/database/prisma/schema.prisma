@@ -1397,6 +1397,7 @@ enum ProjectInvoiceLineItemKind {
   MATERIALS_ONLY
   LABOR_AND_MATERIALS
   COST_BOOK
+  CREDIT
   OTHER
 }
 
@@ -1558,6 +1559,7 @@ enum ProjectInvoicePetlLineBillingTag {
   CHANGE_ORDER
   SUPPLEMENT
   WARRANTY
+  CREDIT
 }
 
 /// Snapshot of PETL (estimate) progress-billing values at the time an invoice draft is generated.
