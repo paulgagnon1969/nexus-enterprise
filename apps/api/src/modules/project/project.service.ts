@@ -9707,6 +9707,7 @@ export class ProjectService {
   }
 
   async getProjectInvoice(projectId: string, invoiceId: string, actor: AuthenticatedUser) {
+    this.logger.log(`[getProjectInvoice] Starting for projectId=${projectId}, invoiceId=${invoiceId}`);
     this.ensureBillingModelsAvailable();
 
     try {
@@ -9863,6 +9864,13 @@ export class ProjectService {
 
       return { ...invoice, payments, petlLines, attachments, paidAmount, balanceDue };
     } catch (err: any) {
+      const errCode = err?.code ?? 'no code';
+      const errMeta = err?.meta ? JSON.stringify(err.meta) : 'no meta';
+      const errStack = err?.stack?.slice(0, 800) ?? 'no stack';
+      this.logger.error(`[getProjectInvoice] FAILED for projectId=${projectId}, invoiceId=${invoiceId}`);
+      this.logger.error(`[getProjectInvoice] Error: ${err?.message ?? err}`);
+      this.logger.error(`[getProjectInvoice] Code: ${errCode}, Meta: ${errMeta}`);
+      this.logger.error(`[getProjectInvoice] Stack: ${errStack}`);
       if (this.isBillingTableMissingError(err)) {
         this.throwBillingTablesNotMigrated();
       }
