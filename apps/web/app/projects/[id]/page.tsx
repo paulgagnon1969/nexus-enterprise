@@ -10,6 +10,7 @@ import {
   useState,
   useTransition,
 } from "react";
+import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useBusyOverlay } from "../../busy-overlay-context";
 import { uploadImageFileToNexusUploads } from "../../lib/uploads";
@@ -22335,8 +22336,8 @@ ${htmlBody}
 
       {/* Project grouping: Units → Rooms (expandable) */}
 
-      {/* Attachments Gallery Modal - Simple inline version */}
-      {attachmentsViewer.open && (
+      {/* Attachments Gallery Modal - Using Portal to escape any container issues */}
+      {attachmentsViewer.open && typeof document !== "undefined" && createPortal(
         <div
           style={{
             position: "fixed",
@@ -22500,7 +22501,8 @@ ${htmlBody}
               })}
             </div>
           )}
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Field PETL edit modal */}
