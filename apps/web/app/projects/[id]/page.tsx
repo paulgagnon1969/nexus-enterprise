@@ -20985,9 +20985,30 @@ ${htmlBody}
                   )}
 
                   <div style={{ marginBottom: 6 }}>
-                    <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>
-                      Title
-                    </label>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+                      <label style={{ fontSize: 12 }}>
+                        Title
+                      </label>
+                      {newDailyLog.workPerformed.trim().length > 10 && !newDailyLog.title.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => setNewDailyLog(prev => ({ ...prev, title: summarizeToTitle(prev.workPerformed) }))}
+                          style={{
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            background: "#fefce8",
+                            fontSize: 10,
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 3,
+                          }}
+                        >
+                          ✨ Auto-generate
+                        </button>
+                      )}
+                    </div>
                     <input
                       type="text"
                       value={newDailyLog.title}
@@ -28351,7 +28372,28 @@ ${htmlBody}
             </div>
 
             <div style={{ marginBottom: 12 }}>
-              <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>Title</label>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+                <label style={{ fontSize: 12 }}>Title</label>
+                {editDailyLog.draft.workPerformed.trim().length > 10 && !editDailyLog.draft.title.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, title: summarizeToTitle(prev.draft.workPerformed) } : null }))}
+                    style={{
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      background: "#fefce8",
+                      fontSize: 10,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 3,
+                    }}
+                  >
+                    ✨ Auto-generate
+                  </button>
+                )}
+              </div>
               <input type="text" value={editDailyLog.draft.title} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, title: e.target.value } : null }))} style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }} />
             </div>
 
