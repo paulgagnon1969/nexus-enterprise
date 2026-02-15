@@ -3840,11 +3840,15 @@ ${htmlBody}
     error: string | null;
   }>({ open: false, log: null, draft: null, saving: false, error: null });
 
-  // View daily log modal state (read-only)
+  // View daily log modal state (with inline edit)
   const [viewDailyLog, setViewDailyLog] = useState<{
     open: boolean;
     log: DailyLog | null;
-  }>({ open: false, log: null });
+    draft: NewDailyLogState | null;
+    editing: boolean;
+    saving: boolean;
+    error: string | null;
+  }>({ open: false, log: null, draft: null, editing: false, saving: false, error: null });
 
   // Attachments viewer modal state (gallery with navigation)
   const [attachmentsViewer, setAttachmentsViewer] = useState<{
@@ -10211,9 +10215,15 @@ ${htmlBody}
 
         const isReceiptExpense = newDailyLog.type === "RECEIPT_EXPENSE";
 
+        // Auto-fill title from notes if empty
+        let finalTitle = newDailyLog.title.trim();
+        if (!finalTitle && newDailyLog.workPerformed.trim()) {
+          finalTitle = summarizeToTitle(newDailyLog.workPerformed);
+        }
+
         const body: any = {
           logDate: newDailyLog.logDate,
-          title: newDailyLog.title || null,
+          title: finalTitle || null,
           tags: tagsArray,
           type: newDailyLog.type,
           weatherSummary: newDailyLog.weatherSummary || null,
@@ -20987,7 +20997,7 @@ ${htmlBody}
                   <div style={{ marginBottom: 6 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
                       <label style={{ fontSize: 12 }}>
-                        Title
+                        Subject / Title
                       </label>
                       {newDailyLog.workPerformed.trim().length > 10 && !newDailyLog.title.trim() && (
                         <button
@@ -21015,7 +21025,7 @@ ${htmlBody}
                       onChange={e =>
                         setNewDailyLog(prev => ({ ...prev, title: e.target.value }))
                       }
-                      placeholder="Example: Demo and framing complete"
+                      placeholder="Auto-fills from notes if left empty"
                       style={{
                         width: "100%",
                         padding: "4px 6px",
@@ -21915,7 +21925,39 @@ ${htmlBody}
                                   {/* View button - available to all */}
                                   <button
                                     type="button"
-                                    onClick={() => setViewDailyLog({ open: true, log })}
+                                    onClick={() => setViewDailyLog({
+                                      open: true,
+                                      log,
+                                      draft: {
+                                        type: log.type || "PUDL",
+                                        title: log.title || "",
+                                        tags: "",
+                                        logDate: log.logDate ? log.logDate.slice(0, 10) : "",
+                                        workPerformed: log.workPerformed || "",
+                                        crewOnSite: log.crewOnSite || "",
+                                        issues: log.issues || "",
+                                        safetyIncidents: log.safetyIncidents || "",
+                                        weatherSummary: log.weatherSummary || "",
+                                        personOnsite: log.personOnsite || "",
+                                        manpowerOnsite: log.manpowerOnsite != null ? String(log.manpowerOnsite) : "",
+                                        confidentialNotes: log.confidentialNotes || "",
+                                        shareInternal: log.shareInternal ?? true,
+                                        shareSubs: log.shareSubs ?? false,
+                                        shareClient: log.shareClient ?? false,
+                                        sharePrivate: log.sharePrivate ?? false,
+                                        attachmentFiles: [],
+                                        buildingId: log.buildingId || "",
+                                        unitId: log.unitId || "",
+                                        roomParticleId: log.roomParticleId || "",
+                                        sowItemId: log.sowItemId || "",
+                                        expenseVendor: log.expenseVendor || "",
+                                        expenseAmount: log.expenseAmount != null ? String(log.expenseAmount) : "",
+                                        expenseDate: log.expenseDate ? log.expenseDate.slice(0, 10) : "",
+                                      },
+                                      editing: false,
+                                      saving: false,
+                                      error: null,
+                                    })}
                                     title="View daily log"
                                     style={{
                                       border: "1px solid #6b7280",
@@ -28373,7 +28415,7 @@ ${htmlBody}
 
             <div style={{ marginBottom: 12 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
-                <label style={{ fontSize: 12 }}>Title</label>
+                <label style={{ fontSize: 12 }}>Subject / Title</label>
                 {editDailyLog.draft.workPerformed.trim().length > 10 && !editDailyLog.draft.title.trim() && (
                   <button
                     type="button"
@@ -28776,8 +28818,8 @@ ${htmlBody}
         </div>
       )}
 
-      {/* View Daily Log Modal (read-only) */}
-      {viewDailyLog.open && viewDailyLog.log && (
+      {/* View Daily Log Modal (with inline edit) */}
+      {viewDailyLog.open && viewDailyLog.log && viewDailyLog.draft && (
         <div
           style={{
             position: "fixed",
@@ -28791,11 +28833,11 @@ ${htmlBody}
             justifyContent: "center",
             alignItems: "center",
           }}
-          onClick={() => setViewDailyLog({ open: false, log: null })}
+          onClick={() => setViewDailyLog({ open: false, log: null, draft: null, editing: false, saving: false, error: null })}
         >
           <div
             style={{
-              width: 700,
+              width: 750,
               maxWidth: "96vw",
               maxHeight: "90vh",
               overflowY: "auto",
@@ -28810,10 +28852,33 @@ ${htmlBody}
           >
             {/* Header */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>Daily Log Details</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>Daily Log Details</div>
+                {!viewDailyLog.editing && isPmOrAbove && (
+                  <button
+                    type="button"
+                    onClick={() => setViewDailyLog(prev => ({ ...prev, editing: true }))}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #2563eb",
+                      background: "#2563eb",
+                      color: "#ffffff",
+                      fontSize: 11,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                    }}
+                  >
+                    ✏️ Edit
+                  </button>
+                )}
+                {viewDailyLog.editing && (
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: "#fef3c7", color: "#92400e", fontWeight: 500 }}>Editing Mode</span>
+                )}
+              </div>
               <button
                 type="button"
-                onClick={() => setViewDailyLog({ open: false, log: null })}
+                onClick={() => setViewDailyLog({ open: false, log: null, draft: null, editing: false, saving: false, error: null })}
                 style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4 }}
                 aria-label="Close"
               >
@@ -28821,11 +28886,23 @@ ${htmlBody}
               </button>
             </div>
 
-            {/* Type & Date */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            {/* Type & Date Row */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div>
                 <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Type</div>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>
+                {viewDailyLog.editing ? (
+                  <select
+                    value={viewDailyLog.draft.type}
+                    onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, type: e.target.value as any } : null }))}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                  >
+                    <option value="PUDL">Daily Log (PUDL)</option>
+                    <option value="RECEIPT_EXPENSE">Receipt / Expense</option>
+                    <option value="JSA">Job Safety Assessment</option>
+                    <option value="INCIDENT">Incident Report</option>
+                    <option value="QUALITY">Quality Inspection</option>
+                  </select>
+                ) : (
                   <span
                     style={{
                       display: "inline-block",
@@ -28852,52 +28929,115 @@ ${htmlBody}
                       : viewDailyLog.log.type === "QUALITY" ? "Quality Inspection"
                       : "Daily Log (PUDL)"}
                   </span>
-                </div>
+                )}
               </div>
               <div>
                 <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Date</div>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>
-                  {viewDailyLog.log.logDate ? new Date(viewDailyLog.log.logDate).toLocaleDateString() : "(no date)"}
-                </div>
+                {viewDailyLog.editing ? (
+                  <input
+                    type="date"
+                    value={viewDailyLog.draft.logDate}
+                    onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, logDate: e.target.value } : null }))}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                  />
+                ) : (
+                  <div style={{ fontSize: 13, fontWeight: 500, padding: "6px 0" }}>
+                    {viewDailyLog.log.logDate ? new Date(viewDailyLog.log.logDate).toLocaleDateString() : "(no date)"}
+                  </div>
+                )}
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Manpower</div>
+                {viewDailyLog.editing ? (
+                  <input
+                    type="number"
+                    value={viewDailyLog.draft.manpowerOnsite}
+                    onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, manpowerOnsite: e.target.value } : null }))}
+                    placeholder="# workers"
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                  />
+                ) : (
+                  <div style={{ fontSize: 13, fontWeight: 500, padding: "6px 0" }}>
+                    {viewDailyLog.log.manpowerOnsite ?? "—"}
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Title */}
-            {viewDailyLog.log.title && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Title</div>
-                <div style={{ fontSize: 13, fontWeight: 500 }}>{viewDailyLog.log.title}</div>
-              </div>
-            )}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Title</div>
+              {viewDailyLog.editing ? (
+                <input
+                  type="text"
+                  value={viewDailyLog.draft.title}
+                  onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, title: e.target.value } : null }))}
+                  placeholder="Daily log title"
+                  style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                />
+              ) : (
+                <div style={{ fontSize: 13, fontWeight: 500, padding: "6px 8px", background: "#f9fafb", borderRadius: 4, minHeight: 32 }}>
+                  {viewDailyLog.log.title || "—"}
+                </div>
+              )}
+            </div>
 
             {/* Receipt/Expense Details */}
-            {viewDailyLog.log.type === "RECEIPT_EXPENSE" && (
+            {(viewDailyLog.editing ? viewDailyLog.draft.type === "RECEIPT_EXPENSE" : viewDailyLog.log.type === "RECEIPT_EXPENSE") && (
               <div style={{ marginBottom: 12, padding: 10, background: "#fef3c7", borderRadius: 6, border: "1px solid #fcd34d" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#92400e", marginBottom: 6 }}>Receipt Details</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
                   <div>
-                    <div style={{ fontSize: 10, color: "#92400e" }}>Vendor</div>
-                    <div style={{ fontSize: 12, fontWeight: 500 }}>{viewDailyLog.log.expenseVendor || "(not specified)"}</div>
+                    <div style={{ fontSize: 10, color: "#92400e", marginBottom: 2 }}>Vendor</div>
+                    {viewDailyLog.editing ? (
+                      <input
+                        type="text"
+                        value={viewDailyLog.draft.expenseVendor}
+                        onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, expenseVendor: e.target.value } : null }))}
+                        style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                      />
+                    ) : (
+                      <div style={{ fontSize: 12, fontWeight: 500 }}>{viewDailyLog.log.expenseVendor || "—"}</div>
+                    )}
                   </div>
                   <div>
-                    <div style={{ fontSize: 10, color: "#92400e" }}>Amount</div>
-                    <div style={{ fontSize: 12, fontWeight: 500 }}>
-                      {viewDailyLog.log.expenseAmount != null
-                        ? `$${Number(viewDailyLog.log.expenseAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                        : "(not specified)"}
-                    </div>
+                    <div style={{ fontSize: 10, color: "#92400e", marginBottom: 2 }}>Amount</div>
+                    {viewDailyLog.editing ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={viewDailyLog.draft.expenseAmount}
+                        onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, expenseAmount: e.target.value } : null }))}
+                        style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                      />
+                    ) : (
+                      <div style={{ fontSize: 12, fontWeight: 500 }}>
+                        {viewDailyLog.log.expenseAmount != null
+                          ? `$${Number(viewDailyLog.log.expenseAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                          : "—"}
+                      </div>
+                    )}
                   </div>
                   <div>
-                    <div style={{ fontSize: 10, color: "#92400e" }}>Expense Date</div>
-                    <div style={{ fontSize: 12, fontWeight: 500 }}>
-                      {viewDailyLog.log.expenseDate ? new Date(viewDailyLog.log.expenseDate).toLocaleDateString() : "(not specified)"}
-                    </div>
+                    <div style={{ fontSize: 10, color: "#92400e", marginBottom: 2 }}>Expense Date</div>
+                    {viewDailyLog.editing ? (
+                      <input
+                        type="date"
+                        value={viewDailyLog.draft.expenseDate}
+                        onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, expenseDate: e.target.value } : null }))}
+                        style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                      />
+                    ) : (
+                      <div style={{ fontSize: 12, fontWeight: 500 }}>
+                        {viewDailyLog.log.expenseDate ? new Date(viewDailyLog.log.expenseDate).toLocaleDateString() : "—"}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* PETL Context */}
+            {/* PETL Context (read-only display) */}
             {(viewDailyLog.log.building || viewDailyLog.log.unit || viewDailyLog.log.roomParticle || viewDailyLog.log.sowItem) && (
               <div style={{ marginBottom: 12, padding: 10, background: "#eff6ff", borderRadius: 6, border: "1px solid #bfdbfe" }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#1e40af", marginBottom: 6 }}>PETL Context</div>
@@ -28931,103 +29071,176 @@ ${htmlBody}
             )}
 
             {/* Work Performed */}
-            {viewDailyLog.log.workPerformed && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Work Performed</div>
-                <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: "#f9fafb", borderRadius: 4, border: "1px solid #e5e7eb" }}>
-                  {viewDailyLog.log.workPerformed}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Work Performed</div>
+              {viewDailyLog.editing ? (
+                <textarea
+                  value={viewDailyLog.draft.workPerformed}
+                  onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, workPerformed: e.target.value } : null }))}
+                  rows={3}
+                  style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12, resize: "vertical" }}
+                />
+              ) : (
+                <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: "#f9fafb", borderRadius: 4, border: "1px solid #e5e7eb", minHeight: 48 }}>
+                  {viewDailyLog.log.workPerformed || "—"}
                 </div>
-              </div>
-            )}
-
-            {/* Weather */}
-            {viewDailyLog.log.weatherSummary && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Weather</div>
-                <div style={{ fontSize: 12 }}>{viewDailyLog.log.weatherSummary}</div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Crew On Site */}
-            {viewDailyLog.log.crewOnSite && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Crew On Site</div>
-                <div style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>{viewDailyLog.log.crewOnSite}</div>
-              </div>
-            )}
-
-            {/* Person(s) On Site */}
-            {viewDailyLog.log.personOnsite && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Person(s) On Site</div>
-                <div style={{ fontSize: 12, whiteSpace: "pre-wrap" }}>{viewDailyLog.log.personOnsite}</div>
-              </div>
-            )}
-
-            {/* Manpower */}
-            {viewDailyLog.log.manpowerOnsite && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Manpower On Site</div>
-                <div style={{ fontSize: 12 }}>{viewDailyLog.log.manpowerOnsite}</div>
-              </div>
-            )}
-
-            {/* Issues */}
-            {viewDailyLog.log.issues && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Issues / Delays</div>
-                <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: "#fef2f2", borderRadius: 4, border: "1px solid #fecaca" }}>
-                  {viewDailyLog.log.issues}
-                </div>
-              </div>
-            )}
-
-            {/* Safety Incidents */}
-            {viewDailyLog.log.safetyIncidents && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Safety Incidents</div>
-                <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: "#fef2f2", borderRadius: 4, border: "1px solid #fecaca" }}>
-                  {viewDailyLog.log.safetyIncidents}
-                </div>
-              </div>
-            )}
-
-            {/* Confidential Notes */}
-            {viewDailyLog.log.confidentialNotes && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Confidential Notes</div>
-                <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: "#fefce8", borderRadius: 4, border: "1px solid #fde047" }}>
-                  {viewDailyLog.log.confidentialNotes}
-                </div>
-              </div>
-            )}
-
-            {/* Sharing Status */}
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Sharing</div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {viewDailyLog.log.shareInternal && (
-                  <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#dbeafe", color: "#1e40af" }}>Internal</span>
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Crew On Site</div>
+              {viewDailyLog.editing ? (
+                <textarea
+                  value={viewDailyLog.draft.crewOnSite}
+                  onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, crewOnSite: e.target.value } : null }))}
+                  rows={2}
+                  style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12, resize: "vertical" }}
+                />
+              ) : (
+                <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: "#f9fafb", borderRadius: 4, border: "1px solid #e5e7eb", minHeight: 32 }}>
+                  {viewDailyLog.log.crewOnSite || "—"}
+                </div>
+              )}
+            </div>
+
+            {/* Weather & Person On Site Row */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Weather</div>
+                {viewDailyLog.editing ? (
+                  <input
+                    type="text"
+                    value={viewDailyLog.draft.weatherSummary}
+                    onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, weatherSummary: e.target.value } : null }))}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                  />
+                ) : (
+                  <div style={{ fontSize: 12, padding: "6px 8px", background: "#f9fafb", borderRadius: 4, minHeight: 32 }}>
+                    {viewDailyLog.log.weatherSummary || "—"}
+                  </div>
                 )}
-                {viewDailyLog.log.shareSubs && (
-                  <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#d1fae5", color: "#065f46" }}>Subs</span>
-                )}
-                {viewDailyLog.log.shareClient && (
-                  <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#fef3c7", color: "#92400e" }}>Client</span>
-                )}
-                {viewDailyLog.log.sharePrivate && (
-                  <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#f3f4f6", color: "#374151" }}>Private</span>
-                )}
-                {!viewDailyLog.log.shareInternal && !viewDailyLog.log.shareSubs && !viewDailyLog.log.shareClient && !viewDailyLog.log.sharePrivate && (
-                  <span style={{ fontSize: 10, color: "#9ca3af" }}>No sharing configured</span>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Person(s) On Site</div>
+                {viewDailyLog.editing ? (
+                  <input
+                    type="text"
+                    value={viewDailyLog.draft.personOnsite}
+                    onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, personOnsite: e.target.value } : null }))}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                  />
+                ) : (
+                  <div style={{ fontSize: 12, padding: "6px 8px", background: "#f9fafb", borderRadius: 4, minHeight: 32 }}>
+                    {viewDailyLog.log.personOnsite || "—"}
+                  </div>
                 )}
               </div>
             </div>
 
+            {/* Issues & Safety Row */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Issues / Delays</div>
+                {viewDailyLog.editing ? (
+                  <textarea
+                    value={viewDailyLog.draft.issues}
+                    onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, issues: e.target.value } : null }))}
+                    rows={2}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12, resize: "vertical" }}
+                  />
+                ) : (
+                  <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: viewDailyLog.log.issues ? "#fef2f2" : "#f9fafb", borderRadius: 4, border: viewDailyLog.log.issues ? "1px solid #fecaca" : "1px solid #e5e7eb", minHeight: 48 }}>
+                    {viewDailyLog.log.issues || "—"}
+                  </div>
+                )}
+              </div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#6b7280", marginBottom: 2 }}>
+                  Safety Note
+                  {(viewDailyLog.editing ? viewDailyLog.draft.safetyIncidents : viewDailyLog.log.safetyIncidents) && (
+                    <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 4, backgroundColor: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}>⚠️ Safety</span>
+                  )}
+                </div>
+                {viewDailyLog.editing ? (
+                  <textarea
+                    value={viewDailyLog.draft.safetyIncidents}
+                    onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, safetyIncidents: e.target.value } : null }))}
+                    rows={2}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: viewDailyLog.draft.safetyIncidents ? "1px solid #fca5a5" : "1px solid #d1d5db", fontSize: 12, resize: "vertical", backgroundColor: viewDailyLog.draft.safetyIncidents ? "#fef2f2" : "#ffffff" }}
+                  />
+                ) : (
+                  <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: viewDailyLog.log.safetyIncidents ? "#fef2f2" : "#f9fafb", borderRadius: 4, border: viewDailyLog.log.safetyIncidents ? "1px solid #fecaca" : "1px solid #e5e7eb", minHeight: 48 }}>
+                    {viewDailyLog.log.safetyIncidents || "—"}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Confidential Notes */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Confidential Notes (NO PRINT)</div>
+              {viewDailyLog.editing ? (
+                <textarea
+                  value={viewDailyLog.draft.confidentialNotes}
+                  onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, confidentialNotes: e.target.value } : null }))}
+                  rows={2}
+                  style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12, resize: "vertical" }}
+                />
+              ) : (
+                <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: viewDailyLog.log.confidentialNotes ? "#fefce8" : "#f9fafb", borderRadius: 4, border: viewDailyLog.log.confidentialNotes ? "1px solid #fde047" : "1px solid #e5e7eb", minHeight: 32 }}>
+                  {viewDailyLog.log.confidentialNotes || "—"}
+                </div>
+              )}
+            </div>
+
+            {/* Sharing */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Sharing</div>
+              {viewDailyLog.editing ? (
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+                    <input type="checkbox" checked={viewDailyLog.draft.shareInternal} onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, shareInternal: e.target.checked } : null }))} />
+                    Internal
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+                    <input type="checkbox" checked={viewDailyLog.draft.shareSubs} onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, shareSubs: e.target.checked } : null }))} />
+                    Subs
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+                    <input type="checkbox" checked={viewDailyLog.draft.shareClient} onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, shareClient: e.target.checked } : null }))} />
+                    Client
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+                    <input type="checkbox" checked={viewDailyLog.draft.sharePrivate} onChange={e => setViewDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, sharePrivate: e.target.checked } : null }))} />
+                    Private
+                  </label>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {viewDailyLog.log.shareInternal && (
+                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#dbeafe", color: "#1e40af" }}>Internal</span>
+                  )}
+                  {viewDailyLog.log.shareSubs && (
+                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#d1fae5", color: "#065f46" }}>Subs</span>
+                  )}
+                  {viewDailyLog.log.shareClient && (
+                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#fef3c7", color: "#92400e" }}>Client</span>
+                  )}
+                  {viewDailyLog.log.sharePrivate && (
+                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#f3f4f6", color: "#374151" }}>Private</span>
+                  )}
+                  {!viewDailyLog.log.shareInternal && !viewDailyLog.log.shareSubs && !viewDailyLog.log.shareClient && !viewDailyLog.log.sharePrivate && (
+                    <span style={{ fontSize: 10, color: "#9ca3af" }}>No sharing configured</span>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Attachments */}
-            {viewDailyLog.log.attachments && viewDailyLog.log.attachments.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>Attachments ({viewDailyLog.log.attachments.length})</div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>Attachments ({viewDailyLog.log.attachments?.length || 0})</div>
+              {viewDailyLog.log.attachments && viewDailyLog.log.attachments.length > 0 ? (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {viewDailyLog.log.attachments.map((att: any, idx: number) => {
                     const url = att.fileUrl || att.storageUrl || "";
@@ -29079,8 +29292,10 @@ ${htmlBody}
                     );
                   })}
                 </div>
-              </div>
-            )}
+              ) : (
+                <div style={{ fontSize: 12, color: "#9ca3af", padding: "8px", background: "#f9fafb", borderRadius: 4, border: "1px solid #e5e7eb" }}>No attachments</div>
+              )}
+            </div>
 
             {/* Created Info */}
             <div style={{ fontSize: 10, color: "#9ca3af", borderTop: "1px solid #e5e7eb", paddingTop: 8, marginTop: 8 }}>
@@ -29089,23 +29304,132 @@ ${htmlBody}
               )}
             </div>
 
-            {/* Close Button */}
+            {/* Error */}
+            {viewDailyLog.error && <div style={{ marginTop: 8, color: "#b91c1c", fontSize: 12 }}>{viewDailyLog.error}</div>}
+
+            {/* Footer Buttons */}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
-              <button
-                type="button"
-                onClick={() => setViewDailyLog({ open: false, log: null })}
-                style={{
-                  padding: "8px 14px",
-                  borderRadius: 6,
-                  border: "1px solid #0f172a",
-                  background: "#0f172a",
-                  color: "#ffffff",
-                  cursor: "pointer",
-                  fontSize: 12,
-                }}
-              >
-                Close
-              </button>
+              {viewDailyLog.editing ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setViewDailyLog(prev => ({
+                      ...prev,
+                      editing: false,
+                      draft: prev.log ? {
+                        type: prev.log.type || "PUDL",
+                        title: prev.log.title || "",
+                        tags: "",
+                        logDate: prev.log.logDate ? prev.log.logDate.slice(0, 10) : "",
+                        workPerformed: prev.log.workPerformed || "",
+                        crewOnSite: prev.log.crewOnSite || "",
+                        issues: prev.log.issues || "",
+                        safetyIncidents: prev.log.safetyIncidents || "",
+                        weatherSummary: prev.log.weatherSummary || "",
+                        personOnsite: prev.log.personOnsite || "",
+                        manpowerOnsite: prev.log.manpowerOnsite != null ? String(prev.log.manpowerOnsite) : "",
+                        confidentialNotes: prev.log.confidentialNotes || "",
+                        shareInternal: prev.log.shareInternal ?? true,
+                        shareSubs: prev.log.shareSubs ?? false,
+                        shareClient: prev.log.shareClient ?? false,
+                        sharePrivate: prev.log.sharePrivate ?? false,
+                        attachmentFiles: [],
+                        buildingId: prev.log.buildingId || "",
+                        unitId: prev.log.unitId || "",
+                        roomParticleId: prev.log.roomParticleId || "",
+                        sowItemId: prev.log.sowItemId || "",
+                        expenseVendor: prev.log.expenseVendor || "",
+                        expenseAmount: prev.log.expenseAmount != null ? String(prev.log.expenseAmount) : "",
+                        expenseDate: prev.log.expenseDate ? prev.log.expenseDate.slice(0, 10) : "",
+                      } : null,
+                      error: null,
+                    }))}
+                    style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #d1d5db", background: "#ffffff", cursor: "pointer", fontSize: 12 }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={viewDailyLog.saving}
+                    onClick={async () => {
+                      const token = localStorage.getItem("accessToken");
+                      if (!token || !viewDailyLog.log || !viewDailyLog.draft) return;
+                      setViewDailyLog(prev => ({ ...prev, saving: true, error: null }));
+                      try {
+                        const payload: any = {
+                          type: viewDailyLog.draft.type,
+                          title: viewDailyLog.draft.title || null,
+                          logDate: viewDailyLog.draft.logDate || null,
+                          workPerformed: viewDailyLog.draft.workPerformed || null,
+                          crewOnSite: viewDailyLog.draft.crewOnSite || null,
+                          issues: viewDailyLog.draft.issues || null,
+                          safetyIncidents: viewDailyLog.draft.safetyIncidents || null,
+                          weatherSummary: viewDailyLog.draft.weatherSummary || null,
+                          personOnsite: viewDailyLog.draft.personOnsite || null,
+                          manpowerOnsite: viewDailyLog.draft.manpowerOnsite ? parseInt(viewDailyLog.draft.manpowerOnsite, 10) : null,
+                          confidentialNotes: viewDailyLog.draft.confidentialNotes || null,
+                          shareInternal: viewDailyLog.draft.shareInternal,
+                          shareSubs: viewDailyLog.draft.shareSubs,
+                          shareClient: viewDailyLog.draft.shareClient,
+                          sharePrivate: viewDailyLog.draft.sharePrivate,
+                        };
+                        if (viewDailyLog.draft.type === "RECEIPT_EXPENSE") {
+                          payload.expenseVendor = viewDailyLog.draft.expenseVendor || null;
+                          payload.expenseAmount = viewDailyLog.draft.expenseAmount ? parseFloat(viewDailyLog.draft.expenseAmount) : null;
+                          payload.expenseDate = viewDailyLog.draft.expenseDate || null;
+                        }
+                        const resp = await fetch(`${API_BASE}/daily-logs/${viewDailyLog.log.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                          body: JSON.stringify(payload),
+                        });
+                        if (!resp.ok) {
+                          const text = await resp.text().catch(() => "");
+                          throw new Error(text || `Update failed (${resp.status})`);
+                        }
+                        const updated = await resp.json();
+                        setDailyLogs(prev => prev.map(l => l.id === updated.id ? { ...l, ...updated } : l));
+                        setViewDailyLog(prev => ({
+                          ...prev,
+                          log: { ...prev.log!, ...updated },
+                          editing: false,
+                          saving: false,
+                          error: null,
+                        }));
+                      } catch (err: any) {
+                        setViewDailyLog(prev => ({ ...prev, saving: false, error: err?.message || "Update failed" }));
+                      }
+                    }}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: 6,
+                      border: "1px solid #0f172a",
+                      background: viewDailyLog.saving ? "#e5e7eb" : "#0f172a",
+                      color: viewDailyLog.saving ? "#4b5563" : "#ffffff",
+                      cursor: viewDailyLog.saving ? "default" : "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    {viewDailyLog.saving ? "Saving…" : "Save Changes"}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setViewDailyLog({ open: false, log: null, draft: null, editing: false, saving: false, error: null })}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 6,
+                    border: "1px solid #0f172a",
+                    background: "#0f172a",
+                    color: "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Close
+                </button>
+              )}
             </div>
           </div>
         </div>

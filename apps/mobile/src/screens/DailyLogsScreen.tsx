@@ -209,9 +209,16 @@ export function DailyLogsScreen({
   };
 
   const createOffline = async () => {
-    // Validate required title
-    if (!title.trim()) {
-      Alert.alert("Title Required", "Please enter a summary title for this log.");
+    // Auto-fill title from notes if empty
+    let finalTitle = title.trim();
+    if (!finalTitle && workPerformed.trim()) {
+      finalTitle = summarizeToTitle(workPerformed);
+      setTitle(finalTitle);
+    }
+    
+    // Validate we have a title (either entered or derived)
+    if (!finalTitle) {
+      Alert.alert("Title Required", "Please enter a subject/title or add some notes.");
       return;
     }
 
@@ -398,10 +405,10 @@ export function DailyLogsScreen({
           )}
         </View>
 
-        {/* 5. SUMMARY TITLE - Mandatory */}
+        {/* 5. SUBJECT/TITLE - Auto-fills from notes if left empty */}
         <View style={styles.section}>
           <View style={styles.titleLabelRow}>
-            <Text style={styles.sectionLabel}>Summary Title <Text style={styles.required}>*</Text></Text>
+            <Text style={styles.sectionLabel}>Subject / Title</Text>
             {workPerformed.trim().length > 10 && !title.trim() && (
               <Pressable
                 style={styles.autoTitleButton}
@@ -415,7 +422,7 @@ export function DailyLogsScreen({
             style={styles.titleInput}
             value={title}
             onChangeText={setTitle}
-            placeholder="Brief description of this log entry"
+            placeholder="Auto-fills from notes if left empty"
             placeholderTextColor={colors.textMuted}
           />
         </View>
