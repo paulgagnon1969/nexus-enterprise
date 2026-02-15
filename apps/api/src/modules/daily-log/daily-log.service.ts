@@ -1196,7 +1196,7 @@ export class DailyLogService {
     for (const field of editableFields) {
       if (dto[field] !== undefined) {
         const currentValue = (log as any)[field];
-        let newValue = dto[field];
+        let newValue: any = dto[field];
 
         // Convert date strings to Date objects
         if (field === "logDate" && dto.logDate) {
