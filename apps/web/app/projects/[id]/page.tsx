@@ -27,10 +27,10 @@ import { RoleVisible } from "../../role-audit";
 import { FileDropZone } from "../../components/file-drop-zone";
 import { ScheduleSection } from "./schedule-section";
 
-const API_BASE
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 /**
- * Compute SHA-256 hash of a File/Blob using the Web Crypto API.
+ * Compute SHA-256 hash
  * Returns hex string.
  */
 async function computeFileHash(file: File | Blob): Promise<string> {
