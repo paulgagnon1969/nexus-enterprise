@@ -11,6 +11,7 @@ import { NotificationsService } from "../notifications/notifications.service";
 import { TaskService } from "../task/task.service";
 import { TaskPriorityEnum } from "../task/dto/task.dto";
 import { ReceiptOcrService } from "../ocr/receipt-ocr.service";
+import { OpenAiOcrProvider } from "../ocr/openai-ocr.provider";
 
 // Profile codes that are considered PM+ level (can edit logs, see delayed logs, publish)
 const PM_PLUS_PROFILES = new Set(["PM", "EXECUTIVE"]);
@@ -29,6 +30,7 @@ export class DailyLogService {
     private readonly notifications: NotificationsService,
     private readonly tasks: TaskService,
     private readonly receiptOcr: ReceiptOcrService,
+    private readonly openAiOcr: OpenAiOcrProvider,
   ) {}
 
   private async assertProjectAccess(
@@ -161,6 +163,125 @@ export class DailyLogService {
     // For now, any internal member who has access to the project (enforced by assertProjectAccess)
     // can see all logs on that project.
     return true;
+  }
+
+  /**
+   * Immediate OCR for a project file (before saving the daily log).
+   * Returns extracted vendor, amount, and date for preview/editing.
+   */
+  async ocrProjectFile(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    projectFileId: string,
+  ): Promise<{
+    success: boolean;
+    vendor?: string;
+    amount?: number;
+    date?: string;
+    confidence?: number;
+    error?: string;
+  }> {
+    await this.assertProjectAccess(projectId, companyId, actor, null);
+
+    const projectFile = await this.prisma.projectFile.findFirst({
+      where: { id: projectFileId, projectId, companyId },
+    });
+
+    if (!projectFile) {
+      throw new NotFoundException("Project file not found");
+    }
+
+    if (!projectFile.storageUrl) {
+      return { success: false, error: "No storage URL available for this file" };
+    }
+
+    // Check if it's an image file
+    const isImage =
+      projectFile.mimeType?.startsWith("image/") ||
+      projectFile.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/) != null;
+
+    if (!isImage) {
+      return { success: false, error: "OCR only supported for image files" };
+    }
+
+    try {
+      this.logger.log(`Running immediate OCR for file ${projectFileId}: ${projectFile.storageUrl}`);
+      const result = await this.openAiOcr.extractReceipt(projectFile.storageUrl);
+
+      return {
+        success: true,
+        vendor: result.vendorName,
+        amount: result.totalAmount,
+        date: result.receiptDate,
+        confidence: result.confidence,
+      };
+    } catch (err: any) {
+      this.logger.error(`Immediate OCR failed for file ${projectFileId}: ${err?.message ?? err}`);
+      return {
+        success: false,
+        error: err?.message ?? "OCR processing failed",
+      };
+    }
+  }
+
+  /**
+   * Delete a daily log.
+   * Only the creator or PM+ can delete logs.
+   */
+  async deleteLog(
+    logId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+  ): Promise<{ success: boolean; id: string }> {
+    const log = await this.prisma.dailyLog.findFirst({
+      where: { id: logId, project: { companyId } },
+      include: { project: true, attachments: true },
+    });
+
+    if (!log) {
+      throw new NotFoundException("Daily log not found in this company");
+    }
+
+    await this.assertProjectAccess(log.projectId, companyId, actor, null);
+
+    // Check permission: creator or PM+ can delete
+    const canDelete = log.createdById === actor.userId || this.isPmOrAbove(actor);
+    if (!canDelete) {
+      throw new ForbiddenException("Only the creator or PM+ can delete this log");
+    }
+
+    // Delete attachments first
+    if (log.attachments.length > 0) {
+      await this.prisma.dailyLogAttachment.deleteMany({
+        where: { dailyLogId: logId },
+      });
+    }
+
+    // Delete any linked OCR results
+    await this.prisma.receiptOcrResult.deleteMany({
+      where: { dailyLogId: logId },
+    }).catch(() => {});
+
+    // Delete the log
+    await this.prisma.dailyLog.delete({
+      where: { id: logId },
+    });
+
+    await this.audit.log(actor, "DAILY_LOG_DELETED", {
+      companyId,
+      projectId: log.projectId,
+      metadata: {
+        dailyLogId: logId,
+        title: log.title,
+        type: log.type,
+        logDate: log.logDate,
+      },
+    });
+
+    this.logger.log(`Daily log ${logId} deleted by ${actor.userId}`);
+
+    return { success: true, id: logId };
   }
 
   async listForProject(projectId: string, companyId: string, actor: AuthenticatedUser) {
@@ -661,8 +782,10 @@ export class DailyLogService {
     });
 
     // Handle attachments from projectFileIds
+    this.logger.log(`[createForProject] attachmentProjectFileIds received: ${JSON.stringify(dto.attachmentProjectFileIds)}`);
     const attachedProjectFiles: { id: string; storageUrl: string; fileName: string; mimeType: string | null }[] = [];
     if (dto.attachmentProjectFileIds && dto.attachmentProjectFileIds.length > 0) {
+      this.logger.log(`[createForProject] Processing ${dto.attachmentProjectFileIds.length} attachment(s)`);
       for (const fileId of dto.attachmentProjectFileIds) {
         try {
           const projectFile = await this.prisma.projectFile.findFirst({
@@ -741,11 +864,62 @@ export class DailyLogService {
       }
     }
 
-    const { createdBy, notifyUserIdsJson: _n, tagsJson: _t, ...rest } = created as any;
+    // Re-fetch the log with attachments included (attachments were added after initial create)
+    const finalLog = await this.prisma.dailyLog.findUnique({
+      where: { id: created.id },
+      include: {
+        createdBy: {
+          select: {
+            id: true,
+            email: true,
+          },
+        },
+        attachments: true,
+        building: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+        unit: {
+          select: {
+            id: true,
+            label: true,
+            floor: true,
+          },
+        },
+        roomParticle: {
+          select: {
+            id: true,
+            name: true,
+            fullLabel: true,
+          },
+        },
+        sowItem: {
+          select: {
+            id: true,
+            description: true,
+          },
+        },
+      },
+    });
+
+    if (!finalLog) {
+      // Shouldn't happen, but fallback to original created object
+      const { createdBy, notifyUserIdsJson: _n, tagsJson: _t, ...rest } = created as any;
+      return {
+        ...rest,
+        createdByUser: createdBy,
+        attachments: [],
+      };
+    }
+
+    const { createdBy: cb, notifyUserIdsJson: _n2, tagsJson: _t2, ...restFinal } = finalLog as any;
 
     return {
-      ...rest,
-      createdByUser: createdBy,
+      ...restFinal,
+      createdByUser: cb,
     };
   }
 
