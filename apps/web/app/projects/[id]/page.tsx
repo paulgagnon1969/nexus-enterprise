@@ -10328,7 +10328,15 @@ ${htmlBody}
   // Open attachments viewer (gallery mode)
   const openAttachmentsViewer = (log: DailyLog, startIndex = 0) => {
     console.log("Opening gallery for log:", log.id, "attachments:", log.attachments);
-    alert(`Opening gallery: ${log.attachments?.length || 0} attachments`);
+    
+    // TEST: Create DOM element directly to bypass React
+    const testDiv = document.createElement('div');
+    testDiv.id = 'test-gallery-overlay';
+    testDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:blue;z-index:999999;display:flex;align-items:center;justify-content:center;';
+    testDiv.innerHTML = `<div style="color:white;font-size:48px;text-align:center;">DIRECT DOM TEST<br/>Click to close<br/>${log.attachments?.length || 0} attachments</div>`;
+    testDiv.onclick = () => testDiv.remove();
+    document.body.appendChild(testDiv);
+    
     setAttachmentsViewer({ open: true, log, currentIndex: startIndex });
   };
 
