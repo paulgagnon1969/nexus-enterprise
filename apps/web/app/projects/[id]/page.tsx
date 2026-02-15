@@ -4587,6 +4587,10 @@ ${htmlBody}
   const petlTransitionOverlayLabelRef = useRef<string>("Working…");
   const petlTransitionOverlayDoneRef = useRef<null | (() => void)>(null);
 
+  // General UI transition for toggle buttons, schedule controls, etc.
+  // This prevents 2+ second INP issues when clicking buttons that trigger re-renders.
+  const [, startUiTransition] = useTransition();
+
   useEffect(() => {
     if (isEditTransitionPending) {
       if (!editTransitionOverlayDoneRef.current) {
@@ -4635,6 +4639,31 @@ ${htmlBody}
   const setPetlOrgGroupFiltersTransition = useCallback((next: string[]) => {
     startPetlTransition(() => setPetlOrgGroupFilters(next));
   }, [startPetlTransition]);
+
+  // Wrap schedule setters in transitions to avoid 2+ second INP issues
+  const setScheduleZoomTransition = useCallback((next: "AUTO" | "DAY" | "WEEK" | "MONTH") => {
+    startUiTransition(() => setScheduleZoom(next));
+  }, [startUiTransition]);
+
+  const setScheduleViewPresetTransition = useCallback((next: "ALL" | "30D" | "60D" | "90D" | "CUSTOM") => {
+    startUiTransition(() => setScheduleViewPreset(next));
+  }, [startUiTransition]);
+
+  const setScheduleGroupModeTransition = useCallback((next: "ROOM" | "TRADE" | "UNIT") => {
+    startUiTransition(() => setScheduleGroupMode(next));
+  }, [startUiTransition]);
+
+  const setScheduleSourceTransition = useCallback((next: "PREVIEW" | "ORG") => {
+    startUiTransition(() => setScheduleSource(next));
+  }, [startUiTransition]);
+
+  const setScheduleSummaryExpandedTransition = useCallback((next: boolean | ((prev: boolean) => boolean)) => {
+    startUiTransition(() => setScheduleSummaryExpanded(next));
+  }, [startUiTransition]);
+
+  const setScheduleReloadTickTransition = useCallback((fn: (t: number) => number) => {
+    startUiTransition(() => setScheduleReloadTick(fn));
+  }, [startUiTransition]);
 
   // Use transition for display mode changes to avoid blocking
   const setPetlDisplayModePersisted = useCallback((mode: PetlDisplayMode) => {
@@ -6097,7 +6126,7 @@ ${htmlBody}
           {opts.mode === "SUMMARY" && (
             <button
               type="button"
-              onClick={() => setScheduleSummaryExpanded((v) => !v)}
+              onClick={() => setScheduleSummaryExpandedTransition((v) => !v)}
               style={{
                 padding: "4px 8px",
                 borderRadius: 6,
@@ -6117,7 +6146,7 @@ ${htmlBody}
                 <span style={{ color: "#6b7280" }}>Source:</span>
                 <button
                   type="button"
-                  onClick={() => setScheduleSource("PREVIEW")}
+                  onClick={() => setScheduleSourceTransition("PREVIEW")}
                   style={{
                     padding: "4px 8px",
                     borderRadius: 6,
@@ -6132,7 +6161,7 @@ ${htmlBody}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setScheduleSource("ORG")}
+                  onClick={() => setScheduleSourceTransition("ORG")}
                   style={{
                     padding: "4px 8px",
                     borderRadius: 6,
@@ -6190,7 +6219,7 @@ ${htmlBody}
                 <span style={{ color: "#6b7280" }}>Group:</span>
                 <button
                   type="button"
-                  onClick={() => setScheduleGroupMode("ROOM")}
+                  onClick={() => setScheduleGroupModeTransition("ROOM")}
                   style={{
                     padding: "4px 8px",
                     borderRadius: 6,
@@ -6204,7 +6233,7 @@ ${htmlBody}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setScheduleGroupMode("TRADE")}
+                  onClick={() => setScheduleGroupModeTransition("TRADE")}
                   style={{
                     padding: "4px 8px",
                     borderRadius: 6,
@@ -6218,7 +6247,7 @@ ${htmlBody}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setScheduleGroupMode("UNIT")}
+                  onClick={() => setScheduleGroupModeTransition("UNIT")}
                   style={{
                     padding: "4px 8px",
                     borderRadius: 6,
@@ -6289,7 +6318,7 @@ ${htmlBody}
                 <span style={{ color: "#6b7280" }}>Zoom:</span>
                 <button
                   type="button"
-                  onClick={() => setScheduleZoom("AUTO")}
+                  onClick={() => setScheduleZoomTransition("AUTO")}
                   style={{
                     padding: "4px 8px",
                     borderRadius: 6,
@@ -6303,7 +6332,7 @@ ${htmlBody}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setScheduleZoom("DAY")}
+                  onClick={() => setScheduleZoomTransition("DAY")}
                   style={{
                     padding: "4px 8px",
                     borderRadius: 6,
@@ -6317,7 +6346,7 @@ ${htmlBody}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setScheduleZoom("WEEK")}
+                  onClick={() => setScheduleZoomTransition("WEEK")}
                   style={{
                     padding: "4px 8px",
                     borderRadius: 6,
@@ -6331,7 +6360,7 @@ ${htmlBody}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setScheduleZoom("MONTH")}
+                  onClick={() => setScheduleZoomTransition("MONTH")}
                   style={{
                     padding: "4px 8px",
                     borderRadius: 6,
@@ -6350,9 +6379,7 @@ ${htmlBody}
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setScheduleViewPreset("ALL");
-                  }}
+                  onClick={() => setScheduleViewPresetTransition("ALL")}
                   style={{
                     padding: "4px 8px",
                     borderRadius: 6,
@@ -6373,9 +6400,7 @@ ${htmlBody}
                   <button
                     key={p.key}
                     type="button"
-                    onClick={() => {
-                      setScheduleViewPreset(p.key);
-                    }}
+                    onClick={() => setScheduleViewPresetTransition(p.key)}
                     style={{
                       padding: "4px 8px",
                       borderRadius: 6,
@@ -6426,9 +6451,7 @@ ${htmlBody}
 
               <button
                 type="button"
-                onClick={() => {
-                  setScheduleReloadTick((t) => t + 1);
-                }}
+                onClick={() => setScheduleReloadTickTransition((t) => t + 1)}
                 style={{
                   padding: "4px 8px",
                   borderRadius: 6,
