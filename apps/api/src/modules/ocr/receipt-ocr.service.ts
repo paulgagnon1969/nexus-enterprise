@@ -165,24 +165,22 @@ export class ReceiptOcrService {
     dailyLogId: string,
     data: ReceiptOcrData,
   ): Promise<void> {
-    // Only update if the daily log fields are not already set
     const dailyLog = await this.prisma.dailyLog.findUnique({
       where: { id: dailyLogId },
-      select: { expenseVendor: true, expenseAmount: true, expenseDate: true },
     });
 
     if (!dailyLog) return;
 
     const updates: any = {};
 
-    // Only update fields that are empty
-    if (!dailyLog.expenseVendor && data.vendorName) {
+    // Always update fields if OCR extracted data (user can edit after)
+    if (data.vendorName) {
       updates.expenseVendor = data.vendorName;
     }
-    if (!dailyLog.expenseAmount && data.totalAmount != null) {
+    if (data.totalAmount != null) {
       updates.expenseAmount = data.totalAmount;
     }
-    if (!dailyLog.expenseDate && data.receiptDate) {
+    if (data.receiptDate) {
       updates.expenseDate = new Date(data.receiptDate);
     }
 
@@ -191,7 +189,9 @@ export class ReceiptOcrService {
         where: { id: dailyLogId },
         data: updates,
       });
-      this.logger.log(`Updated daily log ${dailyLogId} with OCR data`);
+      this.logger.log(`Updated daily log ${dailyLogId} with OCR data: vendor=${data.vendorName}, amount=${data.totalAmount}, date=${data.receiptDate}`);
+    } else {
+      this.logger.warn(`No OCR data to update for daily log ${dailyLogId}`);
     }
   }
 }

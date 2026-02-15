@@ -386,7 +386,6 @@ export class DailyLogService {
               storageUrl: payload.fileUrl,
               fileName: payload.fileName ?? 'receipt',
               mimeType: payload.mimeType ?? 'image/jpeg',
-              createdById: actor.userId,
             },
           });
           // Update attachment with projectFileId
@@ -454,7 +453,6 @@ export class DailyLogService {
               storageUrl: attachment.fileUrl,
               fileName: attachment.fileName ?? 'attachment',
               mimeType: attachment.mimeType ?? 'image/jpeg',
-              createdById: actor.userId,
             },
           });
           projectFileId = projectFile.id;
