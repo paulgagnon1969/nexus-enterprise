@@ -8,6 +8,6 @@ import { GcsService } from '../../infra/storage/gcs.service';
 @Module({
   imports: [PrismaModule, ConfigModule],
   providers: [OpenAiOcrProvider, ReceiptOcrService, GcsService],
-  exports: [ReceiptOcrService],
+  exports: [ReceiptOcrService, OpenAiOcrProvider],
 })
 export class OcrModule {}

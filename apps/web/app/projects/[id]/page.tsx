@@ -10270,6 +10270,41 @@ ${htmlBody}
     setEditDailyLog({ open: false, log: null, draft: null, saving: false, error: null });
   };
 
+  // Delete a daily log (PM+ only)
+  const handleDeleteDailyLog = async (logId: string, logTitle?: string | null) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete this daily log${logTitle ? `: "${logTitle}"` : ""}? This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token. Please login again.");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/projects/${id}/daily-logs/${logId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        alert(`Failed to delete daily log (${res.status}): ${text}`);
+        return;
+      }
+
+      // Remove from local state
+      setDailyLogs(prev => prev.filter(l => l.id !== logId));
+      setDailyLogMessage("Daily log deleted.");
+    } catch (err: any) {
+      alert(`Error deleting daily log: ${err?.message || "Unknown error"}`);
+    }
+  };
+
   const handleUpdateDailyLog = async () => {
     if (!editDailyLog.log || !editDailyLog.draft) return;
 
@@ -20834,6 +20869,47 @@ ${htmlBody}
                               ...uploadedFiles,
                             ],
                           }));
+
+                          // For RECEIPT_EXPENSE: run immediate OCR on first image file
+                          if (newDailyLog.type === "RECEIPT_EXPENSE") {
+                            const firstImage = uploadedFiles.find(f => 
+                              f.mimeType?.startsWith("image/") ||
+                              f.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/)
+                            );
+                            if (firstImage) {
+                              setDailyLogMessage("Running OCR on receipt...");
+                              try {
+                                const ocrRes = await fetch(`${API_BASE}/projects/${id}/daily-logs/ocr`, {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                  body: JSON.stringify({ projectFileId: firstImage.id }),
+                                });
+                                if (ocrRes.ok) {
+                                  const ocrData = await ocrRes.json();
+                                  if (ocrData.success) {
+                                    setNewDailyLog(prev => ({
+                                      ...prev,
+                                      expenseVendor: ocrData.vendor || prev.expenseVendor,
+                                      expenseAmount: ocrData.amount != null ? String(ocrData.amount) : prev.expenseAmount,
+                                      expenseDate: ocrData.date || prev.expenseDate,
+                                    }));
+                                    const conf = ocrData.confidence ? `(${Math.round(ocrData.confidence * 100)}% confidence)` : "";
+                                    setDailyLogMessage(`✓ OCR extracted: ${ocrData.vendor || "Unknown vendor"} - $${ocrData.amount ?? "?"} ${conf}`);
+                                  } else {
+                                    setDailyLogMessage(`OCR: ${ocrData.error || "Could not extract data"}`);
+                                  }
+                                } else {
+                                  setDailyLogMessage(`✓ File attached (OCR unavailable)`);
+                                }
+                              } catch (ocrErr: any) {
+                                setDailyLogMessage(`✓ File attached (OCR error: ${ocrErr?.message || "failed"})`);
+                              }
+                              return; // Skip the generic success message below
+                            }
+                          }
                         }
 
                         if (errors.length > 0) {
@@ -21219,7 +21295,7 @@ ${htmlBody}
                       >
                         <thead>
                           <tr style={{ backgroundColor: "#f9fafb" }}>
-                            <th style={{ textAlign: "center", padding: "4px 6px", width: 32 }}></th>
+                            <th style={{ textAlign: "center", padding: "4px 6px", width: 100 }}>Actions</th>
                             <th style={{ textAlign: "left", padding: "4px 6px" }}>Date</th>
                             <th style={{ textAlign: "left", padding: "4px 6px" }}>Type</th>
                             <th style={{ textAlign: "left", padding: "4px 6px" }}>Title</th>
@@ -21242,7 +21318,7 @@ ${htmlBody}
                             .slice(0, 10)
                             .map(log => (
                             <tr key={log.id}>
-                              {/* Edit pencil icon - PM+ only */}
+                              {/* Edit & Delete actions - PM+ only */}
                               <td
                                 style={{
                                   padding: "4px 6px",
@@ -21251,23 +21327,42 @@ ${htmlBody}
                                 }}
                               >
                                 {isPmOrAbove && (
-                                  <button
-                                    type="button"
-                                    onClick={() => openEditDailyLog(log)}
-                                    title="Edit daily log"
-                                    style={{
-                                      border: "1px solid #2563eb",
-                                      background: "#2563eb",
-                                      borderRadius: 4,
-                                      cursor: "pointer",
-                                      padding: "4px 10px",
-                                      fontSize: 11,
-                                      color: "#ffffff",
-                                      fontWeight: 500,
-                                    }}
-                                  >
-                                    Edit
-                                  </button>
+                                  <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditDailyLog(log)}
+                                      title="Edit daily log"
+                                      style={{
+                                        border: "1px solid #2563eb",
+                                        background: "#2563eb",
+                                        borderRadius: 4,
+                                        cursor: "pointer",
+                                        padding: "4px 8px",
+                                        fontSize: 11,
+                                        color: "#ffffff",
+                                        fontWeight: 500,
+                                      }}
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteDailyLog(log.id, log.title)}
+                                      title="Delete daily log"
+                                      style={{
+                                        border: "1px solid #dc2626",
+                                        background: "#dc2626",
+                                        borderRadius: 4,
+                                        cursor: "pointer",
+                                        padding: "4px 8px",
+                                        fontSize: 11,
+                                        color: "#ffffff",
+                                        fontWeight: 500,
+                                      }}
+                                    >
+                                      🗑
+                                    </button>
+                                  </div>
                                 )}
                               </td>
                               {/* Date */}

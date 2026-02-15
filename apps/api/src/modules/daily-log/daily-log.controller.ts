@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { DailyLogService } from "./daily-log.service";
 import { CombinedAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateDailyLogDto } from "./dto/create-daily-log.dto";
 import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
+import { OcrFileDto } from "./dto/ocr-file.dto";
 
 /**
  * Cross-project daily logs endpoint.
@@ -49,6 +50,16 @@ export class DailyLogFeedController {
   }
 
   @UseGuards(CombinedAuthGuard)
+  @Delete(":logId")
+  delete(
+    @Req() req: any,
+    @Param("logId") logId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.deleteLog(logId, user.companyId, user);
+  }
+
+  @UseGuards(CombinedAuthGuard)
   @Post(":logId/delay-publish")
   delayPublish(@Req() req: any, @Param("logId") logId: string) {
     const user = req.user as AuthenticatedUser;
@@ -73,6 +84,22 @@ export class DailyLogFeedController {
 @Controller("projects/:projectId/daily-logs")
 export class DailyLogController {
   constructor(private readonly dailyLogs: DailyLogService) {}
+
+  /**
+   * Immediate OCR for a project file - call before saving to preview extracted data.
+   * Returns vendor, amount, date extracted from the receipt image.
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Post("ocr")
+  async ocrFile(
+    @Req() req: any,
+    @Param("projectId") projectId: string,
+    @Body() dto: OcrFileDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.ocrProjectFile(projectId, user.companyId, user, dto.projectFileId);
+  }
 
   @UseGuards(CombinedAuthGuard)
   @Get()
@@ -113,5 +140,16 @@ export class DailyLogController {
   ) {
     const user = req.user as AuthenticatedUser;
     return this.dailyLogs.rejectLog(logId, user.companyId, user);
+  }
+
+  @UseGuards(CombinedAuthGuard)
+  @Delete(":logId")
+  delete(
+    @Req() req: any,
+    @Param("projectId") projectId: string,
+    @Param("logId") logId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.deleteLog(logId, user.companyId, user);
   }
 }
