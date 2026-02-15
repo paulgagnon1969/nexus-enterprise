@@ -22538,7 +22538,7 @@ ${htmlBody}
             style={{
               position: "fixed",
               inset: 0,
-              zIndex: 70,
+              zIndex: 99999,
               backgroundColor: "rgba(15, 23, 42, 0.85)",
               display: "flex",
               flexDirection: "column",
