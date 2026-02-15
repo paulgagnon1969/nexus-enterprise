@@ -9708,10 +9708,12 @@ export class ProjectService {
 
   async getProjectInvoice(projectId: string, invoiceId: string, actor: AuthenticatedUser) {
     this.logger.log(`[getProjectInvoice] Starting for projectId=${projectId}, invoiceId=${invoiceId}`);
-    this.ensureBillingModelsAvailable();
 
     try {
+      this.ensureBillingModelsAvailable();
+      this.logger.log(`[getProjectInvoice] Billing models available, fetching project...`);
       await this.getProjectByIdForUser(projectId, actor);
+      this.logger.log(`[getProjectInvoice] Project found, fetching invoice...`);
 
       const invoice = await this.prisma.projectInvoice.findFirst({
         where: { id: invoiceId, projectId, companyId: actor.companyId },
