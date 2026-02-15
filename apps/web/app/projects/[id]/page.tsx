@@ -10327,6 +10327,7 @@ ${htmlBody}
 
   // Open attachments viewer (gallery mode)
   const openAttachmentsViewer = (log: DailyLog, startIndex = 0) => {
+    console.log('[GALLERY] openAttachmentsViewer called, log.id:', log.id, 'attachments:', log.attachments?.length);
     setAttachmentsViewer({ open: true, log, currentIndex: startIndex });
   };
 
@@ -22335,7 +22336,9 @@ ${htmlBody}
       {/* Project grouping: Units → Rooms (expandable) */}
 
       {/* Attachments Gallery Modal - Using Portal to render to body */}
-      {attachmentsViewer.open && typeof document !== "undefined" && createPortal(
+      {attachmentsViewer.open && (() => {
+        console.log('[GALLERY] Portal condition met, rendering gallery');
+        return typeof document !== "undefined" && createPortal(
         <div
           style={{
             position: "fixed",
@@ -22498,7 +22501,8 @@ ${htmlBody}
           )}
         </div>,
         document.body
-      )}
+      );
+      })()}
 
       {/* Field PETL edit modal */}
       {fieldPetlEdit && (
