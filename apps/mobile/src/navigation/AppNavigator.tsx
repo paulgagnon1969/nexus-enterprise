@@ -11,20 +11,17 @@ import { HomeScreen } from "../screens/HomeScreen";
 import { ProjectsScreen } from "../screens/ProjectsScreen";
 import { DailyLogsScreen } from "../screens/DailyLogsScreen";
 import { FieldPetlScreen, type PetlSessionChanges } from "../screens/FieldPetlScreen";
-import { DailyLogFeedScreen } from "../screens/DailyLogFeedScreen";
-import { DailyLogDetailScreen } from "../screens/DailyLogDetailScreen";
-import { DailyLogEditScreen } from "../screens/DailyLogEditScreen";
-import { DailyLogCreateScreen } from "../screens/DailyLogCreateScreen";
+import { DirectoryScreen } from "../screens/DirectoryScreen";
 import { InventoryScreen } from "../screens/InventoryScreen";
 import { OutboxScreen } from "../screens/OutboxScreen";
 import { TimecardScreen } from "../screens/TimecardScreen";
-import type { ProjectListItem, DailyLogListItem, DailyLogDetail } from "../types/api";
+import type { ProjectListItem } from "../types/api";
 
 // Type definitions for navigation
 export type RootTabParamList = {
   HomeTab: { triggerSync?: boolean } | undefined;
   TimecardTab: undefined;
-  LogsTab: undefined;
+  DirectoryTab: undefined;
   ProjectsTab: undefined;
   InventoryTab: undefined;
   OutboxTab: undefined;
@@ -36,23 +33,15 @@ export type ProjectsStackParamList = {
   FieldPetl: { project: ProjectListItem; companyName?: string };
 };
 
-export type LogsStackParamList = {
-  LogsFeed: undefined;
-  LogDetail: { log: DailyLogListItem };
-  LogEdit: { log: DailyLogDetail };
-  LogCreate: undefined;
-};
-
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
-const LogsStack = createNativeStackNavigator<LogsStackParamList>();
 
 // Simple icon component (can be replaced with expo-vector-icons later)
 function TabIcon({ label, focused }: { label: string; focused: boolean }) {
   const icons: Record<string, string> = {
     Home: "🏠",
     Timecard: "⏱️",
-    Logs: "📝",
+    Directory: "👥",
     Projects: "📋",
     Inventory: "📦",
     Outbox: "📤",
@@ -61,63 +50,6 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
     <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.5 }}>
       {icons[label] ?? "•"}
     </Text>
-  );
-}
-
-// Screen wrappers that use hooks instead of render props
-function LogsFeedWrapper() {
-  const navigation = useNavigation<NativeStackNavigationProp<LogsStackParamList>>();
-  return (
-    <DailyLogFeedScreen
-      onSelectLog={(log) => navigation.navigate("LogDetail", { log })}
-      onCreateLog={() => navigation.navigate("LogCreate")}
-    />
-  );
-}
-
-function LogDetailWrapper() {
-  const navigation = useNavigation<NativeStackNavigationProp<LogsStackParamList>>();
-  const route = useRoute<RouteProp<LogsStackParamList, "LogDetail">>();
-  return (
-    <DailyLogDetailScreen
-      log={route.params.log}
-      onBack={() => navigation.goBack()}
-      onEdit={(log) => navigation.navigate("LogEdit", { log })}
-    />
-  );
-}
-
-function LogEditWrapper() {
-  const navigation = useNavigation<NativeStackNavigationProp<LogsStackParamList>>();
-  const route = useRoute<RouteProp<LogsStackParamList, "LogEdit">>();
-  return (
-    <DailyLogEditScreen
-      log={route.params.log}
-      onBack={() => navigation.goBack()}
-      onSaved={() => navigation.goBack()}
-    />
-  );
-}
-
-function LogCreateWrapper() {
-  const navigation = useNavigation<NativeStackNavigationProp<LogsStackParamList>>();
-  return (
-    <DailyLogCreateScreen
-      onBack={() => navigation.goBack()}
-      onCreated={() => navigation.goBack()}
-    />
-  );
-}
-
-// Logs stack with Feed -> Detail -> Edit -> Create
-function LogsStackNavigator() {
-  return (
-    <LogsStack.Navigator screenOptions={{ headerShown: false }}>
-      <LogsStack.Screen name="LogsFeed" component={LogsFeedWrapper} />
-      <LogsStack.Screen name="LogDetail" component={LogDetailWrapper} />
-      <LogsStack.Screen name="LogEdit" component={LogEditWrapper} />
-      <LogsStack.Screen name="LogCreate" component={LogCreateWrapper} />
-    </LogsStack.Navigator>
   );
 }
 
@@ -267,9 +199,9 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
           component={TimecardScreen}
         />
         <Tab.Screen
-          name="LogsTab"
-          options={{ tabBarLabel: "Logs" }}
-          component={LogsStackNavigator}
+          name="DirectoryTab"
+          options={{ tabBarLabel: "Directory" }}
+          component={DirectoryScreen}
         />
         <Tab.Screen
           name="ProjectsTab"
