@@ -9340,6 +9340,9 @@ export class ProjectService {
    * Sync a billable expense from a bill to an invoice line item.
    * Creates or updates a line item on the EXPENSE draft invoice.
    * Also copies bill attachments to the invoice.
+   * 
+   * If the bill has a targetInvoiceId set, the line item goes to that invoice instead
+   * of the default EXPENSE draft invoice.
    */
   private async syncBillableExpenseInvoiceLine(
     projectId: string,
@@ -9351,17 +9354,46 @@ export class ProjectService {
       billableAmount: number;
       markupPercent: number;
       totalAmount: number;
+      targetInvoiceId?: string | null;
       attachments?: { projectFileId: string; fileUrl: string; fileName?: string | null; mimeType?: string | null; sizeBytes?: number | null }[];
     },
     actor: AuthenticatedUser,
   ) {
     try {
-      const invoice = await this.getOrCreateCategoryDraftInvoice(
-        projectId,
-        companyId,
-        ProjectInvoiceCategory.EXPENSE,
-        actor,
-      );
+      let invoice: { id: string };
+      
+      // If bill has a targetInvoiceId, use that invoice (must be DRAFT EXPENSE)
+      if (bill.targetInvoiceId) {
+        const targetInv = await this.prisma.projectInvoice.findFirst({
+          where: {
+            id: bill.targetInvoiceId,
+            projectId,
+            companyId,
+            status: ProjectInvoiceStatus.DRAFT,
+            category: ProjectInvoiceCategory.EXPENSE,
+          },
+        });
+        
+        if (targetInv) {
+          invoice = targetInv;
+        } else {
+          // Target invoice not found or not draft/expense - fall back to default
+          invoice = await this.getOrCreateCategoryDraftInvoice(
+            projectId,
+            companyId,
+            ProjectInvoiceCategory.EXPENSE,
+            actor,
+          );
+        }
+      } else {
+        // Default behavior: use/create the default EXPENSE draft invoice
+        invoice = await this.getOrCreateCategoryDraftInvoice(
+          projectId,
+          companyId,
+          ProjectInvoiceCategory.EXPENSE,
+          actor,
+        );
+      }
 
       // Check if there's already an invoice line for this bill
       const existingLine = await this.prisma.projectInvoiceLineItem.findFirst({
@@ -9524,6 +9556,7 @@ export class ProjectService {
             billableAmount: Number(bill.billableAmount) || 0,
             markupPercent: Number(bill.markupPercent) || 0,
             totalAmount: Number(bill.totalAmount) || 0,
+            targetInvoiceId: (bill as any).targetInvoiceId ?? null,
             attachments: (bill.attachments ?? []).map((a) => ({
               projectFileId: a.projectFileId,
               fileUrl: a.fileUrl,
@@ -11312,6 +11345,123 @@ export class ProjectService {
       return this.getProjectInvoice(projectId, target.id, actor);
     } catch (err: any) {
       if (this.isBillingTableMissingError(err) || this.isInvoiceApplicationTableMissingError(err)) {
+        this.throwBillingTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Move expense line items to a different invoice.
+   * Both source and target invoices must be DRAFT EXPENSE invoices.
+   * If targetInvoiceId is not provided, a new EXPENSE draft invoice is created.
+   */
+  async moveExpenseLineItemsToInvoice(
+    projectId: string,
+    sourceInvoiceId: string,
+    payload: { lineIds: string[]; targetInvoiceId?: string },
+    actor: AuthenticatedUser,
+  ) {
+    this.ensureBillingModelsAvailable();
+    this.ensureBillModelsAvailable();
+
+    const lineIds = Array.isArray(payload?.lineIds) ? payload.lineIds.map(String).filter(Boolean) : [];
+    if (lineIds.length === 0) {
+      throw new BadRequestException("At least one line item id is required");
+    }
+
+    try {
+      const { project, invoice: sourceInvoice } = await this.getInvoiceOrThrow(projectId, sourceInvoiceId, actor);
+      this.assertInvoiceEditable(sourceInvoice);
+
+      if (sourceInvoice.category !== ProjectInvoiceCategory.EXPENSE) {
+        throw new BadRequestException("Source invoice must be an EXPENSE category invoice");
+      }
+
+      // Get the line items to move
+      const lineItems = await this.prisma.projectInvoiceLineItem.findMany({
+        where: {
+          id: { in: lineIds },
+          invoiceId: sourceInvoice.id,
+        },
+      });
+
+      if (lineItems.length === 0) {
+        throw new BadRequestException("No matching line items found on this invoice");
+      }
+      if (lineItems.length !== lineIds.length) {
+        throw new BadRequestException("Some selected line items were not found on this invoice");
+      }
+
+      let targetInvoice: { id: string };
+
+      if (payload.targetInvoiceId) {
+        // Use existing invoice as target
+        const { invoice: target } = await this.getInvoiceOrThrow(projectId, payload.targetInvoiceId, actor);
+        this.assertInvoiceEditable(target);
+
+        if (target.category !== ProjectInvoiceCategory.EXPENSE) {
+          throw new BadRequestException("Target invoice must be an EXPENSE category invoice");
+        }
+        if (target.id === sourceInvoice.id) {
+          throw new BadRequestException("Target invoice cannot be the same as source invoice");
+        }
+
+        targetInvoice = target;
+      } else {
+        // Create a new EXPENSE draft invoice
+        targetInvoice = await this.prisma.projectInvoice.create({
+          data: {
+            companyId: project.companyId,
+            projectId: project.id,
+            category: ProjectInvoiceCategory.EXPENSE,
+            status: ProjectInvoiceStatus.DRAFT,
+            billToName: sourceInvoice.billToName ?? null,
+            billToEmail: sourceInvoice.billToEmail ?? null,
+            memo: "Billable Expenses",
+            createdByUserId: actor.userId,
+          },
+        });
+      }
+
+      // Move the line items in a transaction
+      await this.prisma.$transaction(async (tx) => {
+        // Move the line items
+        await tx.projectInvoiceLineItem.updateMany({
+          where: {
+            id: { in: lineIds },
+            invoiceId: sourceInvoice.id,
+          },
+          data: {
+            invoiceId: targetInvoice.id,
+          },
+        });
+
+        // Update targetInvoiceId on any associated bills
+        for (const item of lineItems) {
+          if (item.sourceBillId) {
+            await tx.projectBill.update({
+              where: { id: item.sourceBillId },
+              data: { targetInvoiceId: targetInvoice.id },
+            });
+          }
+        }
+      });
+
+      // Recompute totals for both invoices
+      await this.recomputeInvoiceTotal(sourceInvoice.id);
+      await this.recomputeInvoiceTotal(targetInvoice.id);
+
+      const updatedSource = await this.getProjectInvoice(projectId, sourceInvoice.id, actor);
+      const updatedTarget = await this.getProjectInvoice(projectId, targetInvoice.id, actor);
+
+      return {
+        sourceInvoice: updatedSource,
+        targetInvoice: updatedTarget,
+        movedLineCount: lineItems.length,
+      };
+    } catch (err: any) {
+      if (this.isBillingTableMissingError(err) || this.isBillTableMissingError(err)) {
         this.throwBillingTablesNotMigrated();
       }
       throw err;

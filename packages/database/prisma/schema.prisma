@@ -1483,6 +1483,7 @@ model ProjectInvoice {
   paymentApplications         ProjectPaymentApplication[]
   invoiceApplicationsAsSource ProjectInvoiceApplication[] @relation("InvoiceApplicationsSource")
   invoiceApplicationsAsTarget ProjectInvoiceApplication[] @relation("InvoiceApplicationsTarget")
+  billsTargeting              ProjectBill[]               @relation("BillTargetInvoice")
 
   @@unique([companyId, invoiceSequenceNo], name: "ProjectInvoice_company_invoice_seq_key")
   @@index([companyId, projectId, status], map: "ProjectInvoice_company_project_status_idx")
@@ -1747,6 +1748,10 @@ model ProjectBill {
   markupPercent  Float   @default(0)
   billableAmount Float   @default(0)
 
+  // Optional override: which invoice this bill's line item should go to
+  // If null, uses the default EXPENSE category invoice
+  targetInvoiceId String?
+
   // Link to source daily log (for receipts submitted via daily log)
   sourceDailyLogId String?
 
@@ -1754,9 +1759,10 @@ model ProjectBill {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy User?   @relation("ProjectBillCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy      User?           @relation("ProjectBillCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  targetInvoice  ProjectInvoice? @relation("BillTargetInvoice", fields: [targetInvoiceId], references: [id], onDelete: SetNull)
 
   lineItems        ProjectBillLineItem[]
   attachments      ProjectBillAttachment[]
@@ -1767,6 +1773,7 @@ model ProjectBill {
   @@index([companyId, projectId, billDate], map: "ProjectBill_company_project_date_idx")
   @@index([projectId, billDate], map: "ProjectBill_project_date_idx")
   @@index([sourceDailyLogId], map: "ProjectBill_source_daily_log_idx")
+  @@index([targetInvoiceId], map: "ProjectBill_target_invoice_idx")
 }
 
 model ProjectBillLineItem {
