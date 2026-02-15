@@ -559,15 +559,18 @@ export class ProjectService {
     const { projectId, actor, fileUri, fileName, mimeType, sizeBytes, folderId, contentHash } = options;
     const { companyId, userId } = actor;
 
-    if (!fileUri || !fileUri.trim()) {
-      throw new BadRequestException("fileUri is required");
-    }
-    if (!fileName || !fileName.trim()) {
-      throw new BadRequestException("fileName is required");
-    }
+    this.logger.log(`[registerProjectFile] Starting for projectId=${projectId}, fileName=${fileName}`);
 
-    // Validate project access (throws if not allowed)
-    await this.getProjectByIdForUser(projectId, actor);
+    try {
+      if (!fileUri || !fileUri.trim()) {
+        throw new BadRequestException("fileUri is required");
+      }
+      if (!fileName || !fileName.trim()) {
+        throw new BadRequestException("fileName is required");
+      }
+
+      // Validate project access (throws if not allowed)
+      await this.getProjectByIdForUser(projectId, actor);
 
     // Deduplication: Check if a file with the same content hash already exists
     // in this project (project-scoped only for security - no cross-tenant linking)
@@ -626,7 +629,16 @@ export class ProjectService {
       },
     });
 
+    this.logger.log(`[registerProjectFile] Success: fileId=${file.id}`);
     return file;
+    } catch (err: any) {
+      const errCode = err?.code ?? 'no code';
+      const errMeta = err?.meta ? JSON.stringify(err.meta) : 'no meta';
+      this.logger.error(`[registerProjectFile] FAILED for projectId=${projectId}, fileName=${fileName}`);
+      this.logger.error(`[registerProjectFile] Error: ${err?.message ?? err}`);
+      this.logger.error(`[registerProjectFile] Code: ${errCode}, Meta: ${errMeta}`);
+      throw err;
+    }
   }
 
   async getProjectEmployees(companyId: string, projectId: string) {
