@@ -29,6 +29,7 @@ export class ReceiptOcrService {
         status: OcrStatus.PENDING,
         provider: 'openai',
       },
+      select: { id: true },
     });
 
     this.logger.log(`Created pending OCR result: ${result.id}`);
@@ -49,7 +50,7 @@ export class ReceiptOcrService {
     const ocrResult = await this.prisma.receiptOcrResult.findUnique({
       where: { id: ocrResultId },
       include: {
-        projectFile: true,
+        projectFile: { select: { id: true, storageUrl: true } },
       },
     });
 
