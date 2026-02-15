@@ -286,7 +286,7 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   destinationBox: {
-    backgroundColor: colors.backgroundMuted,
+    backgroundColor: colors.backgroundSecondary,
     padding: 12,
     borderRadius: 10,
     marginBottom: 16,

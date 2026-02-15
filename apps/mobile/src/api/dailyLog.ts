@@ -135,3 +135,20 @@ export async function deleteAttachment(
     { method: "DELETE" },
   );
 }
+
+/**
+ * Reassign a daily log to a different project.
+ */
+export async function reassignDailyLog(
+  logId: string,
+  targetProjectId: string,
+): Promise<DailyLogDetail> {
+  return apiJson<DailyLogDetail>(
+    `/daily-logs/${encodeURIComponent(logId)}/reassign`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetProjectId }),
+    },
+  );
+}
