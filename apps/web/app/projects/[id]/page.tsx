@@ -10327,10 +10327,6 @@ ${htmlBody}
 
   // Open attachments viewer (gallery mode)
   const openAttachmentsViewer = (log: DailyLog, startIndex = 0) => {
-    // SIMPLEST TEST: Just change body background to prove code runs
-    document.body.style.backgroundColor = 'magenta';
-    window.alert('Background should now be MAGENTA. Attachments: ' + (log.attachments?.length || 0));
-    
     setAttachmentsViewer({ open: true, log, currentIndex: startIndex });
   };
 
@@ -22338,7 +22334,7 @@ ${htmlBody}
 
       {/* Project grouping: Units → Rooms (expandable) */}
 
-      {/* Attachments Gallery Modal - Using Portal to escape any container issues */}
+      {/* Attachments Gallery Modal - Using Portal to render to body */}
       {attachmentsViewer.open && typeof document !== "undefined" && createPortal(
         <div
           style={{
@@ -22348,7 +22344,7 @@ ${htmlBody}
             right: 0,
             bottom: 0,
             zIndex: 999999,
-            backgroundColor: "red",
+            backgroundColor: "rgba(0, 0, 0, 0.92)",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -22356,9 +22352,6 @@ ${htmlBody}
           }}
           onClick={closeAttachmentsViewer}
         >
-          <div style={{ color: "white", fontSize: 48, fontWeight: "bold" }}>
-            GALLERY IS OPEN - {attachmentsViewer.log?.attachments?.length || 0} ATTACHMENTS
-          </div>
           {/* Close button */}
           <button
             type="button"
