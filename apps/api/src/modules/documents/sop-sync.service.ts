@@ -14,6 +14,9 @@ import {
 // Path to staged SOPs relative to repo root
 const STAGING_DIR = path.resolve(__dirname, "../../../../../docs/sops-staging");
 
+// NccPM manual code - all SOPs sync into this manual
+const NCCPM_MANUAL_CODE = "nccpm";
+
 @Injectable()
 export class SopSyncService {
   private readonly logger = new Logger(SopSyncService.name);
@@ -226,8 +229,67 @@ export class SopSyncService {
         data: { currentVersionId: version.id },
       });
 
-      // NOTE: Document is NOT auto-published. It goes to "Unpublished" state.
-      // Admin must manually publish via the System Documents UI.
+      // Add to NccPM manual if it exists
+      const nccpmManual = await tx.manual.findUnique({
+        where: { code: NCCPM_MANUAL_CODE },
+      });
+
+      if (nccpmManual) {
+        // Find or create the appropriate chapter based on module
+        let chapterId: string | null = null;
+        const chapterTitle = this.getChapterTitleForModule(frontmatter.module);
+
+        if (chapterTitle) {
+          const existingChapter = await tx.manualChapter.findFirst({
+            where: {
+              manualId: nccpmManual.id,
+              title: chapterTitle,
+              active: true,
+            },
+          });
+
+          if (existingChapter) {
+            chapterId = existingChapter.id;
+          } else {
+            // Create new chapter
+            const maxOrder = await tx.manualChapter.aggregate({
+              where: { manualId: nccpmManual.id },
+              _max: { sortOrder: true },
+            });
+            const newChapter = await tx.manualChapter.create({
+              data: {
+                manualId: nccpmManual.id,
+                title: chapterTitle,
+                sortOrder: (maxOrder._max.sortOrder ?? 0) + 1,
+              },
+            });
+            chapterId = newChapter.id;
+          }
+        }
+
+        // Get max sort order for documents in the chapter
+        const maxDocOrder = await tx.manualDocument.aggregate({
+          where: {
+            manualId: nccpmManual.id,
+            chapterId,
+            active: true,
+          },
+          _max: { sortOrder: true },
+        });
+
+        // Add document to manual
+        await tx.manualDocument.create({
+          data: {
+            manualId: nccpmManual.id,
+            chapterId,
+            systemDocumentId: doc.id,
+            sortOrder: (maxDocOrder._max.sortOrder ?? 0) + 1,
+            addedInManualVersion: nccpmManual.currentVersion,
+          },
+        });
+
+        this.logger.log(`Added SOP ${code} to NccPM manual (chapter: ${chapterTitle ?? "root"})`);
+      }
 
       return { doc, version };
     });
@@ -330,5 +392,52 @@ export class SopSyncService {
       newRevision: frontmatter.revision,
       systemDocumentId,
     };
+  }
+
+  /**
+   * Map SOP module name to NccPM chapter title.
+   * Returns null if the SOP should go to root level.
+   */
+  private getChapterTitleForModule(module: string): string | null {
+    const moduleChapterMap: Record<string, string | null> = {
+      // Feature SOPs
+      "description-keeper": "Feature SOPs",
+      "saved-phrases": "Feature SOPs",
+      "document-import": "Feature SOPs",
+      "daily-logs": "Feature SOPs",
+      "invoicing": "Feature SOPs",
+      "billing": "Feature SOPs",
+      "timecard": "Feature SOPs",
+      "user-management": "Feature SOPs",
+      
+      // Admin SOPs
+      "admin": "Admin SOPs",
+      "admin-only": "Admin SOPs",
+      "system": "Admin SOPs",
+      
+      // Session Logs (development logs)
+      "session-log": "Session Logs",
+      "development": "Session Logs",
+      
+      // General goes to root
+      "general": null,
+    };
+
+    const lowerModule = module.toLowerCase();
+    
+    // Check exact match first
+    if (lowerModule in moduleChapterMap) {
+      return moduleChapterMap[lowerModule];
+    }
+
+    // Check if module contains any known keywords
+    for (const [key, chapter] of Object.entries(moduleChapterMap)) {
+      if (lowerModule.includes(key) || key.includes(lowerModule)) {
+        return chapter;
+      }
+    }
+
+    // Default: Feature SOPs for any unknown module
+    return "Feature SOPs";
   }
 }
