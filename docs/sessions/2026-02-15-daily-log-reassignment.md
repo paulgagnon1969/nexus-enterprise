@@ -88,3 +88,52 @@ This will:
 2. Push to GCR
 3. Run Prisma migrations
 4. Deploy to Cloud Run
+
+---
+
+## Session Extension: NCC Programming Manual & Access Control
+**Date:** February 16, 2026
+
+### Features Implemented
+
+#### 1. NCC_SYSTEM_DEVELOPER Role
+- Added to `GlobalRole` enum in Prisma schema and API auth guards
+- Role level: 95 (between SUPER_ADMIN at 100 and SUPPORT at 85)
+- Purpose: Access to NccPM and internal development documentation
+
+#### 2. Manual Ownership & Access Control
+Added to `Manual` model:
+- `ownerCompanyId` - Null for NEXUS System manuals, set for tenant-owned manuals
+- `isNexusInternal` - If true, only users with requiredGlobalRoles can access
+- `requiredGlobalRoles` - Array of GlobalRole values that can access the manual
+
+#### 3. NCC Programming Manual (NccPM)
+- Created as NEXUS-internal manual via seed script
+- Code: `nccpm`
+- Access: SUPER_ADMIN and NCC_SYSTEM_DEVELOPER only
+- Chapters: Architecture, Modules, ADRs, Procedures, Session Logs
+
+#### 4. Documentation Framework
+- Manual Making Process SOP in `docs/sops-staging/`
+- NccPM structure in `docs/nccpm/`
+- Session Closeout Procedure documented
+
+### Files Modified
+
+#### Schema
+- `packages/database/prisma/schema.prisma` - GlobalRole enum, Manual model
+- Migration: `20260216103800_add_manual_ownership_and_ncc_system_developer`
+
+#### API
+- `apps/api/src/modules/auth/auth.guards.ts` - NCC_SYSTEM_DEVELOPER role
+- `apps/api/src/modules/manuals/manuals.service.ts` - Access control filtering
+- `apps/api/src/modules/manuals/manuals.controller.ts` - Updated authorization
+- `apps/api/src/modules/manuals/dto/manual.dto.ts` - New fields
+
+#### Database
+- `packages/database/src/seed-nccpm.ts` - Seed script for NccPM manual
+
+### Commits
+- `e902619e` - feat: add NCC_SYSTEM_DEVELOPER role and NEXUS-internal manual access control
+- `da9c758f` - docs: add Manual Making Process SOP and NCC Programming Manual (NccPM)
+- `ac450645` - docs: add Daily Log Reassignment SOP and session notes
