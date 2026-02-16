@@ -67,6 +67,9 @@ export default function SystemDocumentDetailPage() {
   // Share modal
   const [showShareModal, setShowShareModal] = useState(false);
 
+  // Print modal
+  const [showPrintView, setShowPrintView] = useState(false);
+
   useEffect(() => {
     if (id) {
       loadDocument();
@@ -212,6 +215,22 @@ export default function SystemDocumentDetailPage() {
         <div style={{ display: "flex", gap: 8 }}>
           {!editing && (
             <>
+              <button
+                onClick={() => setShowPrintView(true)}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 4,
+                  border: "1px solid #d1d5db",
+                  background: "white",
+                  fontSize: 13,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                🖨️ Print
+              </button>
               <button
                 onClick={() => setShowShareModal(true)}
                 style={{
@@ -473,6 +492,14 @@ export default function SystemDocumentDetailPage() {
           onSuccess={loadDocument}
         />
       )}
+
+      {/* Print View */}
+      {showPrintView && document && (
+        <PrintView
+          document={document}
+          onClose={() => setShowPrintView(false)}
+        />
+      )}
     </div>
   );
 }
@@ -697,10 +724,252 @@ function ShareModal({
               cursor: saving ? "not-allowed" : "pointer",
             }}
           >
-            {saving ? "Saving..." : "Save Changes"}
-          </button>
+          {saving ? "Saving..." : "Save Changes"}
+        </button>
         </div>
       </div>
     </div>
+  );
+}
+
+// --- Print View Component ---
+
+function PrintView({
+  document,
+  onClose,
+}: {
+  document: SystemDocument;
+  onClose: () => void;
+}) {
+  const handlePrint = () => {
+    window.print();
+  };
+
+  return (
+    <>
+      {/* Print-specific styles */}
+      <style jsx global>{`
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          .print-container, .print-container * {
+            visibility: visible;
+          }
+          .print-container {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            padding: 0;
+          }
+          .no-print {
+            display: none !important;
+          }
+          .print-watermark {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-45deg);
+            font-size: 120px;
+            color: rgba(0, 0, 0, 0.03);
+            font-weight: bold;
+            pointer-events: none;
+            z-index: -1;
+          }
+        }
+        @media screen {
+          .print-watermark {
+            display: none;
+          }
+        }
+      `}</style>
+
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.5)",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "flex-start",
+          zIndex: 1000,
+          overflow: "auto",
+          padding: "40px 20px",
+        }}
+        onClick={onClose}
+      >
+        <div
+          className="print-container"
+          style={{
+            background: "white",
+            borderRadius: 8,
+            width: "100%",
+            maxWidth: 800,
+            minHeight: "100%",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Watermark (visible only in print) */}
+          <div className="print-watermark">NEXUS</div>
+
+          {/* Toolbar - hidden in print */}
+          <div
+            className="no-print"
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              padding: "16px 24px",
+              borderBottom: "1px solid #e5e7eb",
+              background: "#f9fafb",
+              borderTopLeftRadius: 8,
+              borderTopRightRadius: 8,
+            }}
+          >
+            <div style={{ fontSize: 14, color: "#6b7280" }}>Print Preview</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={onClose}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 6,
+                  border: "1px solid #d1d5db",
+                  background: "white",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Close
+              </button>
+              <button
+                onClick={handlePrint}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: "#2563eb",
+                  color: "white",
+                  fontSize: 13,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                🖨️ Print / Save PDF
+              </button>
+            </div>
+          </div>
+
+          {/* Document Content */}
+          <div style={{ padding: "40px 48px" }}>
+            {/* Header with Logo */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                marginBottom: 32,
+                paddingBottom: 24,
+                borderBottom: "2px solid #0f172a",
+              }}
+            >
+              <div>
+                <img
+                  src="/nexconnect-logo.png"
+                  alt="Nexus Contractor Connect"
+                  style={{ height: 48, marginBottom: 8 }}
+                />
+                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                  ncc-nexus-contractor-connect.com
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>Document Code</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{document.code}</div>
+                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
+                  Version {document.currentVersion?.versionNo || 1}
+                </div>
+              </div>
+            </div>
+
+            {/* Document Title */}
+            <h1
+              style={{
+                fontSize: 28,
+                fontWeight: 700,
+                margin: "0 0 8px",
+                color: "#0f172a",
+              }}
+            >
+              {document.title}
+            </h1>
+            {document.description && (
+              <p style={{ fontSize: 14, color: "#6b7280", margin: "0 0 24px" }}>
+                {document.description}
+              </p>
+            )}
+
+            {/* Meta Info */}
+            <div
+              style={{
+                display: "flex",
+                gap: 24,
+                fontSize: 12,
+                color: "#6b7280",
+                marginBottom: 32,
+                paddingBottom: 16,
+                borderBottom: "1px solid #e5e7eb",
+              }}
+            >
+              {document.category && (
+                <div>
+                  <span style={{ color: "#9ca3af" }}>Category:</span> {document.category}
+                </div>
+              )}
+              <div>
+                <span style={{ color: "#9ca3af" }}>Last Updated:</span>{" "}
+                {new Date(document.currentVersion?.createdAt || document.createdBy).toLocaleDateString()}
+              </div>
+            </div>
+
+            {/* Document Body */}
+            <div
+              style={{
+                fontSize: 14,
+                lineHeight: 1.8,
+                color: "#1f2937",
+              }}
+              dangerouslySetInnerHTML={{
+                __html: document.currentVersion?.htmlContent || "<em>No content</em>",
+              }}
+            />
+
+            {/* Footer */}
+            <div
+              style={{
+                marginTop: 48,
+                paddingTop: 24,
+                borderTop: "1px solid #e5e7eb",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontSize: 11,
+                color: "#9ca3af",
+              }}
+            >
+              <div>
+                © {new Date().getFullYear()} NFS Group / Nexus Contractor Connect
+              </div>
+              <div>
+                {document.code} v{document.currentVersion?.versionNo || 1} •{" "}
+                Printed {new Date().toLocaleDateString()}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }

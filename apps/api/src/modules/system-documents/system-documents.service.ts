@@ -3,6 +3,8 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { SystemDocumentPublicationTarget, TenantDocumentStatus } from "@prisma/client";
 import { PublicationGroupsService } from "../publication-groups/publication-groups.service";
 import * as crypto from "crypto";
+import * as path from "path";
+import * as fs from "fs";
 import {
   CreateSystemDocumentDto,
   UpdateSystemDocumentDto,
@@ -10,6 +12,9 @@ import {
   CopyToOrgDto,
   UpdateTenantCopyDto,
 } from "./dto/system-document.dto";
+
+// Path to staged SOPs relative to repo root
+const STAGING_DIR = path.resolve(__dirname, "../../../../../docs/sops-staging");
 
 @Injectable()
 export class SystemDocumentsService {
@@ -193,8 +198,14 @@ export class SystemDocumentsService {
       this.prisma.manual.count({ where: { ownerCompanyId: { not: null }, archivedAt: null } }),
     ]);
 
-    // Count staged SOPs from docs/sops-staging (placeholder - would need file system access)
-    const stagedSops = 0; // This would need a different approach to count filesystem files
+    // Count staged SOPs from docs/sops-staging
+    let stagedSops = 0;
+    try {
+      const files = fs.readdirSync(STAGING_DIR);
+      stagedSops = files.filter((f) => f.endsWith(".md")).length;
+    } catch {
+      // Directory may not exist in production
+    }
 
     return {
       // Tenant-equivalent stats
