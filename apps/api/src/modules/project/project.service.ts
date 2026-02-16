@@ -10672,12 +10672,15 @@ export class ProjectService {
       const sortOrder =
         typeof dto.sortOrder === "number" ? dto.sortOrder : (maxSort._max.sortOrder ?? 0) + 1;
 
+      const unitCode = dto.unitCode?.trim().toUpperCase().slice(0, 5) || null;
+
       await this.prisma.projectInvoiceLineItem.create({
         data: {
           invoiceId: invoice.id,
           kind,
           billingTag: dto.billingTag ?? ProjectInvoicePetlLineBillingTag.NONE,
           companyPriceListItemId,
+          unitCode,
           description: dto.description,
           qty,
           unitPrice,
@@ -10751,6 +10754,11 @@ export class ProjectService {
           ? nextQty * nextUnitPrice
           : existing.amount;
 
+      const nextUnitCode =
+        dto.unitCode === undefined
+          ? (existing as any).unitCode ?? null
+          : dto.unitCode?.trim().toUpperCase().slice(0, 5) || null;
+
       await this.prisma.projectInvoiceLineItem.update({
         where: { id: existing.id },
         data: {
@@ -10761,6 +10769,7 @@ export class ProjectService {
               ? ((existing as any).billingTag ?? ProjectInvoicePetlLineBillingTag.NONE)
               : dto.billingTag,
           companyPriceListItemId: nextCompanyPriceListItemId,
+          unitCode: nextUnitCode,
           qty: dto.qty === undefined ? existing.qty : dto.qty,
           unitPrice: dto.unitPrice === undefined ? existing.unitPrice : dto.unitPrice,
           amount: nextAmount,
