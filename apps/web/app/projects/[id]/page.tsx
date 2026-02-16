@@ -15930,21 +15930,11 @@ ${htmlBody}
                             return;
                           }
 
-                          // Get the invoice line item IDs (not bill IDs) for selected bills
-                          const lineIds: string[] = [];
-                          for (const bill of billableBills) {
-                            if (selectedExpenseLineIds.has(String(bill?.id ?? ""))) {
-                              // Find the invoice line item for this bill from the expense invoice
-                              const invoiceLineItems = Array.isArray(expenseInvoice.lineItems) ? expenseInvoice.lineItems : [];
-                              const invoiceLine = invoiceLineItems.find((li: any) => li?.sourceBillId === bill?.id);
-                              if (invoiceLine) {
-                                lineIds.push(invoiceLine.id);
-                              }
-                            }
-                          }
+                          // Get the bill IDs for selected items
+                          const billIds: string[] = Array.from(selectedExpenseLineIds);
 
-                          if (lineIds.length === 0) {
-                            setMoveExpenseLinesMessage("Could not find invoice line items for selected bills. Sync the invoice first.");
+                          if (billIds.length === 0) {
+                            setMoveExpenseLinesMessage("No items selected.");
                             return;
                           }
 
@@ -15952,7 +15942,7 @@ ${htmlBody}
                             ? otherDraftInvoices.find((inv: any) => inv.id === moveExpenseTargetInvoiceId)?.invoiceNo ?? "selected invoice"
                             : "a new invoice";
                           const ok = window.confirm(
-                            `Move ${lineIds.length} expense line item${lineIds.length !== 1 ? "s" : ""} to ${targetLabel}?`
+                            `Move ${billIds.length} expense${billIds.length !== 1 ? "s" : ""} to ${targetLabel}?`
                           );
                           if (!ok) return;
 
@@ -15960,7 +15950,7 @@ ${htmlBody}
                           setMoveExpenseLinesMessage(null);
 
                           try {
-                            const payload: { lineIds: string[]; targetInvoiceId?: string } = { lineIds };
+                            const payload: { billIds: string[]; targetInvoiceId?: string } = { billIds };
                             if (moveExpenseTargetInvoiceId) {
                               payload.targetInvoiceId = moveExpenseTargetInvoiceId;
                             }
@@ -15984,7 +15974,7 @@ ${htmlBody}
                             const result = await res.json();
                             const destLabel = result.targetInvoice?.invoiceNo ?? "target invoice";
                             setMoveExpenseLinesMessage(
-                              `Moved ${result.movedLineCount ?? lineIds.length} line(s) to ${destLabel}.`
+                              `Moved ${result.movedLineCount ?? billIds.length} expense(s) to ${destLabel}.`
                             );
                             setSelectedExpenseLineIds(new Set());
                             setMoveExpenseTargetInvoiceId("");
