@@ -47,6 +47,13 @@ export class SystemDocumentsController {
   // SUPER_ADMIN: System Document Management
   // =========================================================================
 
+  @Get("dashboard-stats")
+  async getDashboardStats(@Req() req: FastifyRequest) {
+    const user = getUser(req);
+    assertSuperAdmin(user);
+    return this.service.getDashboardStats();
+  }
+
   @Get()
   async listSystemDocuments(
     @Req() req: FastifyRequest,

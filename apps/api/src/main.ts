@@ -62,6 +62,8 @@ async function bootstrap() {
     credentials: true,
     // Required for /users/me PATCH and any future REST updates from the web app.
     methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    // Expose headers needed for file downloads (Content-Disposition contains filename)
+    exposedHeaders: ["Content-Disposition"],
   });
 
   // Multipart uploads (Fastify-native).

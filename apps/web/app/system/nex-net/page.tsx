@@ -412,13 +412,13 @@ export default function NexNetSystemPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredProspects.map(p => {
+                          {filteredProspects.map((p, idx) => {
                             const name = (p.firstName || p.lastName)
                               ? `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim()
                               : "—";
                             const matchCount = p.personalContactMatchCount ?? 0;
                             return (
-                              <tr key={p.id}>
+                              <tr key={`${p.id}-${idx}`}>
                                 <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>{name}</td>
                                 <td style={{ padding: "4px 6px", borderBottom: "1px solid #f3f4f6" }}>
                                   {p.email ? (
