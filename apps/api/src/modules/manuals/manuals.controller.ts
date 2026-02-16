@@ -40,6 +40,18 @@ function getUser(req: FastifyRequest): AuthenticatedUser {
   return user;
 }
 
+/**
+ * Check if user has system-level manual management access.
+ * Allows SUPER_ADMIN and NCC_SYSTEM_DEVELOPER roles.
+ */
+function assertSystemManualAccess(user: AuthenticatedUser) {
+  const allowedRoles = [GlobalRole.SUPER_ADMIN, GlobalRole.NCC_SYSTEM_DEVELOPER];
+  if (!allowedRoles.includes(user.globalRole as GlobalRole)) {
+    throw new ForbiddenException("SUPER_ADMIN or NCC_SYSTEM_DEVELOPER access required");
+  }
+}
+
+/** @deprecated Use assertSystemManualAccess for manual endpoints */
 function assertSuperAdmin(user: AuthenticatedUser) {
   if (user.globalRole !== GlobalRole.SUPER_ADMIN) {
     throw new ForbiddenException("SUPER_ADMIN access required");
@@ -66,18 +78,19 @@ export class ManualsController {
     @Query("includeArchived") includeArchived?: string
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    assertSystemManualAccess(user);
     return this.manualsService.listManuals({
       status,
       includeArchived: includeArchived === "true",
+      userGlobalRole: user.globalRole as GlobalRole,
     });
   }
 
   @Get(":id")
   async getManual(@Req() req: FastifyRequest, @Param("id") id: string) {
     const user = getUser(req);
-    assertSuperAdmin(user);
-    return this.manualsService.getManual(id);
+    assertSystemManualAccess(user);
+    return this.manualsService.getManualWithAccessCheck(id, user.globalRole as GlobalRole);
   }
 
   @Post()

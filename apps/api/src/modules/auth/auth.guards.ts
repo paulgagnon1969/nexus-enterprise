@@ -19,6 +19,7 @@ export enum Role {
 export enum GlobalRole {
   SUPER_ADMIN = "SUPER_ADMIN",
   SUPPORT = "SUPPORT",
+  NCC_SYSTEM_DEVELOPER = "NCC_SYSTEM_DEVELOPER",
   NONE = "NONE",
 }
 
@@ -131,6 +132,7 @@ export const ROLE_LEVELS: Record<Role, number> = {
 export const GLOBAL_ROLE_LEVELS: Record<GlobalRole, number> = {
   [GlobalRole.SUPER_ADMIN]: 100,
   [GlobalRole.SUPPORT]: 85,
+  [GlobalRole.NCC_SYSTEM_DEVELOPER]: 95, // Access to NccPM and internal dev docs
   [GlobalRole.NONE]: 0,
 };
 

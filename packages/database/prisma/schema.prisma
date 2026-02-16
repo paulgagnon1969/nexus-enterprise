@@ -154,6 +154,9 @@ model Company {
 
   // Tenant Clients (shared client contacts for projects)
   tenantClients TenantClient[]
+
+  // Tenant-owned Manuals (created by the tenant, not NEXUS System)
+  ownedManuals Manual[] @relation("ManualOwner")
 }
 
 model OrganizationTemplate {
@@ -3251,6 +3254,7 @@ enum GlobalRole {
   NONE
   SUPER_ADMIN
   SUPPORT
+  NCC_SYSTEM_DEVELOPER // Access to NccPM and internal dev documentation
 }
 
 enum TaxRateSource {
@@ -5217,7 +5221,13 @@ model Manual {
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
+  // Ownership & Access Control
+  ownerCompanyId      String?      // Null = NEXUS System manual; Set = Tenant-owned manual
+  isNexusInternal     Boolean      @default(false) // If true, only visible to users with requiredGlobalRoles
+  requiredGlobalRoles GlobalRole[] // Which global roles can see this (when isNexusInternal=true)
+
   createdBy     User                   @relation("ManualCreatedBy", fields: [createdByUserId], references: [id])
+  ownerCompany  Company?               @relation("ManualOwner", fields: [ownerCompanyId], references: [id], onDelete: Cascade)
   chapters      ManualChapter[]
   documents     ManualDocument[]
   versions      ManualVersion[]
@@ -5227,6 +5237,8 @@ model Manual {
 
   @@index([status], map: "Manual_status_idx")
   @@index([isPublic], map: "Manual_public_idx")
+  @@index([ownerCompanyId], map: "Manual_owner_idx")
+  @@index([isNexusInternal], map: "Manual_nexus_internal_idx")
 }
 
 /// Version history for manual structure changes (not document content changes)
