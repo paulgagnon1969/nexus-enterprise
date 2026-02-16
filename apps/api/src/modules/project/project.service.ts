@@ -11499,20 +11499,21 @@ export class ProjectService {
    * Source invoice must be a DRAFT EXPENSE invoice.
    * Target can be any DRAFT invoice (EXPENSE, PETL, etc.).
    * If targetInvoiceId is not provided, a new EXPENSE draft invoice is created.
+   * 
+   * Accepts either lineIds (invoice line item IDs) or billIds (project bill IDs).
+   * If billIds are provided, the corresponding invoice line items are looked up.
    */
   async moveExpenseLineItemsToInvoice(
     projectId: string,
     sourceInvoiceId: string,
-    payload: { lineIds: string[]; targetInvoiceId?: string },
+    payload: { lineIds?: string[]; billIds?: string[]; targetInvoiceId?: string },
     actor: AuthenticatedUser,
   ) {
     this.ensureBillingModelsAvailable();
     this.ensureBillModelsAvailable();
 
-    const lineIds = Array.isArray(payload?.lineIds) ? payload.lineIds.map(String).filter(Boolean) : [];
-    if (lineIds.length === 0) {
-      throw new BadRequestException("At least one line item id is required");
-    }
+    let lineIds = Array.isArray(payload?.lineIds) ? payload.lineIds.map(String).filter(Boolean) : [];
+    const billIds = Array.isArray(payload?.billIds) ? payload.billIds.map(String).filter(Boolean) : [];
 
     try {
       const { project, invoice: sourceInvoice } = await this.getInvoiceOrThrow(projectId, sourceInvoiceId, actor);
@@ -11520,6 +11521,22 @@ export class ProjectService {
 
       if (sourceInvoice.category !== ProjectInvoiceCategory.EXPENSE) {
         throw new BadRequestException("Source invoice must be an EXPENSE category invoice");
+      }
+
+      // If billIds provided, look up the corresponding invoice line items
+      if (billIds.length > 0 && lineIds.length === 0) {
+        const linesFromBills = await this.prisma.projectInvoiceLineItem.findMany({
+          where: {
+            invoiceId: sourceInvoice.id,
+            sourceBillId: { in: billIds },
+          },
+          select: { id: true },
+        });
+        lineIds = linesFromBills.map((li) => li.id);
+      }
+
+      if (lineIds.length === 0) {
+        throw new BadRequestException("At least one line item id or bill id is required");
       }
 
       // Get the line items to move
@@ -11532,9 +11549,6 @@ export class ProjectService {
 
       if (lineItems.length === 0) {
         throw new BadRequestException("No matching line items found on this invoice");
-      }
-      if (lineItems.length !== lineIds.length) {
-        throw new BadRequestException("Some selected line items were not found on this invoice");
       }
 
       let targetInvoice: { id: string };
