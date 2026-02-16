@@ -195,4 +195,41 @@ export class CompanyController {
     const actor = (req as any).user as AuthenticatedUser;
     return this.companies.uploadCompanyLogo(actor, req);
   }
+
+  // --- Unit Codes (editable dropdown for invoice line items) ---
+
+  @UseGuards(JwtAuthGuard)
+  @Get("me/unit-codes")
+  listUnitCodes(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.listUnitCodes(actor);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post("me/unit-codes")
+  createUnitCode(@Req() req: any, @Body() dto: { code: string; label?: string }) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.createUnitCode(actor, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Patch("me/unit-codes/:id")
+  updateUnitCode(
+    @Req() req: any,
+    @Param("id") unitCodeId: string,
+    @Body() dto: { code?: string; label?: string; sortOrder?: number },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.updateUnitCode(actor, unitCodeId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Delete("me/unit-codes/:id")
+  deleteUnitCode(@Req() req: any, @Param("id") unitCodeId: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.deleteUnitCode(actor, unitCodeId);
+  }
 }

@@ -3717,8 +3717,17 @@ ${htmlBody}
   const [newInvoiceLineBillingTag, setNewInvoiceLineBillingTag] = useState<string>("NONE");
   const [newInvoiceLineDesc, setNewInvoiceLineDesc] = useState("");
   const [newInvoiceLineQty, setNewInvoiceLineQty] = useState<string>("");
+  const [newInvoiceLineUnitCode, setNewInvoiceLineUnitCode] = useState<string>("");
   const [newInvoiceLineUnitPrice, setNewInvoiceLineUnitPrice] = useState<string>("");
   const [newInvoiceLineAmount, setNewInvoiceLineAmount] = useState<string>("");
+
+  // Company unit codes (editable dropdown list)
+  const [companyUnitCodes, setCompanyUnitCodes] = useState<{ id: string; code: string; label: string | null }[] | null>(null);
+  const [unitCodeManageOpen, setUnitCodeManageOpen] = useState(false);
+  const [unitCodeEditId, setUnitCodeEditId] = useState<string | null>(null);
+  const [unitCodeEditCode, setUnitCodeEditCode] = useState("");
+  const [unitCodeEditLabel, setUnitCodeEditLabel] = useState("");
+  const [unitCodeSaving, setUnitCodeSaving] = useState(false);
 
   const [invoiceCostBookPickerOpen, setInvoiceCostBookPickerOpen] = useState(false);
   const [invoiceCostBookPickerBusy, setInvoiceCostBookPickerBusy] = useState(false);
@@ -7881,6 +7890,26 @@ ${htmlBody}
     setIssueMemo(String(activeInvoice.memo ?? ""));
     setIssueDueAt(activeInvoice.dueAt ? String(activeInvoice.dueAt).slice(0, 10) : "");
   }, [activeInvoiceId, projectPrimaryContactName, projectPrimaryContactEmail, activeInvoice]);
+
+  // Lazy-load company unit codes when Financial tab is opened (for invoice line item dropdown).
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+    if (activeTab !== "FINANCIAL") return;
+    if (companyUnitCodes) return;
+
+    fetch(`${API_BASE}/companies/me/unit-codes`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then((json: any) => {
+        setCompanyUnitCodes(Array.isArray(json) ? json : []);
+      })
+      .catch(() => {
+        // Ignore - unit codes are optional
+        setCompanyUnitCodes([]);
+      });
+  }, [activeTab, companyUnitCodes]);
 
   // Lazy-load payroll roster when Financial tab is opened (first time).
   useEffect(() => {
@@ -14176,6 +14205,356 @@ ${htmlBody}
             />
           )}
 
+          {/* Unit Code Management Modal (Admin only) */}
+          {unitCodeManageOpen && (
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 80,
+                backgroundColor: "rgba(15, 23, 42, 0.35)",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "flex-start",
+                padding: "10vh 12px",
+              }}
+              onClick={() => {
+                if (!unitCodeSaving) {
+                  setUnitCodeManageOpen(false);
+                  setUnitCodeEditId(null);
+                  setUnitCodeEditCode("");
+                  setUnitCodeEditLabel("");
+                }
+              }}
+            >
+              <div
+                style={{
+                  width: 420,
+                  maxWidth: "96vw",
+                  maxHeight: "70vh",
+                  backgroundColor: "#ffffff",
+                  borderRadius: 10,
+                  border: "1px solid #e5e7eb",
+                  boxShadow: "0 12px 32px rgba(15,23,42,0.18)",
+                  overflow: "hidden",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "10px 12px",
+                    borderBottom: "1px solid #e5e7eb",
+                    backgroundColor: "#f8fafc",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>Manage Unit Codes</div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>Max 5 characters per code</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!unitCodeSaving) {
+                        setUnitCodeManageOpen(false);
+                        setUnitCodeEditId(null);
+                        setUnitCodeEditCode("");
+                        setUnitCodeEditLabel("");
+                      }
+                    }}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      cursor: unitCodeSaving ? "default" : "pointer",
+                      fontSize: 18,
+                      lineHeight: 1,
+                      padding: 6,
+                      opacity: unitCodeSaving ? 0.5 : 1,
+                    }}
+                    aria-label="Close"
+                    disabled={unitCodeSaving}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div style={{ padding: 12, overflowY: "auto", flex: 1 }}>
+                  {/* Existing unit codes list */}
+                  {(companyUnitCodes ?? []).length === 0 ? (
+                    <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
+                      No unit codes yet. Add your first one below.
+                    </div>
+                  ) : (
+                    <div style={{ marginBottom: 12 }}>
+                      {(companyUnitCodes ?? []).map((uc) => (
+                        <div
+                          key={uc.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            padding: "6px 8px",
+                            borderRadius: 4,
+                            background: unitCodeEditId === uc.id ? "#eff6ff" : "#f9fafb",
+                            marginBottom: 4,
+                          }}
+                        >
+                          {unitCodeEditId === uc.id ? (
+                            <>
+                              <input
+                                value={unitCodeEditCode}
+                                onChange={(e) => setUnitCodeEditCode(e.target.value.toUpperCase().slice(0, 5))}
+                                placeholder="Code"
+                                style={{
+                                  width: 60,
+                                  padding: "4px 6px",
+                                  borderRadius: 4,
+                                  border: "1px solid #93c5fd",
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                }}
+                                maxLength={5}
+                              />
+                              <input
+                                value={unitCodeEditLabel}
+                                onChange={(e) => setUnitCodeEditLabel(e.target.value)}
+                                placeholder="Label (optional)"
+                                style={{
+                                  flex: 1,
+                                  padding: "4px 6px",
+                                  borderRadius: 4,
+                                  border: "1px solid #93c5fd",
+                                  fontSize: 12,
+                                }}
+                              />
+                              <button
+                                type="button"
+                                disabled={unitCodeSaving || !unitCodeEditCode.trim()}
+                                onClick={async () => {
+                                  const token = localStorage.getItem("accessToken");
+                                  if (!token) return;
+                                  setUnitCodeSaving(true);
+                                  try {
+                                    const res = await fetch(
+                                      `${API_BASE}/companies/me/unit-codes/${uc.id}`,
+                                      {
+                                        method: "PATCH",
+                                        headers: {
+                                          "Content-Type": "application/json",
+                                          Authorization: `Bearer ${token}`,
+                                        },
+                                        body: JSON.stringify({
+                                          code: unitCodeEditCode.trim(),
+                                          label: unitCodeEditLabel.trim() || null,
+                                        }),
+                                      }
+                                    );
+                                    if (res.ok) {
+                                      setCompanyUnitCodes(null); // Refetch
+                                      setUnitCodeEditId(null);
+                                      setUnitCodeEditCode("");
+                                      setUnitCodeEditLabel("");
+                                    }
+                                  } finally {
+                                    setUnitCodeSaving(false);
+                                  }
+                                }}
+                                style={{
+                                  padding: "4px 8px",
+                                  borderRadius: 4,
+                                  border: "1px solid #16a34a",
+                                  background: "#16a34a",
+                                  color: "#fff",
+                                  fontSize: 11,
+                                  cursor: unitCodeSaving || !unitCodeEditCode.trim() ? "not-allowed" : "pointer",
+                                }}
+                              >
+                                {unitCodeSaving ? "…" : "Save"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setUnitCodeEditId(null);
+                                  setUnitCodeEditCode("");
+                                  setUnitCodeEditLabel("");
+                                }}
+                                style={{
+                                  padding: "4px 8px",
+                                  borderRadius: 4,
+                                  border: "1px solid #d1d5db",
+                                  background: "#fff",
+                                  fontSize: 11,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <span style={{ fontWeight: 600, fontSize: 12, minWidth: 50 }}>{uc.code}</span>
+                              <span style={{ flex: 1, fontSize: 12, color: "#6b7280" }}>
+                                {uc.label || "(no label)"}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setUnitCodeEditId(uc.id);
+                                  setUnitCodeEditCode(uc.code);
+                                  setUnitCodeEditLabel(uc.label || "");
+                                }}
+                                style={{
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  border: "1px solid #d1d5db",
+                                  background: "#fff",
+                                  fontSize: 10,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                disabled={unitCodeSaving}
+                                onClick={async () => {
+                                  if (!confirm(`Delete unit code "${uc.code}"?`)) return;
+                                  const token = localStorage.getItem("accessToken");
+                                  if (!token) return;
+                                  setUnitCodeSaving(true);
+                                  try {
+                                    const res = await fetch(
+                                      `${API_BASE}/companies/me/unit-codes/${uc.id}`,
+                                      {
+                                        method: "DELETE",
+                                        headers: { Authorization: `Bearer ${token}` },
+                                      }
+                                    );
+                                    if (res.ok) {
+                                      setCompanyUnitCodes(null); // Refetch
+                                    }
+                                  } finally {
+                                    setUnitCodeSaving(false);
+                                  }
+                                }}
+                                style={{
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  border: "1px solid #fca5a5",
+                                  background: "#fef2f2",
+                                  color: "#b91c1c",
+                                  fontSize: 10,
+                                  cursor: unitCodeSaving ? "not-allowed" : "pointer",
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add new unit code form */}
+                  <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Add New Unit Code</div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input
+                        value={unitCodeEditId === null ? unitCodeEditCode : ""}
+                        onChange={(e) => {
+                          if (unitCodeEditId !== null) {
+                            setUnitCodeEditId(null);
+                          }
+                          setUnitCodeEditCode(e.target.value.toUpperCase().slice(0, 5));
+                        }}
+                        placeholder="Code (max 5)"
+                        style={{
+                          width: 80,
+                          padding: "6px 8px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 12,
+                          fontWeight: 600,
+                        }}
+                        maxLength={5}
+                        disabled={unitCodeEditId !== null}
+                      />
+                      <input
+                        value={unitCodeEditId === null ? unitCodeEditLabel : ""}
+                        onChange={(e) => {
+                          if (unitCodeEditId !== null) {
+                            setUnitCodeEditId(null);
+                          }
+                          setUnitCodeEditLabel(e.target.value);
+                        }}
+                        placeholder="Label (e.g. Each, Hour, Square Foot)"
+                        style={{
+                          flex: 1,
+                          padding: "6px 8px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 12,
+                        }}
+                        disabled={unitCodeEditId !== null}
+                      />
+                      <button
+                        type="button"
+                        disabled={unitCodeSaving || unitCodeEditId !== null || !unitCodeEditCode.trim()}
+                        onClick={async () => {
+                          const token = localStorage.getItem("accessToken");
+                          if (!token || !unitCodeEditCode.trim()) return;
+                          setUnitCodeSaving(true);
+                          try {
+                            const res = await fetch(`${API_BASE}/companies/me/unit-codes`, {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${token}`,
+                              },
+                              body: JSON.stringify({
+                                code: unitCodeEditCode.trim(),
+                                label: unitCodeEditLabel.trim() || null,
+                              }),
+                            });
+                            if (res.ok) {
+                              setCompanyUnitCodes(null); // Refetch
+                              setUnitCodeEditCode("");
+                              setUnitCodeEditLabel("");
+                            } else {
+                              const text = await res.text().catch(() => "");
+                              alert(text || "Failed to add unit code");
+                            }
+                          } finally {
+                            setUnitCodeSaving(false);
+                          }
+                        }}
+                        style={{
+                          padding: "6px 12px",
+                          borderRadius: 4,
+                          border: "1px solid #2563eb",
+                          background: "#2563eb",
+                          color: "#fff",
+                          fontSize: 12,
+                          cursor:
+                            unitCodeSaving || unitCodeEditId !== null || !unitCodeEditCode.trim()
+                              ? "not-allowed"
+                              : "pointer",
+                        }}
+                      >
+                        {unitCodeSaving ? "Adding…" : "Add"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {billModalOpen && (
             <div
               style={{
@@ -19648,19 +20027,68 @@ ${htmlBody}
                         <input
                           placeholder="Qty"
                           value={newInvoiceLineQty}
-                          onChange={e => setNewInvoiceLineQty(e.target.value)}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setNewInvoiceLineQty(val);
+                            // Auto-calculate amount if qty and unitPrice are valid
+                            const q = Number(val);
+                            const u = Number(newInvoiceLineUnitPrice);
+                            if (Number.isFinite(q) && Number.isFinite(u) && val.trim() !== "" && newInvoiceLineUnitPrice.trim() !== "") {
+                              setNewInvoiceLineAmount((q * u).toFixed(2));
+                            }
+                          }}
                           style={{
-                            width: 80,
+                            width: 60,
                             padding: "6px 8px",
                             borderRadius: 4,
                             border: "1px solid #d1d5db",
                             fontSize: 12,
                           }}
                         />
+                        <select
+                          value={newInvoiceLineUnitCode}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (val === "__MANAGE__") {
+                              setUnitCodeManageOpen(true);
+                              return;
+                            }
+                            setNewInvoiceLineUnitCode(val);
+                          }}
+                          style={{
+                            width: 70,
+                            padding: "6px 4px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 11,
+                          }}
+                          title="Unit code (e.g. EA, HR, SF)"
+                        >
+                          <option value="">Unit</option>
+                          {(companyUnitCodes ?? []).map(uc => (
+                            <option key={uc.id} value={uc.code}>
+                              {uc.code}{uc.label ? ` - ${uc.label}` : ""}
+                            </option>
+                          ))}
+                          {isAdminOrAbove && (
+                            <option value="__MANAGE__" style={{ fontStyle: "italic", color: "#6b7280" }}>
+                              ✏️ Add/Edit List
+                            </option>
+                          )}
+                        </select>
                         <input
                           placeholder="Unit $"
                           value={newInvoiceLineUnitPrice}
-                          onChange={e => setNewInvoiceLineUnitPrice(e.target.value)}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setNewInvoiceLineUnitPrice(val);
+                            // Auto-calculate amount if qty and unitPrice are valid
+                            const q = Number(newInvoiceLineQty);
+                            const u = Number(val);
+                            if (Number.isFinite(q) && Number.isFinite(u) && newInvoiceLineQty.trim() !== "" && val.trim() !== "") {
+                              setNewInvoiceLineAmount((q * u).toFixed(2));
+                            }
+                          }}
                           style={{
                             width: 100,
                             padding: "6px 8px",
@@ -19670,16 +20098,17 @@ ${htmlBody}
                           }}
                         />
                         <input
-                          placeholder="Amount (auto)"
+                          placeholder="Amount"
                           value={newInvoiceLineAmount}
                           onChange={e => setNewInvoiceLineAmount(e.target.value)}
-                          title="Leave blank to auto-calculate from Qty × Unit $"
+                          title="Auto-calculated from Qty × Unit $, or enter manually"
                           style={{
                             width: 140,
                             padding: "6px 8px",
                             borderRadius: 4,
                             border: "1px solid #d1d5db",
                             fontSize: 12,
+                            background: newInvoiceLineQty.trim() !== "" && newInvoiceLineUnitPrice.trim() !== "" ? "#f0fdf4" : "#ffffff",
                           }}
                         />
                         <button
@@ -19737,6 +20166,7 @@ ${htmlBody}
                                     billingTag: newInvoiceLineBillingTag,
                                     description: desc,
                                     qty,
+                                    unitCode: newInvoiceLineUnitCode || undefined,
                                     unitPrice,
                                     amount,
                                   }),
@@ -19754,6 +20184,7 @@ ${htmlBody}
                               setProjectInvoices(null);
                               setNewInvoiceLineDesc("");
                               setNewInvoiceLineQty("");
+                              setNewInvoiceLineUnitCode("");
                               setNewInvoiceLineUnitPrice("");
                               setNewInvoiceLineAmount("");
                               setInvoiceMessage("Line added.");

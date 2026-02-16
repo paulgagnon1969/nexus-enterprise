@@ -163,6 +163,9 @@ model Company {
 
   // Description Keeper (Saved Phrases)
   savedPhrases SavedPhrase[]
+
+  // Invoice Unit Codes (editable dropdown for manual invoice line items)
+  unitCodes CompanyUnitCode[]
 }
 
 model OrganizationTemplate {
@@ -1521,6 +1524,10 @@ model ProjectInvoiceLineItem {
 
   // Optional pointer to the source bill (for EXPENSE invoice lines).
   sourceBillId String?
+
+  // Optional unit code (max 5 chars, e.g. "EA", "HR", "SF").
+  // References CompanyUnitCode but stored as plain string for flexibility.
+  unitCode String?
 
   description String
   qty         Float?
@@ -5427,4 +5434,26 @@ model SavedPhrase {
 
   @@index([companyId, userId, category], map: "SavedPhrase_company_user_cat_idx")
   @@index([companyId, category], map: "SavedPhrase_company_cat_idx")
+}
+
+// =============================================================================
+// Invoice Unit Codes (Company-managed dropdown list)
+// =============================================================================
+
+/// Company-managed list of unit codes for invoice line items.
+/// Admins can add/edit/delete these codes (max 5 characters).
+/// Examples: EA (each), HR (hour), SF (sq ft), LF (linear ft), etc.
+model CompanyUnitCode {
+  id        String   @id @default(cuid())
+  companyId String
+  code      String   // Max 5 characters, e.g. "EA", "HR", "SF"
+  label     String?  // Optional friendly label, e.g. "Each", "Hour"
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, code], map: "CompanyUnitCode_company_code_key")
+  @@index([companyId, sortOrder], map: "CompanyUnitCode_company_sort_idx")
 }

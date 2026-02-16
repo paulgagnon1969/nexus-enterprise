@@ -42,6 +42,11 @@ export class AddInvoiceLineItemDto {
   @IsString()
   companyPriceListItemId?: string;
 
+  // Optional unit code (max 5 chars, e.g. "EA", "HR", "SF").
+  @IsOptional()
+  @IsString()
+  unitCode?: string;
+
   @IsOptional()
   @IsNumber()
   qty?: number;
@@ -75,6 +80,11 @@ export class UpdateInvoiceLineItemDto {
   @IsOptional()
   @IsString()
   companyPriceListItemId?: string;
+
+  // Optional unit code (max 5 chars, e.g. "EA", "HR", "SF").
+  @IsOptional()
+  @IsString()
+  unitCode?: string;
 
   @IsOptional()
   @IsNumber()

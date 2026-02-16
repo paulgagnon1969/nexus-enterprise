@@ -879,4 +879,145 @@ export class CompanyService {
 
     return updated;
   }
+
+  // =========================================================================
+  // Unit Codes (editable dropdown for invoice line items)
+  // =========================================================================
+
+  async listUnitCodes(actor: AuthenticatedUser) {
+    return this.prisma.companyUnitCode.findMany({
+      where: { companyId: actor.companyId },
+      orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
+    });
+  }
+
+  async createUnitCode(
+    actor: AuthenticatedUser,
+    dto: { code: string; label?: string },
+  ) {
+    // Enforce max 5 characters for code
+    const code = String(dto.code ?? "").trim().toUpperCase().slice(0, 5);
+    if (!code) {
+      throw new Error("Unit code is required");
+    }
+
+    // Check for duplicate
+    const existing = await this.prisma.companyUnitCode.findUnique({
+      where: {
+        companyId_code: {
+          companyId: actor.companyId,
+          code,
+        },
+      },
+    });
+    if (existing) {
+      throw new Error(`Unit code "${code}" already exists`);
+    }
+
+    // Get max sortOrder for new entry
+    const maxSort = await this.prisma.companyUnitCode.aggregate({
+      where: { companyId: actor.companyId },
+      _max: { sortOrder: true },
+    });
+    const nextSortOrder = (maxSort._max.sortOrder ?? 0) + 1;
+
+    const created = await this.prisma.companyUnitCode.create({
+      data: {
+        companyId: actor.companyId,
+        code,
+        label: dto.label?.trim() || null,
+        sortOrder: nextSortOrder,
+      },
+    });
+
+    await this.audit.log(actor, "UNIT_CODE_CREATED", {
+      companyId: actor.companyId,
+      metadata: { unitCodeId: created.id, code: created.code },
+    });
+
+    return created;
+  }
+
+  async updateUnitCode(
+    actor: AuthenticatedUser,
+    unitCodeId: string,
+    dto: { code?: string; label?: string; sortOrder?: number },
+  ) {
+    const existing = await this.prisma.companyUnitCode.findFirst({
+      where: {
+        id: unitCodeId,
+        companyId: actor.companyId,
+      },
+    });
+    if (!existing) {
+      throw new NotFoundException("Unit code not found");
+    }
+
+    const updateData: Record<string, unknown> = {};
+
+    if (dto.code !== undefined) {
+      const code = String(dto.code).trim().toUpperCase().slice(0, 5);
+      if (!code) {
+        throw new Error("Unit code is required");
+      }
+      // Check for duplicate if code is changing
+      if (code !== existing.code) {
+        const dup = await this.prisma.companyUnitCode.findUnique({
+          where: {
+            companyId_code: {
+              companyId: actor.companyId,
+              code,
+            },
+          },
+        });
+        if (dup) {
+          throw new Error(`Unit code "${code}" already exists`);
+        }
+      }
+      updateData.code = code;
+    }
+
+    if (dto.label !== undefined) {
+      updateData.label = dto.label?.trim() || null;
+    }
+
+    if (dto.sortOrder !== undefined) {
+      updateData.sortOrder = dto.sortOrder;
+    }
+
+    const updated = await this.prisma.companyUnitCode.update({
+      where: { id: unitCodeId },
+      data: updateData,
+    });
+
+    await this.audit.log(actor, "UNIT_CODE_UPDATED", {
+      companyId: actor.companyId,
+      metadata: { unitCodeId, changes: dto },
+    });
+
+    return updated;
+  }
+
+  async deleteUnitCode(actor: AuthenticatedUser, unitCodeId: string) {
+    const existing = await this.prisma.companyUnitCode.findFirst({
+      where: {
+        id: unitCodeId,
+        companyId: actor.companyId,
+      },
+    });
+    if (!existing) {
+      throw new NotFoundException("Unit code not found");
+    }
+
+    await this.prisma.companyUnitCode.delete({
+      where: { id: unitCodeId },
+    });
+
+    await this.audit.log(actor, "UNIT_CODE_DELETED", {
+      companyId: actor.companyId,
+      metadata: { unitCodeId, code: existing.code },
+    });
+
+    return { success: true };
+  }
 }
