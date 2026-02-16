@@ -14,6 +14,8 @@ COPY tsconfig.json ./
 COPY turbo.json ./
 COPY apps/api/package.json ./apps/api/package.json
 COPY packages/database/package.json ./packages/database/package.json
+# Prisma schema needed for postinstall prisma:generate
+COPY packages/database/prisma ./packages/database/prisma
 
 RUN npm ci
 
