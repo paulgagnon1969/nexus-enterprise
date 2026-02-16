@@ -9846,7 +9846,16 @@ export class ProjectService {
       const invoice = await this.prisma.projectInvoice.findFirst({
         where: { id: invoiceId, projectId, companyId: actor.companyId },
         include: {
-          lineItems: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
+          lineItems: {
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+            include: {
+              sourceBill: {
+                include: {
+                  attachments: { orderBy: { createdAt: "asc" } },
+                },
+              },
+            },
+          },
         },
       });
 
@@ -10915,6 +10924,108 @@ export class ProjectService {
           totalAmount: invoice.totalAmount,
           previousStatus: invoice.status,
           reason: dto.reason ?? null,
+        },
+      });
+
+      return this.getProjectInvoice(projectId, invoice.id, actor);
+    } catch (err: any) {
+      if (this.isBillingTableMissingError(err)) {
+        this.throwBillingTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Unlock an issued invoice to allow editing.
+   * - Only ISSUED invoices with $0 paid can be unlocked
+   * - Requires Admin/Owner/PM role
+   * - Requires a reason for audit trail
+   * - Keeps the invoice number, increments revision number
+   */
+  async unlockInvoice(
+    projectId: string,
+    invoiceId: string,
+    dto: { reason: string },
+    actor: AuthenticatedUser,
+  ) {
+    this.ensureBillingModelsAvailable();
+
+    // Check role - only Admin or Owner can unlock
+    const allowedRoles = [Role.ADMIN, Role.OWNER];
+    if (!allowedRoles.includes(actor.role as Role)) {
+      throw new ForbiddenException(
+        "Only Admins or Owners can unlock invoices"
+      );
+    }
+
+    // Validate reason is provided
+    const reason = String(dto.reason ?? "").trim();
+    if (!reason) {
+      throw new BadRequestException("A reason is required to unlock an invoice");
+    }
+
+    try {
+      const { project, invoice } = await this.getInvoiceOrThrow(projectId, invoiceId, actor);
+
+      // Only ISSUED invoices can be unlocked
+      if (invoice.status !== ProjectInvoiceStatus.ISSUED) {
+        throw new BadRequestException(
+          `Cannot unlock invoice with status '${invoice.status}'. Only ISSUED invoices can be unlocked.`
+        );
+      }
+
+      // Check if any payments have been made
+      const paidAmount = await this.computeInvoicePaymentTotal(invoice.id);
+      if (paidAmount > 0) {
+        throw new BadRequestException(
+          `Cannot unlock invoice with payments received ($${paidAmount.toFixed(2)}). Remove payments first.`
+        );
+      }
+
+      // Get current unlock history and add new entry
+      const currentHistory = Array.isArray((invoice as any).unlockHistory)
+        ? (invoice as any).unlockHistory
+        : [];
+
+      // Get user's name for audit trail
+      const user = await this.prisma.user.findUnique({
+        where: { id: actor.userId },
+        select: { id: true, fullName: true, email: true },
+      });
+
+      const newHistoryEntry = {
+        unlockedAt: new Date().toISOString(),
+        unlockedByUserId: actor.userId,
+        unlockedByName: user?.fullName || user?.email || actor.userId,
+        reason,
+        previousRevision: (invoice as any).revisionNumber ?? 1,
+      };
+
+      const updatedHistory = [...currentHistory, newHistoryEntry];
+      const nextRevision = ((invoice as any).revisionNumber ?? 1) + 1;
+
+      // Update invoice - revert to DRAFT but keep invoice number
+      await this.prisma.projectInvoice.update({
+        where: { id: invoice.id },
+        data: {
+          status: ProjectInvoiceStatus.DRAFT,
+          lockedAt: null,
+          // Keep issuedAt, invoiceNo, invoiceSequenceNo intact
+          revisionNumber: nextRevision,
+          unlockHistory: updatedHistory,
+        },
+      });
+
+      await this.audit.log(actor, "PROJECT_INVOICE_UNLOCKED", {
+        companyId: project.companyId,
+        projectId: project.id,
+        metadata: {
+          invoiceId: invoice.id,
+          invoiceNo: invoice.invoiceNo,
+          totalAmount: invoice.totalAmount,
+          reason,
+          newRevision: nextRevision,
         },
       });
 

@@ -1,5 +1,18 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, Switch } from "react-native";
+import React, { useState, useEffect, useRef } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  Switch,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  useWindowDimensions,
+  Keyboard,
+  TouchableWithoutFeedback,
+} from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
 import { login } from "../auth/auth";
 import { getApiBaseUrl } from "../api/config";
@@ -11,6 +24,10 @@ import {
 } from "../storage/credentials";
 
 export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
+  const { width, height } = useWindowDimensions();
+  const isTablet = width > 600;
+  const passwordRef = useRef<TextInput>(null);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -120,75 +137,104 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Nexus Mobile</Text>
-      <Text style={styles.subtitle}>Sign in</Text>
-
-      <Text style={styles.small}>API: {apiBase}</Text>
-      <Pressable style={styles.smallButton} onPress={testApi}>
-        <Text style={styles.smallButtonText}>Test API (/health)</Text>
-      </Pressable>
-      {apiStatus ? <Text style={styles.small}>{apiStatus}</Text> : null}
-
-      <TextInput
-        style={styles.input}
-        value={email}
-        onChangeText={setEmail}
-        placeholder="Email"
-        autoCapitalize="none"
-        keyboardType="email-address"
-        autoComplete="email"
-      />
-
-      {/* Password field with show/hide toggle */}
-      <View style={styles.passwordContainer}>
-        <TextInput
-          style={styles.passwordInput}
-          value={password}
-          onChangeText={setPassword}
-          placeholder="Password"
-          secureTextEntry={!showPassword}
-          autoComplete="password"
-        />
-        <Pressable
-          style={styles.eyeButton}
-          onPress={() => setShowPassword(!showPassword)}
+    <KeyboardAvoidingView
+      style={styles.keyboardAvoid}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.scrollContent,
+            isTablet && styles.scrollContentTablet,
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.eyeText}>{showPassword ? "🙈" : "👁️"}</Text>
-        </Pressable>
-      </View>
+          {/* Spacer to push content up - about 15% of screen height */}
+          <View style={{ height: height * 0.1 }} />
 
-      {/* Remember me toggle */}
-      <View style={styles.optionRow}>
-        <Text style={styles.optionLabel}>Remember me</Text>
-        <Switch value={rememberMe} onValueChange={setRememberMe} />
-      </View>
+          <View style={[styles.formContainer, isTablet && styles.formContainerTablet]}>
+            <Text style={styles.title}>Nexus Mobile</Text>
+            <Text style={styles.subtitle}>Sign in</Text>
 
-      {/* Biometric toggle (only show if available) */}
-      {biometricAvailable && (
-        <View style={styles.optionRow}>
-          <Text style={styles.optionLabel}>Use Face ID / Fingerprint</Text>
-          <Switch value={useBiometric} onValueChange={handleBiometricToggle} />
-        </View>
-      )}
+            <Text style={styles.small}>API: {apiBase}</Text>
+            <Pressable style={styles.smallButton} onPress={testApi}>
+              <Text style={styles.smallButtonText}>Test API (/health)</Text>
+            </Pressable>
+            {apiStatus ? <Text style={styles.small}>{apiStatus}</Text> : null}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+            <TextInput
+              style={styles.input}
+              value={email}
+              onChangeText={setEmail}
+              placeholder="Email"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              autoComplete="email"
+              returnKeyType="next"
+              onSubmitEditing={() => passwordRef.current?.focus()}
+              blurOnSubmit={false}
+            />
 
-      <Pressable style={styles.button} onPress={submit} disabled={loading}>
-        <Text style={styles.buttonText}>{loading ? "Signing in…" : "Sign in"}</Text>
-      </Pressable>
+            {/* Password field with show/hide toggle */}
+            <View style={styles.passwordContainer}>
+              <TextInput
+                ref={passwordRef}
+                style={styles.passwordInput}
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Password"
+                secureTextEntry={!showPassword}
+                autoComplete="password"
+                returnKeyType="done"
+                onSubmitEditing={submit}
+              />
+              <Pressable
+                style={styles.eyeButton}
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                <Text style={styles.eyeText}>{showPassword ? "🙈" : "👁️"}</Text>
+              </Pressable>
+            </View>
 
-      {/* Biometric quick login button */}
-      {biometricAvailable && hasSavedCreds && useBiometric && (
-        <Pressable
-          style={styles.biometricButton}
-          onPress={() => attemptBiometricLogin(email, password)}
-          disabled={loading}
-        >
-          <Text style={styles.biometricButtonText}>🔐 Sign in with Face ID / Fingerprint</Text>
-        </Pressable>
-      )}
-    </View>
+            {/* Remember me toggle */}
+            <View style={styles.optionRow}>
+              <Text style={styles.optionLabel}>Remember me</Text>
+              <Switch value={rememberMe} onValueChange={setRememberMe} />
+            </View>
+
+            {/* Biometric toggle (only show if available) */}
+            {biometricAvailable && (
+              <View style={styles.optionRow}>
+                <Text style={styles.optionLabel}>Use Face ID / Fingerprint</Text>
+                <Switch value={useBiometric} onValueChange={handleBiometricToggle} />
+              </View>
+            )}
+
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
+            <Pressable style={styles.button} onPress={submit} disabled={loading}>
+              <Text style={styles.buttonText}>{loading ? "Signing in…" : "Sign in"}</Text>
+            </Pressable>
+
+            {/* Biometric quick login button */}
+            {biometricAvailable && hasSavedCreds && useBiometric && (
+              <Pressable
+                style={styles.biometricButton}
+                onPress={() => attemptBiometricLogin(email, password)}
+                disabled={loading}
+              >
+                <Text style={styles.biometricButtonText}>🔐 Sign in with Face ID / Fingerprint</Text>
+              </Pressable>
+            )}
+          </View>
+
+          {/* Bottom padding for keyboard */}
+          <View style={{ height: 100 }} />
+        </ScrollView>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -197,6 +243,25 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
     justifyContent: "center",
+  },
+  keyboardAvoid: {
+    flex: 1,
+    backgroundColor: "#ffffff",
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 16,
+  },
+  scrollContentTablet: {
+    paddingHorizontal: 48,
+  },
+  formContainer: {
+    flex: 0,
+  },
+  formContainerTablet: {
+    maxWidth: 500,
+    alignSelf: "center",
+    width: "100%",
   },
   title: { fontSize: 26, fontWeight: "700", marginBottom: 8 },
   subtitle: { fontSize: 16, marginBottom: 16, color: "#374151" },

@@ -1524,6 +1524,12 @@ export default function ProjectDetailPage({
   const [billModalOpen, setBillModalOpen] = useState(false);
   const [billModalSaving, setBillModalSaving] = useState(false);
   const [billEditingId, setBillEditingId] = useState<string | null>(null);
+  // Track linked daily log for receipt-based bills (blocks deletion)
+  const [billLinkedDailyLog, setBillLinkedDailyLog] = useState<{
+    id: string;
+    title: string | null;
+    type: string;
+  } | null>(null);
 
   const [billVendorName, setBillVendorName] = useState("");
   const [billBillNumber, setBillBillNumber] = useState("");
@@ -1791,6 +1797,12 @@ export default function ProjectDetailPage({
   const [invoiceApplySelectedSourceId, setInvoiceApplySelectedSourceId] = useState<string>("");
   const [invoiceApplyAmount, setInvoiceApplyAmount] = useState<string>("");
   const [invoiceApplySaving, setInvoiceApplySaving] = useState(false);
+
+  // Invoice unlock dialog (revert ISSUED -> DRAFT for $0 paid invoices)
+  const [invoiceUnlockModalOpen, setInvoiceUnlockModalOpen] = useState(false);
+  const [invoiceUnlockTarget, setInvoiceUnlockTarget] = useState<any | null>(null);
+  const [invoiceUnlockReason, setInvoiceUnlockReason] = useState("");
+  const [invoiceUnlockSaving, setInvoiceUnlockSaving] = useState(false);
 
   const activeInvoicePetlLines = useMemo(() => {
     const lines = activeInvoice?.petlLines;
@@ -2249,6 +2261,7 @@ export default function ProjectDetailPage({
 
   const resetBillForm = () => {
     setBillEditingId(null);
+    setBillLinkedDailyLog(null);
     setBillVendorName("");
     setBillBillNumber("");
     setBillBillDate(todayIso);
@@ -2299,12 +2312,35 @@ export default function ProjectDetailPage({
     setBillBillable(!!bill?.isBillable);
     setBillMarkupPercent(bill?.markupPercent != null ? String(bill.markupPercent) : "25");
 
-    const attachedIds = (Array.isArray(bill?.attachments) ? bill.attachments : [])
+    const attachments = Array.isArray(bill?.attachments) ? bill.attachments : [];
+    const attachedIds = attachments
       .map((a: any) => String(a?.projectFileId ?? "").trim())
       .filter(Boolean);
     setBillAttachmentProjectFileIds(attachedIds);
     setBillEditingExistingAttachmentIds(attachedIds);
 
+    // Populate billUploadedFiles with existing attachments so they display with thumbnails
+    const existingAttachmentFiles = attachments.map((a: any) => ({
+      id: String(a?.projectFileId ?? ""),
+      fileName: String(a?.fileName ?? "Attachment"),
+      mimeType: a?.mimeType ?? null,
+      storageUrl: String(a?.fileUrl ?? ""),
+    })).filter((f: any) => f.id && f.storageUrl);
+    setBillUploadedFiles(existingAttachmentFiles);
+
+    // Capture linked daily log info (prevents deletion if active receipt)
+    const sourceDailyLog = bill?.sourceDailyLog;
+    if (bill?.sourceDailyLogId && sourceDailyLog && sourceDailyLog.type === "RECEIPT_EXPENSE") {
+      setBillLinkedDailyLog({
+        id: String(bill.sourceDailyLogId),
+        title: sourceDailyLog.title ?? null,
+        type: sourceDailyLog.type,
+      });
+    } else {
+      setBillLinkedDailyLog(null);
+    }
+
+    setBillOcrMessage(null);
     setBillsMessage(null);
     setBillModalOpen(true);
   };
@@ -2501,10 +2537,17 @@ export default function ProjectDetailPage({
         }
         await res.json().catch(() => null);
 
-        // Attach any newly-selected files.
-        const toAttach = billAttachmentProjectFileIds.filter(
+        // Attach any newly-selected files (from checkbox selector)
+        const toAttachFromCheckbox = billAttachmentProjectFileIds.filter(
           (pid) => !billEditingExistingAttachmentIds.includes(pid),
         );
+        // Also attach any newly-uploaded files (from drag-drop)
+        const toAttachFromUpload = billUploadedFiles
+          .map(f => f.id)
+          .filter((pid) => !billEditingExistingAttachmentIds.includes(pid));
+        // Combine and dedupe
+        const toAttach = [...new Set([...toAttachFromCheckbox, ...toAttachFromUpload])];
+        
         for (const pid of toAttach) {
           const attachRes = await fetch(
             `${API_BASE}/projects/${project.id}/bills/${billEditingId}/attachments`,
@@ -2589,6 +2632,7 @@ export default function ProjectDetailPage({
 <title>${htmlEscape(title)}</title>
 <style>
   @page { size: letter; margin: 0.6in 0.5in; }
+  @page attachments { size: letter; margin: 0.4in; }
   * { box-sizing: border-box; }
   html, body {
     font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
@@ -2820,6 +2864,65 @@ export default function ProjectDetailPage({
     thead tr { background: #f8fafc !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .totals-row td { background: #f1f5f9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
+
+  /* Attachment images page */
+  .attachments-page {
+    page-break-before: always;
+  }
+  .attachments-page-header {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1f2937;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #e5e7eb;
+  }
+  .attachments-page-subheader {
+    font-size: 10px;
+    color: #6b7280;
+    margin-bottom: 12px;
+  }
+  .attachments-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .attachment-item {
+    page-break-inside: avoid;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    padding: 6px;
+    background: #fafafa;
+  }
+  .attachment-label {
+    font-size: 8px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .attachment-image {
+    width: 100%;
+    height: 1in;
+    object-fit: contain;
+    border: 1px solid #e5e7eb;
+    border-radius: 2px;
+    background: #fff;
+  }
+  .attachment-non-image {
+    padding: 8px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 2px;
+    font-size: 9px;
+    color: #6b7280;
+    height: 1in;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 </style>
 </head>
 <body>
@@ -2951,7 +3054,7 @@ ${htmlBody}
           const out: string[] = [];
           out.push(`
             <tr class="group-row">
-              <td colspan="3">${htmlEscape(g.label)}</td>
+              <td colspan="4">${htmlEscape(g.label)}</td>
               <td class="num">${htmlEscape(fmtCurrency(g.subtotal))}</td>
             </tr>
           `);
@@ -2961,6 +3064,7 @@ ${htmlBody}
               <tr>
                 <td>${htmlEscape(li?.description ?? "")}</td>
                 <td class="num">${li?.qty ?? ""}</td>
+                <td>${htmlEscape(li?.unitCode ?? "")}</td>
                 <td class="num">${li?.unitPrice ? fmtCurrency(li.unitPrice) : ""}</td>
                 <td class="num">${htmlEscape(fmtCurrency(li?.amount ?? 0))}</td>
               </tr>
@@ -2976,9 +3080,10 @@ ${htmlBody}
           <thead>
             <tr>
               <th>Description</th>
-              <th class="num" style="width: 80px">Qty</th>
-              <th class="num" style="width: 100px">Unit Price</th>
-              <th class="num" style="width: 120px">Amount</th>
+              <th class="num" style="width: 60px">Qty</th>
+              <th style="width: 50px">Unit</th>
+              <th class="num" style="width: 90px">Unit Price</th>
+              <th class="num" style="width: 100px">Amount</th>
             </tr>
           </thead>
           <tbody>
@@ -2986,7 +3091,7 @@ ${htmlBody}
           </tbody>
           <tfoot>
             <tr class="totals-row">
-              <td colspan="3">Subtotal</td>
+              <td colspan="4">Subtotal</td>
               <td class="num">${htmlEscape(fmtCurrency(totalAmount))}</td>
             </tr>
           </tfoot>
@@ -3180,17 +3285,86 @@ ${htmlBody}
       `
       : ``;
 
-    // Attachments section
-    const attachmentsHtml = (() => {
+    // Attachments section (list on page 1)
+    const attachmentsListHtml = (() => {
       const attachments = Array.isArray(activeInvoice?.attachments) ? activeInvoice.attachments : [];
       if (attachments.length === 0) return ``;
       const attachList = attachments.map((a: any) => `<li>${htmlEscape(String(a?.fileName ?? "Attachment"))}</li>`).join("\n");
       return `
         <div class="invoice-notes" style="margin-top: 16px;">
-          <div class="invoice-notes-label">Supporting Documents</div>
+          <div class="invoice-notes-label">Supporting Documents (see attached)</div>
           <ul style="margin: 4px 0 0 0; padding-left: 20px; font-size: 11px;">
             ${attachList}
           </ul>
+        </div>
+      `;
+    })();
+
+    // Attachment images section (page 2+)
+    const attachmentImagesHtml = (() => {
+      // Collect all attachments: direct invoice attachments + bill attachments from line items
+      const directAttachments = Array.isArray(activeInvoice?.attachments) ? activeInvoice.attachments : [];
+      
+      // Get bill attachments from line items that have a sourceBill
+      const billAttachments: any[] = [];
+      const lineItems = Array.isArray(activeInvoice?.lineItems) ? activeInvoice.lineItems : [];
+      for (const li of lineItems) {
+        const bill = li?.sourceBill;
+        if (bill && Array.isArray(bill.attachments)) {
+          for (const att of bill.attachments) {
+            // Add vendor info to help identify the attachment
+            billAttachments.push({
+              ...att,
+              _billVendor: bill.vendorName,
+              _billNumber: bill.billNumber,
+            });
+          }
+        }
+      }
+      
+      const allAttachments = [...directAttachments, ...billAttachments];
+      
+      // Filter to only include image attachments that can be displayed
+      const displayableAttachments = allAttachments.filter((a: any) => {
+        const mime = String(a?.mimeType ?? "").toLowerCase();
+        const fileName = String(a?.fileName ?? "").toLowerCase();
+        // Support common image formats
+        return (
+          mime.startsWith("image/") ||
+          fileName.endsWith(".jpg") ||
+          fileName.endsWith(".jpeg") ||
+          fileName.endsWith(".png") ||
+          fileName.endsWith(".gif") ||
+          fileName.endsWith(".webp")
+        );
+      });
+
+      if (displayableAttachments.length === 0) return ``;
+
+      const invoiceNo = String(activeInvoice.invoiceNo ?? "Draft");
+
+      const attachmentItems = displayableAttachments.map((a: any, idx: number) => {
+        const fileName = String(a?.fileName ?? `Attachment ${idx + 1}`);
+        const fileUrl = String(a?.fileUrl ?? "");
+        // For bill attachments, show vendor name
+        const billInfo = a?._billVendor ? `${a._billVendor}${a._billNumber ? ` #${a._billNumber}` : ""}` : null;
+        const label = billInfo ? `${billInfo} - ${fileName}` : fileName;
+        
+        return `
+          <div class="attachment-item">
+            <div class="attachment-label" title="${htmlEscape(label)}">${htmlEscape(label)}</div>
+            <img src="${htmlEscape(fileUrl)}" alt="${htmlEscape(label)}" class="attachment-image" />
+          </div>
+        `;
+      }).join("\n");
+
+      return `
+        <div class="attachments-page">
+          <div class="attachments-page-header">Supporting Documents</div>
+          <div class="attachments-page-subheader">Invoice ${htmlEscape(invoiceNo)} — ${htmlEscape(project?.name ?? "")}</div>
+          <div class="attachments-grid">
+            ${attachmentItems}
+          </div>
         </div>
       `;
     })();
@@ -3205,7 +3379,7 @@ ${htmlBody}
     // Yield before final print
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const body = `${headerHtml}\n${petlHtml}\n${invoiceLinesHtml}\n${memoHtml}\n${attachmentsHtml}\n${footerHtml}`;
+    const body = `${headerHtml}\n${petlHtml}\n${invoiceLinesHtml}\n${memoHtml}\n${attachmentsListHtml}\n${footerHtml}\n${attachmentImagesHtml}`;
     printHtmlDocument(title, body);
     } finally {
       done();
@@ -3817,6 +3991,7 @@ ${htmlBody}
   // Actor identity + project-level roles (for header display)
   const [actorDisplayName, setActorDisplayName] = useState<string | null>(null);
   const [actorProjectRoles, setActorProjectRoles] = useState<string[] | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const isPmOrAbove = useMemo(() => {
     const projectRoleOk =
@@ -7117,6 +7292,7 @@ ${htmlBody}
           setActorGlobalRole(globalRole);
 
           myUserId = meJson.id ?? null;
+          setCurrentUserId(myUserId);
           const fullNameParts = [meJson.firstName, meJson.lastName].filter(Boolean);
           const fullName = fullNameParts.length ? fullNameParts.join(" ") : null;
           const displayName = fullName ? `${fullName} (${meJson.email})` : meJson.email;
@@ -11218,38 +11394,132 @@ ${htmlBody}
           </div>
         )}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button
-            type="button"
-            onClick={closeEditDailyLog}
-            style={{
-              padding: "8px 14px",
-              borderRadius: 6,
-              border: "1px solid #d1d5db",
-              background: "#ffffff",
-              cursor: "pointer",
-              fontSize: 12,
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleUpdateDailyLog}
-            disabled={editDailyLog.saving}
-            style={{
-              padding: "8px 14px",
-              borderRadius: 6,
-              border: "1px solid #0f172a",
-              background: editDailyLog.saving ? "#e5e7eb" : "#0f172a",
-              color: editDailyLog.saving ? "#4b5563" : "#f9fafb",
-              cursor: editDailyLog.saving ? "default" : "pointer",
-              fontSize: 12,
-            }}
-          >
-            {editDailyLog.saving ? "Saving…" : "Save Changes"}
-          </button>
-        </div>
+        {/* Permission check: author or PM+ can delete/move */}
+        {(() => {
+          const isAuthor = editDailyLog.log?.createdByUser?.id === currentUserId;
+          const isPmPlus = project && (project.userRole === "OWNER" || project.userRole === "ADMIN" || project.userRole === "PM");
+          const canDeleteOrMove = isAuthor || isPmPlus;
+
+          return (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              {/* Delete and Move buttons on the left */}
+              {canDeleteOrMove && editDailyLog.log ? (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    disabled={editDailyLog.saving}
+                    onClick={async () => {
+                      if (!editDailyLog.log) return;
+                      const ok = window.confirm(
+                        "Delete this daily log?\n\nThis action cannot be undone. Any linked draft bill will also be deleted."
+                      );
+                      if (!ok) return;
+
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) {
+                        setEditDailyLog(prev => ({ ...prev, error: "Missing access token." }));
+                        return;
+                      }
+
+                      setEditDailyLog(prev => ({ ...prev, saving: true, error: null }));
+                      try {
+                        const res = await fetch(
+                          `${API_BASE}/daily-logs/${editDailyLog.log!.id}`,
+                          {
+                            method: "DELETE",
+                            headers: {
+                              Authorization: `Bearer ${token}`,
+                            },
+                          }
+                        );
+                        if (!res.ok) {
+                          const text = await res.text().catch(() => "");
+                          setEditDailyLog(prev => ({ ...prev, saving: false, error: `Delete failed (${res.status}) ${text}` }));
+                          return;
+                        }
+                        // Remove from local state
+                        setDailyLogs(prev => prev.filter(l => l.id !== editDailyLog.log!.id));
+                        // Close modal
+                        setEditDailyLog({ open: false, log: null, draft: null, saving: false, error: null });
+                        setDailyLogMessage("Daily log deleted.");
+                      } catch (err: any) {
+                        setEditDailyLog(prev => ({ ...prev, saving: false, error: err?.message ?? "Delete failed." }));
+                      }
+                    }}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: 6,
+                      border: "1px solid #dc2626",
+                      background: "#fef2f2",
+                      color: "#b91c1c",
+                      cursor: editDailyLog.saving ? "default" : "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    disabled={editDailyLog.saving}
+                    onClick={() => {
+                      if (!editDailyLog.log) return;
+                      // Close edit modal and open reassign modal
+                      const log = editDailyLog.log;
+                      setEditDailyLog({ open: false, log: null, draft: null, saving: false, error: null });
+                      openReassignDailyLog(log);
+                    }}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: 6,
+                      border: "1px solid #2563eb",
+                      background: "#eff6ff",
+                      color: "#1d4ed8",
+                      cursor: editDailyLog.saving ? "default" : "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    Move to Project…
+                  </button>
+                </div>
+              ) : (
+                <div />
+              )}
+              {/* Cancel and Save buttons on the right */}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={closeEditDailyLog}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleUpdateDailyLog}
+                  disabled={editDailyLog.saving}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 6,
+                    border: "1px solid #0f172a",
+                    background: editDailyLog.saving ? "#e5e7eb" : "#0f172a",
+                    color: editDailyLog.saving ? "#4b5563" : "#f9fafb",
+                    cursor: editDailyLog.saving ? "default" : "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  {editDailyLog.saving ? "Saving…" : "Save Changes"}
+                </button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -15201,38 +15471,158 @@ ${htmlBody}
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
-                    <button
-                      type="button"
-                      onClick={closeBillModal}
-                      disabled={billModalSaving}
-                      style={{
-                        padding: "6px 10px",
-                        borderRadius: 6,
-                        border: "1px solid #d1d5db",
-                        background: "#ffffff",
-                        cursor: billModalSaving ? "default" : "pointer",
-                        fontSize: 12,
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={submitBillModal}
-                      disabled={billModalSaving}
-                      style={{
-                        padding: "6px 10px",
-                        borderRadius: 6,
-                        border: "1px solid #0f172a",
-                        background: "#0f172a",
-                        color: "#f9fafb",
-                        cursor: billModalSaving ? "default" : "pointer",
-                        fontSize: 12,
-                      }}
-                    >
-                      {billModalSaving ? "Saving…" : "Save"}
-                    </button>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+                    {/* Delete button - only when editing */}
+                    {billEditingId ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <button
+                          type="button"
+                          disabled={billModalSaving}
+                          onClick={async () => {
+                            if (!project || !billEditingId) return;
+
+                            // If linked to a receipt daily log, show helper message instead of deleting
+                            if (billLinkedDailyLog) {
+                              setBillsMessage(
+                                `This bill is linked to a Receipt daily log and cannot be deleted directly. ` +
+                                `Delete or change the type of the linked daily log first.`
+                              );
+                              return;
+                            }
+
+                            const ok = window.confirm(
+                              "Delete this bill?\n\nThis action cannot be undone. If this bill is marked billable, " +
+                              "the corresponding invoice line item will also be removed."
+                            );
+                            if (!ok) return;
+
+                            const token = localStorage.getItem("accessToken");
+                            if (!token) {
+                              setBillsMessage("Missing access token.");
+                              return;
+                            }
+
+                            setBillModalSaving(true);
+                            setBillsMessage(null);
+                            try {
+                              const res = await fetch(
+                                `${API_BASE}/projects/${project.id}/bills/${billEditingId}`,
+                                {
+                                  method: "DELETE",
+                                  headers: {
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                }
+                              );
+                              if (!res.ok) {
+                                const text = await res.text().catch(() => "");
+                                setBillsMessage(`Delete failed (${res.status}) ${text}`);
+                                setBillModalSaving(false);
+                                return;
+                              }
+                              // Refresh bills list and close modal
+                              setProjectBills(null);
+                              setFinancialSummary(null);
+                              setBillModalOpen(false);
+                              setBillsMessage("Bill deleted.");
+                            } catch (err: any) {
+                              setBillsMessage(err?.message ?? "Delete failed.");
+                            } finally {
+                              setBillModalSaving(false);
+                            }
+                          }}
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: 6,
+                            border: "1px solid #dc2626",
+                            background: "#fef2f2",
+                            color: "#b91c1c",
+                            cursor: billModalSaving ? "default" : "pointer",
+                            fontSize: 12,
+                            opacity: billLinkedDailyLog ? 0.5 : 1,
+                          }}
+                        >
+                          Delete Bill
+                        </button>
+                        {/* Show "Edit Daily Log" button when linked to a receipt */}
+                        {billLinkedDailyLog && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              // Fetch the daily log and open it for editing
+                              const token = localStorage.getItem("accessToken");
+                              if (!token) {
+                                setBillsMessage("Missing access token.");
+                                return;
+                              }
+
+                              try {
+                                const res = await fetch(
+                                  `${API_BASE}/daily-logs/${billLinkedDailyLog.id}`,
+                                  { headers: { Authorization: `Bearer ${token}` } }
+                                );
+                                if (!res.ok) {
+                                  setBillsMessage("Failed to load linked daily log.");
+                                  return;
+                                }
+                                const log: DailyLog = await res.json();
+                                // Close bill modal and open daily log edit modal
+                                setBillModalOpen(false);
+                                openEditDailyLog(log);
+                              } catch (err: any) {
+                                setBillsMessage(err?.message ?? "Failed to load daily log.");
+                              }
+                            }}
+                            style={{
+                              padding: "4px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #2563eb",
+                              background: "#eff6ff",
+                              color: "#1d4ed8",
+                              cursor: "pointer",
+                              fontSize: 11,
+                            }}
+                          >
+                            Edit Linked Daily Log
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div />
+                    )}
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={closeBillModal}
+                        disabled={billModalSaving}
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 6,
+                          border: "1px solid #d1d5db",
+                          background: "#ffffff",
+                          cursor: billModalSaving ? "default" : "pointer",
+                          fontSize: 12,
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={submitBillModal}
+                        disabled={billModalSaving}
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 6,
+                          border: "1px solid #0f172a",
+                          background: "#0f172a",
+                          color: "#f9fafb",
+                          cursor: billModalSaving ? "default" : "pointer",
+                          fontSize: 12,
+                        }}
+                      >
+                        {billModalSaving ? "Saving…" : "Save"}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -17484,16 +17874,15 @@ ${htmlBody}
                                   return;
                                 }
 
+                                // Always navigate to fullscreen invoice view (same tab)
                                 if (!invoiceFullscreen) {
-                                  window.open(
+                                  router.push(
                                     `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
-                                    "_blank",
-                                    "noopener,noreferrer",
                                   );
-                                  setInvoiceMessage("Opened invoice in a new tab.");
                                   return;
                                 }
 
+                                // Already in fullscreen mode - just load the invoice
                                 setInvoiceMessage(null);
                                 setActiveInvoiceLoading(true);
                                 setActiveInvoiceError(null);
@@ -17630,6 +18019,33 @@ ${htmlBody}
                                     Delete $0 Draft
                                   </button>
                                 )}
+                                {/* Unlock button for ISSUED invoices with $0 paid (Admin/Owner only) */}
+                                {inv.status === "ISSUED" &&
+                                  (inv.paidAmount ?? 0) === 0 &&
+                                  project &&
+                                  (project.userRole === "OWNER" || project.userRole === "ADMIN") && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setInvoiceUnlockTarget(inv);
+                                      setInvoiceUnlockReason("");
+                                      setInvoiceUnlockModalOpen(true);
+                                    }}
+                                    style={{
+                                      padding: "3px 8px",
+                                      borderRadius: 4,
+                                      border: "1px solid #2563eb",
+                                      background: "#eff6ff",
+                                      color: "#1d4ed8",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    Unlock
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))}
@@ -17668,7 +18084,33 @@ ${htmlBody}
                         {activeInvoice.issuedAt
                           ? ` · Issued ${new Date(activeInvoice.issuedAt).toLocaleDateString()}`
                           : ""}
+                        {(activeInvoice.revisionNumber ?? 1) > 1 && (
+                          <span style={{ marginLeft: 8 }}>· Revision {activeInvoice.revisionNumber}</span>
+                        )}
                       </div>
+                      {/* Show unlock history if present */}
+                      {Array.isArray(activeInvoice.unlockHistory) && activeInvoice.unlockHistory.length > 0 && (
+                        <div
+                          style={{
+                            marginTop: 4,
+                            padding: "6px 10px",
+                            background: "#fef3c7",
+                            borderRadius: 6,
+                            fontSize: 11,
+                            color: "#92400e",
+                          }}
+                        >
+                          <strong>Unlock history:</strong>
+                          {activeInvoice.unlockHistory.map((h: any, i: number) => (
+                            <div key={i} style={{ marginTop: 2 }}>
+                              Rev {(h.fromRevision ?? 0) + 1} → {(h.fromRevision ?? 0) + 2}:
+                              {h.unlockedAt ? ` ${new Date(h.unlockedAt).toLocaleString()}` : ""}
+                              {h.unlockedByEmail ? ` by ${h.unlockedByEmail}` : ""}
+                              {h.reason ? ` — "${h.reason}"` : ""}
+                            </div>
+                          ))}
+                        </div>
+                      )}
 
                       {invoiceFullscreen && (
                         <div className="no-print" style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -17868,6 +18310,32 @@ ${htmlBody}
                               }}
                             >
                               Void Invoice
+                            </button>
+                          )}
+
+                          {/* Unlock button for ISSUED invoices with $0 paid (Admin/Owner only) */}
+                          {activeInvoice.status === "ISSUED" &&
+                            (activeInvoice.paidAmount ?? 0) === 0 &&
+                            project &&
+                            (project.userRole === "OWNER" || project.userRole === "ADMIN") && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInvoiceUnlockTarget(activeInvoice);
+                                setInvoiceUnlockReason("");
+                                setInvoiceUnlockModalOpen(true);
+                              }}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 6,
+                                border: "1px solid #2563eb",
+                                background: "#eff6ff",
+                                color: "#1d4ed8",
+                                fontSize: 12,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Unlock for Editing
                             </button>
                           )}
 
@@ -18162,6 +18630,199 @@ ${htmlBody}
                   </div>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invoice Unlock Confirmation Dialog */}
+      {invoiceUnlockModalOpen && invoiceUnlockTarget && (
+        <div
+          className="no-print"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 85,
+            background: "rgba(15,23,42,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 12,
+          }}
+          onClick={() => {
+            if (invoiceUnlockSaving) return;
+            setInvoiceUnlockModalOpen(false);
+          }}
+        >
+          <div
+            style={{
+              width: 480,
+              maxWidth: "96vw",
+              background: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: "12px 16px",
+                borderBottom: "1px solid #e5e7eb",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: 14,
+                fontWeight: 600,
+                background: "#eff6ff",
+              }}
+            >
+              <div>
+                🔓 Unlock Invoice
+                <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>
+                  Revert to DRAFT for editing
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (invoiceUnlockSaving) return;
+                  setInvoiceUnlockModalOpen(false);
+                }}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: invoiceUnlockSaving ? "default" : "pointer",
+                  fontSize: 20,
+                  lineHeight: 1,
+                }}
+                aria-label="Close unlock dialog"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ padding: 16 }}>
+              <div style={{ fontSize: 13, color: "#374151", marginBottom: 12 }}>
+                You are about to unlock invoice <strong>{invoiceUnlockTarget.invoiceNo ?? "(Draft)"}</strong>.
+              </div>
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 16 }}>
+                This will revert the invoice to DRAFT status so you can make changes.
+                The invoice number will be kept, and the revision number will be incremented.
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 500, marginBottom: 4 }}>
+                  Reason for unlocking <span style={{ color: "#dc2626" }}>*</span>
+                </label>
+                <textarea
+                  value={invoiceUnlockReason}
+                  onChange={(e) => setInvoiceUnlockReason(e.target.value)}
+                  placeholder="Explain why this invoice needs to be unlocked (required for audit trail)..."
+                  rows={3}
+                  style={{
+                    width: "100%",
+                    padding: "8px 10px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={() => setInvoiceUnlockModalOpen(false)}
+                  disabled={invoiceUnlockSaving}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    color: "#374151",
+                    fontSize: 12,
+                    cursor: invoiceUnlockSaving ? "default" : "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={invoiceUnlockSaving || !invoiceUnlockReason.trim()}
+                  onClick={async () => {
+                    if (!project || !invoiceUnlockTarget?.id) return;
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) {
+                      setInvoiceMessage("Missing access token.");
+                      return;
+                    }
+
+                    const reason = invoiceUnlockReason.trim();
+                    if (!reason) {
+                      setInvoiceMessage("Please provide a reason for unlocking.");
+                      return;
+                    }
+
+                    setInvoiceUnlockSaving(true);
+                    setInvoiceMessage(null);
+                    try {
+                      const res = await fetch(
+                        `${API_BASE}/projects/${project.id}/invoices/${invoiceUnlockTarget.id}/unlock`,
+                        {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({ reason }),
+                        }
+                      );
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        setInvoiceMessage(`Unlock failed (${res.status}) ${text}`);
+                        return;
+                      }
+                      const json: any = await res.json();
+                      // Update the active invoice if it's the one we unlocked
+                      if (activeInvoice?.id === invoiceUnlockTarget.id) {
+                        setActiveInvoice(json);
+                      }
+                      // Refresh invoice list
+                      setProjectInvoices(null);
+                      setInvoiceUnlockModalOpen(false);
+                      setInvoiceMessage(
+                        `Invoice unlocked and reverted to DRAFT (Rev ${json.revisionNumber ?? 1}).`
+                      );
+                    } catch (err: any) {
+                      setInvoiceMessage(err?.message ?? "Unlock failed.");
+                    } finally {
+                      setInvoiceUnlockSaving(false);
+                    }
+                  }}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 6,
+                    border: "1px solid #2563eb",
+                    background:
+                      invoiceUnlockSaving || !invoiceUnlockReason.trim()
+                        ? "#e5e7eb"
+                        : "#2563eb",
+                    color:
+                      invoiceUnlockSaving || !invoiceUnlockReason.trim()
+                        ? "#6b7280"
+                        : "#ffffff",
+                    fontSize: 12,
+                    cursor:
+                      invoiceUnlockSaving || !invoiceUnlockReason.trim()
+                        ? "default"
+                        : "pointer",
+                  }}
+                >
+                  {invoiceUnlockSaving ? "Unlocking…" : "Unlock Invoice"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
