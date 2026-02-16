@@ -3964,6 +3964,8 @@ ${htmlBody}
 
   // Drag state for Edit Daily Log attachments drop zone
   const [editLogDragOver, setEditLogDragOver] = useState(false);
+  // Drag state for View Daily Log (edit mode) attachments drop zone
+  const [viewLogDragOver, setViewLogDragOver] = useState(false);
 
   // Field PETL
   const [fieldPetlItems, setFieldPetlItems] = useState<FieldPetlItem[]>([]);
@@ -29633,7 +29635,59 @@ ${htmlBody}
                       : url;
                     const isImage = att.mimeType?.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp)$/i.test(att.fileName || "");
                     return (
-                      <div key={att.id || idx} style={{ textAlign: "center", width: 80 }}>
+                      <div key={att.id || idx} style={{ textAlign: "center", width: 80, position: "relative" }}>
+                        {/* Delete button in edit mode */}
+                        {viewDailyLog.editing && (
+                          <button
+                            type="button"
+                            onClick={async e => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (!confirm("Delete this attachment?")) return;
+                              const token = localStorage.getItem("accessToken");
+                              if (!token) { alert("Missing access token"); return; }
+                              try {
+                                const resp = await fetch(`${API_BASE}/daily-logs/${viewDailyLog.log!.id}/attachments/${att.id}`, {
+                                  method: "DELETE",
+                                  headers: { Authorization: `Bearer ${token}` },
+                                });
+                                if (resp.ok) {
+                                  setViewDailyLog(prev => ({
+                                    ...prev,
+                                    log: prev.log ? { ...prev.log, attachments: (prev.log.attachments || []).filter((a: any) => a.id !== att.id) } : null,
+                                  }));
+                                  setDailyLogs(prev => prev.map(l => l.id === viewDailyLog.log?.id ? { ...l, attachments: (l.attachments || []).filter(a => a.id !== att.id) } : l));
+                                } else {
+                                  alert("Failed to delete attachment");
+                                }
+                              } catch (err: any) {
+                                alert(err?.message || "Delete failed");
+                              }
+                            }}
+                            style={{
+                              position: "absolute",
+                              top: -4,
+                              right: 6,
+                              width: 18,
+                              height: 18,
+                              borderRadius: "50%",
+                              border: "none",
+                              background: "rgba(239, 68, 68, 0.9)",
+                              color: "#ffffff",
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              lineHeight: 1,
+                              zIndex: 10,
+                            }}
+                            title="Delete attachment"
+                          >
+                            ×
+                          </button>
+                        )}
                         {isImage ? (
                           <img
                             src={displayUrl}
@@ -29678,6 +29732,117 @@ ${htmlBody}
                 </div>
               ) : (
                 <div style={{ fontSize: 12, color: "#9ca3af", padding: "8px", background: "#f9fafb", borderRadius: 4, border: "1px solid #e5e7eb" }}>No attachments</div>
+              )}
+              
+              {/* Drag and drop zone - only in edit mode */}
+              {viewDailyLog.editing && (
+                <div
+                  onDragOver={e => { e.preventDefault(); e.stopPropagation(); setViewLogDragOver(true); }}
+                  onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setViewLogDragOver(false); }}
+                  onDrop={async e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setViewLogDragOver(false);
+                    const files = e.dataTransfer.files;
+                    if (!files || files.length === 0 || !viewDailyLog.log) return;
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) {
+                      alert("Missing access token; please log in again.");
+                      return;
+                    }
+                    try {
+                      setViewDailyLog(prev => ({ ...prev, saving: true }));
+                      const uploaded: DailyLogAttachmentDto[] = [];
+                      for (const file of Array.from(files)) {
+                        if (!file.type.startsWith("image/")) continue;
+                        const link = await uploadImageFileToNexusUploads(file, "JOURNAL");
+                        const resp = await fetch(`${API_BASE}/daily-logs/${viewDailyLog.log!.id}/attachments/link`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ fileUrl: link.url, fileName: link.label }),
+                        });
+                        if (resp.ok) {
+                          const att: DailyLogAttachmentDto = await resp.json();
+                          uploaded.push(att);
+                        }
+                      }
+                      if (uploaded.length > 0) {
+                        setViewDailyLog(prev => ({
+                          ...prev,
+                          log: prev.log ? { ...prev.log, attachments: [...(prev.log.attachments || []), ...uploaded] } : null,
+                        }));
+                        setDailyLogs(prev => prev.map(l => l.id === viewDailyLog.log?.id ? { ...l, attachments: [...(l.attachments || []), ...uploaded] } : l));
+                      }
+                    } catch (err: any) {
+                      alert(err?.message || "Upload failed.");
+                    } finally {
+                      setViewDailyLog(prev => ({ ...prev, saving: false }));
+                    }
+                  }}
+                  style={{
+                    marginTop: 8,
+                    padding: 12,
+                    border: viewLogDragOver ? "2px dashed #2563eb" : "2px dashed #d1d5db",
+                    borderRadius: 6,
+                    backgroundColor: viewLogDragOver ? "#eff6ff" : "#ffffff",
+                    textAlign: "center",
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                  onClick={() => document.getElementById("view-log-file-input")?.click()}
+                >
+                  <div style={{ fontSize: 20, marginBottom: 2 }}>{viewLogDragOver ? "📥" : "📷"}</div>
+                  <div style={{ fontSize: 11, color: viewLogDragOver ? "#2563eb" : "#6b7280", fontWeight: 500 }}>
+                    {viewLogDragOver ? "Drop files here" : "Drag & drop photos or click to browse"}
+                  </div>
+                  <input
+                    id="view-log-file-input"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={async e => {
+                      const files = e.target.files;
+                      if (!files || files.length === 0 || !viewDailyLog.log) return;
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) {
+                        alert("Missing access token; please log in again.");
+                        return;
+                      }
+                      try {
+                        setViewDailyLog(prev => ({ ...prev, saving: true }));
+                        const uploaded: DailyLogAttachmentDto[] = [];
+                        for (const file of Array.from(files)) {
+                          const link = await uploadImageFileToNexusUploads(file, "JOURNAL");
+                          const resp = await fetch(`${API_BASE}/daily-logs/${viewDailyLog.log!.id}/attachments/link`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                            body: JSON.stringify({ fileUrl: link.url, fileName: link.label }),
+                          });
+                          if (resp.ok) {
+                            const att: DailyLogAttachmentDto = await resp.json();
+                            uploaded.push(att);
+                          }
+                        }
+                        if (uploaded.length > 0) {
+                          setViewDailyLog(prev => ({
+                            ...prev,
+                            log: prev.log ? { ...prev.log, attachments: [...(prev.log.attachments || []), ...uploaded] } : null,
+                          }));
+                          setDailyLogs(prev => prev.map(l => l.id === viewDailyLog.log?.id ? { ...l, attachments: [...(l.attachments || []), ...uploaded] } : l));
+                        }
+                      } catch (err: any) {
+                        alert(err?.message || "Upload failed.");
+                      } finally {
+                        setViewDailyLog(prev => ({ ...prev, saving: false }));
+                        e.target.value = "";
+                      }
+                    }}
+                    style={{ display: "none" }}
+                  />
+                </div>
+              )}
+              {viewDailyLog.editing && viewDailyLog.saving && (
+                <div style={{ marginTop: 6, fontSize: 11, color: "#2563eb", textAlign: "center" }}>Uploading...</div>
               )}
             </div>
 
