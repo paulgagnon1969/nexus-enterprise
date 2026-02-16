@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { apiJson } from "../api/client";
 import { getCache, setCache } from "../offline/cache";
@@ -24,6 +25,7 @@ export function TimecardScreen() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [showProjectPicker, setShowProjectPicker] = useState(false);
 
   // Timer for elapsed time display
   const [now, setNow] = useState(Date.now());
@@ -242,34 +244,24 @@ export function TimecardScreen() {
             <Text style={styles.statusLabel}>Not Clocked In</Text>
             <Text style={styles.statusHint}>Select a project to clock in</Text>
 
-            {/* Project Selector */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.projectScroll}
+            {/* Project Dropdown Selector */}
+            <Pressable
+              style={styles.projectDropdown}
+              onPress={() => setShowProjectPicker(true)}
             >
-              {projects.map((p) => (
-                <Pressable
-                  key={p.id}
-                  style={[
-                    styles.projectChip,
-                    selectedProjectId === p.id && styles.projectChipSelected,
-                  ]}
-                  onPress={() => setSelectedProjectId(p.id)}
-                >
-                  <Text
-                    style={
-                      selectedProjectId === p.id
-                        ? styles.projectChipTextSelected
-                        : styles.projectChipText
-                    }
-                    numberOfLines={1}
-                  >
-                    {p.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+              <Text
+                style={[
+                  styles.projectDropdownText,
+                  !selectedProjectId && styles.projectDropdownPlaceholder,
+                ]}
+                numberOfLines={1}
+              >
+                {selectedProjectId
+                  ? projects.find((p) => p.id === selectedProjectId)?.name ?? "Select project"
+                  : "Select project..."}
+              </Text>
+              <Text style={styles.projectDropdownArrow}>▼</Text>
+            </Pressable>
 
             <Pressable
               style={[
@@ -291,7 +283,7 @@ export function TimecardScreen() {
       {/* Recent Entries */}
       <Text style={styles.sectionTitle}>Recent Time Entries</Text>
 
-      <ScrollView style={styles.recentList}>
+      <ScrollView style={styles.recentList} contentContainerStyle={styles.recentListContent}>
         {recentEntries.length === 0 ? (
           <Text style={styles.emptyText}>No recent entries</Text>
         ) : (
@@ -311,6 +303,51 @@ export function TimecardScreen() {
           ))
         )}
       </ScrollView>
+
+      {/* Project Picker Modal */}
+      <Modal
+        visible={showProjectPicker}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowProjectPicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Project</Text>
+              <Pressable onPress={() => setShowProjectPicker(false)}>
+                <Text style={styles.modalClose}>✕</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.modalBody}>
+              {projects.map((p) => {
+                const isSelected = p.id === selectedProjectId;
+                return (
+                  <Pressable
+                    key={p.id}
+                    style={[styles.projectOption, isSelected && styles.projectOptionSelected]}
+                    onPress={() => {
+                      setSelectedProjectId(p.id);
+                      setShowProjectPicker(false);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.projectOptionText,
+                        isSelected && styles.projectOptionTextSelected,
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {p.name}
+                    </Text>
+                    {isSelected && <Text style={styles.projectOptionCheck}>✓</Text>}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -381,26 +418,36 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  projectScroll: {
-    marginTop: 12,
-    marginBottom: 8,
-    maxHeight: 44,
-  },
-  projectChip: {
+  // Project Dropdown
+  projectDropdown: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     borderWidth: 1,
     borderColor: "#d1d5db",
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    marginRight: 8,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginTop: 16,
     backgroundColor: "#ffffff",
+    width: "100%",
+    maxWidth: 300,
   },
-  projectChipSelected: {
-    backgroundColor: "#1e3a8a",
-    borderColor: "#1e3a8a",
+  projectDropdownText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+    flex: 1,
   },
-  projectChipText: { fontSize: 13, color: "#1e3a8a" },
-  projectChipTextSelected: { fontSize: 13, color: "#ffffff", fontWeight: "600" },
+  projectDropdownPlaceholder: {
+    color: "#9ca3af",
+    fontWeight: "400",
+  },
+  projectDropdownArrow: {
+    fontSize: 12,
+    color: "#6b7280",
+    marginLeft: 8,
+  },
 
   clockButton: {
     paddingVertical: 14,
@@ -433,7 +480,69 @@ const styles = StyleSheet.create({
   },
 
   recentList: { flex: 1 },
+  recentListContent: { paddingBottom: 100 },
   emptyText: { color: "#9ca3af", textAlign: "center", marginTop: 20 },
+
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: "60%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1f2937",
+  },
+  modalClose: {
+    fontSize: 20,
+    color: "#6b7280",
+    padding: 4,
+  },
+  modalBody: {
+    padding: 8,
+    paddingBottom: 24,
+  },
+  projectOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 16,
+    borderRadius: 10,
+    marginVertical: 2,
+  },
+  projectOptionSelected: {
+    backgroundColor: "#eff6ff",
+  },
+  projectOptionText: {
+    fontSize: 16,
+    color: "#1f2937",
+    flex: 1,
+  },
+  projectOptionTextSelected: {
+    fontWeight: "700",
+    color: "#1e3a8a",
+  },
+  projectOptionCheck: {
+    fontSize: 18,
+    color: "#1e3a8a",
+    fontWeight: "700",
+    marginLeft: 12,
+  },
 
   entryCard: {
     backgroundColor: "#ffffff",

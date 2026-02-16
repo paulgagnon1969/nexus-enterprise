@@ -10952,8 +10952,8 @@ export class ProjectService {
     this.ensureBillingModelsAvailable();
 
     // Check role - only Admin or Owner can unlock
-    const allowedRoles = [Role.ADMIN, Role.OWNER];
-    if (!allowedRoles.includes(actor.role as Role)) {
+    const allowedRoles: string[] = [Role.ADMIN, Role.OWNER];
+    if (!allowedRoles.includes(actor.role)) {
       throw new ForbiddenException(
         "Only Admins or Owners can unlock invoices"
       );
@@ -10991,13 +10991,17 @@ export class ProjectService {
       // Get user's name for audit trail
       const user = await this.prisma.user.findUnique({
         where: { id: actor.userId },
-        select: { id: true, fullName: true, email: true },
+        select: { id: true, firstName: true, lastName: true, email: true },
       });
+
+      const userName = user
+        ? [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email
+        : actor.userId;
 
       const newHistoryEntry = {
         unlockedAt: new Date().toISOString(),
         unlockedByUserId: actor.userId,
-        unlockedByName: user?.fullName || user?.email || actor.userId,
+        unlockedByName: userName,
         reason,
         previousRevision: (invoice as any).revisionNumber ?? 1,
       };
