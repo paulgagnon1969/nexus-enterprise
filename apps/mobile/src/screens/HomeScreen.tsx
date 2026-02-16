@@ -973,7 +973,7 @@ const styles = StyleSheet.create({
     gap: 16,
   },
 
-  // Organization dropdown (left)
+  // Organization/Project dropdown (left) - dynamic width based on content
   orgDropdown: {
     flexDirection: "row",
     alignItems: "center",
@@ -981,20 +981,23 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    maxWidth: 140,
+    flexShrink: 0,
+    maxWidth: "60%",
   },
   orgDropdownText: {
     fontSize: 13,
     fontWeight: "600",
     color: "#1f2937",
     marginRight: 4,
+    flexShrink: 1,
   },
   orgDropdownArrow: {
     fontSize: 10,
     color: "#6b7280",
+    marginLeft: 2,
   },
 
-  // Sync bar (center, flex)
+  // Sync bar (center, flexible - shrinks to fit)
   syncBar: {
     flex: 1,
     flexDirection: "row",
@@ -1002,9 +1005,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#eff6ff",
     borderRadius: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: 8,
     minHeight: 36,
+    minWidth: 50,
   },
   syncBarActive: {
     backgroundColor: "#dbeafe",
@@ -1045,9 +1049,10 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
 
-  // Feed container
+  // Feed container - add bottom padding for tab bar
   feedContainer: {
     flex: 1,
+    paddingBottom: 100,
   },
   loadingContainer: {
     flex: 1,
@@ -1107,7 +1112,7 @@ const styles = StyleSheet.create({
   logout: {
     marginHorizontal: 16,
     marginTop: 24,
-    marginBottom: 32,
+    marginBottom: 80,
     padding: 12,
     borderRadius: 8,
     backgroundColor: "#fee2e2",
@@ -1147,6 +1152,8 @@ const styles = StyleSheet.create({
   },
   modalBody: {
     padding: 8,
+    paddingBottom: 24,
+    maxHeight: 400,
   },
   tenantOption: {
     flexDirection: "row",

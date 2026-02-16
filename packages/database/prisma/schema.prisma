@@ -1487,6 +1487,12 @@ model ProjectInvoice {
 
   totalAmount Float @default(0)
 
+  /// Revision number - starts at 1, increments each time invoice is unlocked and re-issued
+  revisionNumber Int @default(1)
+
+  /// JSON array of unlock history entries: [{unlockedAt, unlockedByUserId, unlockedByName, reason}]
+  unlockHistory Json?
+
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
