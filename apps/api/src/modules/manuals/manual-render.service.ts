@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
+import { NCC_LOGO_BASE64 } from "./logo.constants";
 
 export interface ManualTocEntry {
   id: string;
@@ -8,6 +9,7 @@ export interface ManualTocEntry {
   level: number;
   anchor: string;
   revisionNo?: number;
+  includeInPrint?: boolean; // false = "This Section Intentionally Blank"
   children?: ManualTocEntry[];
 }
 
@@ -18,6 +20,13 @@ export interface RenderOptions {
   companyBranding?: {
     name?: string;
     logoUrl?: string;
+  };
+  /** Base URL for assets (e.g., http://localhost:3000) */
+  baseUrl?: string;
+  /** User context for document serialization/tracking */
+  userContext?: {
+    userId: string;
+    userName?: string;
   };
 }
 
@@ -44,7 +53,12 @@ export class ManualRenderService {
       includeRevisionMarkers = true,
       includeToc = true,
       includeCoverPage = true,
+      baseUrl = '',
+      userContext,
     } = options;
+
+    // Generate document serial number for tracking
+    const serialNumber = this.generateSerialNumber(manualId, userContext?.userId);
 
     const manual = await this.getManualWithContent(manualId);
     const toc = this.buildToc(manual);
@@ -54,18 +68,26 @@ export class ManualRenderService {
     // Add CSS
     parts.push(this.getPrintStyles());
 
+    // Add page header with logo (for all pages)
+    parts.push(this.renderPageHeader(baseUrl));
+
     // Cover page
     if (includeCoverPage) {
-      parts.push(this.renderCoverPage(manual, options.companyBranding));
+      parts.push(this.renderCoverPage(manual, options.companyBranding, baseUrl));
+      parts.push('<div class="page-break-indicator">Page Break</div>');
     }
 
     // Table of contents
     if (includeToc) {
       parts.push(this.renderTocSection(toc));
+      parts.push('<div class="page-break-indicator">Page Break</div>');
     }
 
     // Chapters and documents
     parts.push(this.renderContent(manual, toc, includeRevisionMarkers));
+
+    // Confidentiality footer with serial number
+    parts.push(this.renderConfidentialityFooter(serialNumber, userContext?.userName));
 
     // Footer with version info
     parts.push(this.renderFooterScript(manual));
@@ -134,6 +156,7 @@ export class ManualRenderService {
         level: 1,
         anchor: `doc-${doc.id}`,
         revisionNo: doc.systemDocument.currentVersion?.versionNo,
+        includeInPrint: doc.includeInPrint ?? true,
       });
     }
 
@@ -156,6 +179,7 @@ export class ManualRenderService {
           level: 2,
           anchor: `doc-${doc.id}`,
           revisionNo: doc.systemDocument.currentVersion?.versionNo,
+          includeInPrint: doc.includeInPrint ?? true,
         });
       }
 
@@ -197,6 +221,26 @@ export class ManualRenderService {
     color: #1a1a1a;
     margin: 0;
     padding: 0;
+    position: relative;
+  }
+
+  /* Watermark - positioned behind all content */
+  .watermark {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 350px;
+    height: 350px;
+    opacity: 0.04;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  @media print {
+    .watermark {
+      opacity: 0.03;
+    }
   }
 
   /* Cover Page */
@@ -205,55 +249,86 @@ export class ManualRenderService {
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    min-height: 100vh;
     text-align: center;
-    page-break-after: always;
-  }
-
-  .cover-page .logo {
-    max-width: 200px;
-    margin-bottom: 2rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid #ccc;
   }
 
   .cover-page .icon-emoji {
-    font-size: 4rem;
-    margin-bottom: 1rem;
+    font-size: 2rem;
+    margin-bottom: 0.25rem;
   }
 
   .cover-page h1 {
-    font-size: 2.5rem;
-    font-weight: 700;
-    margin: 0 0 0.5rem 0;
-    color: #111;
+    font-size: 1.25rem;
+    margin: 0;
   }
 
   .cover-page .description {
-    font-size: 1.1rem;
-    color: #666;
+    font-size: 0.8rem;
+    margin: 0.25rem auto;
     max-width: 400px;
-    margin: 1rem auto;
   }
 
   .cover-page .meta {
-    margin-top: 3rem;
-    font-size: 0.9rem;
-    color: #888;
+    margin-top: 0.5rem;
+    font-size: 0.7rem;
+  }
+
+  @media print {
+    .cover-page {
+      min-height: 100vh;
+      page-break-after: always;
+      border-bottom: none;
+      margin-bottom: 0;
+      padding: 0;
+    }
+    .cover-page .icon-emoji {
+      font-size: 4rem;
+      margin-bottom: 1rem;
+    }
+    .cover-page h1 {
+      font-size: 2.5rem;
+      margin: 0 0 0.5rem 0;
+    }
+    .cover-page .description {
+      font-size: 1.1rem;
+      margin: 1rem auto;
+    }
+    .cover-page .meta {
+      margin-top: 3rem;
+    }
+  }
+
+  .cover-page .logo {
+    max-width: 120px;
+    margin-bottom: 1rem;
   }
 
   .cover-page .meta div {
-    margin: 0.25rem 0;
+    margin: 0.15rem 0;
   }
 
   /* Table of Contents */
   .toc-section {
-    page-break-after: always;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid #ddd;
+  }
+
+  @media print {
+    .toc-section {
+      page-break-after: always;
+      border-bottom: none;
+    }
   }
 
   .toc-section h2 {
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     border-bottom: 2px solid #333;
     padding-bottom: 0.5rem;
-    margin-bottom: 1.5rem;
+    margin-bottom: 1rem;
   }
 
   .toc-list {
@@ -298,16 +373,34 @@ export class ManualRenderService {
 
   /* Chapters */
   .chapter {
-    page-break-before: always;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 2px solid #ddd;
+  }
+
+  @media print {
+    .chapter {
+      page-break-before: always;
+      margin-top: 0;
+      padding-top: 0;
+      border-top: none;
+    }
   }
 
   .chapter-header {
     background: #f5f5f5;
-    padding: 1.5rem;
-    margin: 0 -0.75in 1.5rem -0.75in;
-    padding-left: 0.75in;
-    padding-right: 0.75in;
-    border-bottom: 3px solid #333;
+    padding: 1rem;
+    margin: 0 0 1rem 0;
+    border-bottom: 2px solid #333;
+    border-radius: 4px;
+  }
+
+  @media print {
+    .chapter-header {
+      margin: 0 -0.75in 1.5rem -0.75in;
+      padding: 1.5rem 0.75in;
+      border-radius: 0;
+    }
   }
 
   .chapter-header h2 {
@@ -373,6 +466,32 @@ export class ManualRenderService {
     /* Reset some potential HTML content styles */
   }
 
+  /* Intentionally blank section placeholder */
+  .document-content.intentionally-blank {
+    text-align: center;
+    padding: 3rem 2rem;
+    background: #f9fafb;
+    border: 2px dashed #d1d5db;
+    border-radius: 8px;
+    margin: 1rem 0;
+  }
+
+  .document-content.intentionally-blank .blank-notice {
+    font-size: 1.1rem;
+    font-style: italic;
+    color: #6b7280;
+    margin: 0;
+  }
+
+  @media print {
+    .document-content.intentionally-blank {
+      min-height: 2in;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  }
+
   .document-content h1,
   .document-content h2,
   .document-content h3,
@@ -429,24 +548,218 @@ export class ManualRenderService {
     border-top: 1px solid #ddd;
   }
 
+  /* Page break indicator for screen view */
+  .page-break-indicator {
+    display: none;
+  }
+
   @media screen {
     body {
-      max-width: 8.5in;
-      margin: 0 auto;
-      padding: 1in 0.75in;
-      background: #f9f9f9;
+      max-width: 100%;
+      margin: 0;
+      padding: 0.25rem 0.5rem;
+      background: #e5e7eb;
+    }
+    
+    .page-break-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      padding: 0.5rem 0;
+      margin: 0.75rem 0;
+      color: #6b7280;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    
+    .page-break-indicator::before,
+    .page-break-indicator::after {
+      content: '';
+      flex: 1;
+      height: 2px;
+      background: repeating-linear-gradient(
+        90deg,
+        #9ca3af 0,
+        #9ca3af 4px,
+        transparent 4px,
+        transparent 8px
+      );
     }
     
     .cover-page,
     .toc-section,
     .chapter {
-      background: white;
-      margin: 1rem 0;
-      padding: 2rem;
+      background: #ffffff;
+      border-radius: 4px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .cover-page {
+      margin: 0;
+      padding: 1rem;
+    }
+    
+    .toc-section {
+      margin: 0;
+      padding: 0.75rem 1rem;
+    }
+    
+    .chapter {
+      margin: 0;
+      padding: 0.75rem 1rem;
+    }
+  }
+
+  /* Page header with logo */
+  .page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 1rem;
+    border-bottom: 2px solid #1e3a5f;
+    margin-bottom: 1rem;
+    background: #ffffff;
+  }
+  
+  .page-header .nexus-logo {
+    height: 40px;
+    width: auto;
+  }
+  
+  .page-header .header-title {
+    font-size: 0.85rem;
+    color: #1e3a5f;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* Confidentiality footer */
+  .confidentiality-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 0.4rem 1rem;
+    background: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+    font-size: 0.65rem;
+    color: #6c757d;
+    text-align: center;
+  }
+  
+  .confidentiality-footer .confidential-text {
+    font-weight: 600;
+    color: #dc3545;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 0.7rem;
+  }
+  
+  .confidentiality-footer .footer-note {
+    margin-top: 0.15rem;
+  }
+  
+  .confidentiality-footer .serial-number {
+    margin-top: 0.25rem;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.6rem;
+    color: #888;
+    letter-spacing: 0.05em;
+  }
+
+  @media print {
+    .page-break-indicator {
+      display: none;
+    }
+    
+    .page-header {
+      position: running(header);
+    }
+    
+    .confidentiality-footer {
+      position: running(footer);
+    }
+    
+    @page {
+      @top-center {
+        content: element(header);
+      }
+      @bottom-center {
+        content: element(footer);
+      }
+    }
+  }
+  
+  @media screen {
+    .confidentiality-footer {
+      position: sticky;
+      bottom: 0;
+      z-index: 100;
+    }
+    
+    body {
+      padding-bottom: 4rem; /* Space for fixed footer */
     }
   }
 </style>`;
+  }
+
+  /**
+   * Render page header with Nexus logo (embedded base64 for PDF/print compatibility)
+   */
+  private renderPageHeader(_baseUrl: string): string {
+    return `
+<div class="page-header">
+  <img src="${NCC_LOGO_BASE64}" alt="NCC" class="nexus-logo" />
+  <span class="header-title">Official Documentation</span>
+</div>`;
+  }
+
+  /**
+   * Generate a unique serial number for document tracking
+   * Format: NXG-[DOC_SHORT]-[USER_SHORT]-[TIMESTAMP]-[RANDOM]
+   */
+  private generateSerialNumber(documentId: string, userId?: string): string {
+    const now = new Date();
+    const timestamp = now.toISOString().replace(/[-:T.Z]/g, '').slice(0, 14); // YYYYMMDDHHmmss
+    const docShort = documentId.slice(-6).toUpperCase();
+    const userShort = userId ? userId.slice(-4).toUpperCase() : 'ANON';
+    const random = Math.random().toString(36).slice(2, 6).toUpperCase();
+    
+    return `NXG-${docShort}-${userShort}-${timestamp}-${random}`;
+  }
+
+  /**
+   * Render confidentiality footer with serial number for tracking
+   */
+  private renderConfidentialityFooter(serialNumber: string, userName?: string): string {
+    const now = new Date();
+    const dateTimeStr = now.toLocaleString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    
+    const issuedTo = userName ? `Issued to: ${this.escapeHtml(userName)} | ` : '';
+    
+    return `
+<div class="confidentiality-footer">
+  <div class="confidential-text">Confidential &amp; Proprietary</div>
+  <div class="footer-note">
+    This document contains confidential and proprietary information belonging to Nexus Group and affiliates.
+    Unauthorized reproduction, distribution, or disclosure is strictly prohibited.
+  </div>
+  <div class="serial-number">
+    ${issuedTo}Serial: ${serialNumber} | Generated: ${dateTimeStr}
+  </div>
+</div>`;
   }
 
   /**
@@ -454,7 +767,8 @@ export class ManualRenderService {
    */
   private renderCoverPage(
     manual: any,
-    branding?: { name?: string; logoUrl?: string }
+    branding?: { name?: string; logoUrl?: string },
+    _baseUrl?: string
   ): string {
     const formattedDate = new Date().toLocaleDateString("en-US", {
       year: "numeric",
@@ -462,9 +776,12 @@ export class ManualRenderService {
       day: "numeric",
     });
 
+    // Use embedded base64 logo for PDF/print compatibility
+    const logoSrc = branding?.logoUrl || NCC_LOGO_BASE64;
+
     return `
 <div class="cover-page">
-  ${branding?.logoUrl ? `<img src="${branding.logoUrl}" alt="" class="logo" />` : ""}
+  <img src="${logoSrc}" alt="NCC" class="logo cover-logo" style="max-height: 80px; margin-bottom: 1rem;" />
   ${manual.iconEmoji ? `<div class="icon-emoji">${manual.iconEmoji}</div>` : ""}
   <h1>${this.escapeHtml(manual.title)}</h1>
   ${manual.description ? `<p class="description">${this.escapeHtml(manual.description)}</p>` : ""}
@@ -527,7 +844,14 @@ export class ManualRenderService {
     }
 
     // Chapters with documents
-    for (const chapter of manual.chapters) {
+    for (let i = 0; i < manual.chapters.length; i++) {
+      const chapter = manual.chapters[i];
+      
+      // Add page break indicator before each chapter (except first if no root docs)
+      if (i > 0 || manual.documents.length > 0) {
+        parts.push('<div class="page-break-indicator">Page Break</div>');
+      }
+      
       parts.push(`
 <div class="chapter" id="chapter-${chapter.id}">
   <div class="chapter-header">
@@ -554,6 +878,24 @@ export class ManualRenderService {
   private renderDocument(doc: any, includeRevisionMarkers: boolean): string {
     const title = doc.displayTitleOverride || doc.systemDocument.title;
     const versionNo = doc.systemDocument.currentVersion?.versionNo || 1;
+    const includeInPrint = doc.includeInPrint ?? true;
+    
+    // If section is excluded from print, show placeholder message
+    if (!includeInPrint) {
+      return `
+<div class="document-section avoid-break" id="doc-${doc.id}">
+  <div class="document-header">
+    <h3>
+      ${this.escapeHtml(title)}
+      <span class="revision-badge">Rev ${versionNo}</span>
+    </h3>
+  </div>
+  <div class="document-content intentionally-blank">
+    <p class="blank-notice">This Section Intentionally Blank</p>
+  </div>
+</div>`;
+    }
+    
     const content = doc.systemDocument.currentVersion?.htmlContent || "<p>No content available</p>";
 
     const revisionStart = includeRevisionMarkers
@@ -606,6 +948,7 @@ export class ManualRenderService {
   <title>${this.escapeHtml(title)}</title>
 </head>
 <body>
+<img src="${NCC_LOGO_BASE64}" alt="" class="watermark" />
 ${content}
 </body>
 </html>`;
