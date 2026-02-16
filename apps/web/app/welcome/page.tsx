@@ -54,6 +54,12 @@ export default function WelcomePage() {
             Privacy
           </a>
           <Link
+            href="/security"
+            style={{ color: "#cbd5e1", textDecoration: "none", fontSize: 14 }}
+          >
+            Security
+          </Link>
+          <Link
             href="/login"
             style={{
               background: "#3b82f6",
@@ -413,6 +419,110 @@ export default function WelcomePage() {
         </div>
       </section>
 
+      {/* Security Section */}
+      <section
+        id="security"
+        style={{
+          padding: "80px 48px",
+          maxWidth: 1200,
+          margin: "0 auto",
+        }}
+      >
+        <h2
+          style={{
+            fontSize: 32,
+            fontWeight: 700,
+            textAlign: "center",
+            marginBottom: 16,
+          }}
+        >
+          Security & Compliance
+        </h2>
+        <p
+          style={{
+            textAlign: "center",
+            color: "#94a3b8",
+            marginBottom: 48,
+            fontSize: 16,
+          }}
+        >
+          Enterprise-grade security protecting your data
+        </p>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+            gap: 24,
+          }}
+        >
+          {[
+            {
+              icon: "🔐",
+              title: "Argon2 Password Hashing",
+              desc: "Industry-leading memory-hard algorithm resistant to GPU and ASIC attacks.",
+            },
+            {
+              icon: "🔒",
+              title: "AES-256 Encryption",
+              desc: "Sensitive data encrypted at rest using authenticated AES-256-GCM encryption.",
+            },
+            {
+              icon: "🛡️",
+              title: "Role-Based Access Control",
+              desc: "Granular permissions with field-level security controls per role.",
+            },
+            {
+              icon: "🏢",
+              title: "Multi-Tenant Isolation",
+              desc: "Complete data separation between organizations at the database level.",
+            },
+            {
+              icon: "📋",
+              title: "Audit Logging",
+              desc: "Comprehensive logging of all administrative actions for compliance.",
+            },
+            {
+              icon: "✅",
+              title: "SOC 2 Aligned",
+              desc: "Security practices aligned with SOC 2 Type II and OWASP Top 10.",
+            },
+          ].map((item) => (
+            <div
+              key={item.title}
+              style={{
+                background: "rgba(30, 41, 59, 0.5)",
+                border: "1px solid #334155",
+                borderRadius: 12,
+                padding: 24,
+              }}
+            >
+              <div style={{ fontSize: 28, marginBottom: 12 }}>{item.icon}</div>
+              <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
+                {item.title}
+              </h3>
+              <p style={{ color: "#94a3b8", fontSize: 14, lineHeight: 1.6, margin: 0 }}>
+                {item.desc}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ textAlign: "center", marginTop: 32 }}>
+          <Link
+            href="/security"
+            style={{
+              color: "#60a5fa",
+              textDecoration: "none",
+              fontSize: 14,
+              fontWeight: 500,
+            }}
+          >
+            Read our full Information Security Policy →
+          </Link>
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section
         style={{
@@ -480,6 +590,12 @@ export default function WelcomePage() {
               style={{ color: "#64748b", textDecoration: "none", fontSize: 14 }}
             >
               Privacy Policy
+            </Link>
+            <Link
+              href="/security"
+              style={{ color: "#64748b", textDecoration: "none", fontSize: 14 }}
+            >
+              Security
             </Link>
             <Link
               href="/support"
