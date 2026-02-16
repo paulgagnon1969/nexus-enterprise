@@ -24,13 +24,25 @@ apps/contact-sync/
 apps/mobile/
 apps/ncc/
 apps/mobile-legacy/
+apps/nexus-applet/
 apps/web/tmp_uploads/
 .vercel
 
-# Docs and large local-only data that API image does not need
-# Note: docs/sops-staging is needed for SOP sync, included via negation below
-docs/
-!docs/sops-staging/
+# Docs - exclude subdirectories not needed for API (keep sops-staging for SOP sync)
+docs/api-contracts/
+docs/architecture/
+docs/bkm/
+docs/data/
+docs/internal/
+docs/learning-center/
+docs/nccpm/
+docs/NEXUS TIME ACCOUNTING/
+docs/onboarding/
+docs/sessions/
+docs/system/
+docs/timecards/
+docs/*.pdf
+docs/*.md
 promotion/
 
 # Data promotion artifacts (never ship real data snapshots to Cloud Build)
