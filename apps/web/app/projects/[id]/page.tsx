@@ -15880,9 +15880,12 @@ ${htmlBody}
                   </div>
                   {/* Move expense lines action bar */}
                   {expenseInvoice && expenseInvoice.status === "DRAFT" && selectedExpenseLineIds.size > 0 && (() => {
-                    // Get all other DRAFT invoices for the dropdown (any category)
-                    const otherDraftInvoices = (projectInvoices ?? []).filter(
-                      (inv: any) => inv?.status === "DRAFT" && inv?.id !== expenseInvoice.id
+                    // Get all DRAFT invoices except the current expense invoice
+                    const allDraftInvoices = (projectInvoices ?? []).filter(
+                      (inv: any) => inv?.status === "DRAFT"
+                    );
+                    const otherDraftInvoices = allDraftInvoices.filter(
+                      (inv: any) => inv?.id !== expenseInvoice.id
                     );
                     return (
                     <div style={{ marginTop: 8, padding: "8px 10px", background: "#dbeafe", borderRadius: 6, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -15902,8 +15905,10 @@ ${htmlBody}
                         }}
                       >
                         <option value="">New Invoice</option>
-                        {otherDraftInvoices.map((inv: any, idx: number) => {
-                          const label = inv.invoiceNo ?? `Draft #${idx + 1}`;
+                        {otherDraftInvoices.map((inv: any) => {
+                          // Find index among ALL drafts for consistent numbering
+                          const draftNum = allDraftInvoices.findIndex((d: any) => d?.id === inv?.id) + 1;
+                          const label = inv.invoiceNo ?? `Draft #${draftNum}`;
                           const category = inv.category === "EXPENSE" ? "Expenses" : inv.category === "PETL" ? "Progress" : inv.category ?? "Invoice";
                           const memo = inv.memo ? ` - ${inv.memo}` : "";
                           return (
