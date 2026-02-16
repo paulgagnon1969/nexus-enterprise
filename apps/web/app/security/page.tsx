@@ -271,7 +271,31 @@ export default function SecurityPage() {
           {/* Section 9 */}
           <section style={{ marginBottom: 40 }}>
             <h2 style={{ fontSize: 24, fontWeight: 600, marginBottom: 16, color: "#f1f5f9" }}>
-              9. Compliance
+              9. Data Retention & Deletion
+            </h2>
+            <p style={{ color: "#94a3b8", lineHeight: 1.8, marginBottom: 16 }}>
+              NCC maintains a defined Data Retention and Deletion Policy in compliance with applicable
+              data privacy laws. Key retention periods:
+            </p>
+            <ul style={{ color: "#94a3b8", lineHeight: 1.8, paddingLeft: 20, marginBottom: 16 }}>
+              <li><strong style={{ color: "#e2e8f0" }}>User accounts:</strong> Duration of engagement + 3 years; inactive accounts archived after 2 years</li>
+              <li><strong style={{ color: "#e2e8f0" }}>Project & financial records:</strong> 7 years (IRS/tax compliance)</li>
+              <li><strong style={{ color: "#e2e8f0" }}>Audit logs:</strong> 7 years (compliance and forensics)</li>
+              <li><strong style={{ color: "#e2e8f0" }}>Session tokens:</strong> 30 days (automatic expiration)</li>
+            </ul>
+            <p style={{ color: "#94a3b8", lineHeight: 1.8, marginBottom: 16 }}>
+              <strong style={{ color: "#e2e8f0" }}>Data subject requests:</strong> Users may request deletion of their personal data.
+              Requests are processed within 30 days per GDPR requirements.
+            </p>
+            <p style={{ color: "#94a3b8", lineHeight: 1.8 }}>
+              This policy is reviewed annually. Next review: February 2027.
+            </p>
+          </section>
+
+          {/* Section 10 */}
+          <section style={{ marginBottom: 40 }}>
+            <h2 style={{ fontSize: 24, fontWeight: 600, marginBottom: 16, color: "#f1f5f9" }}>
+              10. Compliance
             </h2>
             <p style={{ color: "#94a3b8", lineHeight: 1.8, marginBottom: 16 }}>
               This security implementation aligns with:
@@ -279,14 +303,17 @@ export default function SecurityPage() {
             <ul style={{ color: "#94a3b8", lineHeight: 1.8, paddingLeft: 20 }}>
               <li>SOC 2 Type II principles</li>
               <li>OWASP Top 10 security practices</li>
+              <li>GDPR (EU General Data Protection Regulation)</li>
+              <li>CCPA (California Consumer Privacy Act)</li>
               <li>Apple App Store privacy guidelines</li>
+              <li>OSHA record retention requirements</li>
             </ul>
           </section>
 
-          {/* Section 10 */}
+          {/* Section 11 */}
           <section style={{ marginBottom: 40 }}>
             <h2 style={{ fontSize: 24, fontWeight: 600, marginBottom: 16, color: "#f1f5f9" }}>
-              10. User Responsibilities
+              11. User Responsibilities
             </h2>
             <p style={{ color: "#94a3b8", lineHeight: 1.8, marginBottom: 16 }}>
               All users of NCC are expected to:
