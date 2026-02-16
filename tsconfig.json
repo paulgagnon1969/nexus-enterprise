@@ -17,6 +17,5 @@
         "packages/types/src/*"
       ]
     }
-  },
-  "extends": "expo/tsconfig.base"
+  }
 }
