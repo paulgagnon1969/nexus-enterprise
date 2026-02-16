@@ -47,6 +47,12 @@ export default function WelcomePage() {
           >
             About
           </a>
+          <a
+            href="#privacy"
+            style={{ color: "#cbd5e1", textDecoration: "none", fontSize: 14 }}
+          >
+            Privacy
+          </a>
           <Link
             href="/login"
             style={{
@@ -280,6 +286,131 @@ export default function WelcomePage() {
           contractor, NCC scales with your business and keeps your entire
           operation connected.
         </p>
+      </section>
+
+      {/* Privacy Section */}
+      <section
+        id="privacy"
+        style={{
+          background: "rgba(15, 23, 42, 0.6)",
+          padding: "80px 48px",
+        }}
+      >
+        <div style={{ maxWidth: 900, margin: "0 auto" }}>
+          <h2
+            style={{
+              fontSize: 32,
+              fontWeight: 700,
+              textAlign: "center",
+              marginBottom: 16,
+            }}
+          >
+            Privacy Policy
+          </h2>
+          <p
+            style={{
+              textAlign: "center",
+              color: "#94a3b8",
+              marginBottom: 40,
+              fontSize: 14,
+            }}
+          >
+            Effective Date: February 14, 2026 • Last Updated: February 14, 2026
+          </p>
+
+          <div
+            style={{
+              background: "rgba(30, 41, 59, 0.5)",
+              border: "1px solid #334155",
+              borderRadius: 12,
+              padding: 32,
+              textAlign: "left",
+            }}
+          >
+            <p style={{ color: "#e2e8f0", marginBottom: 24, lineHeight: 1.7 }}>
+              NFS Group ("we," "us," or "our") respects your privacy. This Privacy
+              Policy explains how we handle information when you use Nexus
+              Contractor Connect and our mobile application Nexus Mobile.
+            </p>
+
+            <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 12, color: "#f1f5f9" }}>
+              Information We Collect
+            </h3>
+            <p style={{ color: "#94a3b8", marginBottom: 16, lineHeight: 1.7 }}>
+              We collect <strong style={{ color: "#e2e8f0" }}>location data</strong> (precise
+              or approximate) only when you actively use the App and only if you
+              grant permission through your device&apos;s Location Services.
+            </p>
+            <ul style={{ color: "#94a3b8", marginBottom: 24, paddingLeft: 20, lineHeight: 1.8 }}>
+              <li>Location access is used solely to provide core functionality (e.g., recording job site locations for daily logs and timecards)</li>
+              <li>Data is processed on-device or transiently for real-time functionality</li>
+              <li>We do <strong style={{ color: "#e2e8f0" }}>not</strong> store your location data on our servers</li>
+              <li>We do <strong style={{ color: "#e2e8f0" }}>not</strong> collect other personal information like device identifiers, contacts, photos, or usage analytics</li>
+            </ul>
+
+            <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 12, color: "#f1f5f9" }}>
+              How We Use Your Information
+            </h3>
+            <p style={{ color: "#94a3b8", marginBottom: 24, lineHeight: 1.7 }}>
+              We use location data <strong style={{ color: "#e2e8f0" }}>exclusively</strong> to
+              deliver the App&apos;s intended features while you are using it. We do
+              not use it for advertising, analytics, marketing, profiling, or
+              sharing with third parties.
+            </p>
+
+            <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 12, color: "#f1f5f9" }}>
+              Sharing and Disclosure
+            </h3>
+            <p style={{ color: "#94a3b8", marginBottom: 24, lineHeight: 1.7 }}>
+              We do <strong style={{ color: "#e2e8f0" }}>not</strong> share, sell, rent, or
+              disclose your location data (or any other information) with any
+              third parties. We do not engage in tracking across apps or websites.
+            </p>
+
+            <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 12, color: "#f1f5f9" }}>
+              Your Controls and Choices
+            </h3>
+            <ul style={{ color: "#94a3b8", marginBottom: 24, paddingLeft: 20, lineHeight: 1.8 }}>
+              <li>You control location access entirely through your device&apos;s settings</li>
+              <li>You can choose "While Using the App," "Never," or adjust precision</li>
+              <li>If you deny or revoke permission, location-dependent features may not function</li>
+              <li>Since we do not store or retain any data, there is no data to access, correct, delete, or export</li>
+            </ul>
+
+            <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 12, color: "#f1f5f9" }}>
+              Children&apos;s Privacy
+            </h3>
+            <p style={{ color: "#94a3b8", marginBottom: 24, lineHeight: 1.7 }}>
+              Our App is not directed to children under 13 (or the applicable age
+              in your region). We do not knowingly collect data from children.
+            </p>
+
+            <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 12, color: "#f1f5f9" }}>
+              Contact Us
+            </h3>
+            <p style={{ color: "#94a3b8", marginBottom: 0, lineHeight: 1.7 }}>
+              If you have questions about this Privacy Policy, contact us at:{" "}
+              <a
+                href="mailto:support@nfsgrp.com"
+                style={{ color: "#60a5fa", textDecoration: "none" }}
+              >
+                support@nfsgrp.com
+              </a>
+            </p>
+          </div>
+
+          <p
+            style={{
+              textAlign: "center",
+              color: "#64748b",
+              marginTop: 24,
+              fontSize: 13,
+              fontStyle: "italic",
+            }}
+          >
+            This policy complies with applicable privacy laws and Apple&apos;s App Store guidelines.
+          </p>
+        </div>
       </section>
 
       {/* CTA Section */}
