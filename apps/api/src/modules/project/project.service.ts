@@ -184,6 +184,22 @@ export class ProjectService {
     private readonly taxJurisdictions: TaxJurisdictionService,
   ) {}
 
+  /**
+   * Convert a GCS URI (gs://bucket/path) to a public HTTP URL.
+   * Returns the original URL if it's not a GCS URI.
+   */
+  private toPublicFileUrl(url: string | null | undefined): string | null {
+    if (!url) return null;
+    if (url.startsWith("gs://")) {
+      const match = url.match(/^gs:\/\/([^/]+)\/(.+)$/);
+      if (match) {
+        const base = process.env.GCS_PUBLIC_BASE_URL || "https://storage.googleapis.com";
+        return `${base}/${match[1]}/${match[2]}`;
+      }
+    }
+    return url;
+  }
+
   async createProject(dto: CreateProjectDto, actor: AuthenticatedUser) {
     const { userId, companyId } = actor;
 
@@ -9990,10 +10006,15 @@ export class ProjectService {
       // Load attachments (best effort; table may not exist yet)
       let attachments: any[] = [];
       try {
-        attachments = await (this.prisma as any).projectInvoiceAttachment.findMany({
+        const rawAttachments = await (this.prisma as any).projectInvoiceAttachment.findMany({
           where: { invoiceId: invoice.id },
           orderBy: [{ createdAt: "asc" }],
         });
+        // Convert GCS URIs to public HTTP URLs
+        attachments = rawAttachments.map((a: any) => ({
+          ...a,
+          fileUrl: this.toPublicFileUrl(a.fileUrl),
+        }));
       } catch (err: any) {
         if (!this.isMissingPrismaTableError(err, "ProjectInvoiceAttachment")) {
           throw err;
@@ -10001,7 +10022,22 @@ export class ProjectService {
         attachments = [];
       }
 
-      return { ...invoice, payments, petlLines, attachments, paidAmount, balanceDue };
+      // Also transform bill attachment URLs in line items
+      const lineItemsWithPublicUrls = (invoice.lineItems ?? []).map((li: any) => {
+        if (!li.sourceBill?.attachments) return li;
+        return {
+          ...li,
+          sourceBill: {
+            ...li.sourceBill,
+            attachments: li.sourceBill.attachments.map((a: any) => ({
+              ...a,
+              fileUrl: this.toPublicFileUrl(a.fileUrl),
+            })),
+          },
+        };
+      });
+
+      return { ...invoice, lineItems: lineItemsWithPublicUrls, payments, petlLines, attachments, paidAmount, balanceDue };
     } catch (err: any) {
       const errCode = err?.code ?? 'no code';
       const errMeta = err?.meta ? JSON.stringify(err.meta) : 'no meta';
