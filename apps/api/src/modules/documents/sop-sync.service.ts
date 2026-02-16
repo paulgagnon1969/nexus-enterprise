@@ -35,6 +35,9 @@ export class SopSyncService {
       title: string;
       revision: string;
       status: string;
+      module: string;
+      fileModifiedAt: string;
+      frontmatterUpdated: string;
       syncStatus: "new" | "updated" | "synced";
       currentSystemRevision?: string;
       systemDocumentId?: string;
@@ -75,6 +78,9 @@ export class SopSyncService {
         title: sop.frontmatter.title,
         revision: sop.frontmatter.revision,
         status: sop.frontmatter.status,
+        module: sop.frontmatter.module,
+        fileModifiedAt: sop.fileModifiedAt,
+        frontmatterUpdated: sop.frontmatter.updated,
         syncStatus,
         currentSystemRevision,
         systemDocumentId,

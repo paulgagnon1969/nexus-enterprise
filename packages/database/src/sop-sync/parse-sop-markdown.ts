@@ -183,6 +183,7 @@ function computeHash(content: string): string {
 export function parseSopFile(filePath: string): ParsedSop {
   const content = fs.readFileSync(filePath, "utf8");
   const filename = path.basename(filePath, ".md");
+  const stats = fs.statSync(filePath);
 
   const { frontmatter, body } = parseFrontmatter(content);
   const htmlBody = markdownToHtml(body);
@@ -195,6 +196,7 @@ export function parseSopFile(filePath: string): ParsedSop {
     htmlBody,
     contentHash,
     filePath,
+    fileModifiedAt: stats.mtime.toISOString(),
   };
 }
 
