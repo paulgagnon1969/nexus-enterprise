@@ -57,6 +57,20 @@ export class CreateManualDto {
   @IsString({ each: true })
   @IsOptional()
   targetTagIds?: string[];
+
+  // Ownership and access control
+  @IsString()
+  @IsOptional()
+  ownerCompanyId?: string; // Null for NEXUS System manuals
+
+  @IsBoolean()
+  @IsOptional()
+  isNexusInternal?: boolean; // If true, only users with requiredGlobalRoles can access
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  requiredGlobalRoles?: string[]; // GlobalRole values (e.g., "SUPER_ADMIN", "NCC_SYSTEM_DEVELOPER")
 }
 
 export class UpdateManualDto {
@@ -92,6 +106,16 @@ export class UpdateManualDto {
   @IsString({ each: true })
   @IsOptional()
   targetTagIds?: string[];
+
+  // Ownership and access control
+  @IsBoolean()
+  @IsOptional()
+  isNexusInternal?: boolean;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  requiredGlobalRoles?: string[];
 }
 
 export class PublishManualDto {

@@ -3,9 +3,11 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
-import { ManualVersionChangeType, TenantDocumentStatus } from "@prisma/client";
+import { ManualVersionChangeType, TenantDocumentStatus, GlobalRole as PrismaGlobalRole } from "@prisma/client";
+import { GlobalRole } from "../auth/auth.guards";
 import {
   CreateManualDto,
   UpdateManualDto,
@@ -26,11 +28,24 @@ export class ManualsService {
   // Manual CRUD
   // =========================================================================
 
-  async listManuals(options?: { status?: string; includeArchived?: boolean }) {
-    return this.prisma.manual.findMany({
+  /**
+   * Check if user's global role can access a NEXUS-internal manual.
+   */
+  private canAccessNexusInternal(userGlobalRole: GlobalRole, requiredRoles: PrismaGlobalRole[]): boolean {
+    if (userGlobalRole === GlobalRole.SUPER_ADMIN) {
+      return true; // SUPER_ADMIN can access everything
+    }
+    // Check if user's role is in the required roles array
+    return requiredRoles.includes(userGlobalRole as unknown as PrismaGlobalRole);
+  }
+
+  async listManuals(options?: { status?: string; includeArchived?: boolean; userGlobalRole?: GlobalRole }) {
+    const manuals = await this.prisma.manual.findMany({
       where: {
         ...(options?.status ? { status: options.status as any } : {}),
         ...(options?.includeArchived ? {} : { status: { not: "ARCHIVED" } }),
+        // Only show NEXUS System manuals (ownerCompanyId is null) in this endpoint
+        ownerCompanyId: null,
       },
       include: {
         createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
@@ -39,6 +54,31 @@ export class ManualsService {
       },
       orderBy: [{ status: "asc" }, { title: "asc" }],
     });
+
+    // Filter out NEXUS-internal manuals the user can't access
+    if (options?.userGlobalRole) {
+      return manuals.filter((m) => {
+        if (!m.isNexusInternal) return true;
+        return this.canAccessNexusInternal(options.userGlobalRole!, m.requiredGlobalRoles);
+      });
+    }
+
+    return manuals;
+  }
+
+  /**
+   * Get manual with access check for NEXUS-internal manuals.
+   */
+  async getManualWithAccessCheck(id: string, userGlobalRole: GlobalRole) {
+    const manual = await this.getManual(id);
+
+    if (manual.isNexusInternal) {
+      if (!this.canAccessNexusInternal(userGlobalRole, manual.requiredGlobalRoles)) {
+        throw new ForbiddenException("You do not have access to this internal manual");
+      }
+    }
+
+    return manual;
   }
 
   async getManual(id: string) {
@@ -127,6 +167,10 @@ export class ManualsService {
           iconEmoji: dto.iconEmoji,
           createdByUserId: userId,
           currentVersion: 1,
+          // Ownership and access control
+          ownerCompanyId: dto.ownerCompanyId ?? null,
+          isNexusInternal: dto.isNexusInternal ?? false,
+          requiredGlobalRoles: (dto.requiredGlobalRoles as PrismaGlobalRole[]) ?? [],
         },
       });
 
