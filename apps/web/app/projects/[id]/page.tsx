@@ -15910,10 +15910,10 @@ ${htmlBody}
                           const draftNum = allDraftInvoices.findIndex((d: any) => d?.id === inv?.id) + 1;
                           const label = inv.invoiceNo ?? `Draft #${draftNum}`;
                           const category = inv.category === "EXPENSE" ? "Expenses" : inv.category === "PETL" ? "Progress" : inv.category ?? "Invoice";
-                          const memo = inv.memo ? ` - ${inv.memo}` : "";
+                          const amount = typeof inv.totalAmount === "number" ? ` $${inv.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "";
                           return (
                             <option key={inv.id} value={inv.id}>
-                              {label} ({category}{memo})
+                              {label} ({category}{amount})
                             </option>
                           );
                         })}
