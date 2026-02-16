@@ -1556,6 +1556,7 @@ export default function ProjectDetailPage({
   const [selectedExpenseLineIds, setSelectedExpenseLineIds] = useState<Set<string>>(new Set());
   const [moveExpenseLinesBusy, setMoveExpenseLinesBusy] = useState(false);
   const [moveExpenseLinesMessage, setMoveExpenseLinesMessage] = useState<string | null>(null);
+  const [moveExpenseTargetInvoiceId, setMoveExpenseTargetInvoiceId] = useState<string>(""); // "" = new invoice
 
   // Invoices + payments (progress billing)
   const [projectInvoices, setProjectInvoices] = useState<any[] | null>(null);
@@ -15878,11 +15879,35 @@ ${htmlBody}
                     This invoice is auto-generated from bills marked as &quot;Billable&quot;. Review the items below and issue when ready.
                   </div>
                   {/* Move expense lines action bar */}
-                  {expenseInvoice && expenseInvoice.status === "DRAFT" && selectedExpenseLineIds.size > 0 && (
-                    <div style={{ marginTop: 8, padding: "8px 10px", background: "#dbeafe", borderRadius: 6, display: "flex", alignItems: "center", gap: 10 }}>
+                  {expenseInvoice && expenseInvoice.status === "DRAFT" && selectedExpenseLineIds.size > 0 && (() => {
+                    // Get other DRAFT EXPENSE invoices for the dropdown
+                    const otherExpenseDrafts = (projectInvoices ?? []).filter(
+                      (inv: any) => inv?.category === "EXPENSE" && inv?.status === "DRAFT" && inv?.id !== expenseInvoice.id
+                    );
+                    return (
+                    <div style={{ marginTop: 8, padding: "8px 10px", background: "#dbeafe", borderRadius: 6, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 11, fontWeight: 600, color: "#1d4ed8" }}>
                         {selectedExpenseLineIds.size} line{selectedExpenseLineIds.size !== 1 ? "s" : ""} selected
                       </span>
+                      <span style={{ fontSize: 11, color: "#1d4ed8" }}>→ Move to:</span>
+                      <select
+                        value={moveExpenseTargetInvoiceId}
+                        onChange={(e) => setMoveExpenseTargetInvoiceId(e.target.value)}
+                        style={{
+                          padding: "4px 8px",
+                          borderRadius: 4,
+                          border: "1px solid #93c5fd",
+                          fontSize: 11,
+                          background: "#ffffff",
+                        }}
+                      >
+                        <option value="">New Invoice</option>
+                        {otherExpenseDrafts.map((inv: any) => (
+                          <option key={inv.id} value={inv.id}>
+                            {inv.invoiceNo ?? `Draft ${inv.id.slice(0,8)}`} ({inv.memo || "Expenses"})
+                          </option>
+                        ))}
+                      </select>
                       <button
                         type="button"
                         disabled={moveExpenseLinesBusy}
@@ -15912,8 +15937,11 @@ ${htmlBody}
                             return;
                           }
 
+                          const targetLabel = moveExpenseTargetInvoiceId
+                            ? otherExpenseDrafts.find((inv: any) => inv.id === moveExpenseTargetInvoiceId)?.invoiceNo ?? "selected invoice"
+                            : "a new invoice";
                           const ok = window.confirm(
-                            `Move ${lineIds.length} expense line item${lineIds.length !== 1 ? "s" : ""} to a new invoice?`
+                            `Move ${lineIds.length} expense line item${lineIds.length !== 1 ? "s" : ""} to ${targetLabel}?`
                           );
                           if (!ok) return;
 
@@ -15921,6 +15949,10 @@ ${htmlBody}
                           setMoveExpenseLinesMessage(null);
 
                           try {
+                            const payload: { lineIds: string[]; targetInvoiceId?: string } = { lineIds };
+                            if (moveExpenseTargetInvoiceId) {
+                              payload.targetInvoiceId = moveExpenseTargetInvoiceId;
+                            }
                             const res = await fetch(
                               `${API_BASE}/projects/${project.id}/invoices/${expenseInvoice.id}/move-expense-lines`,
                               {
@@ -15929,7 +15961,7 @@ ${htmlBody}
                                   "Content-Type": "application/json",
                                   Authorization: `Bearer ${token}`,
                                 },
-                                body: JSON.stringify({ lineIds }),
+                                body: JSON.stringify(payload),
                               }
                             );
 
@@ -15939,10 +15971,12 @@ ${htmlBody}
                             }
 
                             const result = await res.json();
+                            const destLabel = result.targetInvoice?.invoiceNo ?? "target invoice";
                             setMoveExpenseLinesMessage(
-                              `Moved ${result.movedLineCount ?? lineIds.length} line(s) to new invoice.`
+                              `Moved ${result.movedLineCount ?? lineIds.length} line(s) to ${destLabel}.`
                             );
                             setSelectedExpenseLineIds(new Set());
+                            setMoveExpenseTargetInvoiceId("");
                             // Refresh invoices and bills
                             setProjectInvoices(null);
                             setProjectBills(null);
@@ -15963,11 +15997,14 @@ ${htmlBody}
                           fontWeight: 600,
                         }}
                       >
-                        {moveExpenseLinesBusy ? "Moving…" : "Move to New Invoice"}
+                        {moveExpenseLinesBusy ? "Moving…" : "Move"}
                       </button>
                       <button
                         type="button"
-                        onClick={() => setSelectedExpenseLineIds(new Set())}
+                        onClick={() => {
+                          setSelectedExpenseLineIds(new Set());
+                          setMoveExpenseTargetInvoiceId("");
+                        }}
                         style={{
                           padding: "4px 10px",
                           borderRadius: 4,
@@ -15980,7 +16017,8 @@ ${htmlBody}
                         Clear
                       </button>
                     </div>
-                  )}
+                    );
+                  })()}
                   {moveExpenseLinesMessage && (
                     <div style={{ marginTop: 6, fontSize: 11, color: moveExpenseLinesMessage.includes("fail") || moveExpenseLinesMessage.includes("Failed") ? "#b91c1c" : "#166534" }}>
                       {moveExpenseLinesMessage}

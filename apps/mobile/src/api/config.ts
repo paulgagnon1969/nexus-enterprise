@@ -1,7 +1,15 @@
-export function getApiBaseUrl(): string {
-  // Expo supports EXPO_PUBLIC_* env vars that are inlined at build time.
-  const v = process.env.EXPO_PUBLIC_API_BASE_URL;
+// API Configuration
+// PRODUCTION URL - hardcoded for release builds
+// For local dev, run: EXPO_PUBLIC_API_BASE_URL=http://localhost:8001 npx expo start
 
-  // Repo default (.env) runs the API on 8001 in development.
-  return (v && v.trim()) || "http://localhost:8001";
+const PRODUCTION_API = "https://nexus-api-979156454944.us-central1.run.app";
+
+export function getApiBaseUrl(): string {
+  // Allow override via env var for local development
+  if (__DEV__ && process.env.EXPO_PUBLIC_API_BASE_URL) {
+    return process.env.EXPO_PUBLIC_API_BASE_URL;
+  }
+
+  // Always use production for release builds
+  return PRODUCTION_API;
 }
