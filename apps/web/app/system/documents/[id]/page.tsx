@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { TenantPublishModal } from "../components/TenantPublishModal";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -41,11 +42,6 @@ interface SystemDocument {
   createdBy: { id: string; email: string; firstName: string | null; lastName: string | null };
 }
 
-interface Company {
-  id: string;
-  name: string;
-}
-
 export default function SystemDocumentDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -67,10 +63,6 @@ export default function SystemDocumentDetailPage() {
 
   // Publish modal
   const [showPublishModal, setShowPublishModal] = useState(false);
-  const [publishTarget, setPublishTarget] = useState<"ALL_TENANTS" | "SINGLE_TENANT">("ALL_TENANTS");
-  const [selectedCompanyId, setSelectedCompanyId] = useState("");
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [publishing, setPublishing] = useState(false);
 
   // Share modal
   const [showShareModal, setShowShareModal] = useState(false);
@@ -78,7 +70,6 @@ export default function SystemDocumentDetailPage() {
   useEffect(() => {
     if (id) {
       loadDocument();
-      loadCompanies();
     }
   }, [id]);
 
@@ -104,21 +95,6 @@ export default function SystemDocumentDetailPage() {
       setError(err.message || "Failed to load document");
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function loadCompanies() {
-    try {
-      const token = localStorage.getItem("accessToken");
-      const res = await fetch(`${API_BASE}/companies`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setCompanies(Array.isArray(data) ? data : data.companies || []);
-      }
-    } catch {
-      // Ignore - companies list is optional
     }
   }
 
@@ -161,38 +137,6 @@ export default function SystemDocumentDetailPage() {
       alert(err.message || "Failed to save");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function handlePublish() {
-    if (publishTarget === "SINGLE_TENANT" && !selectedCompanyId) {
-      alert("Please select a company");
-      return;
-    }
-
-    setPublishing(true);
-    try {
-      const token = localStorage.getItem("accessToken");
-      const res = await fetch(`${API_BASE}/system-documents/${id}/publish`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          targetType: publishTarget,
-          targetCompanyId: publishTarget === "SINGLE_TENANT" ? selectedCompanyId : undefined,
-        }),
-      });
-
-      if (!res.ok) throw new Error("Failed to publish");
-
-      setShowPublishModal(false);
-      loadDocument();
-    } catch (err: any) {
-      alert(err.message || "Failed to publish");
-    } finally {
-      setPublishing(false);
     }
   }
 
@@ -451,7 +395,7 @@ export default function SystemDocumentDetailPage() {
                         <span>{pub.targetCompany?.name || "Unknown company"}</span>
                       )}
                       <span style={{ color: "#9ca3af", marginLeft: 8 }}>
-                        v{pub.systemDocumentVersion.versionNo} · {new Date(pub.publishedAt).toLocaleDateString()}
+                        v{pub.systemDocumentVersion?.versionNo ?? "?"} · {new Date(pub.publishedAt).toLocaleDateString()}
                       </span>
                     </div>
                     <button
@@ -520,91 +464,14 @@ export default function SystemDocumentDetailPage() {
       )}
 
       {/* Publish Modal */}
-      {showPublishModal && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 1000,
-          }}
-          onClick={() => setShowPublishModal(false)}
-        >
-          <div
-            style={{
-              background: "white",
-              borderRadius: 8,
-              padding: 24,
-              width: "90%",
-              maxWidth: 400,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 style={{ margin: "0 0 16px", fontSize: 18 }}>Publish Document</h2>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input
-                  type="radio"
-                  checked={publishTarget === "ALL_TENANTS"}
-                  onChange={() => setPublishTarget("ALL_TENANTS")}
-                />
-                <span>All Tenants</span>
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input
-                  type="radio"
-                  checked={publishTarget === "SINGLE_TENANT"}
-                  onChange={() => setPublishTarget("SINGLE_TENANT")}
-                />
-                <span>Single Tenant</span>
-              </label>
-              {publishTarget === "SINGLE_TENANT" && (
-                <select
-                  value={selectedCompanyId}
-                  onChange={(e) => setSelectedCompanyId(e.target.value)}
-                  style={{ padding: 8, borderRadius: 4, border: "1px solid #d1d5db" }}
-                >
-                  <option value="">Select company...</option>
-                  {companies.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-              <button
-                onClick={() => setShowPublishModal(false)}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: 4,
-                  border: "1px solid #d1d5db",
-                  background: "white",
-                  cursor: "pointer",
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePublish}
-                disabled={publishing}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: 4,
-                  border: "none",
-                  background: "#16a34a",
-                  color: "white",
-                  cursor: publishing ? "default" : "pointer",
-                  opacity: publishing ? 0.7 : 1,
-                }}
-              >
-                {publishing ? "Publishing..." : "Publish"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {showPublishModal && document && (
+        <TenantPublishModal
+          documentId={document.id}
+          documentCode={document.code}
+          documentTitle={document.title}
+          onClose={() => setShowPublishModal(false)}
+          onSuccess={loadDocument}
+        />
       )}
     </div>
   );

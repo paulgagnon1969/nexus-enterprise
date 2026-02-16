@@ -63,13 +63,32 @@ export class UpdateSystemDocumentDto {
   notes?: string;
 }
 
-export class PublishSystemDocumentDto {
-  @IsEnum(SystemDocumentPublicationTarget)
-  targetType!: SystemDocumentPublicationTarget;
+// Extended target types beyond Prisma enum
+export type ExtendedPublicationTarget = 
+  | "ALL_TENANTS" 
+  | "SINGLE_TENANT" 
+  | "MULTIPLE_TENANTS" 
+  | "GROUP";
 
+export class PublishSystemDocumentDto {
+  @IsString()
+  targetType!: ExtendedPublicationTarget;
+
+  // For SINGLE_TENANT
   @IsOptional()
   @IsString()
   targetCompanyId?: string;
+
+  // For MULTIPLE_TENANTS
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  targetCompanyIds?: string[];
+
+  // For GROUP
+  @IsOptional()
+  @IsString()
+  targetGroupId?: string;
 }
 
 export class CopyToOrgDto {

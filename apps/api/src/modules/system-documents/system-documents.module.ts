@@ -6,9 +6,10 @@ import {
   TenantSystemDocumentsController,
   TenantDocumentCopiesController,
 } from "./system-documents.controller";
+import { PublicationGroupsModule } from "../publication-groups/publication-groups.module";
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, PublicationGroupsModule],
   controllers: [
     SystemDocumentsController,
     TenantSystemDocumentsController,

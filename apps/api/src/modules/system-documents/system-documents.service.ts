@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { SystemDocumentPublicationTarget, TenantDocumentStatus } from "@prisma/client";
+import { PublicationGroupsService } from "../publication-groups/publication-groups.service";
 import * as crypto from "crypto";
 import {
   CreateSystemDocumentDto,
@@ -12,7 +13,10 @@ import {
 
 @Injectable()
 export class SystemDocumentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly publicationGroupsService: PublicationGroupsService,
+  ) {}
 
   private hashContent(content: string): string {
     return crypto.createHash("sha256").update(content).digest("hex").slice(0, 16);
@@ -169,6 +173,47 @@ export class SystemDocumentsService {
   }
 
   // =========================================================================
+  // SUPER_ADMIN: Dashboard Stats
+  // =========================================================================
+
+  async getDashboardStats() {
+    const [
+      systemDocs,
+      systemManuals,
+      publications,
+      tenantCopies,
+      // Tenant-equivalent stats (for NEXUS System as a tenant)
+      tenantManuals,
+    ] = await Promise.all([
+      this.prisma.systemDocument.count({ where: { active: true } }),
+      this.prisma.manual.count({ where: { isNexusInternal: true, archivedAt: null } }),
+      this.prisma.systemDocumentPublication.count({ where: { retractedAt: null } }),
+      this.prisma.tenantDocumentCopy.count(),
+      // Count tenant-owned manuals (would need companyId context for real implementation)
+      this.prisma.manual.count({ where: { ownerCompanyId: { not: null }, archivedAt: null } }),
+    ]);
+
+    // Count staged SOPs from docs/sops-staging (placeholder - would need file system access)
+    const stagedSops = 0; // This would need a different approach to count filesystem files
+
+    return {
+      // Tenant-equivalent stats
+      inbox: 0, // Would need to query tenant inbox for NEXUS System company
+      published: 0, // Would need tenant document copies count
+      templates: 0, // Would need templates count
+      pnp: 0, // Would need PnP documents count
+      safety: 0, // Would need safety sections count
+      manuals: tenantManuals,
+      // System admin stats
+      systemDocs,
+      systemManuals, // NEXUS-internal manuals (NccPM, etc.)
+      stagedSops,
+      publications,
+      tenantCopies,
+    };
+  }
+
+  // =========================================================================
   // SUPER_ADMIN: Publication Management
   // =========================================================================
 
@@ -182,55 +227,156 @@ export class SystemDocumentsService {
       throw new NotFoundException("System document not found or has no content");
     }
 
-    if (dto.targetType === SystemDocumentPublicationTarget.SINGLE_TENANT && !dto.targetCompanyId) {
+    // Validation based on target type
+    if (dto.targetType === "SINGLE_TENANT" && !dto.targetCompanyId) {
       throw new BadRequestException("targetCompanyId is required for SINGLE_TENANT publication");
     }
-
-    // Check for existing active publication with same target
-    const existing = await this.prisma.systemDocumentPublication.findFirst({
-      where: {
-        systemDocumentId: id,
-        targetType: dto.targetType,
-        targetCompanyId: dto.targetCompanyId ?? null,
-        retractedAt: null,
-      },
-    });
-
-    if (existing) {
-      // Update existing publication to point to new version
-      return this.prisma.systemDocumentPublication.update({
-        where: { id: existing.id },
-        data: {
-          systemDocumentVersionId: doc.currentVersion.id,
-          publishedAt: new Date(),
-          publishedByUserId: userId,
-        },
-        include: { targetCompany: { select: { id: true, name: true } } },
-      });
+    if (dto.targetType === "MULTIPLE_TENANTS" && (!dto.targetCompanyIds || dto.targetCompanyIds.length === 0)) {
+      throw new BadRequestException("targetCompanyIds is required for MULTIPLE_TENANTS publication");
+    }
+    if (dto.targetType === "GROUP" && !dto.targetGroupId) {
+      throw new BadRequestException("targetGroupId is required for GROUP publication");
     }
 
-    // Create new publication
-    const publication = await this.prisma.systemDocumentPublication.create({
-      data: {
-        systemDocumentId: id,
-        systemDocumentVersionId: doc.currentVersion.id,
-        targetType: dto.targetType,
-        targetCompanyId: dto.targetCompanyId,
-        publishedByUserId: userId,
-      },
-      include: { targetCompany: { select: { id: true, name: true } } },
-    });
+    // Resolve company IDs based on target type
+    let companyIds: string[] = [];
+    let prismaTargetType: SystemDocumentPublicationTarget;
 
-    // Distribute to tenants with UNRELEASED status
+    switch (dto.targetType) {
+      case "ALL_TENANTS":
+        prismaTargetType = SystemDocumentPublicationTarget.ALL_TENANTS;
+        const allCompanies = await this.prisma.company.findMany({
+          where: { deletedAt: null },
+          select: { id: true },
+        });
+        companyIds = allCompanies.map((c) => c.id);
+        break;
+
+      case "SINGLE_TENANT":
+        prismaTargetType = SystemDocumentPublicationTarget.SINGLE_TENANT;
+        companyIds = [dto.targetCompanyId!];
+        break;
+
+      case "MULTIPLE_TENANTS":
+        // For multiple tenants, create individual SINGLE_TENANT publications
+        prismaTargetType = SystemDocumentPublicationTarget.SINGLE_TENANT;
+        companyIds = dto.targetCompanyIds!;
+        break;
+
+      case "GROUP":
+        // Resolve group to company IDs
+        prismaTargetType = SystemDocumentPublicationTarget.SINGLE_TENANT;
+        companyIds = await this.publicationGroupsService.getGroupCompanyIds(dto.targetGroupId!);
+        if (companyIds.length === 0) {
+          throw new BadRequestException("Publication group has no members");
+        }
+        break;
+
+      default:
+        throw new BadRequestException(`Unknown target type: ${dto.targetType}`);
+    }
+
+    // For ALL_TENANTS, create a single publication record
+    if (dto.targetType === "ALL_TENANTS") {
+      const existing = await this.prisma.systemDocumentPublication.findFirst({
+        where: {
+          systemDocumentId: id,
+          targetType: SystemDocumentPublicationTarget.ALL_TENANTS,
+          retractedAt: null,
+        },
+      });
+
+      let publication;
+      if (existing) {
+        publication = await this.prisma.systemDocumentPublication.update({
+          where: { id: existing.id },
+          data: {
+            systemDocumentVersionId: doc.currentVersion.id,
+            publishedAt: new Date(),
+            publishedByUserId: userId,
+          },
+          include: { targetCompany: { select: { id: true, name: true } } },
+        });
+      } else {
+        publication = await this.prisma.systemDocumentPublication.create({
+          data: {
+            systemDocumentId: id,
+            systemDocumentVersionId: doc.currentVersion.id,
+            targetType: SystemDocumentPublicationTarget.ALL_TENANTS,
+            publishedByUserId: userId,
+          },
+          include: { targetCompany: { select: { id: true, name: true } } },
+        });
+      }
+
+      // Distribute to all tenants
+      await this.distributeDocumentToTenants(
+        id,
+        { title: doc.title, currentVersion: doc.currentVersion },
+        userId,
+        companyIds
+      );
+
+      return { publication, distributedCount: companyIds.length };
+    }
+
+    // For SINGLE_TENANT, MULTIPLE_TENANTS, or GROUP: create per-tenant publication records
+    const publications = [];
+    for (const companyId of companyIds) {
+      const existing = await this.prisma.systemDocumentPublication.findFirst({
+        where: {
+          systemDocumentId: id,
+          targetType: SystemDocumentPublicationTarget.SINGLE_TENANT,
+          targetCompanyId: companyId,
+          retractedAt: null,
+        },
+      });
+
+      if (existing) {
+        const updated = await this.prisma.systemDocumentPublication.update({
+          where: { id: existing.id },
+          data: {
+            systemDocumentVersionId: doc.currentVersion.id,
+            publishedAt: new Date(),
+            publishedByUserId: userId,
+          },
+          include: { targetCompany: { select: { id: true, name: true } } },
+        });
+        publications.push(updated);
+      } else {
+        const created = await this.prisma.systemDocumentPublication.create({
+          data: {
+            systemDocumentId: id,
+            systemDocumentVersionId: doc.currentVersion.id,
+            targetType: SystemDocumentPublicationTarget.SINGLE_TENANT,
+            targetCompanyId: companyId,
+            publishedByUserId: userId,
+          },
+          include: { targetCompany: { select: { id: true, name: true } } },
+        });
+        publications.push(created);
+      }
+    }
+
+    // Distribute to targeted tenants
     await this.distributeDocumentToTenants(
       id,
       { title: doc.title, currentVersion: doc.currentVersion },
       userId,
-      dto.targetType,
-      dto.targetCompanyId
+      companyIds
     );
 
-    return publication;
+    // Return single publication for SINGLE_TENANT, array info for multi
+    if (dto.targetType === "SINGLE_TENANT") {
+      return publications[0];
+    }
+
+    return {
+      publications,
+      distributedCount: companyIds.length,
+      targetType: dto.targetType,
+      targetGroupId: dto.targetGroupId,
+    };
   }
 
   /**
@@ -241,23 +387,8 @@ export class SystemDocumentsService {
     documentId: string,
     doc: { title: string; currentVersion: { id: string; versionNo: number; htmlContent: string } },
     userId: string,
-    targetType: SystemDocumentPublicationTarget,
-    targetCompanyId?: string | null
+    companyIds: string[]
   ) {
-    // Determine target companies
-    let companyIds: string[] = [];
-
-    if (targetType === SystemDocumentPublicationTarget.SINGLE_TENANT && targetCompanyId) {
-      companyIds = [targetCompanyId];
-    } else if (targetType === SystemDocumentPublicationTarget.ALL_TENANTS) {
-      // Get all active companies (not deleted)
-      const companies = await this.prisma.company.findMany({
-        where: { deletedAt: null },
-        select: { id: true },
-      });
-      companyIds = companies.map((c) => c.id);
-    }
-
     if (companyIds.length === 0) return;
 
     // Get existing copies to avoid duplicates

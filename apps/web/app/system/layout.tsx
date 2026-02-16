@@ -700,15 +700,15 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
                 System
               </Link>
               <Link
-                href="/admin/documents"
+                href="/system/documents"
                 style={{
                   padding: "2px 8px",
                   borderRadius: 999,
                   border: "1px solid #e5e7eb",
-                  background: pathname?.startsWith("/admin/documents") || pathname?.startsWith("/system/documents")
+                  background: pathname?.startsWith("/system/documents") || pathname?.startsWith("/admin/documents")
                     ? "#f9fafb"
                     : "transparent",
-                  color: pathname?.startsWith("/admin/documents") || pathname?.startsWith("/system/documents") ? "#0f172a" : "#f9fafb",
+                  color: pathname?.startsWith("/system/documents") || pathname?.startsWith("/admin/documents") ? "#0f172a" : "#f9fafb",
                   fontSize: 11,
                   textDecoration: "none",
                 }}

@@ -585,7 +585,17 @@ function DocumentRow({ doc, onRemove }: { doc: ManualDocument; onRemove: () => v
         borderRadius: 6,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <a
+        href={`/system/documents/${doc.systemDocumentId}`}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          textDecoration: "none",
+          color: "inherit",
+          flex: 1,
+        }}
+      >
         <span style={{ fontSize: 16 }}>📄</span>
         <div>
           <div style={{ fontSize: 13, fontWeight: 500 }}>
@@ -600,10 +610,13 @@ function DocumentRow({ doc, onRemove }: { doc: ManualDocument; onRemove: () => v
             {doc.systemDocument.code}
           </div>
         </div>
-      </div>
+      </a>
       <button
         type="button"
-        onClick={onRemove}
+        onClick={(e) => {
+          e.preventDefault();
+          onRemove();
+        }}
         style={{
           padding: "2px 6px",
           fontSize: 11,

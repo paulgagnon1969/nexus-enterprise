@@ -12,6 +12,7 @@ interface DashboardStats {
   templates: number;
   pnp: number;
   safety: number;
+  manuals: number;
   // Admin stats
   unpublished: number;
   systemDocs: number;
@@ -119,6 +120,16 @@ export default function DocumentsHomePage() {
               description="OSHA compliance, safety protocols, and training materials."
               stat={stats?.safety}
               statLabel="sections"
+            />
+
+            {/* Manuals */}
+            <DashboardCard
+              href="/documents/manuals"
+              icon="📘"
+              title="Manuals"
+              description="Organized document collections - handbooks, guides, and reference manuals."
+              stat={stats?.manuals}
+              statLabel="manuals"
             />
           </div>
         </section>
