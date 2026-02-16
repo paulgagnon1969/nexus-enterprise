@@ -7,14 +7,7 @@ import { PageCard } from "../../ui-shell";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 interface DashboardStats {
-  // Tenant-equivalent stats
-  inbox: number;
-  published: number;
-  templates: number;
-  pnp: number;
-  safety: number;
-  manuals: number;
-  // System admin stats
+  // System-level stats
   systemDocs: number;
   systemManuals: number;
   stagedSops: number;
@@ -63,86 +56,13 @@ export default function SystemDocumentsPage() {
           </p>
         </header>
 
-        {/* Main Document Sections - Same as tenant view */}
+        {/* System Documents Library */}
         <section>
+          <h2 style={{ margin: "0 0 16px", fontSize: 16, color: "#374151", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 18 }}>📚</span>
+            Document Library
+          </h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-            {/* Document Inbox */}
-            <DashboardCard
-              href="/documents/inbox"
-              icon="📥"
-              title="Document Inbox"
-              description="Review and accept documents shared from NEXUS System."
-              stat={stats?.inbox}
-              statLabel="pending"
-              highlight
-            />
-
-            {/* Published Documents */}
-            <DashboardCard
-              href="/documents/copies"
-              icon="📋"
-              title="Published Documents"
-              description="Documents published to your organization."
-              stat={stats?.published}
-              statLabel="documents"
-            />
-
-            {/* Templates */}
-            <DashboardCard
-              href="/documents/templates"
-              icon="📝"
-              title="Templates"
-              description="Reusable document templates for invoices, quotes, and forms."
-              stat={stats?.templates}
-              statLabel="templates"
-            />
-
-            {/* Policies & Procedures */}
-            <DashboardCard
-              href="/documents/pnp"
-              icon="📚"
-              title="Policies & Procedures"
-              description="Internal SOPs, policies, and knowledge base articles."
-              stat={stats?.pnp}
-              statLabel="documents"
-            />
-
-            {/* Safety Manual */}
-            <DashboardCard
-              href="/learning/safety"
-              icon="🛡️"
-              title="Safety Manual"
-              description="OSHA compliance, safety protocols, and training materials."
-              stat={stats?.safety}
-              statLabel="sections"
-            />
-
-            {/* Manuals */}
-            <DashboardCard
-              href="/documents/manuals"
-              icon="📘"
-              title="Manuals"
-              description="Organized document collections - handbooks, guides, and reference manuals."
-              stat={stats?.manuals}
-              statLabel="manuals"
-            />
-          </div>
-        </section>
-
-        {/* System Administration Tools - NEXUS Admin Only */}
-        <section>
-          <div
-            style={{
-              borderTop: "1px solid #e5e7eb",
-              paddingTop: 20,
-              marginTop: 8,
-            }}
-          >
-            <h2 style={{ margin: "0 0 16px", fontSize: 16, color: "#374151", display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 18 }}>🔧</span>
-              System Administration
-            </h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
               {/* System Documents Library */}
               <DashboardCard
                 href="/system/documents/library"
@@ -176,7 +96,6 @@ export default function SystemDocumentsPage() {
                 adminCard
               />
             </div>
-          </div>
         </section>
 
         {/* Publishing & Distribution Tools */}
@@ -232,10 +151,8 @@ export default function SystemDocumentsPage() {
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             <QuickActionButton href="/system/documents/library/new" label="+ New System Document" />
             <QuickActionButton href="/system/documents/manuals/new" label="+ New Manual" />
-            <QuickActionButton href="/documents/templates/new" label="+ New Template" />
             <QuickActionButton href="/system/documents/sops-staging" label="Review Staged SOPs" />
             <QuickActionButton href="/system/documents/publish" label="Publish to Tenants" />
-            <QuickActionButton href="/documents/inbox" label="Check Inbox" />
           </div>
         </section>
       </div>
