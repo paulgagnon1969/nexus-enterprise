@@ -1459,7 +1459,7 @@ export class ProjectController {
     @Req() req: any,
     @Param("id") projectId: string,
     @Param("invoiceId") invoiceId: string,
-    @Body() dto: { lineIds: string[]; targetInvoiceId?: string },
+    @Body() dto: { lineIds?: string[]; billIds?: string[]; targetInvoiceId?: string },
   ) {
     const user = req.user as AuthenticatedUser;
     return this.projects.moveExpenseLineItemsToInvoice(projectId, invoiceId, dto, user);
