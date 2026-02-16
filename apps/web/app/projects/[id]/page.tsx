@@ -15888,7 +15888,8 @@ ${htmlBody}
                       (inv: any) => inv?.id !== expenseInvoice.id
                     );
                     return (
-                    <div style={{ marginTop: 8, padding: "8px 10px", background: "#dbeafe", borderRadius: 6, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ marginTop: 8, padding: "8px 10px", background: "#dbeafe", borderRadius: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 11, fontWeight: 600, color: "#1d4ed8" }}>
                         {selectedExpenseLineIds.size} line{selectedExpenseLineIds.size !== 1 ? "s" : ""} selected
                       </span>
@@ -16026,6 +16027,11 @@ ${htmlBody}
                       >
                         Clear
                       </button>
+                      </div>
+                      <div style={{ marginTop: 6, fontSize: 10, color: "#6b7280" }}>
+                        Dropdown shows other draft invoices to consolidate into (current Expenses invoice excluded).
+                        {otherDraftInvoices.length === 0 && " No other drafts available."}
+                      </div>
                     </div>
                     );
                   })()}
@@ -17086,6 +17092,7 @@ ${htmlBody}
                         <thead>
                           <tr style={{ backgroundColor: "#f9fafb" }}>
                             <th style={{ textAlign: "left", padding: "6px 8px" }}>Invoice</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Type</th>
                             <th style={{ textAlign: "left", padding: "6px 8px" }}>Status</th>
                             <th style={{ textAlign: "right", padding: "6px 8px" }}>Total</th>
                             <th style={{ textAlign: "right", padding: "6px 8px" }}>Paid</th>
@@ -17147,6 +17154,16 @@ ${htmlBody}
                                 }}
                               >
                                 {inv.invoiceNo ?? "(draft)"}
+                              </td>
+                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 11 }}>
+                                <span style={{
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  background: inv.category === "EXPENSE" ? "#dcfce7" : inv.category === "PETL" ? "#dbeafe" : "#f3f4f6",
+                                  color: inv.category === "EXPENSE" ? "#166534" : inv.category === "PETL" ? "#1d4ed8" : "#374151",
+                                }}>
+                                  {inv.category === "EXPENSE" ? "Expenses" : inv.category === "PETL" ? "Progress" : inv.category ?? "—"}
+                                </span>
                               </td>
                               <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
                                 {inv.status}
