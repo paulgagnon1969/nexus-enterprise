@@ -102,23 +102,20 @@ export class ManualPdfService implements OnModuleInit, OnModuleDestroy {
       `);
 
       // Generate PDF with print settings
+      // Note: We rely on the HTML content for logo/watermark since headerTemplate
+      // has issues with large base64 images. Page numbers use footerTemplate.
       const pdfBuffer = await page.pdf({
         format: "letter",
         printBackground: true,
         preferCSSPageSize: false,
         margin: {
-          top: "1in",
+          top: "0.75in",
           right: "0.75in",
           bottom: "0.75in",
           left: "0.75in",
         },
         displayHeaderFooter: true,
-        headerTemplate: `
-          <div style="width: 100%; font-size: 9px; padding: 0 0.5in; display: flex; align-items: center; justify-content: space-between;">
-            <img src="${NCC_LOGO_BASE64}" style="height: 24px;" />
-            <span style="color: #666; font-size: 8px;">Official Documentation</span>
-          </div>
-        `,
+        headerTemplate: `<div></div>`,
         footerTemplate: `
           <div style="width: 100%; font-size: 9px; color: #888; padding: 0 0.5in; display: flex; justify-content: space-between;">
             <span style="color: #999; font-size: 7px;">Confidential &amp; Proprietary</span>

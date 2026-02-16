@@ -230,16 +230,19 @@ export class ManualRenderService {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 350px;
-    height: 350px;
-    opacity: 0.04;
+    width: 400px;
+    height: 400px;
+    opacity: 0.06;
     pointer-events: none;
     z-index: -1;
   }
 
   @media print {
     .watermark {
-      opacity: 0.03;
+      opacity: 0.05;
+      /* Ensure it prints */
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
   }
 
@@ -301,9 +304,19 @@ export class ManualRenderService {
     }
   }
 
-  .cover-page .logo {
-    max-width: 120px;
-    margin-bottom: 1rem;
+  .cover-page .logo,
+  .cover-page .cover-logo {
+    max-width: 200px;
+    max-height: 120px;
+    margin-bottom: 1.5rem;
+  }
+
+  @media print {
+    .cover-page .logo,
+    .cover-page .cover-logo {
+      max-width: 300px;
+      max-height: 180px;
+    }
   }
 
   .cover-page .meta div {
@@ -614,7 +627,7 @@ export class ManualRenderService {
 
   /* Page header with logo */
   .page-header {
-    display: flex;
+    display: flex !important;
     align-items: center;
     justify-content: space-between;
     padding: 0.5rem 1rem;
@@ -626,6 +639,8 @@ export class ManualRenderService {
   .page-header .nexus-logo {
     height: 40px;
     width: auto;
+    display: block !important;
+    visibility: visible !important;
   }
   
   .page-header .header-title {
