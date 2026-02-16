@@ -157,6 +157,12 @@ model Company {
 
   // Tenant-owned Manuals (created by the tenant, not NEXUS System)
   ownedManuals Manual[] @relation("ManualOwner")
+
+  // Publication Group membership (for multi-tenant publishing)
+  publicationGroupMemberships PublicationGroupMember[] @relation("PublicationGroupMembership")
+
+  // Description Keeper (Saved Phrases)
+  savedPhrases SavedPhrase[]
 }
 
 model OrganizationTemplate {
@@ -456,6 +462,12 @@ model User {
 
   // Document Share Links
   shareLinksCreated DocumentShareLink[] @relation("ShareLinkCreatedBy")
+
+  // Publication Groups (for multi-tenant publishing)
+  publicationGroupsCreated PublicationGroup[] @relation("PublicationGroupCreatedBy")
+
+  // Description Keeper (Saved Phrases)
+  savedPhrases SavedPhrase[]
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -5284,6 +5296,8 @@ model ManualDocument {
   systemDocumentId       String
   sortOrder              Int      @default(0) // Order within chapter
   displayTitleOverride   String?  // Optional override (e.g., "PPE Policy" instead of full title)
+  includeInToc           Boolean  @default(true) // Whether to show in Table of Contents
+  includeInPrint         Boolean  @default(true) // Whether to include content in print/PDF (false = "This Section Intentionally Blank")
   addedInManualVersion   Int      // Which manual version added this doc
   removedInManualVersion Int?     // Null if still active, set when removed
   active                 Boolean  @default(true) // Derived from removedInManualVersion being null
@@ -5312,6 +5326,41 @@ model ManualTargetTag {
   @@unique([manualId, systemTagId], map: "ManualTargetTag_manual_tag_key")
   @@index([manualId], map: "ManualTargetTag_manual_idx")
   @@index([systemTagId], map: "ManualTargetTag_tag_idx")
+}
+
+// =============================================================================
+// Publication Groups (for multi-tenant publishing)
+// =============================================================================
+
+/// Reusable group of tenants for bulk document publishing
+model PublicationGroup {
+  id              String   @id @default(cuid())
+  code            String   @unique // e.g., "west-coast-clients"
+  name            String           // e.g., "West Coast Clients"
+  description     String?  @db.Text
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  createdBy User                     @relation("PublicationGroupCreatedBy", fields: [createdByUserId], references: [id])
+  members   PublicationGroupMember[]
+
+  @@index([code], map: "PublicationGroup_code_idx")
+}
+
+/// Join table linking companies to publication groups
+model PublicationGroupMember {
+  id        String   @id @default(cuid())
+  groupId   String
+  companyId String
+  addedAt   DateTime @default(now())
+
+  group   PublicationGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  company Company          @relation("PublicationGroupMembership", fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, companyId], map: "PublicationGroupMember_group_company_key")
+  @@index([groupId], map: "PublicationGroupMember_group_idx")
+  @@index([companyId], map: "PublicationGroupMember_company_idx")
 }
 
 // =============================================================================
@@ -5345,4 +5394,37 @@ model DocumentShareLink {
   @@index([accessToken], map: "DocShareLink_token_idx")
   @@index([systemDocumentId], map: "DocShareLink_doc_idx")
   @@index([manualId], map: "DocShareLink_manual_idx")
+}
+
+// =============================================================================
+// Description Keeper (Saved Phrases)
+// =============================================================================
+
+/// Category for saved phrases, indicating where the phrase is typically used.
+enum SavedPhraseCategory {
+  INVOICE
+  BILL
+  DAILY_LOG
+  GENERAL
+}
+
+/// Reusable text phrases that users can save and reuse across the application.
+/// If userId is null, the phrase is company-wide (shared with all users in the company).
+/// If userId is set, the phrase is personal to that user.
+model SavedPhrase {
+  id        String              @id @default(cuid())
+  companyId String
+  userId    String?             // Null = company-wide, Set = user-specific
+  category  SavedPhraseCategory @default(GENERAL)
+  phrase    String              @db.Text
+  label     String?             // Optional short label for quick identification
+  sortOrder Int                 @default(0)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, userId, category], map: "SavedPhrase_company_user_cat_idx")
+  @@index([companyId, category], map: "SavedPhrase_company_cat_idx")
 }

@@ -28,6 +28,7 @@ import { JournalTab } from "./journal";
 import { RoleVisible } from "../../role-audit";
 import { FileDropZone } from "../../components/file-drop-zone";
 import { ScheduleSection, makeMermaidSafeId, scheduleExtractGroupCode, MermaidGantt } from "./schedule-section";
+import { DescriptionPicker } from "../../components/DescriptionPicker";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -14379,16 +14380,12 @@ ${htmlBody}
 
                     <div style={{ gridColumn: "1 / -1" }}>
                       <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Line description</div>
-                      <input
+                      <DescriptionPicker
                         value={billLineDescription}
-                        onChange={(e) => setBillLineDescription(e.target.value)}
+                        onChange={setBillLineDescription}
+                        category="BILL"
                         placeholder="What is this bill for?"
-                        style={{
-                          width: "100%",
-                          padding: "6px 8px",
-                          borderRadius: 6,
-                          border: "1px solid #d1d5db",
-                        }}
+                        style={{ width: "100%" }}
                       />
                     </div>
 
@@ -21339,20 +21336,13 @@ ${htmlBody}
                         </button>
                       )}
                     </div>
-                    <input
-                      type="text"
+                    <DescriptionPicker
                       value={newDailyLog.title}
-                      onChange={e =>
-                        setNewDailyLog(prev => ({ ...prev, title: e.target.value }))
-                      }
+                      onChange={(val) => setNewDailyLog(prev => ({ ...prev, title: val }))}
+                      category="DAILY_LOG"
                       placeholder="Auto-fills from notes if left empty"
-                      style={{
-                        width: "100%",
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        fontSize: 12,
-                      }}
+                      style={{ width: "100%" }}
+                      inputStyle={{ fontSize: 12, padding: "4px 6px" }}
                     />
                   </div>
 

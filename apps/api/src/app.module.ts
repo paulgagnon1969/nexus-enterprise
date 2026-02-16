@@ -43,6 +43,8 @@ import { SystemTagsModule } from "./modules/system-tags/system-tags.module";
 import { ManualsModule } from "./modules/manuals/manuals.module";
 import { TenantDocumentsModule } from "./modules/tenant-documents/tenant-documents.module";
 import { PublicDocsModule } from "./modules/public-docs/public-docs.module";
+import { PublicationGroupsModule } from "./modules/publication-groups/publication-groups.module";
+import { SavedPhrasesModule } from "./modules/saved-phrases/saved-phrases.module";
 
 @Module({
   imports: [
@@ -94,6 +96,8 @@ import { PublicDocsModule } from "./modules/public-docs/public-docs.module";
     ManualsModule,
     TenantDocumentsModule,
     PublicDocsModule,
+    PublicationGroupsModule,
+    SavedPhrasesModule,
   ],
   controllers: [DevController]
 })
