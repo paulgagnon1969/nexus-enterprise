@@ -591,10 +591,37 @@ export class ManualsService {
         chapterId: dto.chapterId === null ? null : (dto.chapterId ?? doc.chapterId),
         displayTitleOverride: dto.displayTitleOverride === null ? null : (dto.displayTitleOverride ?? doc.displayTitleOverride),
         sortOrder: dto.sortOrder ?? doc.sortOrder,
+        includeInPrint: dto.includeInPrint ?? doc.includeInPrint,
       },
     });
 
     return this.getManual(manualId);
+  }
+
+  /**
+   * Toggle includeInPrint for a manual document.
+   * Returns just the updated document for quick UI updates.
+   */
+  async toggleDocumentPrintInclusion(manualId: string, docId: string, includeInPrint: boolean) {
+    const doc = await this.prisma.manualDocument.findFirst({
+      where: { id: docId, manualId, active: true },
+    });
+
+    if (!doc) {
+      throw new NotFoundException("Manual document not found");
+    }
+
+    const updated = await this.prisma.manualDocument.update({
+      where: { id: docId },
+      data: { includeInPrint },
+      include: {
+        systemDocument: {
+          select: { id: true, title: true },
+        },
+      },
+    });
+
+    return updated;
   }
 
   async removeDocument(manualId: string, docId: string, userId: string) {

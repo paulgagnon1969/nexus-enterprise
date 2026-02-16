@@ -198,6 +198,15 @@ export class UpdateManualDocumentDto {
   @Min(0)
   @IsOptional()
   sortOrder?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  includeInPrint?: boolean; // false = "This Section Intentionally Blank"
+}
+
+export class TogglePrintInclusionDto {
+  @IsBoolean()
+  includeInPrint!: boolean;
 }
 
 export class ReorderDocumentsDto {

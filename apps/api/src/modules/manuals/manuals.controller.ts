@@ -30,6 +30,7 @@ import {
   AddDocumentToManualDto,
   UpdateManualDocumentDto,
   ReorderDocumentsDto,
+  TogglePrintInclusionDto,
 } from "./dto/manual.dto";
 
 function getUser(req: FastifyRequest): AuthenticatedUser {
@@ -243,6 +244,18 @@ export class ManualsController {
     );
   }
 
+  @Post(":id/documents/:docId/toggle-print")
+  async toggleDocumentPrintInclusion(
+    @Req() req: FastifyRequest,
+    @Param("id") id: string,
+    @Param("docId") docId: string,
+    @Body() dto: TogglePrintInclusionDto
+  ) {
+    const user = getUser(req);
+    assertSystemManualAccess(user);
+    return this.manualsService.toggleDocumentPrintInclusion(id, docId, dto.includeInPrint);
+  }
+
   // =========================================================================
   // Rendering & Export
   // =========================================================================
@@ -262,7 +275,8 @@ export class ManualsController {
     @Param("id") id: string,
     @Query("toc") includeToc?: string,
     @Query("cover") includeCover?: string,
-    @Query("revisions") includeRevisions?: string
+    @Query("revisions") includeRevisions?: string,
+    @Query("baseUrl") baseUrl?: string
   ) {
     const user = getUser(req);
     assertSuperAdmin(user);
@@ -271,6 +285,11 @@ export class ManualsController {
       includeToc: includeToc !== "false",
       includeCoverPage: includeCover !== "false",
       includeRevisionMarkers: includeRevisions !== "false",
+      baseUrl: baseUrl || '',
+      userContext: {
+        userId: user.userId,
+        userName: user.email,
+      },
     });
 
     return reply.type("text/html").send(html);
@@ -298,8 +317,13 @@ export class ManualsController {
       manual.currentVersion
     );
 
-    // Generate PDF
-    const pdfBuffer = await this.pdfService.generatePdf(id);
+    // Generate PDF with user context for serialization/tracking
+    const pdfBuffer = await this.pdfService.generatePdf(id, {
+      userContext: {
+        userId: user.userId,
+        userName: user.email,
+      },
+    });
 
     return reply
       .type("application/pdf")

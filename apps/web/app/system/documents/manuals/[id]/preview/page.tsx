@@ -13,6 +13,17 @@ interface ManualInfo {
   status: string;
 }
 
+interface TocEntry {
+  id: string;
+  type: "chapter" | "document";
+  title: string;
+  level: number;
+  anchor: string;
+  revisionNo?: number;
+  includeInPrint?: boolean;
+  children?: TocEntry[];
+}
+
 export default function ManualPreviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: manualId } = React.use(params);
   const router = useRouter();
@@ -22,6 +33,9 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [toc, setToc] = useState<TocEntry[]>([]);
+  const [showTocPanel, setShowTocPanel] = useState(false);
+  const [togglingDoc, setTogglingDoc] = useState<string | null>(null);
 
   // Options
   const [includeToc, setIncludeToc] = useState(true);
@@ -51,6 +65,53 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
     }
   }, [manualId]);
 
+  const loadToc = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/system/manuals/${manualId}/toc`, {
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setToc(data);
+      }
+    } catch {
+      // Ignore TOC load errors
+    }
+  }, [manualId]);
+
+  const toggleDocumentInclusion = async (docId: string, currentValue: boolean) => {
+    setTogglingDoc(docId);
+    try {
+      const res = await fetch(`${API_BASE}/system/manuals/${manualId}/documents/${docId}/toggle-print`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ includeInPrint: !currentValue }),
+      });
+      if (res.ok) {
+        // Update local TOC state
+        setToc((prev) => updateTocEntry(prev, docId, !currentValue));
+        // Reload preview to reflect changes
+        loadPreview();
+      }
+    } catch (err) {
+      console.error("Failed to toggle document inclusion", err);
+    } finally {
+      setTogglingDoc(null);
+    }
+  };
+
+  const updateTocEntry = (entries: TocEntry[], docId: string, newValue: boolean): TocEntry[] => {
+    return entries.map((entry) => {
+      if (entry.id === docId && entry.type === "document") {
+        return { ...entry, includeInPrint: newValue };
+      }
+      if (entry.children) {
+        return { ...entry, children: updateTocEntry(entry.children, docId, newValue) };
+      }
+      return entry;
+    });
+  };
+
   const loadPreview = useCallback(async () => {
     setLoading(true);
     try {
@@ -58,6 +119,8 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
       if (!includeToc) queryParams.set("toc", "false");
       if (!includeCover) queryParams.set("cover", "false");
       if (!includeRevisions) queryParams.set("revisions", "false");
+      // Pass baseUrl for logo/asset resolution
+      queryParams.set("baseUrl", window.location.origin);
 
       const res = await fetch(
         `${API_BASE}/system/manuals/${manualId}/render?${queryParams.toString()}`,
@@ -77,8 +140,9 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
 
   useEffect(() => {
     loadManualInfo();
+    loadToc();
     loadPreview();
-  }, [loadManualInfo, loadPreview]);
+  }, [loadManualInfo, loadToc, loadPreview]);
 
   const handleDownloadPdf = async () => {
     setDownloading(true);
@@ -183,6 +247,25 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {/* Options */}
           <div style={{ display: "flex", alignItems: "center", gap: 16, marginRight: 8 }}>
+            <button
+              type="button"
+              onClick={() => setShowTocPanel(!showTocPanel)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 12px",
+                fontSize: 13,
+                backgroundColor: showTocPanel ? "#4b5563" : "#374151",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: 6,
+                cursor: "pointer",
+              }}
+            >
+              <span style={{ fontSize: 14 }}>📑</span> Sections
+            </button>
+            <div style={{ width: 1, height: 20, backgroundColor: "#4b5563" }} />
             <label style={{ display: "flex", alignItems: "center", gap: 6, color: "#9ca3af", fontSize: 13, cursor: "pointer" }}>
               <input
                 type="checkbox"
@@ -259,9 +342,42 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
         </div>
       </div>
 
-      {/* Preview iframe/content */}
-      <div style={{ flex: 1, overflow: "auto", display: "flex", justifyContent: "center", padding: 20 }}>
-        {loading ? (
+      {/* Main content area with optional TOC panel */}
+      <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        {/* TOC Section Panel */}
+        {showTocPanel && (
+          <div
+            style={{
+              width: 320,
+              backgroundColor: "#1f2937",
+              borderRight: "1px solid #374151",
+              overflow: "auto",
+              padding: 16,
+              flexShrink: 0,
+            }}
+          >
+            <div style={{ marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#ffffff" }}>Section Inclusion</h3>
+              <p style={{ margin: "4px 0 0", fontSize: 11, color: "#9ca3af" }}>
+                Uncheck sections to exclude from print/PDF
+              </p>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {toc.map((entry) => (
+                <TocEntryRow
+                  key={entry.id}
+                  entry={entry}
+                  onToggle={toggleDocumentInclusion}
+                  togglingDoc={togglingDoc}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Preview iframe/content */}
+        <div style={{ flex: 1, overflow: "hidden", display: "flex", justifyContent: "center", padding: "8px" }}>
+          {loading ? (
           <div
             style={{
               display: "flex",
@@ -289,9 +405,7 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
             style={{
               backgroundColor: "#ffffff",
               width: "100%",
-              maxWidth: "8.5in",
-              minHeight: "11in",
-              boxShadow: "0 4px 24px rgba(0, 0, 0, 0.3)",
+              height: "100%",
               borderRadius: 4,
               overflow: "hidden",
             }}
@@ -301,18 +415,80 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
               style={{
                 width: "100%",
                 height: "100%",
-                minHeight: "11in",
                 border: "none",
               }}
               title="Manual Preview"
             />
           </div>
-        ) : (
-          <div style={{ color: "#9ca3af", textAlign: "center" }}>
-            <p>No content to display</p>
-          </div>
-        )}
+          ) : (
+            <div style={{ color: "#9ca3af", textAlign: "center" }}>
+              <p>No content to display</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
+  );
+}
+
+// --- TOC Entry Row Component ---
+
+function TocEntryRow({
+  entry,
+  onToggle,
+  togglingDoc,
+}: {
+  entry: TocEntry;
+  onToggle: (docId: string, currentValue: boolean) => void;
+  togglingDoc: string | null;
+}) {
+  const isDocument = entry.type === "document";
+  const isToggling = togglingDoc === entry.id;
+  const includeInPrint = entry.includeInPrint ?? true;
+
+  return (
+    <>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 8px",
+          backgroundColor: entry.level === 1 ? "#374151" : "#2d3748",
+          borderRadius: 4,
+          marginLeft: entry.level === 2 ? 16 : 0,
+          opacity: isToggling ? 0.6 : 1,
+        }}
+      >
+        {isDocument ? (
+          <input
+            type="checkbox"
+            checked={includeInPrint}
+            onChange={() => onToggle(entry.id, includeInPrint)}
+            disabled={isToggling}
+            style={{ accentColor: "#3b82f6", cursor: isToggling ? "wait" : "pointer" }}
+          />
+        ) : (
+          <span style={{ width: 16, fontSize: 12 }}>📁</span>
+        )}
+        <span
+          style={{
+            flex: 1,
+            fontSize: 12,
+            color: includeInPrint ? "#e5e7eb" : "#6b7280",
+            textDecoration: includeInPrint ? "none" : "line-through",
+            fontWeight: entry.level === 1 ? 500 : 400,
+          }}
+        >
+          {entry.title}
+        </span>
+        {isDocument && !includeInPrint && (
+          <span style={{ fontSize: 10, color: "#f59e0b" }}>Blank</span>
+        )}
+      </div>
+      {entry.children?.map((child) => (
+        <TocEntryRow key={child.id} entry={child} onToggle={onToggle} togglingDoc={togglingDoc} />
+      ))}
+    </>
   );
 }
