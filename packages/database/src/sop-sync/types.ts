@@ -26,6 +26,8 @@ export interface ParsedSop {
   contentHash: string;
   /** Original file path */
   filePath: string;
+  /** File modification timestamp (ISO string) */
+  fileModifiedAt: string;
 }
 
 export interface SopSyncResult {

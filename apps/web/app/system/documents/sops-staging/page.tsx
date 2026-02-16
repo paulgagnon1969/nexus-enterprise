@@ -10,6 +10,9 @@ interface StagedSop {
   title: string;
   revision: string;
   status: string;
+  module: string;
+  fileModifiedAt: string;
+  frontmatterUpdated: string;
   syncStatus: "new" | "updated" | "synced";
   currentSystemRevision?: string;
   systemDocumentId?: string;
@@ -37,6 +40,9 @@ interface SyncReport {
   };
 }
 
+type SortField = "title" | "fileModifiedAt" | "module";
+type SortDir = "asc" | "desc";
+
 export default function SystemSopsStagingPage() {
   const [stagedSops, setStagedSops] = useState<StagedSop[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,6 +53,8 @@ export default function SystemSopsStagingPage() {
   const [previewCode, setPreviewCode] = useState<string | null>(null);
   const [previewContent, setPreviewContent] = useState<any | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [sortField, setSortField] = useState<SortField>("fileModifiedAt");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const loadStagedSops = async () => {
     const token = localStorage.getItem("accessToken");
@@ -162,9 +170,58 @@ export default function SystemSopsStagingPage() {
     setSelectedCodes(new Set(pending.map((s) => s.code)));
   };
 
-  const pendingSops = stagedSops?.filter((s) => s.syncStatus !== "synced") ?? [];
-  const syncedSops = stagedSops?.filter((s) => s.syncStatus === "synced") ?? [];
+  const sortSops = (sops: StagedSop[]) => {
+    return [...sops].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === "title") {
+        cmp = a.title.localeCompare(b.title);
+      } else if (sortField === "fileModifiedAt") {
+        cmp = new Date(a.fileModifiedAt).getTime() - new Date(b.fileModifiedAt).getTime();
+      } else if (sortField === "module") {
+        cmp = a.module.localeCompare(b.module);
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  };
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDir(field === "title" ? "asc" : "desc");
+    }
+  };
+
+  const pendingSops = sortSops(stagedSops?.filter((s) => s.syncStatus !== "synced") ?? []);
+  const syncedSops = sortSops(stagedSops?.filter((s) => s.syncStatus === "synced") ?? []);
   const selectedCount = selectedCodes.size;
+
+  const formatDate = (isoDate: string) => {
+    const d = new Date(isoDate);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
+
+  const formatDateTime = (isoDate: string) => {
+    const d = new Date(isoDate);
+    return d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+  };
+
+  const SortHeader = ({ field, label, width }: { field: SortField; label: string; width?: number }) => (
+    <th
+      onClick={() => handleSort(field)}
+      style={{
+        padding: "10px 12px",
+        textAlign: "left",
+        borderBottom: "1px solid #fde047",
+        width,
+        cursor: "pointer",
+        userSelect: "none",
+      }}
+    >
+      {label} {sortField === field && (sortDir === "asc" ? "↑" : "↓")}
+    </th>
+  );
 
   return (
     <div style={{ padding: 24, maxWidth: 1200 }}>
@@ -375,11 +432,12 @@ export default function SystemSopsStagingPage() {
               <thead>
                 <tr style={{ background: "#fefce8" }}>
                   <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #fde047", width: 40 }}></th>
-                  <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #fde047" }}>SOP</th>
-                  <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #fde047", width: 100 }}>Staged Rev</th>
-                  <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #fde047", width: 100 }}>System Rev</th>
-                  <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #fde047", width: 100 }}>Status</th>
-                  <th style={{ padding: "10px 12px", textAlign: "right", borderBottom: "1px solid #fde047", width: 120 }}>Actions</th>
+                  <SortHeader field="title" label="SOP" />
+                  <SortHeader field="module" label="Module" width={100} />
+                  <SortHeader field="fileModifiedAt" label="File Date" width={130} />
+                  <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #fde047", width: 80 }}>Rev</th>
+                  <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #fde047", width: 80 }}>Status</th>
+                  <th style={{ padding: "10px 12px", textAlign: "right", borderBottom: "1px solid #fde047", width: 100 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -393,6 +451,7 @@ export default function SystemSopsStagingPage() {
                     previewContent={previewContent}
                     previewLoading={previewLoading}
                     onPreview={() => handlePreview(sop.code)}
+                    formatDateTime={formatDateTime}
                   />
                 ))}
               </tbody>
@@ -420,10 +479,11 @@ export default function SystemSopsStagingPage() {
                 <tr style={{ background: "#f9fafb" }}>
                   <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 40 }}></th>
                   <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>SOP</th>
-                  <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 100 }}>Staged Rev</th>
-                  <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 100 }}>System Rev</th>
-                  <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 100 }}>Status</th>
-                  <th style={{ padding: "10px 12px", textAlign: "right", borderBottom: "1px solid #e5e7eb", width: 120 }}>Actions</th>
+                  <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 100 }}>Module</th>
+                  <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 130 }}>File Date</th>
+                  <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 80 }}>Rev</th>
+                  <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 80 }}>Status</th>
+                  <th style={{ padding: "10px 12px", textAlign: "right", borderBottom: "1px solid #e5e7eb", width: 100 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -437,6 +497,7 @@ export default function SystemSopsStagingPage() {
                     previewContent={previewContent}
                     previewLoading={previewLoading}
                     onPreview={() => handlePreview(sop.code)}
+                    formatDateTime={formatDateTime}
                   />
                 ))}
               </tbody>
@@ -479,6 +540,7 @@ function SopRow({
   previewContent,
   previewLoading,
   onPreview,
+  formatDateTime,
 }: {
   sop: StagedSop;
   selected: boolean;
@@ -487,6 +549,7 @@ function SopRow({
   previewContent: any;
   previewLoading: boolean;
   onPreview: () => void;
+  formatDateTime: (iso: string) => string;
 }) {
   const isPreviewOpen = previewCode === sop.code;
 
@@ -506,11 +569,14 @@ function SopRow({
           <div style={{ fontWeight: 500 }}>{sop.title}</div>
           <div style={{ fontSize: 11, color: "#6b7280" }}>{sop.code}.md</div>
         </td>
-        <td style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6" }}>
-          {sop.revision}
+        <td style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6", fontSize: 12 }}>
+          {sop.module}
+        </td>
+        <td style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6", fontSize: 11, color: "#6b7280" }}>
+          {formatDateTime(sop.fileModifiedAt)}
         </td>
         <td style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6" }}>
-          {sop.currentSystemRevision ?? "—"}
+          {sop.revision}
         </td>
         <td style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6" }}>
           <SyncStatusBadge status={sop.syncStatus} />
@@ -550,7 +616,7 @@ function SopRow({
       </tr>
       {isPreviewOpen && (
         <tr>
-          <td colSpan={6} style={{ padding: 0, borderBottom: "1px solid #e5e7eb" }}>
+          <td colSpan={7} style={{ padding: 0, borderBottom: "1px solid #e5e7eb" }}>
             <div
               style={{
                 padding: 16,

@@ -8,8 +8,10 @@
  * Run with: DATABASE_URL=postgresql://... npx ts-node src/seed-nccpm.ts
  */
 
-import { GlobalRole, ManualVersionChangeType } from "@prisma/client";
+import { GlobalRole, ManualVersionChangeType, Prisma } from "@prisma/client";
 import prisma from "./client";
+
+type TxClient = Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
 async function main() {
   console.log("Seeding NCC Programming Manual (NccPM)...");
@@ -36,7 +38,7 @@ async function main() {
   }
 
   // Create the NccPM manual
-  const manual = await prisma.$transaction(async (tx) => {
+  const manual = await prisma.$transaction(async (tx: TxClient) => {
     const newManual = await tx.manual.create({
       data: {
         code: "nccpm",
