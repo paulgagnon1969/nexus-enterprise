@@ -15880,9 +15880,9 @@ ${htmlBody}
                   </div>
                   {/* Move expense lines action bar */}
                   {expenseInvoice && expenseInvoice.status === "DRAFT" && selectedExpenseLineIds.size > 0 && (() => {
-                    // Get other DRAFT EXPENSE invoices for the dropdown
-                    const otherExpenseDrafts = (projectInvoices ?? []).filter(
-                      (inv: any) => inv?.category === "EXPENSE" && inv?.status === "DRAFT" && inv?.id !== expenseInvoice.id
+                    // Get all other DRAFT invoices for the dropdown (any category)
+                    const otherDraftInvoices = (projectInvoices ?? []).filter(
+                      (inv: any) => inv?.status === "DRAFT" && inv?.id !== expenseInvoice.id
                     );
                     return (
                     <div style={{ marginTop: 8, padding: "8px 10px", background: "#dbeafe", borderRadius: 6, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -15902,11 +15902,16 @@ ${htmlBody}
                         }}
                       >
                         <option value="">New Invoice</option>
-                        {otherExpenseDrafts.map((inv: any) => (
-                          <option key={inv.id} value={inv.id}>
-                            {inv.invoiceNo ?? `Draft ${inv.id.slice(0,8)}`} ({inv.memo || "Expenses"})
-                          </option>
-                        ))}
+                        {otherDraftInvoices.map((inv: any, idx: number) => {
+                          const label = inv.invoiceNo ?? `Draft #${idx + 1}`;
+                          const category = inv.category === "EXPENSE" ? "Expenses" : inv.category === "PETL" ? "Progress" : inv.category ?? "Invoice";
+                          const memo = inv.memo ? ` - ${inv.memo}` : "";
+                          return (
+                            <option key={inv.id} value={inv.id}>
+                              {label} ({category}{memo})
+                            </option>
+                          );
+                        })}
                       </select>
                       <button
                         type="button"
@@ -15938,7 +15943,7 @@ ${htmlBody}
                           }
 
                           const targetLabel = moveExpenseTargetInvoiceId
-                            ? otherExpenseDrafts.find((inv: any) => inv.id === moveExpenseTargetInvoiceId)?.invoiceNo ?? "selected invoice"
+                            ? otherDraftInvoices.find((inv: any) => inv.id === moveExpenseTargetInvoiceId)?.invoiceNo ?? "selected invoice"
                             : "a new invoice";
                           const ok = window.confirm(
                             `Move ${lineIds.length} expense line item${lineIds.length !== 1 ? "s" : ""} to ${targetLabel}?`

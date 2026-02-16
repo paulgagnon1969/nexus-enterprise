@@ -11496,7 +11496,8 @@ export class ProjectService {
 
   /**
    * Move expense line items to a different invoice.
-   * Both source and target invoices must be DRAFT EXPENSE invoices.
+   * Source invoice must be a DRAFT EXPENSE invoice.
+   * Target can be any DRAFT invoice (EXPENSE, PETL, etc.).
    * If targetInvoiceId is not provided, a new EXPENSE draft invoice is created.
    */
   async moveExpenseLineItemsToInvoice(
@@ -11539,13 +11540,10 @@ export class ProjectService {
       let targetInvoice: { id: string };
 
       if (payload.targetInvoiceId) {
-        // Use existing invoice as target
+        // Use existing invoice as target - can be any draft invoice
         const { invoice: target } = await this.getInvoiceOrThrow(projectId, payload.targetInvoiceId, actor);
         this.assertInvoiceEditable(target);
 
-        if (target.category !== ProjectInvoiceCategory.EXPENSE) {
-          throw new BadRequestException("Target invoice must be an EXPENSE category invoice");
-        }
         if (target.id === sourceInvoice.id) {
           throw new BadRequestException("Target invoice cannot be the same as source invoice");
         }

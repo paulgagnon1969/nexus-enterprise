@@ -62,6 +62,7 @@ export function DailyLogsScreen({
   onOpenPetl,
   onNavigateHome,
   petlChanges,
+  createLogType,
 }: {
   project: ProjectListItem;
   companyName?: string;
@@ -69,6 +70,7 @@ export function DailyLogsScreen({
   onOpenPetl?: () => void;
   onNavigateHome?: () => void;
   petlChanges?: PetlSessionChanges;
+  createLogType?: string;
 }) {
   const [logs, setLogs] = useState<any[]>([]);
   const [status, setStatus] = useState<string | null>(null);

@@ -29,7 +29,7 @@ export type RootTabParamList = {
 
 export type ProjectsStackParamList = {
   ProjectsList: undefined;
-  DailyLogs: { project: ProjectListItem; companyName?: string; petlChanges?: PetlSessionChanges };
+  DailyLogs: { project: ProjectListItem; companyName?: string; petlChanges?: PetlSessionChanges; createLogType?: string };
   FieldPetl: { project: ProjectListItem; companyName?: string };
 };
 
@@ -71,6 +71,7 @@ function DailyLogsWrapper() {
   const project = route.params.project;
   const companyName = route.params.companyName;
   const petlChanges = route.params.petlChanges;
+  const createLogType = route.params.createLogType;
   return (
     <DailyLogsScreen
       project={project}
@@ -82,6 +83,7 @@ function DailyLogsWrapper() {
         navigation.getParent()?.navigate("HomeTab", { triggerSync: true });
       }}
       petlChanges={petlChanges}
+      createLogType={createLogType}
     />
   );
 }
@@ -145,6 +147,7 @@ function HomeTabScreen() {
   const onLogout = React.useContext(LogoutContext);
   const setCompany = React.useContext(SetCompanyContext);
   const route = useRoute<RouteProp<RootTabParamList, "HomeTab">>();
+  const navigation = useNavigation<any>();
   const triggerSync = route.params?.triggerSync;
   
   return (
@@ -155,6 +158,20 @@ function HomeTabScreen() {
       onGoOutbox={() => {}}
       onCompanyChange={setCompany}
       triggerSyncOnMount={triggerSync}
+      onOpenPetl={(project) => {
+        // Navigate to Projects tab and then to FieldPetl
+        navigation.navigate("ProjectsTab", {
+          screen: "FieldPetl",
+          params: { project },
+        });
+      }}
+      onOpenDailyLogCreate={(project, logType) => {
+        // Navigate to Projects tab and then to DailyLogs (which handles creation)
+        navigation.navigate("ProjectsTab", {
+          screen: "DailyLogs",
+          params: { project, createLogType: logType },
+        });
+      }}
     />
   );
 }

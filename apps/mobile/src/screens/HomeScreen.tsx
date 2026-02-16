@@ -46,6 +46,8 @@ export function HomeScreen({
   onGoOutbox,
   onCompanyChange,
   triggerSyncOnMount,
+  onOpenPetl,
+  onOpenDailyLogCreate,
 }: {
   onLogout: () => void;
   onGoProjects: () => void;
@@ -53,6 +55,8 @@ export function HomeScreen({
   onGoOutbox: () => void;
   onCompanyChange?: (company: { id: string; name: string }) => void;
   triggerSyncOnMount?: boolean;
+  onOpenPetl?: (project: ProjectListItem) => void;
+  onOpenDailyLogCreate?: (project: ProjectListItem, logType?: string) => void;
 }) {
   const { width } = useWindowDimensions();
   const isLandscape = width > 600;
@@ -102,6 +106,17 @@ export function HomeScreen({
   // Clock in/out state
   const [clockedIn, setClockedIn] = useState(false);
   const [clockInTime, setClockInTime] = useState<Date | null>(null);
+
+  // Daily Log type selector
+  const [showDailyLogPicker, setShowDailyLogPicker] = useState(false);
+
+  // Daily log type options
+  const dailyLogTypes = [
+    { id: "general", label: "General Daily Log", icon: "📝", description: "Standard daily log entry" },
+    { id: "petl", label: "PETL Updates", icon: "📊", description: "Update project element tracking" },
+    { id: "safety", label: "Safety Report", icon: "⚠️", description: "Safety observations and incidents" },
+    { id: "inspection", label: "Inspection", icon: "🔍", description: "Site or quality inspection" },
+  ];
 
   const refresh = async () => {
     const [w, p] = await Promise.all([getWifiOnlySync(), countPendingOutbox()]);
@@ -449,6 +464,21 @@ export function HomeScreen({
                 {getProjectAddress(selectedProject)}
               </Text>
             )}
+          </View>
+
+          {/* Daily Log Button */}
+          <View style={styles.dailyLogSection}>
+            <Pressable
+              style={styles.dailyLogButton}
+              onPress={() => setShowDailyLogPicker(true)}
+            >
+              <Text style={styles.dailyLogButtonIcon}>📋</Text>
+              <View style={styles.dailyLogButtonContent}>
+                <Text style={styles.dailyLogButtonText}>Add Daily Log</Text>
+                <Text style={styles.dailyLogButtonSubtext}>Select log type</Text>
+              </View>
+              <Text style={styles.dailyLogButtonArrow}>▼</Text>
+            </Pressable>
           </View>
 
           {/* Clock In/Out */}
@@ -865,6 +895,51 @@ export function HomeScreen({
         </View>
       </Modal>
 
+      {/* Daily Log Type Picker Modal */}
+      <Modal
+        visible={showDailyLogPicker}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowDailyLogPicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add Daily Log</Text>
+              <Pressable onPress={() => setShowDailyLogPicker(false)}>
+                <Text style={styles.modalClose}>✕</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.modalBody}>
+              {dailyLogTypes.map((type) => (
+                <Pressable
+                  key={type.id}
+                  style={styles.dailyLogTypeOption}
+                  onPress={() => {
+                    setShowDailyLogPicker(false);
+                    if (!selectedProject) return;
+                    
+                    // Handle navigation based on type
+                    if (type.id === "petl") {
+                      onOpenPetl?.(selectedProject);
+                    } else {
+                      onOpenDailyLogCreate?.(selectedProject, type.id);
+                    }
+                  }}
+                >
+                  <Text style={styles.dailyLogTypeIcon}>{type.icon}</Text>
+                  <View style={styles.dailyLogTypeContent}>
+                    <Text style={styles.dailyLogTypeLabel}>{type.label}</Text>
+                    <Text style={styles.dailyLogTypeDesc}>{type.description}</Text>
+                  </View>
+                  <Text style={styles.chevron}>›</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Directions dialog */}
       {selectedProject && (
         <DirectionsDialog
@@ -1260,6 +1335,67 @@ const styles = StyleSheet.create({
   projectHeaderAddress: {
     fontSize: 14,
     color: "#6b7280",
+  },
+
+  // Daily Log section
+  dailyLogSection: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  dailyLogButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: "#1e3a8a",
+    gap: 12,
+  },
+  dailyLogButtonIcon: {
+    fontSize: 28,
+  },
+  dailyLogButtonContent: {
+    flex: 1,
+  },
+  dailyLogButtonText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+  dailyLogButtonSubtext: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.7)",
+    marginTop: 2,
+  },
+  dailyLogButtonArrow: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.7)",
+  },
+
+  // Daily Log Type picker options
+  dailyLogTypeOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 10,
+    marginVertical: 4,
+    backgroundColor: "#f9fafb",
+  },
+  dailyLogTypeIcon: {
+    fontSize: 28,
+    marginRight: 12,
+  },
+  dailyLogTypeContent: {
+    flex: 1,
+  },
+  dailyLogTypeLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1f2937",
+  },
+  dailyLogTypeDesc: {
+    fontSize: 13,
+    color: "#6b7280",
+    marginTop: 2,
   },
 
   // Clock section
