@@ -28,7 +28,9 @@ apps/web/tmp_uploads/
 .vercel
 
 # Docs and large local-only data that API image does not need
+# Note: docs/sops-staging is needed for SOP sync, included via negation below
 docs/
+!docs/sops-staging/
 promotion/
 
 # Data promotion artifacts (never ship real data snapshots to Cloud Build)
