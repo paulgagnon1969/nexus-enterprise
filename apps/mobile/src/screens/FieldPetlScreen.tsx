@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -57,9 +57,11 @@ type BulkUpdateState = {
 };
 
 // Track changes made during this session
+// For bulk updates, we track ONE entry representing the bulk operation (not individual items)
 type SessionChange = {
-  lineNo: number;
-  sowItemId: string;
+  id: string; // unique id for the change (sowItemId for individual, generated for bulk)
+  lineNos: number[]; // single item for individual, multiple for bulk
+  sowItemIds: string[]; // items affected
   type: "individual" | "bulk";
   description: string; // e.g., "→ 50%" or "Qty flagged"
   timestamp: number;
@@ -387,18 +389,24 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
         })
       );
 
-      // Track bulk changes in session
-      const bulkChanges: SessionChange[] = filteredItems.map((it) => ({
-        lineNo: it.lineNo,
-        sowItemId: it.sowItemId,
+      // Track bulk change as a SINGLE session entry (not per-item)
+      const bulkChangeId = `bulk_${Date.now()}`;
+      const bulkChange: SessionChange = {
+        id: bulkChangeId,
+        lineNos: filteredItems.map((it) => it.lineNo),
+        sowItemIds: filteredItems.map((it) => it.sowItemId),
         type: "bulk",
         description: `→ ${parsedPercent}%`,
         timestamp: Date.now(),
-      }));
+      };
       setSessionChanges((prev) => {
-        // Remove any existing entries for these items, then add new
-        const existingIds = new Set(bulkChanges.map((c) => c.sowItemId));
-        return [...prev.filter((c) => !existingIds.has(c.sowItemId)), ...bulkChanges];
+        // Remove any existing entries that overlap with these items
+        const affectedIds = new Set(bulkChange.sowItemIds);
+        const filtered = prev.filter((c) => {
+          // Keep if no overlap
+          return !c.sowItemIds.some((id) => affectedIds.has(id));
+        });
+        return [...filtered, bulkChange];
       });
 
       setBulkUpdate(null);
@@ -502,15 +510,18 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
       if (changeDesc.length === 0) changeDesc.push("Updated");
 
       setSessionChanges((prev) => {
-        // Remove existing entry for this item, add new
+        // Remove existing entry for this item (check sowItemIds array), add new
         const newChange: SessionChange = {
-          lineNo: item.lineNo,
-          sowItemId: item.sowItemId,
+          id: item.sowItemId,
+          lineNos: [item.lineNo],
+          sowItemIds: [item.sowItemId],
           type: "individual",
           description: changeDesc.join(", "),
           timestamp: Date.now(),
         };
-        return [...prev.filter((c) => c.sowItemId !== item.sowItemId), newChange];
+        // Filter out any changes that include this item
+        const filtered = prev.filter((c) => !c.sowItemIds.includes(item.sowItemId));
+        return [...filtered, newChange];
       });
 
       setEditItem(null);
@@ -530,30 +541,39 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
     }
   };
 
+  // Calculate total items affected across all session changes
+  const totalItemsChanged = useMemo(() => {
+    const allIds = new Set<string>();
+    for (const c of sessionChanges) {
+      for (const id of c.sowItemIds) {
+        allIds.add(id);
+      }
+    }
+    return allIds.size;
+  }, [sessionChanges]);
+
   // Generate summary for daily log from session changes
   const generatePetlSummary = (): PetlSessionChanges => {
-    const sorted = [...sessionChanges].sort((a, b) => a.lineNo - b.lineNo);
+    const bulkChanges = sessionChanges.filter((c) => c.type === "bulk");
+    const individualChanges = sessionChanges.filter((c) => c.type === "individual");
     
-    // Group by type and percent value for summary
-    const bulkChanges = sorted.filter((c) => c.type === "bulk");
-    const individualChanges = sorted.filter((c) => c.type === "individual");
+    // Flatten all line numbers for the changes array
+    const allChanges: Array<{ lineNo: number; description: string; type: "individual" | "bulk" }> = [];
+    for (const c of sessionChanges) {
+      for (const lineNo of c.lineNos) {
+        allChanges.push({ lineNo, description: c.description, type: c.type });
+      }
+    }
+    allChanges.sort((a, b) => a.lineNo - b.lineNo);
     
     // Build notes
     const noteLines: string[] = [];
-    noteLines.push(`PETL Progress Update - ${sorted.length} line item(s) updated:`);
+    noteLines.push(`PETL Progress Update - ${totalItemsChanged} line item(s) updated:`);
     noteLines.push("");
     
     if (bulkChanges.length > 0) {
-      // Group bulk changes by description (same % update)
-      const bulkByDesc = new Map<string, number[]>();
       for (const c of bulkChanges) {
-        const existing = bulkByDesc.get(c.description) || [];
-        existing.push(c.lineNo);
-        bulkByDesc.set(c.description, existing);
-      }
-      
-      for (const [desc, lineNos] of bulkByDesc) {
-        noteLines.push(`• Bulk update ${desc}: ${formatLineNumbers(lineNos)} (${lineNos.length} items)`);
+        noteLines.push(`• Bulk update ${c.description}: ${formatLineNumbers(c.lineNos)} (${c.lineNos.length} items)`);
       }
     }
     
@@ -561,32 +581,27 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
       noteLines.push("");
       noteLines.push("Individual updates:");
       for (const c of individualChanges) {
-        noteLines.push(`• Line #${c.lineNo}: ${c.description}`);
+        noteLines.push(`• Line #${c.lineNos[0]}: ${c.description}`);
       }
     }
     
     // Generate suggested title
     let suggestedTitle = "PETL Progress Update";
     if (bulkChanges.length > 0 && individualChanges.length === 0) {
-      // All bulk - mention the % if consistent
       const descriptions = [...new Set(bulkChanges.map((c) => c.description))];
       if (descriptions.length === 1) {
         suggestedTitle = `PETL Bulk Update ${descriptions[0]}`;
       } else {
-        suggestedTitle = `PETL Bulk Update (${bulkChanges.length} items)`;
+        suggestedTitle = `PETL Bulk Update (${totalItemsChanged} items)`;
       }
     } else if (individualChanges.length > 0 && bulkChanges.length === 0) {
       suggestedTitle = `PETL Update - ${individualChanges.length} item(s)`;
     } else {
-      suggestedTitle = `PETL Update - ${sorted.length} item(s)`;
+      suggestedTitle = `PETL Update - ${totalItemsChanged} item(s)`;
     }
     
     return {
-      changes: sorted.map((c) => ({
-        lineNo: c.lineNo,
-        description: c.description,
-        type: c.type,
-      })),
+      changes: allChanges,
       suggestedTitle,
       suggestedNotes: noteLines.join("\n"),
     };
@@ -594,7 +609,7 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
 
   // Handle Save & Close
   const handleSaveAndClose = () => {
-    if (sessionChanges.length > 0 && onSaveWithChanges) {
+    if (totalItemsChanged > 0 && onSaveWithChanges) {
       onSaveWithChanges(generatePetlSummary());
     } else {
       onBack();
@@ -619,7 +634,8 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
     return colors.textMuted;
   };
 
-  const renderItem = ({ item }: { item: FieldPetlItem }) => {
+  // Memoized render function to prevent unnecessary re-renders
+  const renderItem = useCallback(({ item }: { item: FieldPetlItem }) => {
     const pct = item.percentComplete;
     const qty = item.qty ?? 0;
     const unit = item.unit || "";
@@ -664,7 +680,7 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
         <Text style={styles.rowChevron}>›</Text>
       </Pressable>
     );
-  };
+  }, []);
 
   if (loading && items.length === 0) {
     return (
@@ -723,15 +739,15 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
         <Pressable
           style={[
             styles.saveCloseButton,
-            sessionChanges.length > 0 && styles.saveCloseButtonActive,
+            totalItemsChanged > 0 && styles.saveCloseButtonActive,
           ]}
           onPress={handleSaveAndClose}
         >
           <Text style={[
             styles.saveCloseButtonText,
-            sessionChanges.length > 0 && styles.saveCloseButtonTextActive,
+            totalItemsChanged > 0 && styles.saveCloseButtonTextActive,
           ]}>
-            {sessionChanges.length > 0 ? `Save & Close (${sessionChanges.length})` : "Close"}
+            {totalItemsChanged > 0 ? `Save & Close (${totalItemsChanged})` : "Close"}
           </Text>
         </Pressable>
       </View>
@@ -813,12 +829,12 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
           <Pressable 
             style={[
               styles.bulkUpdateButton,
-              sessionChanges.length > 0 && styles.bulkUpdateButtonPending,
+              totalItemsChanged > 0 && styles.bulkUpdateButtonPending,
             ]} 
             onPress={openBulkUpdate}
           >
             <Text style={styles.bulkUpdateButtonText}>
-              Bulk Update %{sessionChanges.length > 0 ? ` (${sessionChanges.length} pending)` : ""}
+              Bulk Update %{totalItemsChanged > 0 ? ` (${totalItemsChanged} pending)` : ""}
             </Text>
           </Pressable>
         </View>
@@ -833,7 +849,7 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
           >
             <View style={styles.changesQueueTitleRow}>
               <View style={styles.changesQueueBadge}>
-                <Text style={styles.changesQueueBadgeText}>{sessionChanges.length}</Text>
+                <Text style={styles.changesQueueBadgeText}>{totalItemsChanged}</Text>
               </View>
               <Text style={styles.changesQueueTitle}>
                 Line items changed this session
@@ -846,25 +862,27 @@ export function FieldPetlScreen({ project, companyName, onBack, onSaveWithChange
 
           {changesExpanded && (
             <ScrollView style={styles.changesQueueList} nestedScrollEnabled>
-              {sessionChanges
-                .sort((a, b) => a.lineNo - b.lineNo)
-                .map((change) => (
-                  <View key={change.sowItemId} style={styles.changesQueueItem}>
-                    <Text style={styles.changesQueueLineNo}>#{change.lineNo}</Text>
-                    <Text style={styles.changesQueueDesc}>{change.description}</Text>
-                    {change.type === "bulk" && (
-                      <View style={styles.changesQueueBulkTag}>
-                        <Text style={styles.changesQueueBulkTagText}>bulk</Text>
-                      </View>
-                    )}
-                  </View>
-                ))}
+              {sessionChanges.map((change) => (
+                <View key={change.id} style={styles.changesQueueItem}>
+                  <Text style={styles.changesQueueLineNo}>
+                    {change.type === "bulk" 
+                      ? `${change.lineNos.length} items` 
+                      : `#${change.lineNos[0]}`}
+                  </Text>
+                  <Text style={styles.changesQueueDesc}>{change.description}</Text>
+                  {change.type === "bulk" && (
+                    <View style={styles.changesQueueBulkTag}>
+                      <Text style={styles.changesQueueBulkTagText}>bulk</Text>
+                    </View>
+                  )}
+                </View>
+              ))}
             </ScrollView>
           )}
 
           {!changesExpanded && (
             <Text style={styles.changesQueueSummary}>
-              Lines: {formatLineNumbers(sessionChanges.map((c) => c.lineNo))}
+              {sessionChanges.length} operation(s) • {totalItemsChanged} item(s)
             </Text>
           )}
         </View>
