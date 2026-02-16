@@ -1,5 +1,5 @@
 # Build-stage image
-# Cache bust: 2026-02-15T07:55:00Z
+# Cache bust: 2026-02-16T15:35:00Z
 FROM node:22-alpine AS builder
 
 WORKDIR /app
@@ -10,10 +10,13 @@ RUN apk add --no-cache bash python3 make g++
 # Copy root package manifest for better caching (other root files are not in this build context)
 COPY package.json ./
 
-
 # Copy workspace package manifests that affect dependency graph
 COPY apps/api/package.json apps/api/package.json
 COPY packages/database/package.json packages/database/package.json
+
+# Copy prisma schema BEFORE npm install (needed for postinstall hooks and prisma generate)
+COPY packages/database/prisma packages/database/prisma
+COPY packages/database/prisma.config.ts packages/database/prisma.config.ts
 
 # Install dependencies for the whole monorepo
 # Use npm install instead of npm ci because we do not commit a package-lock.json yet
