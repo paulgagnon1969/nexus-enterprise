@@ -8798,12 +8798,18 @@ export class ProjectService {
               title: true,
             },
           },
-          // Include target invoice for location display and paid status
-          targetInvoice: {
+          // Include invoice line items that reference this bill (to find actual invoice)
+          invoiceLines: {
             select: {
               id: true,
-              invoiceNo: true,
-              status: true,
+              invoiceId: true,
+              invoice: {
+                select: {
+                  id: true,
+                  invoiceNo: true,
+                  status: true,
+                },
+              },
             },
           },
         },
