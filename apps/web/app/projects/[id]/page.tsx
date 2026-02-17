@@ -18411,6 +18411,10 @@ ${htmlBody}
                     boxShadow: activeInvoice.status === "DRAFT" ? "0 4px 12px rgba(59, 130, 246, 0.15)" : "none",
                   }}
                 >
+                  {/* DEBUG: This banner confirms activeInvoice is set */}
+                  <div style={{ background: activeInvoice.status === "DRAFT" ? "#22c55e" : "#f59e0b", color: "#fff", padding: "4px 8px", marginBottom: 8, borderRadius: 4, fontSize: 11 }}>
+                    DEBUG: activeInvoice.id={activeInvoice.id} status={activeInvoice.status}
+                  </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
