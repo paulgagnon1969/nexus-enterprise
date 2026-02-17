@@ -835,7 +835,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
       </aside>
 
       {/* Right pane: current projects route content */}
-      <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+      <div style={{ flex: 1, minWidth: 0, position: "relative", paddingLeft: 5 }}>
         {children}
         {showNewProject && (
           <div
