@@ -588,7 +588,7 @@ function CompanyProfileCard() {
         tagline: companyTagline || null,
       };
 
-      await fetch(`${API_BASE}/companies/me`, {
+      const res = await fetch(`${API_BASE}/companies/me`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -596,6 +596,11 @@ function CompanyProfileCard() {
         },
         body: JSON.stringify(body),
       });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || `Save failed (${res.status})`);
+      }
 
       // Then persist any changed offices.
       await persistOfficeChanges();
