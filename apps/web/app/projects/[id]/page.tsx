@@ -18172,7 +18172,47 @@ ${htmlBody}
                                     </span>
                                   )
                                 ) : (
-                                  inv.invoiceNo ?? "(draft)"
+                                  <span
+                                    onClick={async (e) => {
+                                      // Explicit click handler for non-draft invoice numbers
+                                      e.stopPropagation();
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) {
+                                        setInvoiceMessage("Missing access token.");
+                                        return;
+                                      }
+                                      if (!invoiceFullscreen) {
+                                        router.push(
+                                          `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
+                                        );
+                                      }
+                                      setInvoiceMessage(null);
+                                      setActiveInvoiceLoading(true);
+                                      setActiveInvoiceError(null);
+                                      loadingInvoiceIdRef.current = inv.id;
+                                      try {
+                                        const res = await fetch(
+                                          `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
+                                          { headers: { Authorization: `Bearer ${token}` } },
+                                        );
+                                        if (!res.ok) {
+                                          const text = await res.text().catch(() => "");
+                                          throw new Error(`Failed to load invoice (${res.status}) ${text}`);
+                                        }
+                                        const json: any = await res.json();
+                                        setActiveInvoice(json);
+                                      } catch (err: any) {
+                                        setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
+                                        loadingInvoiceIdRef.current = null;
+                                      } finally {
+                                        setActiveInvoiceLoading(false);
+                                      }
+                                    }}
+                                    style={{ cursor: "pointer", color: "#2563eb" }}
+                                    title="Click to view invoice"
+                                  >
+                                    {inv.invoiceNo ?? "(draft)"}
+                                  </span>
                                 )}
                               </td>
                               <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 11 }}>
@@ -21650,7 +21690,7 @@ ${htmlBody}
             Bill of Materials (BOM)
           </h2>
           <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 12 }}>
-            Aggregated material quantities from the PETL, grouped by Category/Selection code.
+            Aggregated material costs from the PETL (qty × per-unit material), grouped by Cat/Sel.
             Compare with the Components CSV to reconcile.
           </p>
 
@@ -21713,12 +21753,15 @@ ${htmlBody}
                 }}
               >
                 <div>
-                  <div style={{ color: "#6b7280", marginBottom: 2 }}>PETL Total</div>
+                  <div style={{ color: "#6b7280", marginBottom: 2 }}>PETL Materials</div>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>
-                    ${(bomData.petlBom?.totalAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    ${(bomData.petlBom?.totalMaterialCost ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </div>
                   <div style={{ color: "#9ca3af", fontSize: 11 }}>
                     {bomData.petlBom?.lineCount ?? 0} lines
+                    {(bomData.petlBom?.manualLineCount ?? 0) > 0 && (
+                      <span style={{ color: "#f59e0b" }}> ({bomData.petlBom.manualLineCount} manual)</span>
+                    )}
                   </div>
                 </div>
                 <div>
@@ -21727,7 +21770,10 @@ ${htmlBody}
                     ${(bomData.componentsBom?.totalCost ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </div>
                   <div style={{ color: "#9ca3af", fontSize: 11 }}>
-                    {bomData.componentsBom?.itemCount ?? 0} components
+                    {bomData.componentsBom?.itemCount ?? 0} unique
+                    {(bomData.componentsBom?.rawRowCount ?? 0) > (bomData.componentsBom?.itemCount ?? 0) && (
+                      <span> (de-duped from {bomData.componentsBom.rawRowCount})</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -21750,7 +21796,7 @@ ${htmlBody}
                           }}
                         >
                           <span style={{ fontWeight: 600 }}>{cat.category}</span>:
-                          ${cat.totalAmount?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? 0}
+                          ${cat.totalMaterialCost?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? 0}
                           <span style={{ color: "#6b7280" }}> ({cat.lineCount} lines)</span>
                         </div>
                       ))}
@@ -21765,7 +21811,7 @@ ${htmlBody}
                           <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb" }}>Cat/Sel</th>
                           <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Total Qty</th>
                           <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb" }}>Unit</th>
-                          <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Total $</th>
+                          <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Material $</th>
                           <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Lines</th>
                           <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb" }}>Sample Descriptions</th>
                         </tr>
@@ -21779,7 +21825,7 @@ ${htmlBody}
                             </td>
                             <td style={{ padding: "6px", color: "#6b7280" }}>{item.unit}</td>
                             <td style={{ padding: "6px", textAlign: "right", fontWeight: 500 }}>
-                              ${item.totalAmount?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? 0}
+                              ${item.totalMaterialCost?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? 0}
                             </td>
                             <td style={{ padding: "6px", textAlign: "right", color: "#6b7280" }}>{item.lineCount}</td>
                             <td style={{ padding: "6px", color: "#9ca3af", fontSize: 10, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis" }}>
