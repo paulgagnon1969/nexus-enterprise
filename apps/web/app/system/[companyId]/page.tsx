@@ -50,6 +50,7 @@ export default function SystemOrganizationPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
+  const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   const [showCompanyId, setShowCompanyId] = useState(false);
 
   const [recentLoading, setRecentLoading] = useState(false);
@@ -392,13 +393,48 @@ export default function SystemOrganizationPage({
         window.localStorage.setItem("companyId", json.company.id);
       }
 
-      // Open tenant project workspace in a new tab so the System view (with
-      // tenant + projects sidebars) remains visible in this tab.
-      window.open("/projects", "_blank");
+      window.location.href = "/projects";
     } catch (e: any) {
       setError(e?.message ?? "Failed to open project workspace");
     } finally {
       setOpening(false);
+    }
+  };
+
+  const openProjectInTenant = async (projectId: string) => {
+    if (typeof window === "undefined") return;
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    try {
+      setOpeningProjectId(projectId);
+      const res = await fetch(`${API_BASE}/auth/switch-company`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ companyId }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to switch company (${res.status}) ${text}`);
+      }
+
+      const json: any = await res.json();
+      if (json.accessToken && json.refreshToken && json.company?.id) {
+        window.localStorage.setItem("accessToken", json.accessToken);
+        window.localStorage.setItem("refreshToken", json.refreshToken);
+        window.localStorage.setItem("companyId", json.company.id);
+      }
+
+      window.location.href = `/projects/${projectId}`;
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to open project");
+    } finally {
+      setOpeningProjectId(null);
     }
   };
 
@@ -844,10 +880,28 @@ export default function SystemOrganizationPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedProjects.map(p => (
+                  {sortedProjects.map(p => {
+                    const isOpening = openingProjectId === p.id;
+                    return (
                     <tr key={p.id}>
                       <td style={{ padding: "6px 10px", borderTop: "1px solid #e5e7eb" }}>
-                        {p.name}
+                        <button
+                          type="button"
+                          onClick={() => openProjectInTenant(p.id)}
+                          disabled={isOpening}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            padding: 0,
+                            color: isOpening ? "#6b7280" : "#2563eb",
+                            textDecoration: "underline",
+                            cursor: isOpening ? "default" : "pointer",
+                            fontSize: 12,
+                          }}
+                          title="Open project overview"
+                        >
+                          {isOpening ? "Opening…" : p.name}
+                        </button>
                       </td>
                       <td style={{ padding: "6px 10px", borderTop: "1px solid #e5e7eb" }}>
                         {p.status}
@@ -865,7 +919,7 @@ export default function SystemOrganizationPage({
                         {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : "—"}
                       </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>

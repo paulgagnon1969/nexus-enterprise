@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams, useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -17,15 +17,8 @@ interface MeDto {
   globalRole?: string;
 }
 
-interface OrgProjectSummary {
-  id: string;
-  name: string;
-  status?: string;
-}
-
 function SystemLayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const router = useRouter();
 
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean | null>(null);
@@ -42,10 +35,6 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
   const [newOrgTemplate, setNewOrgTemplate] = useState("BLANK");
   const [newOrgError, setNewOrgError] = useState<string | null>(null);
 
-  const [orgProjects, setOrgProjects] = useState<OrgProjectSummary[]>([]);
-  const [orgProjectsLoading, setOrgProjectsLoading] = useState(false);
-  const [orgProjectsError, setOrgProjectsError] = useState<string | null>(null);
-  const [switchingToProject, setSwitchingToProject] = useState<string | null>(null);
 
   function getTokenOrThrow() {
     const t = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
@@ -137,7 +126,6 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
   const selectedCompanyId = path.startsWith("/system/")
     ? path.split("/")[2] ?? null
     : null;
-  const selectedProjectId = searchParams.get("projectId");
 
   const visibleCompanies = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -152,94 +140,6 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
 
     return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
   }, [companies, search, orgFilterMode]);
-
-  // Load projects for the selected organization (middle sidebar)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!selectedCompanyId) {
-      setOrgProjects([]);
-      setOrgProjectsError(null);
-      setOrgProjectsLoading(false);
-      return;
-    }
-
-    const token = window.localStorage.getItem("accessToken");
-    if (!token) {
-      setOrgProjectsError("Missing access token. Please login again.");
-      setOrgProjectsLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setOrgProjectsLoading(true);
-    setOrgProjectsError(null);
-
-    fetch(`${API_BASE}/admin/companies/${selectedCompanyId}/projects`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(res => {
-        if (!res.ok) {
-          throw new Error(`Failed to load jobs (${res.status})`);
-        }
-        return res.json();
-      })
-      .then((json: any) => {
-        if (cancelled) return;
-        setOrgProjects(Array.isArray(json) ? json : []);
-      })
-      .catch((e: any) => {
-        if (cancelled) return;
-        setOrgProjectsError(e?.message ?? "Failed to load jobs");
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setOrgProjectsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedCompanyId]);
-
-  const handleOpenProjectInTenant = async (companyId: string, projectId: string) => {
-    if (typeof window === "undefined") return;
-    const token = window.localStorage.getItem("accessToken");
-    if (!token) return;
-
-    try {
-      setSwitchingToProject(projectId);
-
-      // Switch company context first
-      const res = await fetch(`${API_BASE}/auth/switch-company`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ companyId }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Failed to switch company (${res.status}) ${text}`);
-      }
-
-      const json: any = await res.json();
-      if (json.accessToken && json.refreshToken && json.company?.id) {
-        window.localStorage.setItem("accessToken", json.accessToken);
-        window.localStorage.setItem("refreshToken", json.refreshToken);
-        window.localStorage.setItem("companyId", json.company.id);
-      }
-
-      // Navigate to the project overview page
-      window.location.href = `/projects/${projectId}`;
-    } catch (e: any) {
-      console.error("Failed to open project:", e);
-      alert(e?.message ?? "Failed to open project in tenant workspace");
-    } finally {
-      setSwitchingToProject(null);
-    }
-  };
 
   const handleCreateOrg = async () => {
     setNewOrgError(null);
@@ -537,107 +437,6 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
                   </li>
                 );
               })}
-            </ul>
-          </div>
-        )}
-      </aside>
-
-      {/* Middle sidebar: projects for selected organization */}
-      <aside
-        style={{
-          width: 260,
-          flexShrink: 0,
-          borderRadius: 6,
-          background: "#ffffff",
-          border: "1px solid #0f172a",
-          padding: 8,
-          display: "flex",
-          flexDirection: "column",
-          height: "calc(100vh - 79px)",
-        }}
-      >
-        <div
-          style={{
-            marginBottom: 6,
-          }}
-        >
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>
-            Projects
-          </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>
-            Jobs in selected organization
-          </div>
-        </div>
-
-        {!selectedCompanyId ? (
-          <div style={{ fontSize: 12, color: "#9ca3af" }}>
-            Select an organization to see its jobs.
-          </div>
-        ) : orgProjectsLoading ? (
-          <div style={{ fontSize: 12, color: "#9ca3af" }}>Loading…</div>
-        ) : orgProjectsError ? (
-          <div style={{ fontSize: 12, color: "#f97316" }}>{orgProjectsError}</div>
-        ) : orgProjects.length === 0 ? (
-          <div style={{ fontSize: 12, color: "#9ca3af" }}>No jobs yet.</div>
-        ) : (
-          <div
-            style={{
-              overflowY: "auto",
-              paddingRight: 0,
-              flex: 1,
-            }}
-          >
-            <ul
-              style={{
-                listStyle: "none",
-                padding: 0,
-                margin: 0,
-              }}
-            >
-              {orgProjects
-                .slice()
-                .sort((a, b) => a.name.localeCompare(b.name))
-                .map(p => {
-                  const isSwitching = switchingToProject === p.id;
-                  return (
-                    <li key={p.id}>
-                      <button
-                        type="button"
-                        onClick={() => selectedCompanyId && handleOpenProjectInTenant(selectedCompanyId, p.id)}
-                        disabled={isSwitching}
-                        style={{
-                          display: "block",
-                          width: "calc(100% + 16px)",
-                          margin: "0 -8px 4px",
-                          padding: "6px 12px",
-                          fontSize: 12,
-                          textAlign: "left",
-                          border: "none",
-                          borderBottom: "1px solid #e5e7eb",
-                          color: isSwitching ? "#6b7280" : "#111827",
-                          backgroundColor: isSwitching ? "#f3f4f6" : "transparent",
-                          cursor: isSwitching ? "default" : "pointer",
-                        }}
-                        title="Open in tenant project overview"
-                      >
-                        <div
-                          style={{
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                          }}
-                        >
-                          {isSwitching ? "Opening…" : p.name}
-                        </div>
-                        {p.status && (
-                          <div style={{ fontSize: 11, color: "#6b7280" }}>
-                            {p.status}
-                          </div>
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
             </ul>
           </div>
         )}
