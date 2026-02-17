@@ -18050,7 +18050,7 @@ ${htmlBody}
                                 setInvoiceMessage(null);
                                 setActiveInvoiceLoading(true);
                                 setActiveInvoiceError(null);
-                                loadingInvoiceIdRef.current = inv.id;
+                                invoiceLoadedIdRef.current = inv.id;
 
                                 try {
                                   const res = await fetch(
@@ -18078,7 +18078,7 @@ ${htmlBody}
                                 } catch (err: any) {
                                   setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
                                   setInvoiceMessage(`ERROR: ${err?.message}`);
-                                  loadingInvoiceIdRef.current = null;
+                                  invoiceLoadedIdRef.current = null;
                                 } finally {
                                   setActiveInvoiceLoading(false);
                                 }
@@ -18179,7 +18179,7 @@ ${htmlBody}
                                       setInvoiceMessage(null);
                                       setActiveInvoiceLoading(true);
                                       setActiveInvoiceError(null);
-                                      loadingInvoiceIdRef.current = inv.id;
+                                      invoiceLoadedIdRef.current = inv.id;
                                       try {
                                         const res = await fetch(
                                           `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
@@ -18200,7 +18200,7 @@ ${htmlBody}
                                         }
                                       } catch (err: any) {
                                         setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
-                                        loadingInvoiceIdRef.current = null;
+                                        invoiceLoadedIdRef.current = null;
                                       } finally {
                                         setActiveInvoiceLoading(false);
                                       }
