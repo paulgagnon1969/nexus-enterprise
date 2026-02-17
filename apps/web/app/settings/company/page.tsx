@@ -176,7 +176,18 @@ function CompanyProfileCard() {
     localTaxAccountId: null,
   });
 
-  // Optional per-company branding pulled from /companies/me/landing-config.
+  // Company contact info (used on invoices, letterheads, etc.)
+  const [companyPhone, setCompanyPhone] = useState("");
+  const [companyEmail, setCompanyEmail] = useState("");
+  const [companyWebsite, setCompanyWebsite] = useState("");
+  const [companyAddressLine1, setCompanyAddressLine1] = useState("");
+  const [companyAddressLine2, setCompanyAddressLine2] = useState("");
+  const [companyCity, setCompanyCity] = useState("");
+  const [companyState, setCompanyState] = useState("");
+  const [companyPostalCode, setCompanyPostalCode] = useState("");
+  const [companyTagline, setCompanyTagline] = useState("");
+
+  // Optional per-company branding
   // We currently treat the login.logoUrl as the primary company logo and the
   // worker.secondaryLogoUrl as the small app icon / mark.
   const [companyLogoUrl, setCompanyLogoUrl] = useState<string | null>(null);
@@ -233,6 +244,16 @@ function CompanyProfileCard() {
         if (typeof data.defaultTimeZone === "string") {
           setDefaultTimeZone(data.defaultTimeZone);
         }
+        // Load contact info
+        if (data.phone) setCompanyPhone(data.phone);
+        if (data.email) setCompanyEmail(data.email);
+        if (data.website) setCompanyWebsite(data.website);
+        if (data.addressLine1) setCompanyAddressLine1(data.addressLine1);
+        if (data.addressLine2) setCompanyAddressLine2(data.addressLine2);
+        if (data.city) setCompanyCity(data.city);
+        if (data.state) setCompanyState(data.state);
+        if (data.postalCode) setCompanyPostalCode(data.postalCode);
+        if (data.tagline) setCompanyTagline(data.tagline);
         if (data && data.defaultPayrollConfig) {
           const cfg = data.defaultPayrollConfig;
           setOrgPayrollConfig({
@@ -555,6 +576,16 @@ function CompanyProfileCard() {
           localTaxJurisdiction: orgPayrollConfig.localTaxJurisdiction ?? null,
           localTaxAccountId: orgPayrollConfig.localTaxAccountId ?? null,
         },
+        // Contact info for invoices
+        phone: companyPhone || null,
+        email: companyEmail || null,
+        website: companyWebsite || null,
+        addressLine1: companyAddressLine1 || null,
+        addressLine2: companyAddressLine2 || null,
+        city: companyCity || null,
+        state: companyState || null,
+        postalCode: companyPostalCode || null,
+        tagline: companyTagline || null,
       };
 
       await fetch(`${API_BASE}/companies/me`, {
@@ -948,6 +979,124 @@ function CompanyProfileCard() {
           )}
           <p style={{ margin: "4px 0 0", fontSize: 11, color: "#6b7280" }}>
             {iconUploading ? "Uploading app icon…" : "Used for compact marks in future headers and tiles."}
+          </p>
+        </div>
+      </div>
+
+      {/* Company contact info (for invoices) */}
+      <div
+        style={{
+          marginTop: 12,
+          padding: 12,
+          borderRadius: 8,
+          border: "1px solid #e5e7eb",
+          background: "#ffffff",
+          fontSize: 12,
+        }}
+      >
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontWeight: 600 }}>Company contact information</div>
+          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#6b7280" }}>
+            This information appears on invoices, letterheads, and public-facing documents.
+          </p>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>Phone</label>
+            <input
+              value={companyPhone}
+              onChange={e => setCompanyPhone(e.target.value)}
+              readOnly={!editMode}
+              placeholder="(555) 123-4567"
+              style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+            />
+          </div>
+          <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>Email</label>
+            <input
+              value={companyEmail}
+              onChange={e => setCompanyEmail(e.target.value)}
+              readOnly={!editMode}
+              placeholder="info@company.com"
+              style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+            />
+          </div>
+          <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>Website</label>
+            <input
+              value={companyWebsite}
+              onChange={e => setCompanyWebsite(e.target.value)}
+              readOnly={!editMode}
+              placeholder="https://www.company.com"
+              style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+            />
+          </div>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+          <div style={{ flex: "1 1 280px", minWidth: 200 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>Address Line 1</label>
+            <input
+              value={companyAddressLine1}
+              onChange={e => setCompanyAddressLine1(e.target.value)}
+              readOnly={!editMode}
+              placeholder="123 Main Street, Suite 100"
+              style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+            />
+          </div>
+          <div style={{ flex: "1 1 200px", minWidth: 180 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>Address Line 2</label>
+            <input
+              value={companyAddressLine2}
+              onChange={e => setCompanyAddressLine2(e.target.value)}
+              readOnly={!editMode}
+              placeholder="Building A (optional)"
+              style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+            />
+          </div>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+          <div style={{ flex: "1 1 160px", minWidth: 140 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>City</label>
+            <input
+              value={companyCity}
+              onChange={e => setCompanyCity(e.target.value)}
+              readOnly={!editMode}
+              placeholder="Tampa"
+              style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+            />
+          </div>
+          <div style={{ flex: "0 0 80px" }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>State</label>
+            <input
+              value={companyState}
+              onChange={e => setCompanyState(e.target.value)}
+              readOnly={!editMode}
+              placeholder="FL"
+              style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+            />
+          </div>
+          <div style={{ flex: "0 0 100px" }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>ZIP</label>
+            <input
+              value={companyPostalCode}
+              onChange={e => setCompanyPostalCode(e.target.value)}
+              readOnly={!editMode}
+              placeholder="33601"
+              style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+            />
+          </div>
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>Tagline (optional)</label>
+          <input
+            value={companyTagline}
+            onChange={e => setCompanyTagline(e.target.value)}
+            readOnly={!editMode}
+            placeholder="Building Excellence, Fortifying Futures"
+            style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+          />
+          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#6b7280" }}>
+            Appears below your address on printed invoices.
           </p>
         </div>
       </div>

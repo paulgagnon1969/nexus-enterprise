@@ -29,7 +29,19 @@ model Company {
   reputationOverallOverride Int?
   kind                      CompanyKind @default(ORGANIZATION)
 
-  /// Optional worker invite / referral token that this company can share with
+  // Contact information (used on invoices, letterheads, etc.)
+  phone        String?
+  email        String?
+  website      String?
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  postalCode   String?
+  country      String?  @default("US")
+  tagline      String?  // e.g. "Building Excellence, Fortifying Futures"
+
+  /// Optional worker invite / referral token
   /// prospective crew members. When a worker signs up using this token, they
   /// are automatically attached to this tenant and posted into the Nex-Net
   /// candidate pool. Multiple companies will never share the same token.
