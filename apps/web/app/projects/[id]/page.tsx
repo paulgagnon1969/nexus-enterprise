@@ -8102,6 +8102,14 @@ ${htmlBody}
     console.log("[DEBUG activeInvoice] Changed to:", activeInvoice?.id, activeInvoice?.status);
   }, [activeInvoice]);
 
+  // DEBUG: Track component mount/unmount
+  useEffect(() => {
+    console.log("[DEBUG MOUNT] Component mounted, invoiceIdFromUrl=", invoiceIdFromUrl);
+    return () => {
+      console.log("[DEBUG UNMOUNT] Component unmounting");
+    };
+  }, []);
+
   // If the URL requests a specific invoice, load it automatically (useful for full-screen invoice tabs).
   const invoiceLoadedIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -18230,7 +18238,7 @@ ${htmlBody}
                                   <span
                                     onClick={async (e) => {
                                       // Explicit click handler for non-draft invoice numbers
-                                      console.log("[Invoice Number Click] Clicked:", inv.id, inv.status);
+                                      console.log("[Invoice Number Click] Clicked:", inv.id, inv.status, "invoiceFullscreen=", invoiceFullscreen);
                                       e.stopPropagation();
                                       const token = localStorage.getItem("accessToken");
                                       if (!token) {
@@ -18254,10 +18262,13 @@ ${htmlBody}
                                         setActiveInvoice(json);
                                         // Navigate to fullscreen AFTER successfully loading
                                         if (!invoiceFullscreen) {
+                                          console.log("[Invoice Number Click] Navigating to fullscreen URL...");
                                           router.push(
                                             `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
                                             { scroll: false },
                                           );
+                                        } else {
+                                          console.log("[Invoice Number Click] Already in fullscreen, skipping navigation");
                                         }
                                       } catch (err: any) {
                                         setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
