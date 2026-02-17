@@ -44,6 +44,7 @@ import {
   IssueInvoiceDto,
   RecordInvoicePaymentDto,
   RecordProjectPaymentDto,
+  UpdateInvoiceDto,
   UpdateInvoiceLineItemDto,
   UpdateInvoicePetlLineDto,
 } from "./dto/project-invoice.dto";
@@ -10051,6 +10052,55 @@ export class ProjectService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Update invoice fields (Admin/Owner only, DRAFT invoices only).
+   * Note: Role is enforced at the controller level via @Roles decorator.
+   */
+  async updateInvoice(
+    projectId: string,
+    invoiceId: string,
+    dto: UpdateInvoiceDto,
+    actor: AuthenticatedUser,
+  ) {
+    this.ensureBillingModelsAvailable();
+
+    const project = await this.getProjectByIdForUser(projectId, actor);
+
+    const invoice = await this.prisma.projectInvoice.findFirst({
+      where: { id: invoiceId, projectId: project.id, companyId: project.companyId },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException("Invoice not found for this project");
+    }
+
+    // Only allow updates on DRAFT invoices
+    if (invoice.status !== ProjectInvoiceStatus.DRAFT) {
+      throw new BadRequestException("Only draft invoices can be edited");
+    }
+
+    const updateData: any = {};
+    if (dto.invoiceNo !== undefined) {
+      updateData.invoiceNo = dto.invoiceNo || null;
+    }
+    if (dto.billToName !== undefined) {
+      updateData.billToName = dto.billToName || null;
+    }
+    if (dto.billToEmail !== undefined) {
+      updateData.billToEmail = dto.billToEmail || null;
+    }
+    if (dto.memo !== undefined) {
+      updateData.memo = dto.memo || null;
+    }
+
+    const updated = await this.prisma.projectInvoice.update({
+      where: { id: invoice.id },
+      data: updateData,
+    });
+
+    return updated;
   }
 
   async updateInvoicePetlLine(

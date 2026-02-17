@@ -27,6 +27,7 @@ import {
   IssueInvoiceDto,
   RecordInvoicePaymentDto,
   RecordProjectPaymentDto,
+  UpdateInvoiceDto,
   UpdateInvoiceLineItemDto,
   UpdateInvoicePetlLineDto,
 } from "./dto/project-invoice.dto";
@@ -1286,6 +1287,19 @@ export class ProjectController {
   ) {
     const user = req.user as AuthenticatedUser;
     return this.projects.getProjectInvoice(projectId, invoiceId, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Patch(":id/invoices/:invoiceId")
+  updateInvoice(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() dto: UpdateInvoiceDto,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.updateInvoice(projectId, invoiceId, dto, user);
   }
 
   @UseGuards(JwtAuthGuard)
