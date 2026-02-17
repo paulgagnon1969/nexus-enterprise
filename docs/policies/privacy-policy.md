@@ -1,3 +1,14 @@
+---
+title: "Privacy Policy"
+module: legal
+revision: "1.0"
+tags: [policy, privacy, legal, compliance, public]
+status: published
+created: 2026-02-14
+updated: 2026-02-14
+author: NFS Group
+---
+
 # Privacy Policy
 
 **Nexus Contractor Connect (NCC)**

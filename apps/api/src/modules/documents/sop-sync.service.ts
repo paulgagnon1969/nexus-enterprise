@@ -11,8 +11,12 @@ import {
   type SopSyncReport,
 } from "@repo/database";
 
-// Path to staged SOPs relative to repo root
+// Paths to document sources relative to repo root
 const STAGING_DIR = path.resolve(__dirname, "../../../../../docs/sops-staging");
+const POLICIES_DIR = path.resolve(__dirname, "../../../../../docs/policies");
+
+// All source directories for documents
+const SOURCE_DIRS = [STAGING_DIR, POLICIES_DIR];
 
 // NccPM manual code - all SOPs sync into this manual
 const NCCPM_MANUAL_CODE = "nccpm";
@@ -41,13 +45,25 @@ export class SopSyncService {
       syncStatus: "new" | "updated" | "synced";
       currentSystemRevision?: string;
       systemDocumentId?: string;
+      sourceDir?: string;
     }>
   > {
-    const stagedSops = parseAllSops(STAGING_DIR);
+    // Collect SOPs from all source directories
+    const allSops: Array<ParsedSop & { sourceDir: string }> = [];
+    for (const dir of SOURCE_DIRS) {
+      try {
+        const sops = parseAllSops(dir);
+        for (const sop of sops) {
+          allSops.push({ ...sop, sourceDir: path.basename(dir) });
+        }
+      } catch {
+        // Directory may not exist
+      }
+    }
 
     const result = [];
 
-    for (const sop of stagedSops) {
+    for (const sop of allSops) {
       const existing = await this.prisma.systemDocument.findUnique({
         where: { code: sop.code },
         include: {
@@ -84,6 +100,7 @@ export class SopSyncService {
         syncStatus,
         currentSystemRevision,
         systemDocumentId,
+        sourceDir: sop.sourceDir,
       });
     }
 
@@ -92,24 +109,38 @@ export class SopSyncService {
 
   /**
    * Get a single staged SOP with preview
+   * Searches all source directories
    */
   async getStagedSop(code: string): Promise<ParsedSop | null> {
-    const filePath = path.join(STAGING_DIR, `${code}.md`);
-    try {
-      return parseSopFile(filePath);
-    } catch {
-      return null;
+    for (const dir of SOURCE_DIRS) {
+      const filePath = path.join(dir, `${code}.md`);
+      try {
+        return parseSopFile(filePath);
+      } catch {
+        // Try next directory
+      }
     }
+    return null;
   }
 
   /**
    * Sync all staged SOPs to SystemDocument
+   * Syncs from all source directories
    */
   async syncAllSops(actor: AuthenticatedUser): Promise<SopSyncReport> {
-    const stagedSops = parseAllSops(STAGING_DIR);
+    // Collect SOPs from all source directories
+    const allSops: ParsedSop[] = [];
+    for (const dir of SOURCE_DIRS) {
+      try {
+        const sops = parseAllSops(dir);
+        allSops.push(...sops);
+      } catch {
+        // Directory may not exist
+      }
+    }
     const results: SopSyncResult[] = [];
 
-    for (const sop of stagedSops) {
+    for (const sop of allSops) {
       const result = await this.syncSingleSop(sop, actor);
       results.push(result);
     }

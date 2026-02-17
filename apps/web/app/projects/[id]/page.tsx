@@ -16831,6 +16831,7 @@ ${htmlBody}
                             </th>
                           )}
                           <th style={{ padding: "4px 6px" }}>Vendor</th>
+                          <th style={{ padding: "4px 6px" }}>Location</th>
                           <th style={{ padding: "4px 6px" }}>Description</th>
                           <th style={{ padding: "4px 6px", textAlign: "right" }}>Cost</th>
                           <th style={{ padding: "4px 6px", textAlign: "right" }}>GM%</th>
@@ -16868,6 +16869,17 @@ ${htmlBody}
                                 </td>
                               )}
                               <td style={{ padding: "4px 6px" }}>{b?.vendorName ?? "—"}</td>
+                              <td style={{ padding: "4px 6px", color: "#6b7280", fontSize: 10 }}>
+                                {(() => {
+                                  const dl = b?.sourceDailyLog;
+                                  if (!dl) return "—";
+                                  const parts: string[] = [];
+                                  if (dl.building?.name) parts.push(dl.building.name);
+                                  if (dl.unit?.label) parts.push(dl.unit.label);
+                                  if (dl.roomParticle?.name) parts.push(dl.roomParticle.name);
+                                  return parts.length > 0 ? parts.join(" › ") : "—";
+                                })()}
+                              </td>
                               <td style={{ padding: "4px 6px", color: "#166534" }}>{li?.description ?? "—"}</td>
                               <td style={{ padding: "4px 6px", textAlign: "right" }}>{formatMoney(cost)}</td>
                               <td style={{ padding: "4px 6px", textAlign: "right", color: "#16a34a" }}>{gmPct.toFixed(1)}%</td>
