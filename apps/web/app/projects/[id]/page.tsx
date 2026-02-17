@@ -8043,22 +8043,21 @@ ${htmlBody}
   }, [activeTab, project, projectInvoices]);
 
   // If the URL requests a specific invoice, load it automatically (useful for full-screen invoice tabs).
-  // Track the invoice ID we're loading to prevent race conditions
-  const loadingInvoiceIdRef = useRef<string | null>(null);
+  const invoiceLoadedIdRef = useRef<string | null>(null);
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
     if (!token || !project) return;
     if (activeTab !== "FINANCIAL") return;
     if (!invoiceIdFromUrl) {
-      loadingInvoiceIdRef.current = null;
+      invoiceLoadedIdRef.current = null;
       return;
     }
 
-    // Skip if already loaded this invoice
-    if (activeInvoice?.id === invoiceIdFromUrl) return;
+    // Skip if we already loaded this exact invoice
+    if (invoiceLoadedIdRef.current === invoiceIdFromUrl) return;
 
-    // DEBUG: Track what we're loading
     console.log("[URL Effect] Loading invoice:", invoiceIdFromUrl);
+    invoiceLoadedIdRef.current = invoiceIdFromUrl;
 
     setActiveInvoiceLoading(true);
     setActiveInvoiceError(null);
@@ -8083,8 +8082,9 @@ ${htmlBody}
         console.log("[URL Effect] Error:", err?.message);
         setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
         setActiveInvoiceLoading(false);
+        invoiceLoadedIdRef.current = null; // Allow retry
       });
-  }, [activeTab, project, invoiceIdFromUrl, activeInvoice?.id]);
+  }, [activeTab, project, invoiceIdFromUrl]);
 
   // Lazy-load project payments (cash receipts) when Financial tab is opened.
   // If the Payments card is collapsed, defer loading until the user expands it.
@@ -18039,6 +18039,7 @@ ${htmlBody}
                               key={inv.id}
                               style={{ cursor: "pointer" }}
                               onClick={async () => {
+                                console.log("[Row Click] Clicked invoice:", inv.id, inv.status);
                                 const token = localStorage.getItem("accessToken");
                                 if (!token) {
                                   setInvoiceMessage("Missing access token.");
