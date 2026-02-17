@@ -1552,6 +1552,34 @@ export class ProjectController {
     return this.projects.unapplyProjectPaymentFromInvoice(projectId, paymentId, invoiceId, user);
   }
 
+  // Delete a payment entirely.
+  // Will unapply from all invoices first, then delete the payment record.
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Delete(":id/payments/:paymentId")
+  deleteProjectPayment(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("paymentId") paymentId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.deleteProjectPayment(projectId, paymentId, user);
+  }
+
+  // Move a payment to another project or invoice.
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post(":id/payments/:paymentId/move")
+  moveProjectPayment(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("paymentId") paymentId: string,
+    @Body() dto: { targetProjectId?: string; targetInvoiceId?: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.moveProjectPayment(projectId, paymentId, dto, user);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get(":id/petl-selection-summary")
   getPetlSelectionSummary(
