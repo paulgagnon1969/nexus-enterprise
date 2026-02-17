@@ -5466,3 +5466,323 @@ model CompanyUnitCode {
   @@unique([companyId, code], map: "CompanyUnitCode_company_code_key")
   @@index([companyId, sortOrder], map: "CompanyUnitCode_company_sort_idx")
 }
+
+// =============================================================================
+// Supplier Bid Portal
+// =============================================================================
+
+/// Category for supplier tags (region, trade, or custom scope)
+enum SupplierTagCategory {
+  REGION // Geographic: FL, GA, TX, Southeast
+  TRADE  // Trade type: Roofer, Electrician, Plumber, Drywall
+  SCOPE  // Custom scope: Interior, Exterior, Commercial, Residential
+}
+
+/// Tags for categorizing suppliers (used for filtering when creating bid requests)
+model SupplierTag {
+  id        String              @id @default(cuid())
+  companyId String
+  category  SupplierTagCategory
+  code      String              // Short code, e.g. "FL", "ROOF"
+  label     String              // Display label, e.g. "Florida", "Roofing"
+  color     String?             // Optional hex color for UI
+  sortOrder Int                 @default(0)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  company     Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assignments SupplierTagAssignment[]
+
+  @@unique([companyId, category, code], map: "SupplierTag_company_cat_code_key")
+  @@index([companyId, category], map: "SupplierTag_company_cat_idx")
+}
+
+/// Supplier/vendor/subcontractor in the company's directory
+model Supplier {
+  id        String  @id @default(cuid())
+  companyId String
+  name      String  // Company/business name
+  email     String? // Primary email
+  phone     String? // Primary phone
+  website   String?
+
+  // Address
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  postalCode   String?
+  country      String? @default("US")
+
+  // Default contact for bid requests
+  defaultContactName  String?
+  defaultContactEmail String?
+  defaultContactPhone String?
+
+  notes    String? @db.Text
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company        Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contacts       SupplierContact[]
+  tagAssignments SupplierTagAssignment[]
+  bidRecipients  BidRequestRecipient[]
+  bidResponses   BidResponse[]
+
+  @@index([companyId, isActive], map: "Supplier_company_active_idx")
+  @@index([companyId, name], map: "Supplier_company_name_idx")
+}
+
+/// Individual contact at a supplier (for multi-contact suppliers)
+model SupplierContact {
+  id         String  @id @default(cuid())
+  supplierId String
+  name       String
+  email      String?
+  phone      String?
+  role       String? // e.g. "Sales Rep", "Estimator", "Owner"
+  isPrimary  Boolean @default(false)
+  isActive   Boolean @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  supplier      Supplier              @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  bidRecipients BidRequestRecipient[]
+
+  @@index([supplierId, isPrimary], map: "SupplierContact_supplier_primary_idx")
+}
+
+/// Join table: Supplier <-> SupplierTag
+model SupplierTagAssignment {
+  id         String   @id @default(cuid())
+  supplierId String
+  tagId      String
+  createdAt  DateTime @default(now())
+
+  supplier Supplier    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  tag      SupplierTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierId, tagId], map: "SupplierTagAssignment_supplier_tag_key")
+  @@index([supplierId], map: "SupplierTagAssignment_supplier_idx")
+  @@index([tagId], map: "SupplierTagAssignment_tag_idx")
+}
+
+/// Status of a bid request
+enum BidRequestStatus {
+  DRAFT    // Being configured, not sent yet
+  SENT     // Sent to suppliers, awaiting responses
+  CLOSED   // Bidding closed (manually or by due date)
+  CANCELED // Canceled by requestor
+}
+
+/// Status of a bid request recipient
+enum BidRecipientStatus {
+  PENDING   // Not yet sent (draft)
+  SENT      // Email sent, awaiting response
+  VIEWED    // Supplier accessed the portal
+  RESPONDED // Supplier submitted a response
+  DECLINED  // Supplier declined to bid
+}
+
+/// Cost type filter for bid request items
+enum BidCostType {
+  MATERIAL  // Materials only
+  LABOR     // Labor only
+  EQUIPMENT // Equipment only
+  ALL       // All cost types
+}
+
+/// Source type for bid request items
+enum BidItemSourceType {
+  PETL      // From SowItem (PETL line)
+  COMPONENT // From ComponentSummary
+  MANUAL    // Manually added
+}
+
+/// A bid request sent to one or more suppliers for pricing
+model BidRequest {
+  id        String @id @default(cuid())
+  companyId String
+  projectId String
+
+  title       String  // e.g. "Drywall Materials - 1548 Skyline"
+  description String? @db.Text
+  notes       String? @db.Text // Internal notes (not shared with suppliers)
+
+  requestedByUserId String
+  dueDate           DateTime? // When responses are due
+
+  status BidRequestStatus @default(DRAFT)
+
+  // Filter configuration (stored for reference/reuse)
+  filterConfig Json? // { divisions: [], categories: [], costTypes: [] }
+
+  sentAt     DateTime? // When first sent
+  closedAt   DateTime? // When closed
+  canceledAt DateTime? // When canceled
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company     Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project     Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requestedBy User                  @relation("BidRequestRequestedBy", fields: [requestedByUserId], references: [id])
+  items       BidRequestItem[]
+  recipients  BidRequestRecipient[]
+  responses   BidResponse[]
+
+  @@index([companyId, projectId], map: "BidRequest_company_project_idx")
+  @@index([projectId, status], map: "BidRequest_project_status_idx")
+  @@index([companyId, status, dueDate], map: "BidRequest_company_status_due_idx")
+}
+
+/// A line item in a bid request (shared with suppliers)
+model BidRequestItem {
+  id           String @id @default(cuid())
+  bidRequestId String
+
+  sourceType BidItemSourceType @default(PETL)
+  sourceId   String?           // sowItemId or componentSummaryId
+
+  // Denormalized for display and CSV export
+  catSel       String? // e.g. "DRY/1/2+"
+  divisionCode String? // e.g. "09"
+  description  String
+  quantity     Float
+  unit         String? // e.g. "SF", "EA", "LF"
+
+  costType BidCostType @default(ALL)
+
+  // Optional reference price (for comparison, not shown to suppliers)
+  referenceUnitPrice Float?
+
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  bidRequest    BidRequest          @relation(fields: [bidRequestId], references: [id], onDelete: Cascade)
+  responseItems BidResponseItem[]
+
+  @@index([bidRequestId, sortOrder], map: "BidRequestItem_request_sort_idx")
+}
+
+/// A supplier recipient of a bid request (each gets unique token/PIN)
+model BidRequestRecipient {
+  id           String @id @default(cuid())
+  bidRequestId String
+  supplierId   String
+
+  // Optional: override default supplier contact
+  supplierContactId String?
+
+  // Secure access credentials
+  accessToken String  @unique // 32-char random hex for portal URL
+  accessPin   String  // 6-digit PIN, hashed with bcrypt
+  pinAttempts Int     @default(0) // Track failed PIN attempts
+  pinLockedAt DateTime? // Locked after too many attempts
+
+  // Expiration
+  expiresAt DateTime? // Optional token expiration
+
+  status BidRecipientStatus @default(PENDING)
+
+  // Tracking
+  sentAt      DateTime? // When email was sent
+  viewedAt    DateTime? // First portal access
+  respondedAt DateTime? // When response submitted
+  declinedAt  DateTime? // When declined
+
+  // Email tracking (optional, for delivery status)
+  emailMessageId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bidRequest      BidRequest       @relation(fields: [bidRequestId], references: [id], onDelete: Cascade)
+  supplier        Supplier         @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplierContact SupplierContact? @relation(fields: [supplierContactId], references: [id], onDelete: SetNull)
+  responses       BidResponse[]
+
+  @@unique([bidRequestId, supplierId], map: "BidRecipient_request_supplier_key")
+  @@index([accessToken], map: "BidRecipient_token_idx")
+  @@index([bidRequestId, status], map: "BidRecipient_request_status_idx")
+  @@index([supplierId], map: "BidRecipient_supplier_idx")
+}
+
+/// Status of a bid response
+enum BidResponseStatus {
+  DRAFT     // Started but not submitted
+  SUBMITTED // Submitted by supplier
+}
+
+/// Availability status for a bid response item
+enum BidItemAvailability {
+  IN_STOCK      // Available immediately
+  BACKORDERED   // Available after lead time
+  SPECIAL_ORDER // Requires special order
+  UNAVAILABLE   // Not available
+}
+
+/// A supplier's response to a bid request
+model BidResponse {
+  id           String @id @default(cuid())
+  bidRequestId String
+  recipientId  String
+  supplierId   String
+
+  status BidResponseStatus @default(DRAFT)
+
+  // Computed totals
+  totalAmount Float?
+
+  // Supplier notes
+  notes String? @db.Text
+
+  // Submitter info (for non-NCC users)
+  submittedByName  String?
+  submittedByEmail String?
+  submittedAt      DateTime?
+
+  // If response was uploaded via CSV
+  csvUploadPath String?
+  csvUploadedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bidRequest BidRequest            @relation(fields: [bidRequestId], references: [id], onDelete: Cascade)
+  recipient  BidRequestRecipient   @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  supplier   Supplier              @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  items      BidResponseItem[]
+
+  @@unique([recipientId], map: "BidResponse_recipient_key") // One response per recipient
+  @@index([bidRequestId, status], map: "BidResponse_request_status_idx")
+  @@index([supplierId], map: "BidResponse_supplier_idx")
+}
+
+/// A line item in a supplier's bid response
+model BidResponseItem {
+  id               String @id @default(cuid())
+  bidResponseId    String
+  bidRequestItemId String
+
+  // Supplier's pricing
+  unitPrice  Float?
+  totalPrice Float? // unitPrice × quantity (computed)
+
+  // Additional info
+  notes        String? @db.Text
+  leadTimeDays Int?    // Days until available
+
+  availability BidItemAvailability?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bidResponse    BidResponse    @relation(fields: [bidResponseId], references: [id], onDelete: Cascade)
+  bidRequestItem BidRequestItem @relation(fields: [bidRequestItemId], references: [id], onDelete: Cascade)
+
+  @@unique([bidResponseId, bidRequestItemId], map: "BidResponseItem_response_item_key")
+  @@index([bidResponseId], map: "BidResponseItem_response_idx")
+}
