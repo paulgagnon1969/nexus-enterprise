@@ -18055,19 +18055,12 @@ ${htmlBody}
                                   return;
                                 }
 
-                                // Navigate to fullscreen invoice view if not already there
-                                if (!invoiceFullscreen) {
-                                  router.push(
-                                    `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
-                                  );
-                                }
-
-                                // Start loading the invoice immediately (don't wait for URL effect)
+                                // Start loading the invoice immediately
                                 setInvoiceMessage(null);
                                 setActiveInvoiceLoading(true);
                                 setActiveInvoiceError(null);
-                                // Mark this invoice as being loaded so URL effect doesn't duplicate
                                 loadingInvoiceIdRef.current = inv.id;
+
                                 try {
                                   const res = await fetch(
                                     `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
@@ -18081,9 +18074,17 @@ ${htmlBody}
                                   }
                                   const json: any = await res.json();
                                   setActiveInvoice(json);
+
+                                  // Navigate to fullscreen AFTER successfully loading
+                                  if (!invoiceFullscreen) {
+                                    router.push(
+                                      `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
+                                      { scroll: false },
+                                    );
+                                  }
                                 } catch (err: any) {
                                   setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
-                                  loadingInvoiceIdRef.current = null; // Allow retry
+                                  loadingInvoiceIdRef.current = null;
                                 } finally {
                                   setActiveInvoiceLoading(false);
                                 }
@@ -18181,11 +18182,6 @@ ${htmlBody}
                                         setInvoiceMessage("Missing access token.");
                                         return;
                                       }
-                                      if (!invoiceFullscreen) {
-                                        router.push(
-                                          `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
-                                        );
-                                      }
                                       setInvoiceMessage(null);
                                       setActiveInvoiceLoading(true);
                                       setActiveInvoiceError(null);
@@ -18201,6 +18197,13 @@ ${htmlBody}
                                         }
                                         const json: any = await res.json();
                                         setActiveInvoice(json);
+                                        // Navigate to fullscreen AFTER successfully loading
+                                        if (!invoiceFullscreen) {
+                                          router.push(
+                                            `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
+                                            { scroll: false },
+                                          );
+                                        }
                                       } catch (err: any) {
                                         setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
                                         loadingInvoiceIdRef.current = null;
