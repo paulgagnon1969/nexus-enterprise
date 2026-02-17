@@ -8097,20 +8097,7 @@ ${htmlBody}
     };
   }, [activeTab, project, projectInvoices]);
 
-  // DEBUG: Track activeInvoice state changes
-  useEffect(() => {
-    console.log("[DEBUG activeInvoice] Changed to:", activeInvoice?.id, activeInvoice?.status);
-  }, [activeInvoice]);
-
-  // DEBUG: Track component mount/unmount
-  useEffect(() => {
-    console.log("[DEBUG MOUNT] Component mounted, invoiceIdFromUrl=", invoiceIdFromUrl);
-    return () => {
-      console.log("[DEBUG UNMOUNT] Component unmounting");
-    };
-  }, []);
-
-  // If the URL requests a specific invoice, load it automatically (useful for full-screen invoice tabs).
+  // If the URL requests a specific invoice
   const invoiceLoadedIdRef = useRef<string | null>(null);
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
@@ -8124,7 +8111,6 @@ ${htmlBody}
     // Skip if we already loaded this exact invoice
     if (invoiceLoadedIdRef.current === invoiceIdFromUrl) return;
 
-    console.log("[URL Effect] Loading invoice:", invoiceIdFromUrl);
     invoiceLoadedIdRef.current = invoiceIdFromUrl;
 
     setActiveInvoiceLoading(true);
@@ -8134,7 +8120,6 @@ ${htmlBody}
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(async (res) => {
-        console.log("[URL Effect] Response:", res.status);
         if (!res.ok) {
           const text = await res.text().catch(() => "");
           throw new Error(`Failed to load invoice (${res.status}) ${text}`);
@@ -8142,12 +8127,10 @@ ${htmlBody}
         return res.json();
       })
       .then((json: any) => {
-        console.log("[URL Effect] Got JSON:", json?.id, json?.status);
         setActiveInvoice(json);
         setActiveInvoiceLoading(false);
       })
       .catch((err: any) => {
-        console.log("[URL Effect] Error:", err?.message);
         setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
         setActiveInvoiceLoading(false);
         invoiceLoadedIdRef.current = null; // Allow retry
@@ -18107,7 +18090,6 @@ ${htmlBody}
                               key={inv.id}
                               style={{ cursor: "pointer" }}
                               onClick={async () => {
-                                console.log("[Row Click] Clicked invoice:", inv.id, inv.status, "invoiceFullscreen=", invoiceFullscreen);
                                 const token = localStorage.getItem("accessToken");
                                 if (!token) {
                                   setInvoiceMessage("Missing access token.");
@@ -18132,23 +18114,17 @@ ${htmlBody}
                                     );
                                   }
                                   const json: any = await res.json();
-                                  // DEBUG: Show what we loaded
-                                  setInvoiceMessage(`Loaded invoice: ${json?.id} status=${json?.status}`);
                                   setActiveInvoice(json);
 
                                   // Navigate to fullscreen AFTER successfully loading
                                   if (!invoiceFullscreen) {
-                                    console.log("[Row Click] Navigating to fullscreen URL...");
                                     router.push(
                                       `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
                                       { scroll: false },
                                     );
-                                  } else {
-                                    console.log("[Row Click] Already in fullscreen, skipping navigation");
                                   }
                                 } catch (err: any) {
                                   setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
-                                  setInvoiceMessage(`ERROR: ${err?.message}`);
                                   invoiceLoadedIdRef.current = null;
                                 } finally {
                                   setActiveInvoiceLoading(false);
@@ -18240,8 +18216,6 @@ ${htmlBody}
                                 ) : (
                                   <span
                                     onClick={async (e) => {
-                                      // Explicit click handler for non-draft invoice numbers
-                                      console.log("[Invoice Number Click] Clicked:", inv.id, inv.status, "invoiceFullscreen=", invoiceFullscreen);
                                       e.stopPropagation();
                                       const token = localStorage.getItem("accessToken");
                                       if (!token) {
@@ -18265,13 +18239,10 @@ ${htmlBody}
                                         setActiveInvoice(json);
                                         // Navigate to fullscreen AFTER successfully loading
                                         if (!invoiceFullscreen) {
-                                          console.log("[Invoice Number Click] Navigating to fullscreen URL...");
                                           router.push(
                                             `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
                                             { scroll: false },
                                           );
-                                        } else {
-                                          console.log("[Invoice Number Click] Already in fullscreen, skipping navigation");
                                         }
                                       } catch (err: any) {
                                         setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
@@ -18440,10 +18411,6 @@ ${htmlBody}
                     boxShadow: activeInvoice.status === "DRAFT" ? "0 4px 12px rgba(59, 130, 246, 0.15)" : "none",
                   }}
                 >
-                  {/* DEBUG: This should be visible if the invoice detail renders */}
-                  <div className="no-print" style={{ padding: 4, marginBottom: 8, background: "#fef08a", borderRadius: 4, fontSize: 11 }}>
-                    DEBUG RENDER: Invoice ID = {activeInvoice.id} | Status = {activeInvoice.status}
-                  </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -21829,6 +21796,30 @@ ${htmlBody}
                   }}
                 >
                   Raw Data (Debug)
+                </button>
+
+                {/* Spacer to push bid button to right */}
+                <div style={{ flex: 1 }} />
+
+                {/* Create Bid Sheet button */}
+                <button
+                  type="button"
+                  onClick={() => window.location.href = `/projects/${id}/bid-requests/new`}
+                  style={{
+                    padding: "6px 14px",
+                    fontSize: 12,
+                    border: "none",
+                    borderRadius: 4,
+                    background: "linear-gradient(135deg, #059669 0%, #10b981 100%)",
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontWeight: 600,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  📋 Create Bid Sheet
                 </button>
               </div>
 

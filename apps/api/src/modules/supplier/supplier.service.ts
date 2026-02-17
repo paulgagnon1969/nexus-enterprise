@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/common";
-import { PrismaService } from "../../prisma.service";
+import { PrismaService } from "../../infra/prisma/prisma.service";
 import { Role, SupplierTagCategory } from "@prisma/client";
 
 interface AuthenticatedUser {

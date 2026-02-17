@@ -12,7 +12,7 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import { FastifyRequest } from "fastify";
-import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
+import { JwtAuthGuard } from "../auth/auth.guards";
 import { SupplierService } from "./supplier.service";
 import { Role, SupplierTagCategory } from "@prisma/client";
 
