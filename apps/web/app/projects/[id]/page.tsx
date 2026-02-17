@@ -1146,6 +1146,20 @@ export default function ProjectDetailPage({
   const [actorCompanyRole, setActorCompanyRole] = useState<CompanyRole | null>(null);
   const [actorGlobalRole, setActorGlobalRole] = useState<GlobalRole | null>(null);
 
+  // Company contact info for invoice printing
+  const [companyInfo, setCompanyInfo] = useState<{
+    name: string;
+    phone: string | null;
+    email: string | null;
+    website: string | null;
+    addressLine1: string | null;
+    addressLine2: string | null;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+    tagline: string | null;
+  } | null>(null);
+
   const [availableMembers, setAvailableMembers] = useState<
     { userId: string; email: string; role: string }[]
   >([]);
@@ -3060,6 +3074,13 @@ ${htmlBody}
     // Project name for title
     const projectName = project?.name ?? "";
 
+    // Build company address for header
+    const companyAddressLines: string[] = [];
+    if (companyInfo?.addressLine1) companyAddressLines.push(companyInfo.addressLine1);
+    if (companyInfo?.addressLine2) companyAddressLines.push(companyInfo.addressLine2);
+    const companyCityStateZip = [companyInfo?.city, companyInfo?.state, companyInfo?.postalCode].filter(Boolean).join(", ");
+    if (companyCityStateZip) companyAddressLines.push(companyCityStateZip);
+
     const headerHtml = `
       <!-- Header: Logo + Company Info -->
       <div class="invoice-header">
@@ -3068,11 +3089,10 @@ ${htmlBody}
           <span class="company-logo-text">NEXUS</span>
         </div>
         <div class="company-info">
-          <div class="company-name">Nexus Fortified Structures LLC</div>
-          <div>123 Construction Way, Suite 100</div>
-          <div>Tampa, FL 33601</div>
-          <div>Phone: (555) 123-4567</div>
-          <div class="company-tagline">Building Excellence, Fortifying Futures</div>
+          <div class="company-name">${htmlEscape(companyInfo?.name ?? "Company")}</div>
+          ${companyAddressLines.map(line => `<div>${htmlEscape(line)}</div>`).join("\n          ")}
+          ${companyInfo?.phone ? `<div>Phone: ${htmlEscape(companyInfo.phone)}</div>` : ""}
+          ${companyInfo?.tagline ? `<div class="company-tagline">${htmlEscape(companyInfo.tagline)}</div>` : ""}
         </div>
       </div>
 
@@ -7498,6 +7518,19 @@ ${htmlBody}
               role: m.role,
             })),
           );
+          // Store company contact info for invoice printing
+          setCompanyInfo({
+            name: companyJson.name ?? "Company",
+            phone: companyJson.phone ?? null,
+            email: companyJson.email ?? null,
+            website: companyJson.website ?? null,
+            addressLine1: companyJson.addressLine1 ?? null,
+            addressLine2: companyJson.addressLine2 ?? null,
+            city: companyJson.city ?? null,
+            state: companyJson.state ?? null,
+            postalCode: companyJson.postalCode ?? null,
+            tagline: companyJson.tagline ?? null,
+          });
         }
 
         if (!cancelled && tagRes.ok) {
