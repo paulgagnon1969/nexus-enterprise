@@ -208,19 +208,19 @@ export class ProjectService {
       data: {
         companyId,
         name: dto.name,
-        externalId: dto.externalId,
+        externalId: dto.externalId || undefined,
         addressLine1: dto.addressLine1,
-        addressLine2: dto.addressLine2,
+        addressLine2: dto.addressLine2 || undefined,
         city: dto.city,
         state: dto.state,
-        postalCode: dto.postalCode,
-        country: dto.country ?? undefined,
+        postalCode: dto.postalCode || undefined,
+        country: dto.country || undefined,
         latitude: dto.latitude,
         longitude: dto.longitude,
-        primaryContactName: dto.primaryContactName,
-        primaryContactPhone: dto.primaryContactPhone,
-        primaryContactEmail: dto.primaryContactEmail,
-        tenantClientId: dto.tenantClientId ?? undefined,
+        primaryContactName: dto.primaryContactName || undefined,
+        primaryContactPhone: dto.primaryContactPhone || undefined,
+        primaryContactEmail: dto.primaryContactEmail || undefined,
+        tenantClientId: dto.tenantClientId || undefined,
         createdByUserId: userId
       }
     });
