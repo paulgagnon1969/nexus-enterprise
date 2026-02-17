@@ -18170,6 +18170,7 @@ ${htmlBody}
                                   <span
                                     onClick={async (e) => {
                                       // Explicit click handler for non-draft invoice numbers
+                                      console.log("[Invoice Number Click] Clicked:", inv.id, inv.status);
                                       e.stopPropagation();
                                       const token = localStorage.getItem("accessToken");
                                       if (!token) {

@@ -423,10 +423,8 @@ export class ProjectService {
    * Get Bill of Materials (BOM) for a project.
    * 
    * Returns two views:
-   * 1. PETL BOM - Aggregated quantities by Cat/Sel from all SowItems (includes manual items)
-   * 2. Components BOM - Original estimate components from ComponentSummary (CSV import)
-   * 
-   * This allows reconciliation between what's in the PETL vs the original estimate.
+   * 1. PETL BOM - Aggregated material costs by Cat/Sel (qty × materialAmount per line)
+   * 2. Components BOM - De-duplicated components from ComponentSummary (CSV import)
    */
   async getProjectBom(projectId: string, actor: AuthenticatedUser) {
     const project = await this.getProjectByIdForUser(projectId, actor);
@@ -442,12 +440,13 @@ export class ProjectService {
       return {
         projectId: project.id,
         projectName: project.name,
-        petlBom: { items: [], byCategory: [], totalQty: 0, lineCount: 0 },
-        componentsBom: { items: [], totalCost: 0, itemCount: 0 },
+        petlBom: { items: [], byCategory: [], totalQty: 0, totalMaterialCost: 0, lineCount: 0 },
+        componentsBom: { items: [], totalCost: 0, itemCount: 0, rawRowCount: 0 },
       };
     }
 
     // ========== PETL BOM: Aggregate by Cat/Sel from SowItems ==========
+    // materialAmount is PER-UNIT, so total material = qty × materialAmount
     const sowItems = await this.prisma.sowItem.findMany({
       where: { estimateVersionId: estimateVersion.id },
       select: {
@@ -456,9 +455,7 @@ export class ProjectService {
         description: true,
         qty: true,
         unit: true,
-        unitCost: true,
-        itemAmount: true,
-        materialAmount: true,
+        materialAmount: true,  // per-unit material cost
         categoryCode: true,
         selectionCode: true,
         projectParticle: {
@@ -476,11 +473,9 @@ export class ProjectService {
         selectionCode: string;
         totalQty: number;
         unit: string;
-        totalAmount: number;
-        totalMaterialCost: number;
+        totalMaterialCost: number;  // sum of (qty × materialAmount)
         lineCount: number;
         descriptions: Set<string>;
-        rooms: Set<string>;
       }
     >();
 
@@ -488,35 +483,30 @@ export class ProjectService {
       const cat = item.categoryCode || "";
       const sel = item.selectionCode || "";
       const key = `${cat}|${sel}`;
-      const existing = petlAggregated.get(key);
+      const qty = item.qty ?? 0;
+      const perUnitMaterial = item.materialAmount ?? 0;
+      const lineMaterialCost = qty * perUnitMaterial;  // MULTIPLY qty × per-unit
 
+      const existing = petlAggregated.get(key);
       if (existing) {
-        existing.totalQty += item.qty ?? 0;
-        existing.totalAmount += item.itemAmount ?? 0;
-        existing.totalMaterialCost += item.materialAmount ?? 0;
+        existing.totalQty += qty;
+        existing.totalMaterialCost += lineMaterialCost;
         existing.lineCount += 1;
         if (item.description) existing.descriptions.add(item.description);
-        if (item.projectParticle?.fullLabel) {
-          existing.rooms.add(item.projectParticle.fullLabel);
-        }
       } else {
         petlAggregated.set(key, {
           categoryCode: cat,
           selectionCode: sel,
-          totalQty: item.qty ?? 0,
+          totalQty: qty,
           unit: item.unit ?? "",
-          totalAmount: item.itemAmount ?? 0,
-          totalMaterialCost: item.materialAmount ?? 0,
+          totalMaterialCost: lineMaterialCost,
           lineCount: 1,
           descriptions: new Set(item.description ? [item.description] : []),
-          rooms: new Set(
-            item.projectParticle?.fullLabel ? [item.projectParticle.fullLabel] : [],
-          ),
         });
       }
     }
 
-    // Convert to array and sort by total amount
+    // Convert to array and sort by material cost
     const petlItems = Array.from(petlAggregated.values())
       .map((item) => ({
         categoryCode: item.categoryCode,
@@ -524,27 +514,25 @@ export class ProjectService {
         catSel: item.categoryCode + (item.selectionCode ? `/${item.selectionCode}` : ""),
         totalQty: item.totalQty,
         unit: item.unit,
-        totalAmount: item.totalAmount,
         totalMaterialCost: item.totalMaterialCost,
         lineCount: item.lineCount,
         sampleDescriptions: Array.from(item.descriptions).slice(0, 3),
-        roomCount: item.rooms.size,
       }))
-      .sort((a, b) => b.totalAmount - a.totalAmount);
+      .sort((a, b) => b.totalMaterialCost - a.totalMaterialCost);
 
-    // Aggregate by category only for summary
-    const petlByCategory = new Map<string, { totalQty: number; totalAmount: number; lineCount: number }>();
+    // Aggregate by category for summary
+    const petlByCategory = new Map<string, { totalQty: number; totalMaterialCost: number; lineCount: number }>();
     for (const item of petlItems) {
       const cat = item.categoryCode || "Uncategorized";
       const existing = petlByCategory.get(cat);
       if (existing) {
         existing.totalQty += item.totalQty;
-        existing.totalAmount += item.totalAmount;
+        existing.totalMaterialCost += item.totalMaterialCost;
         existing.lineCount += item.lineCount;
       } else {
         petlByCategory.set(cat, {
           totalQty: item.totalQty,
-          totalAmount: item.totalAmount,
+          totalMaterialCost: item.totalMaterialCost,
           lineCount: item.lineCount,
         });
       }
@@ -552,30 +540,48 @@ export class ProjectService {
 
     const petlCategorySummary = Array.from(petlByCategory.entries())
       .map(([category, data]) => ({ category, ...data }))
-      .sort((a, b) => b.totalAmount - a.totalAmount);
+      .sort((a, b) => b.totalMaterialCost - a.totalMaterialCost);
 
-    // ========== COMPONENTS BOM: From ComponentSummary (CSV import) ==========
+    // ========== COMPONENTS BOM: De-duplicate by code ==========
     const components = await this.prisma.componentSummary.findMany({
       where: { estimateVersionId: estimateVersion.id },
-      orderBy: { total: "desc" },
     });
 
-    const componentItems = components.map((c) => ({
-      code: c.code,
-      description: c.description,
-      quantity: c.quantity,
-      unit: c.unit,
-      unitPrice: c.unitPrice,
-      total: c.total,
-      taxStatus: c.taxStatus,
-      contractorSupplied: c.contractorSupplied,
-    }));
+    // De-duplicate - the CSV import created duplicate rows
+    const componentsByCode = new Map<string, {
+      code: string;
+      description: string;
+      quantity: number;
+      unit: string;
+      unitPrice: number;
+      total: number;
+    }>();
 
-    const componentsTotalCost = components.reduce((sum, c) => sum + (c.total ?? 0), 0);
+    for (const c of components) {
+      const code = c.code ?? "";
+      if (!componentsByCode.has(code)) {
+        componentsByCode.set(code, {
+          code,
+          description: c.description ?? "",
+          quantity: c.quantity ?? 0,
+          unit: c.unit ?? "",
+          unitPrice: c.unitPrice ?? 0,
+          total: c.total ?? 0,
+        });
+      }
+    }
+
+    const componentItems = Array.from(componentsByCode.values())
+      .sort((a, b) => b.total - a.total);
+
+    const componentsTotalCost = componentItems.reduce((sum, c) => sum + c.total, 0);
 
     // ========== Summary totals ==========
     const petlTotalQty = sowItems.reduce((sum, item) => sum + (item.qty ?? 0), 0);
-    const petlTotalAmount = sowItems.reduce((sum, item) => sum + (item.itemAmount ?? 0), 0);
+    const petlTotalMaterialCost = sowItems.reduce(
+      (sum, item) => sum + (item.qty ?? 0) * (item.materialAmount ?? 0),
+      0
+    );
 
     return {
       projectId: project.id,
@@ -585,14 +591,15 @@ export class ProjectService {
         items: petlItems,
         byCategory: petlCategorySummary,
         totalQty: petlTotalQty,
-        totalAmount: petlTotalAmount,
+        totalMaterialCost: petlTotalMaterialCost,
         lineCount: sowItems.length,
         uniqueCatSelCount: petlItems.length,
       },
       componentsBom: {
         items: componentItems,
         totalCost: componentsTotalCost,
-        itemCount: components.length,
+        itemCount: componentItems.length,
+        rawRowCount: components.length,
       },
     };
   }

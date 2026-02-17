@@ -165,6 +165,13 @@ export class ProjectController {
     return this.projects.getProjectBom(projectId, user);
   }
 
+  @UseGuards(CombinedAuthGuard)
+  @Get(":id/components-raw")
+  getComponentsRaw(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getProjectComponentsRaw(projectId, user);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN)
   @Delete(":id")
