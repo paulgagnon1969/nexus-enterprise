@@ -4047,6 +4047,17 @@ ${htmlBody}
   const [applySavingPaymentId, setApplySavingPaymentId] = useState<string | null>(null);
   const [applyMessageByPaymentId, setApplyMessageByPaymentId] = useState<Record<string, string>>({});
 
+  // Payment delete/move state
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
+  const [movePaymentModalId, setMovePaymentModalId] = useState<string | null>(null);
+  const [moveTargetProjectId, setMoveTargetProjectId] = useState<string>("");
+  const [moveTargetInvoiceId, setMoveTargetInvoiceId] = useState<string>("");
+  const [movingPaymentId, setMovingPaymentId] = useState<string | null>(null);
+  const [userProjects, setUserProjects] = useState<{ id: string; name: string; code: string | null }[] | null>(null);
+  const [userProjectsLoading, setUserProjectsLoading] = useState(false);
+  const [targetProjectInvoices, setTargetProjectInvoices] = useState<any[] | null>(null);
+  const [targetProjectInvoicesLoading, setTargetProjectInvoicesLoading] = useState(false);
+
   const projectPaymentsSorted = useMemo(() => {
     const payments = projectPayments;
     if (!Array.isArray(payments)) return [];
@@ -17389,6 +17400,260 @@ ${htmlBody}
                               }}
                             >
                               {applyMsg}
+                            </div>
+                          )}
+
+                          {/* Delete / Move actions */}
+                          {isAdminOrAbove && (
+                            <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #e5e7eb", display: "flex", gap: 6 }}>
+                              <button
+                                type="button"
+                                disabled={deletingPaymentId === paymentId}
+                                onClick={async () => {
+                                  if (!project) return;
+                                  const token = localStorage.getItem("accessToken");
+                                  if (!token) {
+                                    setPaymentsMessage("Missing access token.");
+                                    return;
+                                  }
+
+                                  const ok = window.confirm(
+                                    `Delete this payment of ${formatMoney(p?.amount)}?\n\nThis will remove the payment entirely and unapply it from any invoices. This action cannot be undone.`,
+                                  );
+                                  if (!ok) return;
+
+                                  setDeletingPaymentId(paymentId);
+                                  setPaymentsMessage(null);
+                                  try {
+                                    const res = await fetch(
+                                      `${API_BASE}/projects/${project.id}/payments/${paymentId}`,
+                                      {
+                                        method: "DELETE",
+                                        headers: { Authorization: `Bearer ${token}` },
+                                      },
+                                    );
+                                    if (!res.ok) {
+                                      const text = await res.text().catch(() => "");
+                                      setPaymentsMessage(`Delete failed (${res.status}) ${text}`);
+                                      return;
+                                    }
+
+                                    // Refresh data
+                                    setProjectPayments(null);
+                                    setProjectInvoices(null);
+                                    setFinancialSummary(null);
+                                    setPaymentsMessage("Payment deleted.");
+                                  } catch (err: any) {
+                                    setPaymentsMessage(err?.message ?? "Delete failed.");
+                                  } finally {
+                                    setDeletingPaymentId(null);
+                                  }
+                                }}
+                                style={{
+                                  padding: "4px 8px",
+                                  borderRadius: 4,
+                                  border: "1px solid #b91c1c",
+                                  background: deletingPaymentId === paymentId ? "#fecaca" : "#fee2e2",
+                                  color: "#991b1b",
+                                  fontSize: 11,
+                                  cursor: deletingPaymentId === paymentId ? "default" : "pointer",
+                                }}
+                              >
+                                {deletingPaymentId === paymentId ? "Deleting…" : "Delete"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setMovePaymentModalId(paymentId);
+                                  setMoveTargetProjectId("");
+                                  setMoveTargetInvoiceId("");
+                                  setTargetProjectInvoices(null);
+
+                                  // Load user's projects if not cached
+                                  if (!userProjects && !userProjectsLoading) {
+                                    const token = localStorage.getItem("accessToken");
+                                    if (!token) return;
+                                    setUserProjectsLoading(true);
+                                    try {
+                                      const res = await fetch(`${API_BASE}/projects?limit=500`, {
+                                        headers: { Authorization: `Bearer ${token}` },
+                                      });
+                                      if (res.ok) {
+                                        const json = await res.json();
+                                        const list = Array.isArray(json) ? json : json.items ?? [];
+                                        setUserProjects(list.map((p: any) => ({ id: p.id, name: p.name, code: p.code })));
+                                      }
+                                    } catch {}
+                                    setUserProjectsLoading(false);
+                                  }
+                                }}
+                                style={{
+                                  padding: "4px 8px",
+                                  borderRadius: 4,
+                                  border: "1px solid #6b7280",
+                                  background: "#f3f4f6",
+                                  color: "#374151",
+                                  fontSize: 11,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Move
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Move Payment Modal (inline) */}
+                          {movePaymentModalId === paymentId && (
+                            <div
+                              style={{
+                                marginTop: 8,
+                                padding: 8,
+                                borderRadius: 6,
+                                background: "#f0f9ff",
+                                border: "1px solid #0ea5e9",
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 6 }}>
+                                Move Payment to Another Project
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                <select
+                                  value={moveTargetProjectId}
+                                  onChange={async (e) => {
+                                    const pid = e.target.value;
+                                    setMoveTargetProjectId(pid);
+                                    setMoveTargetInvoiceId("");
+                                    setTargetProjectInvoices(null);
+
+                                    if (pid) {
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) return;
+                                      setTargetProjectInvoicesLoading(true);
+                                      try {
+                                        const res = await fetch(`${API_BASE}/projects/${pid}/invoices`, {
+                                          headers: { Authorization: `Bearer ${token}` },
+                                        });
+                                        if (res.ok) {
+                                          const json = await res.json();
+                                          setTargetProjectInvoices(Array.isArray(json) ? json : []);
+                                        }
+                                      } catch {}
+                                      setTargetProjectInvoicesLoading(false);
+                                    }
+                                  }}
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderRadius: 4,
+                                    border: "1px solid #d1d5db",
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  <option value="">Select project…</option>
+                                  {userProjectsLoading && <option disabled>Loading…</option>}
+                                  {(userProjects ?? []).filter((pr) => pr.id !== project?.id).map((pr) => (
+                                    <option key={pr.id} value={pr.id}>
+                                      {pr.code ? `${pr.code} - ` : ""}{pr.name}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                {moveTargetProjectId && (
+                                  <select
+                                    value={moveTargetInvoiceId}
+                                    onChange={(e) => setMoveTargetInvoiceId(e.target.value)}
+                                    style={{
+                                      padding: "6px 8px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      fontSize: 12,
+                                    }}
+                                  >
+                                    <option value="">(No invoice - leave unapplied)</option>
+                                    {targetProjectInvoicesLoading && <option disabled>Loading invoices…</option>}
+                                    {(targetProjectInvoices ?? []).filter((inv: any) => inv.status !== "VOID").map((inv: any) => (
+                                      <option key={inv.id} value={inv.id}>
+                                        {inv.invoiceNo ?? "(draft)"} · {inv.status} · Bal {formatMoney(inv.balanceDue ?? 0)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  <button
+                                    type="button"
+                                    disabled={!moveTargetProjectId || movingPaymentId === paymentId}
+                                    onClick={async () => {
+                                      if (!project || !moveTargetProjectId) return;
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) {
+                                        setPaymentsMessage("Missing access token.");
+                                        return;
+                                      }
+
+                                      setMovingPaymentId(paymentId);
+                                      setPaymentsMessage(null);
+                                      try {
+                                        const res = await fetch(
+                                          `${API_BASE}/projects/${project.id}/payments/${paymentId}/move`,
+                                          {
+                                            method: "POST",
+                                            headers: {
+                                              "Content-Type": "application/json",
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                            body: JSON.stringify({
+                                              targetProjectId: moveTargetProjectId,
+                                              targetInvoiceId: moveTargetInvoiceId || undefined,
+                                            }),
+                                          },
+                                        );
+                                        if (!res.ok) {
+                                          const text = await res.text().catch(() => "");
+                                          setPaymentsMessage(`Move failed (${res.status}) ${text}`);
+                                          return;
+                                        }
+
+                                        // Refresh data
+                                        setProjectPayments(null);
+                                        setProjectInvoices(null);
+                                        setFinancialSummary(null);
+                                        setMovePaymentModalId(null);
+                                        setPaymentsMessage("Payment moved to another project.");
+                                      } catch (err: any) {
+                                        setPaymentsMessage(err?.message ?? "Move failed.");
+                                      } finally {
+                                        setMovingPaymentId(null);
+                                      }
+                                    }}
+                                    style={{
+                                      padding: "6px 10px",
+                                      borderRadius: 4,
+                                      border: "1px solid #0f172a",
+                                      background: !moveTargetProjectId || movingPaymentId === paymentId ? "#e5e7eb" : "#0f172a",
+                                      color: !moveTargetProjectId || movingPaymentId === paymentId ? "#6b7280" : "#f9fafb",
+                                      fontSize: 11,
+                                      cursor: !moveTargetProjectId || movingPaymentId === paymentId ? "default" : "pointer",
+                                    }}
+                                  >
+                                    {movingPaymentId === paymentId ? "Moving…" : "Move Payment"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setMovePaymentModalId(null)}
+                                    style={{
+                                      padding: "6px 10px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      background: "#ffffff",
+                                      color: "#374151",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           )}
 

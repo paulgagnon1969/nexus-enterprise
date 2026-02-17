@@ -491,6 +491,9 @@ model User {
 
   // Supplier Bid Portal
   bidRequestsRequested BidRequest[] @relation("BidRequestRequestedBy")
+
+  // Client Portal: TenantClient profiles linked to this user (can be client for multiple companies)
+  tenantClientProfiles TenantClient[]
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -1129,13 +1132,20 @@ model TenantClient {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
+  /// Optional linked user account for portal access.
+  /// Multiple TenantClient records (across companies) can link to same User,
+  /// enabling clients to see all their projects from any company using NEXUS.
+  userId String?
+
   tenant   Company   @relation(fields: [companyId], references: [id])
+  user     User?     @relation(fields: [userId], references: [id])
   projects Project[]
 
   @@index([companyId], map: "TenantClient_company_idx")
   @@index([companyId, email], map: "TenantClient_company_email_idx")
   @@index([companyId, phone], map: "TenantClient_company_phone_idx")
   @@index([companyId, lastName, firstName], map: "TenantClient_company_name_idx")
+  @@index([userId], map: "TenantClient_user_idx")
 }
 
 model ProjectGroup {
