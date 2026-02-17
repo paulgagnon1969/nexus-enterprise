@@ -2963,18 +2963,50 @@ ${htmlBody}
     doc.write(fullHtml);
     doc.close();
 
-    // Print after the iframe has had a moment to lay out.
-    window.setTimeout(() => {
-      try {
-        win.focus();
-        win.print();
-      } finally {
-        // Restore original document title
-        document.title = originalTitle;
-        // Cleanup later; some browsers are finicky about removing immediately.
-        window.setTimeout(() => iframe.remove(), 5000);
-      }
-    }, 120);
+    // Wait for all images to load before printing
+    const waitForImages = () => {
+      return new Promise<void>((resolve) => {
+        const images = doc.querySelectorAll("img");
+        if (images.length === 0) {
+          resolve();
+          return;
+        }
+
+        let loaded = 0;
+        const total = images.length;
+        const checkDone = () => {
+          loaded++;
+          if (loaded >= total) resolve();
+        };
+
+        images.forEach((img) => {
+          if (img.complete) {
+            checkDone();
+          } else {
+            img.onload = checkDone;
+            img.onerror = checkDone; // Count errors as "loaded" to not block forever
+          }
+        });
+
+        // Safety timeout - don't wait more than 10 seconds
+        setTimeout(resolve, 10000);
+      });
+    };
+
+    // Print after images load and layout settles
+    waitForImages().then(() => {
+      window.setTimeout(() => {
+        try {
+          win.focus();
+          win.print();
+        } finally {
+          // Restore original document title
+          document.title = originalTitle;
+          // Cleanup later; some browsers are finicky about removing immediately.
+          window.setTimeout(() => iframe.remove(), 5000);
+        }
+      }, 200);
+    });
   };
 
   // Async print function that yields to main thread to avoid blocking
