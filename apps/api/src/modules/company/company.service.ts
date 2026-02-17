@@ -40,6 +40,15 @@ export class CompanyService {
         kind: true,
         defaultTimeZone: true,
         defaultPayrollConfig: true,
+        phone: true,
+        email: true,
+        website: true,
+        addressLine1: true,
+        addressLine2: true,
+        city: true,
+        state: true,
+        postalCode: true,
+        tagline: true,
         createdAt: true,
         updatedAt: true,
         memberships: {
@@ -316,6 +325,35 @@ export class CompanyService {
     }
     if (typeof dto.defaultPayrollConfig !== "undefined") {
       data.defaultPayrollConfig = dto.defaultPayrollConfig ?? null;
+    }
+
+    // Contact information fields
+    if (typeof dto.phone === "string") {
+      data.phone = dto.phone.trim() || null;
+    }
+    if (typeof dto.email === "string") {
+      data.email = dto.email.trim() || null;
+    }
+    if (typeof dto.website === "string") {
+      data.website = dto.website.trim() || null;
+    }
+    if (typeof dto.addressLine1 === "string") {
+      data.addressLine1 = dto.addressLine1.trim() || null;
+    }
+    if (typeof dto.addressLine2 === "string") {
+      data.addressLine2 = dto.addressLine2.trim() || null;
+    }
+    if (typeof dto.city === "string") {
+      data.city = dto.city.trim() || null;
+    }
+    if (typeof dto.state === "string") {
+      data.state = dto.state.trim() || null;
+    }
+    if (typeof dto.postalCode === "string") {
+      data.postalCode = dto.postalCode.trim() || null;
+    }
+    if (typeof dto.tagline === "string") {
+      data.tagline = dto.tagline.trim() || null;
     }
 
     if (Object.keys(data).length === 0) {
