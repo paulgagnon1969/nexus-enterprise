@@ -1577,6 +1577,8 @@ export default function ProjectDetailPage({
   const [activeInvoice, setActiveInvoice] = useState<any | null>(null);
   const [activeInvoiceLoading, setActiveInvoiceLoading] = useState(false);
   const [activeInvoiceError, setActiveInvoiceError] = useState<string | null>(null);
+  // Toggle for unlocking issued invoices for editing (Admin/Owner only, no payments)
+  const [invoiceEditUnlocked, setInvoiceEditUnlocked] = useState(false);
 
   const [invoiceMessage, setInvoiceMessage] = useState<string | null>(null);
   const [paymentsMessage, setPaymentsMessage] = useState<string | null>(null);
@@ -1673,9 +1675,10 @@ export default function ProjectDetailPage({
   // Lines to exclude from print (per invoice, not persisted)
   const [invoicePrintExcludedLines, setInvoicePrintExcludedLines] = useState<Set<string>>(() => new Set());
 
-  // Reset excluded lines when invoice changes
+  // Reset excluded lines and unlock state when invoice changes
   useEffect(() => {
     setInvoicePrintExcludedLines(new Set());
+    setInvoiceEditUnlocked(false);
   }, [activeInvoice?.id]);
 
   // Group by field for print - supports multi-level hierarchy
@@ -18301,6 +18304,71 @@ ${htmlBody}
 
                       {invoiceFullscreen && (
                         <div className="no-print" style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {/* Lock/Unlock toggle for issued invoices (Admin/Owner only) */}
+                          {activeInvoice.status !== "DRAFT" &&
+                            activeInvoice.status !== "VOID" &&
+                            project &&
+                            (project.userRole === "OWNER" || project.userRole === "ADMIN") && (
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 8,
+                                padding: "4px 10px",
+                                borderRadius: 6,
+                                border: "1px solid #e5e7eb",
+                                background: "#f9fafb",
+                              }}
+                            >
+                              <span style={{ fontSize: 11, color: "#6b7280" }}>Invoice:</span>
+                              <button
+                                type="button"
+                                onClick={() => setInvoiceEditUnlocked(false)}
+                                style={{
+                                  padding: "3px 10px",
+                                  borderRadius: 4,
+                                  border: !invoiceEditUnlocked ? "1px solid #dc2626" : "1px solid #d1d5db",
+                                  background: !invoiceEditUnlocked ? "#fef2f2" : "#ffffff",
+                                  color: !invoiceEditUnlocked ? "#b91c1c" : "#6b7280",
+                                  fontSize: 11,
+                                  fontWeight: !invoiceEditUnlocked ? 600 : 400,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                🔒 Locked
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if ((activeInvoice.paidAmount ?? 0) > 0) {
+                                    setInvoiceMessage("Cannot unlock: invoice has payments applied. Void the invoice to make changes.");
+                                    return;
+                                  }
+                                  setInvoiceEditUnlocked(true);
+                                }}
+                                disabled={(activeInvoice.paidAmount ?? 0) > 0}
+                                title={(activeInvoice.paidAmount ?? 0) > 0 ? "Cannot unlock: payments have been applied" : "Unlock for editing"}
+                                style={{
+                                  padding: "3px 10px",
+                                  borderRadius: 4,
+                                  border: invoiceEditUnlocked ? "1px solid #16a34a" : "1px solid #d1d5db",
+                                  background: invoiceEditUnlocked ? "#dcfce7" : (activeInvoice.paidAmount ?? 0) > 0 ? "#f3f4f6" : "#ffffff",
+                                  color: invoiceEditUnlocked ? "#166534" : (activeInvoice.paidAmount ?? 0) > 0 ? "#9ca3af" : "#6b7280",
+                                  fontSize: 11,
+                                  fontWeight: invoiceEditUnlocked ? 600 : 400,
+                                  cursor: (activeInvoice.paidAmount ?? 0) > 0 ? "not-allowed" : "pointer",
+                                }}
+                              >
+                                🔓 Unlocked
+                              </button>
+                              {(activeInvoice.paidAmount ?? 0) > 0 && (
+                                <span style={{ fontSize: 10, color: "#b91c1c" }}>
+                                  (has payments)
+                                </span>
+                              )}
+                            </div>
+                          )}
+
                           <button
                             type="button"
                             onClick={() => {
@@ -18321,7 +18389,7 @@ ${htmlBody}
                             Print / Save PDF
                           </button>
 
-                          {activeInvoice.status === "DRAFT" && (
+                          {(activeInvoice.status === "DRAFT" || invoiceEditUnlocked) && (
                             <>
                               <button
                                 type="button"
