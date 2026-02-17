@@ -88,9 +88,9 @@ fi
 
 if [[ ! -f "$WEB_ENV" ]]; then
   cat > "$WEB_ENV" << 'EOF_WEB'
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8001
 EOF_WEB
-  echo "[dev-start-cloud] Created apps/web/.env.local pointing to http://localhost:8000" | tee -a "$LOG_DIR/dev-start-cloud.log"
+  echo "[dev-start-cloud] Created apps/web/.env.local pointing to http://localhost:8001" | tee -a "$LOG_DIR/dev-start-cloud.log"
 fi
 
 # --- 2) Start / ensure Cloud SQL proxy on DEV_DB_PORT ---------------------

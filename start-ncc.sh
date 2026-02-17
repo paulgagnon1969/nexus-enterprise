@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Nexus Connect App (NCC) - Development Environment Launcher
-# Starts: Laravel API (8000) + Next.js Web (3001) + Next.js Admin (3000)
+# Starts: Laravel API (8001) + Next.js Web (3001) + Next.js Admin (3000)
 # =============================================================================
 
 set -euo pipefail
@@ -11,7 +11,7 @@ API_DIR="${PROJECT_ROOT}"
 WEB_APP_DIR="${PROJECT_ROOT}/apps/web"
 ADMIN_APP_DIR="${PROJECT_ROOT}/apps/admin"
 
-API_PORT=8000
+API_PORT=8001
 WEB_PORT=3001
 ADMIN_PORT=3000
 

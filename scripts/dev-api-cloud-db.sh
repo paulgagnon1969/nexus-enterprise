@@ -17,5 +17,5 @@ fi
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR/apps/api"
 
-echo "[dev-api-cloud-db] Using DATABASE_URL pointed at Cloud SQL (API_PORT=8000)."
-API_PORT=8000 npm run dev
+echo "[dev-api-cloud-db] Using DATABASE_URL pointed at Cloud SQL (API_PORT=8001)."
+API_PORT=8001 npm run dev
