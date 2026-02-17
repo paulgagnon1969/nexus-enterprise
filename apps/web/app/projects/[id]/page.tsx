@@ -18073,6 +18073,8 @@ ${htmlBody}
                                     );
                                   }
                                   const json: any = await res.json();
+                                  // DEBUG: Show what we loaded
+                                  setInvoiceMessage(`Loaded invoice: ${json?.id} status=${json?.status}`);
                                   setActiveInvoice(json);
 
                                   // Navigate to fullscreen AFTER successfully loading
@@ -18084,6 +18086,7 @@ ${htmlBody}
                                   }
                                 } catch (err: any) {
                                   setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
+                                  setInvoiceMessage(`ERROR: ${err?.message}`);
                                   loadingInvoiceIdRef.current = null;
                                 } finally {
                                   setActiveInvoiceLoading(false);
