@@ -16831,7 +16831,7 @@ ${htmlBody}
                             </th>
                           )}
                           <th style={{ padding: "4px 6px" }}>Vendor</th>
-                          <th style={{ padding: "4px 6px" }}>Location</th>
+                          <th style={{ padding: "4px 6px" }}>Invoice</th>
                           <th style={{ padding: "4px 6px" }}>Description</th>
                           <th style={{ padding: "4px 6px", textAlign: "right" }}>Cost</th>
                           <th style={{ padding: "4px 6px", textAlign: "right" }}>GM%</th>
@@ -16839,15 +16839,32 @@ ${htmlBody}
                         </tr>
                       </thead>
                       <tbody>
-                        {billableBills.map((b: any) => {
+                        {[...billableBills]
+                          .sort((a: any, b: any) => {
+                            // Sort by createdAt descending (newest first)
+                            const dateA = new Date(a?.createdAt ?? 0).getTime();
+                            const dateB = new Date(b?.createdAt ?? 0).getTime();
+                            return dateB - dateA;
+                          })
+                          .map((b: any) => {
                           const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
                           const cost = Number(b?.totalAmount) || 0;
                           const billable = Number(b?.billableAmount) || 0;
                           const gmPct = billable > 0 ? ((billable - cost) / billable) * 100 : 0;
                           const billId = String(b?.id ?? "");
                           const isSelected = selectedExpenseLineIds.has(billId);
+                          
+                          // Check if this expense's invoice is paid/locked
+                          const targetInv = b?.targetInvoice;
+                          const isPaid = targetInv && (targetInv.status === "PAID" || targetInv.status === "PARTIALLY_PAID");
+                          const isLocked = targetInv && targetInv.status !== "DRAFT";
+                          
+                          // Row styling based on status
+                          const rowBg = isSelected ? "#dbeafe" : isPaid ? "#fef2f2" : undefined;
+                          const textColor = isPaid ? "#991b1b" : isLocked ? "#6b7280" : "#166534";
+                          
                           return (
-                            <tr key={billId || Math.random()} style={{ borderTop: "1px solid #bbf7d0", background: isSelected ? "#dbeafe" : undefined }}>
+                            <tr key={billId || Math.random()} style={{ borderTop: "1px solid #bbf7d0", background: rowBg }}>
                               {expenseInvoice && expenseInvoice.status === "DRAFT" && (
                                 <td style={{ padding: "4px 6px" }}>
                                   <input
@@ -16865,25 +16882,30 @@ ${htmlBody}
                                       });
                                     }}
                                     style={{ cursor: "pointer" }}
+                                    disabled={isLocked}
                                   />
                                 </td>
                               )}
-                              <td style={{ padding: "4px 6px" }}>{b?.vendorName ?? "—"}</td>
-                              <td style={{ padding: "4px 6px", color: "#6b7280", fontSize: 10 }}>
-                                {(() => {
-                                  const dl = b?.sourceDailyLog;
-                                  if (!dl) return "—";
-                                  const parts: string[] = [];
-                                  if (dl.building?.name) parts.push(dl.building.name);
-                                  if (dl.unit?.label) parts.push(dl.unit.label);
-                                  if (dl.roomParticle?.name) parts.push(dl.roomParticle.name);
-                                  return parts.length > 0 ? parts.join(" › ") : "—";
-                                })()}
+                              <td style={{ padding: "4px 6px", color: textColor }}>{b?.vendorName ?? "—"}</td>
+                              <td style={{ padding: "4px 6px", fontSize: 10 }}>
+                                {targetInv ? (
+                                  <span style={{
+                                    padding: "2px 6px",
+                                    borderRadius: 4,
+                                    background: isPaid ? "#fecaca" : isLocked ? "#e5e7eb" : "#dcfce7",
+                                    color: isPaid ? "#991b1b" : isLocked ? "#4b5563" : "#166534",
+                                    fontSize: 10,
+                                  }}>
+                                    {targetInv.invoiceNo ?? "Draft"}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: "#9ca3af" }}>—</span>
+                                )}
                               </td>
-                              <td style={{ padding: "4px 6px", color: "#166534" }}>{li?.description ?? "—"}</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right" }}>{formatMoney(cost)}</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right", color: "#16a34a" }}>{gmPct.toFixed(1)}%</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 600 }}>{formatMoney(billable)}</td>
+                              <td style={{ padding: "4px 6px", color: textColor }}>{li?.description ?? "—"}</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right", color: textColor }}>{formatMoney(cost)}</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right", color: isPaid ? "#991b1b" : "#16a34a" }}>{gmPct.toFixed(1)}%</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 600, color: textColor }}>{formatMoney(billable)}</td>
                             </tr>
                           );
                         })}
