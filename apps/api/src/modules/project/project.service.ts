@@ -12429,6 +12429,308 @@ export class ProjectService {
     }
   }
 
+  /**
+   * Delete a payment entirely.
+   * First unapplies from all invoices, then deletes the payment record.
+   */
+  async deleteProjectPayment(
+    projectId: string,
+    paymentId: string,
+    actor: AuthenticatedUser,
+  ) {
+    this.ensureBillingModelsAvailable();
+
+    // Only OWNER/ADMIN can delete payments
+    if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+      throw new ForbiddenException("Only admins can delete payments");
+    }
+
+    try {
+      const project = await this.getProjectByIdForUser(projectId, actor);
+
+      const payment = await this.prisma.projectPayment.findFirst({
+        where: {
+          id: paymentId,
+          projectId: project.id,
+          companyId: project.companyId,
+        },
+      });
+
+      if (!payment) {
+        throw new NotFoundException("Payment not found for this project");
+      }
+
+      // Collect all invoices that need status recalculation
+      const affectedInvoiceIds = new Set<string>();
+
+      // If legacy invoice-linked, track that invoice
+      if (payment.invoiceId) {
+        affectedInvoiceIds.add(payment.invoiceId);
+      }
+
+      // Find all payment applications and track their invoices
+      if (this.paymentApplicationModelsAvailable()) {
+        try {
+          const pAny: any = this.prisma as any;
+          const apps = await pAny.projectPaymentApplication.findMany({
+            where: { paymentId: payment.id },
+            select: { id: true, invoiceId: true },
+          });
+
+          for (const app of apps) {
+            if (app.invoiceId) affectedInvoiceIds.add(app.invoiceId);
+          }
+
+          // Delete all applications
+          if (apps.length > 0) {
+            await pAny.projectPaymentApplication.deleteMany({
+              where: { paymentId: payment.id },
+            });
+          }
+        } catch (err: any) {
+          if (!this.isPaymentApplicationTableMissingError(err)) {
+            throw err;
+          }
+        }
+      }
+
+      // Delete the payment
+      await this.prisma.projectPayment.delete({
+        where: { id: payment.id },
+      });
+
+      // Recalculate status for all affected invoices
+      for (const invoiceId of affectedInvoiceIds) {
+        try {
+          const invoice = await this.prisma.projectInvoice.findFirst({
+            where: { id: invoiceId, projectId: project.id },
+          });
+
+          if (invoice && invoice.status !== ProjectInvoiceStatus.DRAFT && invoice.status !== ProjectInvoiceStatus.VOID) {
+            const paidTotal = await this.computeInvoicePaymentTotal(invoice.id);
+            let nextStatus: ProjectInvoiceStatus = invoice.status;
+
+            if (paidTotal >= (invoice.totalAmount ?? 0) && (invoice.totalAmount ?? 0) > 0) {
+              nextStatus = ProjectInvoiceStatus.PAID;
+            } else if (paidTotal > 0) {
+              nextStatus = ProjectInvoiceStatus.PARTIALLY_PAID;
+            } else {
+              nextStatus = ProjectInvoiceStatus.ISSUED;
+            }
+
+            if (nextStatus !== invoice.status) {
+              await this.prisma.projectInvoice.update({
+                where: { id: invoice.id },
+                data: { status: nextStatus },
+              });
+            }
+          }
+        } catch {
+          // Ignore errors for individual invoice updates
+        }
+      }
+
+      return {
+        status: "deleted",
+        paymentId: payment.id,
+        affectedInvoices: Array.from(affectedInvoiceIds),
+      };
+    } catch (err: any) {
+      if (this.isBillingTableMissingError(err)) {
+        this.throwBillingTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Move a payment to another project and/or apply to a different invoice.
+   * If targetProjectId is provided, moves the payment to that project.
+   * If targetInvoiceId is provided, applies the payment to that invoice (after unapplying from current).
+   */
+  async moveProjectPayment(
+    projectId: string,
+    paymentId: string,
+    dto: { targetProjectId?: string; targetInvoiceId?: string },
+    actor: AuthenticatedUser,
+  ) {
+    this.ensureBillingModelsAvailable();
+
+    // Only OWNER/ADMIN can move payments
+    if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+      throw new ForbiddenException("Only admins can move payments");
+    }
+
+    if (!dto.targetProjectId && !dto.targetInvoiceId) {
+      throw new BadRequestException("Must specify targetProjectId or targetInvoiceId");
+    }
+
+    try {
+      const project = await this.getProjectByIdForUser(projectId, actor);
+
+      const payment = await this.prisma.projectPayment.findFirst({
+        where: {
+          id: paymentId,
+          projectId: project.id,
+          companyId: project.companyId,
+          status: ProjectPaymentStatus.RECORDED,
+        },
+      });
+
+      if (!payment) {
+        throw new NotFoundException("Payment not found for this project");
+      }
+
+      // Validate target project if specified
+      let targetProject = project;
+      if (dto.targetProjectId && dto.targetProjectId !== project.id) {
+        targetProject = await this.getProjectByIdForUser(dto.targetProjectId, actor);
+        if (targetProject.companyId !== project.companyId) {
+          throw new BadRequestException("Cannot move payment to a project in a different company");
+        }
+      }
+
+      // Validate target invoice if specified
+      let targetInvoice: any = null;
+      if (dto.targetInvoiceId) {
+        targetInvoice = await this.prisma.projectInvoice.findFirst({
+          where: {
+            id: dto.targetInvoiceId,
+            projectId: targetProject.id,
+            companyId: targetProject.companyId,
+          },
+        });
+
+        if (!targetInvoice) {
+          throw new NotFoundException("Target invoice not found");
+        }
+
+        if (targetInvoice.status === ProjectInvoiceStatus.DRAFT) {
+          throw new BadRequestException("Cannot apply payment to a draft invoice");
+        }
+
+        if (targetInvoice.status === ProjectInvoiceStatus.VOID) {
+          throw new BadRequestException("Cannot apply payment to a void invoice");
+        }
+      }
+
+      // Collect affected invoices for status recalculation
+      const affectedInvoiceIds = new Set<string>();
+
+      // Unapply from current invoice (legacy mode)
+      if (payment.invoiceId) {
+        affectedInvoiceIds.add(payment.invoiceId);
+      }
+
+      // Unapply from all current applications
+      if (this.paymentApplicationModelsAvailable()) {
+        try {
+          const pAny: any = this.prisma as any;
+          const apps = await pAny.projectPaymentApplication.findMany({
+            where: { paymentId: payment.id },
+            select: { id: true, invoiceId: true },
+          });
+
+          for (const app of apps) {
+            if (app.invoiceId) affectedInvoiceIds.add(app.invoiceId);
+          }
+
+          // Delete all applications
+          if (apps.length > 0) {
+            await pAny.projectPaymentApplication.deleteMany({
+              where: { paymentId: payment.id },
+            });
+          }
+        } catch (err: any) {
+          if (!this.isPaymentApplicationTableMissingError(err)) {
+            throw err;
+          }
+        }
+      }
+
+      // Update the payment record
+      const updateData: any = {
+        invoiceId: null, // Clear legacy invoice link
+      };
+
+      if (dto.targetProjectId && dto.targetProjectId !== project.id) {
+        updateData.projectId = targetProject.id;
+      }
+
+      await this.prisma.projectPayment.update({
+        where: { id: payment.id },
+        data: updateData,
+      });
+
+      // If target invoice specified, apply to it
+      if (targetInvoice && this.paymentApplicationModelsAvailable()) {
+        try {
+          const pAny: any = this.prisma as any;
+          await pAny.projectPaymentApplication.create({
+            data: {
+              companyId: targetProject.companyId,
+              projectId: targetProject.id,
+              paymentId: payment.id,
+              invoiceId: targetInvoice.id,
+              amount: payment.amount,
+              appliedAt: new Date(),
+              createdByUserId: actor.userId,
+            },
+          });
+          affectedInvoiceIds.add(targetInvoice.id);
+        } catch (err: any) {
+          if (!this.isPaymentApplicationTableMissingError(err)) {
+            throw err;
+          }
+        }
+      }
+
+      // Recalculate status for all affected invoices
+      for (const invoiceId of affectedInvoiceIds) {
+        try {
+          const invoice = await this.prisma.projectInvoice.findFirst({
+            where: { id: invoiceId },
+          });
+
+          if (invoice && invoice.status !== ProjectInvoiceStatus.DRAFT && invoice.status !== ProjectInvoiceStatus.VOID) {
+            const paidTotal = await this.computeInvoicePaymentTotal(invoice.id);
+            let nextStatus: ProjectInvoiceStatus = invoice.status;
+
+            if (paidTotal >= (invoice.totalAmount ?? 0) && (invoice.totalAmount ?? 0) > 0) {
+              nextStatus = ProjectInvoiceStatus.PAID;
+            } else if (paidTotal > 0) {
+              nextStatus = ProjectInvoiceStatus.PARTIALLY_PAID;
+            } else {
+              nextStatus = ProjectInvoiceStatus.ISSUED;
+            }
+
+            if (nextStatus !== invoice.status) {
+              await this.prisma.projectInvoice.update({
+                where: { id: invoice.id },
+                data: { status: nextStatus },
+              });
+            }
+          }
+        } catch {
+          // Ignore errors for individual invoice updates
+        }
+      }
+
+      return {
+        status: "moved",
+        paymentId: payment.id,
+        newProjectId: targetProject.id,
+        newInvoiceId: targetInvoice?.id ?? null,
+        affectedInvoices: Array.from(affectedInvoiceIds),
+      };
+    } catch (err: any) {
+      if (this.isBillingTableMissingError(err)) {
+        this.throwBillingTablesNotMigrated();
+      }
+      throw err;
+    }
+  }
+
   async getImportRoomBucketsForProject(
     projectId: string,
     companyId: string,
