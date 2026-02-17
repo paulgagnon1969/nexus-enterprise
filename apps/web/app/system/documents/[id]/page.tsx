@@ -930,7 +930,9 @@ function PrintView({
               )}
               <div>
                 <span style={{ color: "#9ca3af" }}>Last Updated:</span>{" "}
-                {new Date(document.currentVersion?.createdAt || document.createdBy).toLocaleDateString()}
+                {document.currentVersion?.createdAt
+                  ? new Date(document.currentVersion.createdAt).toLocaleDateString()
+                  : "—"}
               </div>
             </div>
 
