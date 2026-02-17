@@ -604,6 +604,92 @@ export class ProjectService {
     };
   }
 
+  /**
+   * Get raw ComponentSummary data for a project - no processing, no de-duplication.
+   * This is for debugging/analysis to understand what was imported from the CSV.
+   */
+  async getProjectComponentsRaw(projectId: string, actor: AuthenticatedUser) {
+    const project = await this.getProjectByIdForUser(projectId, actor);
+
+    const estimateVersion = await this.prisma.estimateVersion.findFirst({
+      where: { projectId: project.id },
+      orderBy: { sequenceNo: "desc" },
+      select: { id: true, sequenceNo: true },
+    });
+
+    if (!estimateVersion) {
+      return {
+        projectId: project.id,
+        projectName: project.name,
+        items: [],
+        totalRows: 0,
+        summary: { totalCost: 0, totalQty: 0 },
+      };
+    }
+
+    // Get ALL raw rows - no de-duplication
+    const components = await this.prisma.componentSummary.findMany({
+      where: { estimateVersionId: estimateVersion.id },
+      orderBy: [{ code: "asc" }, { id: "asc" }],
+    });
+
+    // Group by code to show duplicates together
+    const groupedByCode = new Map<string, any[]>();
+    for (const c of components) {
+      const code = c.code ?? "";
+      if (!groupedByCode.has(code)) {
+        groupedByCode.set(code, []);
+      }
+      groupedByCode.get(code)!.push({
+        id: c.id,
+        code: c.code,
+        description: c.description,
+        quantity: c.quantity,
+        unit: c.unit,
+        unitPrice: c.unitPrice,
+        total: c.total,
+        taxStatus: c.taxStatus,
+        contractorSupplied: c.contractorSupplied,
+        createdAt: c.createdAt,
+      });
+    }
+
+    // Convert to array of groups, sorted by total (descending)
+    const groups = Array.from(groupedByCode.entries())
+      .map(([code, items]) => ({
+        code,
+        count: items.length,
+        isDuplicate: items.length > 1,
+        totalForCode: items.reduce((sum, i) => sum + (i.total ?? 0), 0),
+        items,
+      }))
+      .sort((a, b) => b.totalForCode - a.totalForCode);
+
+    // Summary stats
+    const totalCost = components.reduce((sum, c) => sum + (c.total ?? 0), 0);
+    const totalQty = components.reduce((sum, c) => sum + (c.quantity ?? 0), 0);
+    const uniqueCodes = groupedByCode.size;
+    const duplicateCount = components.length - uniqueCodes;
+    const duplicateGroups = groups.filter(g => g.isDuplicate);
+
+    return {
+      projectId: project.id,
+      projectName: project.name,
+      estimateVersionId: estimateVersion.id,
+      groups,  // Grouped by code
+      totalRows: components.length,
+      uniqueCodes,
+      duplicateCount,
+      duplicateGroupCount: duplicateGroups.length,
+      summary: {
+        totalCost,
+        totalQty,
+        // What the total SHOULD be if we de-dup
+        dedupedTotalCost: groups.reduce((sum, g) => sum + (g.items[0]?.total ?? 0), 0),
+      },
+    };
+  }
+
   async getHierarchy(
     projectId: string,
     userId: string,
