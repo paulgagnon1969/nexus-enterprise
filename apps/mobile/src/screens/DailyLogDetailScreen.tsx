@@ -152,7 +152,7 @@ export function DailyLogDetailScreen({
   };
 
   // Check if attachment is an image
-  const isImageAttachment = (att: { fileName?: string; mimeType?: string }) => {
+  const isImageAttachment = (att: { fileName?: string | null; mimeType?: string | null }) => {
     const fileName = att.fileName?.toLowerCase() || "";
     const mimeType = att.mimeType?.toLowerCase() || "";
     return (
@@ -354,19 +354,23 @@ export function DailyLogDetailScreen({
             {/* Photo grid for images */}
             {data.attachments.some(isImageAttachment) && (
               <View style={styles.photoGrid}>
-                {data.attachments.filter(isImageAttachment).map((att) => (
-                  <Pressable
-                    key={att.id}
-                    style={styles.photoThumbnailWrapper}
-                    onPress={() => att.fileUrl && openAttachment(att.fileUrl)}
-                  >
-                    <Image
-                      source={{ uri: att.fileUrl || att.thumbnailUrl }}
-                      style={styles.photoThumbnail}
-                      resizeMode="cover"
-                    />
-                  </Pressable>
-                ))}
+                {data.attachments.filter(isImageAttachment).map((att) => {
+                  const imageUri = att.fileUrl || att.thumbnailUrl;
+                  if (!imageUri) return null;
+                  return (
+                    <Pressable
+                      key={att.id}
+                      style={styles.photoThumbnailWrapper}
+                      onPress={() => att.fileUrl && openAttachment(att.fileUrl)}
+                    >
+                      <Image
+                        source={{ uri: imageUri }}
+                        style={styles.photoThumbnail}
+                        resizeMode="cover"
+                      />
+                    </Pressable>
+                  );
+                })}
               </View>
             )}
             

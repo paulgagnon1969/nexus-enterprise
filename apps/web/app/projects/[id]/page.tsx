@@ -3043,6 +3043,8 @@ ${htmlBody}
           <div class="bill-to-label">Bill To:</div>
           <div class="bill-to-name">${htmlEscape(activeInvoice.billToName ?? "")}</div>
           <div class="bill-to-address">${billToAddress || ""}</div>
+          ${activeInvoice.billToPhone ? `<div class="bill-to-phone">Phone: ${htmlEscape(activeInvoice.billToPhone)}</div>` : ""}
+          ${activeInvoice.billToEmail ? `<div class="bill-to-email">Email: ${htmlEscape(activeInvoice.billToEmail)}</div>` : ""}
         </div>
         <div class="invoice-details">
           <div class="invoice-details-row">

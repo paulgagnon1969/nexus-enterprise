@@ -198,6 +198,180 @@ export class EmailService {
 
     return this.sendMail({ to: params.toEmail, subject, html, text });
   }
+
+  /**
+   * Send bid request invitation to a supplier
+   */
+  async sendBidRequestInvite(params: {
+    toEmail: string;
+    supplierName: string;
+    companyName: string;
+    bidTitle: string;
+    projectAddress?: string;
+    dueDate?: Date;
+    portalUrl: string;
+    accessPin: string;
+  }) {
+    const subject = `Bid Request from ${params.companyName}: ${params.bidTitle}`;
+    const dueDateStr = params.dueDate
+      ? new Date(params.dueDate).toLocaleDateString("en-US", {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        })
+      : null;
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: #fff; padding: 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 20px;">Bid Request</h1>
+          <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">from ${escapeHtml(params.companyName)}</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Hello ${escapeHtml(params.supplierName)},</p>
+          <p style="margin: 0 0 16px;">${escapeHtml(params.companyName)} has invited you to submit pricing for:</p>
+          
+          <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+            <h2 style="margin: 0 0 8px; font-size: 16px;">${escapeHtml(params.bidTitle)}</h2>
+            ${params.projectAddress ? `<p style="margin: 0 0 4px; color: #6b7280; font-size: 13px;">📍 ${escapeHtml(params.projectAddress)}</p>` : ""}
+            ${dueDateStr ? `<p style="margin: 0; color: #dc2626; font-size: 13px; font-weight: 600;">⏰ Due: ${dueDateStr}</p>` : ""}
+          </div>
+
+          <p style="margin: 0 0 12px;">To view and respond to this bid request:</p>
+          <ol style="margin: 0 0 20px; padding-left: 20px;">
+            <li style="margin-bottom: 8px;">Click the button below to access the bid portal</li>
+            <li style="margin-bottom: 8px;">Enter your PIN: <strong style="font-family: monospace; background: #f3f4f6; padding: 2px 8px; border-radius: 4px;">${params.accessPin}</strong></li>
+            <li>Review line items and enter your pricing</li>
+          </ol>
+
+          <p style="margin: 0 0 24px; text-align: center;">
+            <a href="${params.portalUrl}" style="display: inline-block; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
+              Open Bid Portal
+            </a>
+          </p>
+
+          <p style="margin: 0 0 8px; color: #6b7280; font-size: 12px;">Or copy this link:</p>
+          <p style="margin: 0 0 20px; word-break: break-all; font-size: 12px; color: #2563eb;">
+            <a href="${params.portalUrl}" style="color: #2563eb;">${params.portalUrl}</a>
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">This email was sent by NEXUS on behalf of ${escapeHtml(params.companyName)}. If you believe this was sent in error, please disregard.</p>
+        </div>
+      </div>
+    `.trim();
+
+    const text = `Bid Request from ${params.companyName}\n\n${params.bidTitle}\n${params.projectAddress ? `Location: ${params.projectAddress}\n` : ""}${dueDateStr ? `Due: ${dueDateStr}\n` : ""}\nAccess the bid portal: ${params.portalUrl}\nYour PIN: ${params.accessPin}\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
+
+  /**
+   * Send reminder for pending bid request
+   */
+  async sendBidRequestReminder(params: {
+    toEmail: string;
+    supplierName: string;
+    companyName: string;
+    bidTitle: string;
+    dueDate?: Date;
+    portalUrl: string;
+  }) {
+    const subject = `Reminder: Bid Response Due Soon - ${params.bidTitle}`;
+    const dueDateStr = params.dueDate
+      ? new Date(params.dueDate).toLocaleDateString("en-US", {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        })
+      : null;
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: #f59e0b; color: #fff; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 18px;">⏰ Bid Response Reminder</h1>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Hello ${escapeHtml(params.supplierName)},</p>
+          <p style="margin: 0 0 16px;">This is a friendly reminder that ${escapeHtml(params.companyName)} is awaiting your response to:</p>
+          
+          <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+            <h2 style="margin: 0 0 8px; font-size: 16px;">${escapeHtml(params.bidTitle)}</h2>
+            ${dueDateStr ? `<p style="margin: 0; color: #b45309; font-size: 14px; font-weight: 600;">Due: ${dueDateStr}</p>` : ""}
+          </div>
+
+          <p style="margin: 0 0 24px; text-align: center;">
+            <a href="${params.portalUrl}" style="display: inline-block; background: #f59e0b; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
+              Submit Your Response
+            </a>
+          </p>
+
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">Use your original PIN to access the portal. If you've lost your PIN, please contact ${escapeHtml(params.companyName)} directly.</p>
+        </div>
+      </div>
+    `.trim();
+
+    const text = `Reminder: Bid Response Due Soon\n\n${params.bidTitle}\n${dueDateStr ? `Due: ${dueDateStr}\n` : ""}\nSubmit your response: ${params.portalUrl}\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
+
+  /**
+   * Notify requester when a supplier responds to a bid request
+   */
+  async sendBidResponseNotification(params: {
+    toEmail: string;
+    requesterName: string;
+    supplierName: string;
+    bidTitle: string;
+    responseTotal: number;
+    itemCount: number;
+    viewUrl: string;
+  }) {
+    const subject = `Bid Response Received from ${params.supplierName}`;
+    const totalFormatted = params.responseTotal.toLocaleString("en-US", {
+      style: "currency",
+      currency: "USD",
+    });
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: #10b981; color: #fff; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 18px;">✅ New Bid Response</h1>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Hi ${escapeHtml(params.requesterName)},</p>
+          <p style="margin: 0 0 16px;"><strong>${escapeHtml(params.supplierName)}</strong> has submitted a response to your bid request:</p>
+          
+          <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+            <h2 style="margin: 0 0 12px; font-size: 16px;">${escapeHtml(params.bidTitle)}</h2>
+            <div style="display: flex; gap: 24px;">
+              <div>
+                <p style="margin: 0; color: #6b7280; font-size: 12px;">Total Bid</p>
+                <p style="margin: 4px 0 0; font-size: 20px; font-weight: 700; color: #059669;">${totalFormatted}</p>
+              </div>
+              <div>
+                <p style="margin: 0; color: #6b7280; font-size: 12px;">Items Priced</p>
+                <p style="margin: 4px 0 0; font-size: 20px; font-weight: 700;">${params.itemCount}</p>
+              </div>
+            </div>
+          </div>
+
+          <p style="margin: 0 0 24px; text-align: center;">
+            <a href="${params.viewUrl}" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
+              View Response
+            </a>
+          </p>
+        </div>
+      </div>
+    `.trim();
+
+    const text = `New Bid Response from ${params.supplierName}\n\n${params.bidTitle}\nTotal: ${totalFormatted}\nItems: ${params.itemCount}\n\nView response: ${params.viewUrl}\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
 }
 
 function escapeHtml(input: string) {

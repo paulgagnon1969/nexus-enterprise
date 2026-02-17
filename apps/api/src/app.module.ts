@@ -47,6 +47,7 @@ import { PublicationGroupsModule } from "./modules/publication-groups/publicatio
 import { SavedPhrasesModule } from "./modules/saved-phrases/saved-phrases.module";
 import { SupplierModule } from "./modules/supplier/supplier.module";
 import { BidRequestModule } from "./modules/bid-request/bid-request.module";
+import { BidPortalModule } from "./modules/bid-portal/bid-portal.module";
 
 @Module({
   imports: [
@@ -102,6 +103,7 @@ import { BidRequestModule } from "./modules/bid-request/bid-request.module";
     SavedPhrasesModule,
     SupplierModule,
     BidRequestModule,
+    BidPortalModule,
   ],
   controllers: [DevController]
 })

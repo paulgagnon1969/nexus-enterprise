@@ -111,7 +111,7 @@ export function DailyLogFeedScreen({ onSelectLog, onCreateLog }: Props) {
   };
 
   // Check if attachment is an image
-  const isImageAttachment = (att: { fileName?: string; mimeType?: string }) => {
+  const isImageAttachment = (att: { fileName?: string | null; mimeType?: string | null }) => {
     const fileName = att.fileName?.toLowerCase() || "";
     const mimeType = att.mimeType?.toLowerCase() || "";
     return (
@@ -158,14 +158,18 @@ export function DailyLogFeedScreen({ onSelectLog, onCreateLog }: Props) {
             style={styles.thumbnailRow}
             contentContainerStyle={styles.thumbnailRowContent}
           >
-            {imageAttachments.slice(0, 4).map((att, idx) => (
-              <Image
-                key={att.id || idx}
-                source={{ uri: att.fileUrl || att.thumbnailUrl }}
-                style={styles.thumbnail}
-                resizeMode="cover"
-              />
-            ))}
+            {imageAttachments.slice(0, 4).map((att, idx) => {
+              const imageUri = att.fileUrl || att.thumbnailUrl;
+              if (!imageUri) return null;
+              return (
+                <Image
+                  key={att.id || idx}
+                  source={{ uri: imageUri }}
+                  style={styles.thumbnail}
+                  resizeMode="cover"
+                />
+              );
+            })}
             {imageAttachments.length > 4 && (
               <View style={styles.thumbnailMore}>
                 <Text style={styles.thumbnailMoreText}>+{imageAttachments.length - 4}</Text>
