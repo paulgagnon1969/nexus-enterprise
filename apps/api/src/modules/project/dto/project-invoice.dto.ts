@@ -192,6 +192,24 @@ export class UpdateInvoicePetlLineDto {
   billingTag!: ProjectInvoicePetlLineBillingTag;
 }
 
+export class UpdateInvoiceDto {
+  @IsOptional()
+  @IsString()
+  invoiceNo?: string;
+
+  @IsOptional()
+  @IsString()
+  billToName?: string;
+
+  @IsOptional()
+  @IsString()
+  billToEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  memo?: string;
+}
+
 export class AttachInvoiceFileDto {
   @IsString()
   @IsNotEmpty()

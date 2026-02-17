@@ -1569,6 +1569,11 @@ export default function ProjectDetailPage({
   const [projectInvoicesLoading, setProjectInvoicesLoading] = useState(false);
   const [projectInvoicesError, setProjectInvoicesError] = useState<string | null>(null);
 
+  // Invoice status filter - default all except VOID
+  const [invoiceStatusFilters, setInvoiceStatusFilters] = useState<Set<string>>(
+    () => new Set(["DRAFT", "ISSUED", "PARTIALLY_PAID", "PAID"])
+  );
+
   const [activeInvoice, setActiveInvoice] = useState<any | null>(null);
   const [activeInvoiceLoading, setActiveInvoiceLoading] = useState(false);
   const [activeInvoiceError, setActiveInvoiceError] = useState<string | null>(null);
@@ -1576,6 +1581,10 @@ export default function ProjectDetailPage({
   const [invoiceMessage, setInvoiceMessage] = useState<string | null>(null);
   const [paymentsMessage, setPaymentsMessage] = useState<string | null>(null);
   const [invoiceAttachMenuOpen, setInvoiceAttachMenuOpen] = useState(false);
+
+  // Inline edit for draft invoice number (Admin/Owner only)
+  const [editingInvoiceNoId, setEditingInvoiceNoId] = useState<string | null>(null);
+  const [editingInvoiceNoValue, setEditingInvoiceNoValue] = useState<string>("");
 
   async function loadActiveInvoice() {
     if (!project || !activeInvoice?.id) return;
@@ -17821,6 +17830,44 @@ ${htmlBody}
                 {activeInvoiceError && (
                   <span style={{ fontSize: 12, color: "#b91c1c" }}>{activeInvoiceError}</span>
                 )}
+
+                {/* Status filter toggles */}
+                <div style={{ display: "flex", gap: 4, marginLeft: "auto", alignItems: "center" }}>
+                  <span style={{ fontSize: 11, color: "#6b7280", marginRight: 4 }}>Filter:</span>
+                  {(["DRAFT", "ISSUED", "PARTIALLY_PAID", "PAID", "VOID"] as const).map((status) => {
+                    const isActive = invoiceStatusFilters.has(status);
+                    const label = status === "PARTIALLY_PAID" ? "Partial" : status.charAt(0) + status.slice(1).toLowerCase();
+                    return (
+                      <button
+                        key={status}
+                        type="button"
+                        onClick={() => {
+                          setInvoiceStatusFilters((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(status)) {
+                              next.delete(status);
+                            } else {
+                              next.add(status);
+                            }
+                            return next;
+                          });
+                        }}
+                        style={{
+                          padding: "3px 8px",
+                          borderRadius: 4,
+                          border: isActive ? "1px solid #2563eb" : "1px solid #d1d5db",
+                          backgroundColor: isActive ? "#dbeafe" : "#f9fafb",
+                          color: isActive ? "#1d4ed8" : "#6b7280",
+                          fontSize: 11,
+                          cursor: "pointer",
+                          fontWeight: isActive ? 500 : 400,
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div style={{ marginTop: 10 }}>
@@ -17841,7 +17888,16 @@ ${htmlBody}
                 {!projectInvoicesLoading &&
                   !projectInvoicesError &&
                   projectInvoices &&
-                  projectInvoices.length > 0 && (
+                  projectInvoices.length > 0 &&
+                  projectInvoices.filter((inv: any) => invoiceStatusFilters.has(inv.status)).length === 0 && (
+                    <div style={{ color: "#6b7280" }}>No invoices match the selected filters.</div>
+                  )}
+
+                {!projectInvoicesLoading &&
+                  !projectInvoicesError &&
+                  projectInvoices &&
+                  projectInvoices.length > 0 &&
+                  projectInvoices.filter((inv: any) => invoiceStatusFilters.has(inv.status)).length > 0 && (
                     <div style={{ maxHeight: invoiceFullscreen ? "45vh" : 240, overflow: "auto" }}>
                       <table
                         style={{
@@ -17863,7 +17919,15 @@ ${htmlBody}
                           </tr>
                         </thead>
                         <tbody>
-                          {projectInvoices.map((inv: any) => (
+                          {projectInvoices
+                            .filter((inv: any) => invoiceStatusFilters.has(inv.status))
+                            .sort((a: any, b: any) => {
+                              // Sort by createdAt descending (newest first)
+                              const dateA = new Date(a.createdAt ?? 0).getTime();
+                              const dateB = new Date(b.createdAt ?? 0).getTime();
+                              return dateB - dateA;
+                            })
+                            .map((inv: any) => (
                             <tr
                               key={inv.id}
                               style={{ cursor: "pointer" }}
@@ -17913,7 +17977,84 @@ ${htmlBody}
                                   fontWeight: inv.status === "DRAFT" ? 600 : 400,
                                 }}
                               >
-                                {inv.invoiceNo ?? "(draft)"}
+                                {/* Inline editable invoice number for DRAFT invoices (Admin/Owner only) */}
+                                {inv.status === "DRAFT" &&
+                                  project &&
+                                  (project.userRole === "OWNER" || project.userRole === "ADMIN") ? (
+                                  editingInvoiceNoId === inv.id ? (
+                                    <input
+                                      type="text"
+                                      value={editingInvoiceNoValue}
+                                      onChange={(e) => setEditingInvoiceNoValue(e.target.value)}
+                                      onBlur={async () => {
+                                        // Save on blur
+                                        const token = localStorage.getItem("accessToken");
+                                        if (token && project) {
+                                          try {
+                                            const res = await fetch(
+                                              `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
+                                              {
+                                                method: "PATCH",
+                                                headers: {
+                                                  "Content-Type": "application/json",
+                                                  Authorization: `Bearer ${token}`,
+                                                },
+                                                body: JSON.stringify({ invoiceNo: editingInvoiceNoValue || null }),
+                                              },
+                                            );
+                                            if (res.ok) {
+                                              // Update local state
+                                              setProjectInvoices((prev) =>
+                                                prev?.map((i) =>
+                                                  i.id === inv.id ? { ...i, invoiceNo: editingInvoiceNoValue || null } : i
+                                                ) ?? null
+                                              );
+                                            }
+                                          } catch {
+                                            // ignore
+                                          }
+                                        }
+                                        setEditingInvoiceNoId(null);
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                          (e.target as HTMLInputElement).blur();
+                                        } else if (e.key === "Escape") {
+                                          setEditingInvoiceNoId(null);
+                                        }
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      autoFocus
+                                      style={{
+                                        width: 80,
+                                        padding: "2px 4px",
+                                        fontSize: 12,
+                                        border: "1px solid #2563eb",
+                                        borderRadius: 3,
+                                        outline: "none",
+                                      }}
+                                      placeholder="(draft)"
+                                    />
+                                  ) : (
+                                    <span
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingInvoiceNoId(inv.id);
+                                        setEditingInvoiceNoValue(inv.invoiceNo ?? "");
+                                      }}
+                                      style={{
+                                        cursor: "text",
+                                        borderBottom: "1px dashed #9ca3af",
+                                        paddingBottom: 1,
+                                      }}
+                                      title="Click to edit invoice number"
+                                    >
+                                      {inv.invoiceNo ?? "(draft)"}
+                                    </span>
+                                  )
+                                ) : (
+                                  inv.invoiceNo ?? "(draft)"
+                                )}
                               </td>
                               <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 11 }}>
                                 <span style={{
