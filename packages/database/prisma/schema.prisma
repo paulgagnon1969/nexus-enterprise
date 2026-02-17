@@ -1490,8 +1490,13 @@ model ProjectInvoice {
   invoiceSequenceNo Int?
   invoiceNo         String?
 
-  billToName  String?
-  billToEmail String?
+  billToName    String?
+  billToEmail   String?
+  billToPhone   String?
+  billToAddress String?
+  billToCity    String?
+  billToState   String?
+  billToZip     String?
 
   memo String?
 

@@ -132,7 +132,7 @@ export function DailyLogEditScreen({ log, onBack, onSaved }: Props) {
   };
 
   // Check if attachment is an image
-  const isImageAttachment = (att: { fileName?: string; mimeType?: string }) => {
+  const isImageAttachment = (att: { fileName?: string | null; mimeType?: string | null }) => {
     const fileName = att.fileName?.toLowerCase() || "";
     const mimeType = att.mimeType?.toLowerCase() || "";
     return (
@@ -368,30 +368,33 @@ export function DailyLogEditScreen({ log, onBack, onSaved }: Props) {
           {/* Existing attachments */}
           {existingAttachments.length > 0 && (
             <View style={styles.photoGrid}>
-              {existingAttachments.map((att) => (
-                <View key={att.id} style={styles.photoWrapper}>
-                  {isImageAttachment(att) ? (
-                    <Pressable onPress={() => att.fileUrl && openAttachment(att.fileUrl)}>
-                      <Image
-                        source={{ uri: att.fileUrl || att.thumbnailUrl }}
-                        style={styles.photoThumbnail}
-                        resizeMode="cover"
-                      />
+              {existingAttachments.map((att) => {
+                const imageUri = att.fileUrl || att.thumbnailUrl;
+                return (
+                  <View key={att.id} style={styles.photoWrapper}>
+                    {isImageAttachment(att) && imageUri ? (
+                      <Pressable onPress={() => att.fileUrl && openAttachment(att.fileUrl)}>
+                        <Image
+                          source={{ uri: imageUri }}
+                          style={styles.photoThumbnail}
+                          resizeMode="cover"
+                        />
+                      </Pressable>
+                    ) : (
+                      <View style={styles.fileAttachment}>
+                        <Text style={styles.fileIcon}>📎</Text>
+                        <Text style={styles.fileName} numberOfLines={1}>{att.fileName}</Text>
+                      </View>
+                    )}
+                    <Pressable
+                      style={styles.removeButton}
+                      onPress={() => removeExistingAttachment(att.id)}
+                    >
+                      <Text style={styles.removeButtonText}>✕</Text>
                     </Pressable>
-                  ) : (
-                    <View style={styles.fileAttachment}>
-                      <Text style={styles.fileIcon}>📎</Text>
-                      <Text style={styles.fileName} numberOfLines={1}>{att.fileName}</Text>
-                    </View>
-                  )}
-                  <Pressable
-                    style={styles.removeButton}
-                    onPress={() => removeExistingAttachment(att.id)}
-                  >
-                    <Text style={styles.removeButtonText}>✕</Text>
-                  </Pressable>
-                </View>
-              ))}
+                  </View>
+                );
+              })}
             </View>
           )}
 
