@@ -18107,7 +18107,7 @@ ${htmlBody}
                               key={inv.id}
                               style={{ cursor: "pointer" }}
                               onClick={async () => {
-                                console.log("[Row Click] Clicked invoice:", inv.id, inv.status);
+                                console.log("[Row Click] Clicked invoice:", inv.id, inv.status, "invoiceFullscreen=", invoiceFullscreen);
                                 const token = localStorage.getItem("accessToken");
                                 if (!token) {
                                   setInvoiceMessage("Missing access token.");
@@ -18138,10 +18138,13 @@ ${htmlBody}
 
                                   // Navigate to fullscreen AFTER successfully loading
                                   if (!invoiceFullscreen) {
+                                    console.log("[Row Click] Navigating to fullscreen URL...");
                                     router.push(
                                       `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
                                       { scroll: false },
                                     );
+                                  } else {
+                                    console.log("[Row Click] Already in fullscreen, skipping navigation");
                                   }
                                 } catch (err: any) {
                                   setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
