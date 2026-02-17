@@ -16855,7 +16855,9 @@ ${htmlBody}
                           const isSelected = selectedExpenseLineIds.has(billId);
                           
                           // Check if this expense's invoice is paid/locked
-                          const targetInv = b?.targetInvoice;
+                          // Use invoiceLines to find the actual invoice this bill is attached to
+                          const invoiceLine = Array.isArray(b?.invoiceLines) ? b.invoiceLines[0] : null;
+                          const targetInv = invoiceLine?.invoice ?? null;
                           const isPaid = targetInv && (targetInv.status === "PAID" || targetInv.status === "PARTIALLY_PAID");
                           const isLocked = targetInv && targetInv.status !== "DRAFT";
                           
@@ -17793,6 +17795,60 @@ ${htmlBody}
                   Open living invoice (draft)
                 </button>
 
+                {/* Status filter radio bar */}
+                <div
+                  style={{
+                    display: "inline-flex",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    overflow: "hidden",
+                  }}
+                >
+                  {(["DRAFT", "ISSUED", "PARTIALLY_PAID", "PAID", "VOID"] as const).map((status, idx) => {
+                    const isActive = invoiceStatusFilters.has(status);
+                    const label = status === "PARTIALLY_PAID" ? "Partial" : status.charAt(0) + status.slice(1).toLowerCase();
+                    return (
+                      <button
+                        key={status}
+                        type="button"
+                        onClick={() => {
+                          setInvoiceStatusFilters((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(status)) {
+                              next.delete(status);
+                            } else {
+                              next.add(status);
+                            }
+                            return next;
+                          });
+                        }}
+                        style={{
+                          padding: "4px 10px",
+                          border: "none",
+                          borderLeft: idx > 0 ? "1px solid #d1d5db" : "none",
+                          backgroundColor: isActive ? "#2563eb" : "#f9fafb",
+                          color: isActive ? "#ffffff" : "#374151",
+                          fontSize: 11,
+                          cursor: "pointer",
+                          fontWeight: isActive ? 500 : 400,
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {activeInvoiceLoading && (
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>Loading invoice…</span>
+                )}
+                {activeInvoiceError && (
+                  <span style={{ fontSize: 12, color: "#b91c1c" }}>{activeInvoiceError}</span>
+                )}
+
+                {/* Flexible spacer */}
+                <div style={{ flex: 1 }} />
+
                 <button
                   type="button"
                   onClick={async () => {
@@ -17857,51 +17913,6 @@ ${htmlBody}
                 >
                   New invoice
                 </button>
-
-                {activeInvoiceLoading && (
-                  <span style={{ fontSize: 12, color: "#6b7280" }}>Loading invoice…</span>
-                )}
-                {activeInvoiceError && (
-                  <span style={{ fontSize: 12, color: "#b91c1c" }}>{activeInvoiceError}</span>
-                )}
-
-                {/* Status filter toggles */}
-                <div style={{ display: "flex", gap: 4, marginLeft: "auto", alignItems: "center" }}>
-                  <span style={{ fontSize: 11, color: "#6b7280", marginRight: 4 }}>Filter:</span>
-                  {(["DRAFT", "ISSUED", "PARTIALLY_PAID", "PAID", "VOID"] as const).map((status) => {
-                    const isActive = invoiceStatusFilters.has(status);
-                    const label = status === "PARTIALLY_PAID" ? "Partial" : status.charAt(0) + status.slice(1).toLowerCase();
-                    return (
-                      <button
-                        key={status}
-                        type="button"
-                        onClick={() => {
-                          setInvoiceStatusFilters((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(status)) {
-                              next.delete(status);
-                            } else {
-                              next.add(status);
-                            }
-                            return next;
-                          });
-                        }}
-                        style={{
-                          padding: "3px 8px",
-                          borderRadius: 4,
-                          border: isActive ? "1px solid #2563eb" : "1px solid #d1d5db",
-                          backgroundColor: isActive ? "#dbeafe" : "#f9fafb",
-                          color: isActive ? "#1d4ed8" : "#6b7280",
-                          fontSize: 11,
-                          cursor: "pointer",
-                          fontWeight: isActive ? 500 : 400,
-                        }}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
 
               <div style={{ marginTop: 10 }}>
