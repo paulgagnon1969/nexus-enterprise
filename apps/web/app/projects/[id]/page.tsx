@@ -795,6 +795,7 @@ type TabKey =
   | "SUMMARY"
   | "SCHEDULE"
   | "PETL"
+  | "BOM"
   | "STRUCTURE"
   | "DAILY_LOGS"
   | "FILES"
@@ -1282,6 +1283,12 @@ export default function ProjectDetailPage({
   const [petlBaselineCostBookPickerBusy, setPetlBaselineCostBookPickerBusy] = useState(false);
   const [petlBaselineLocation, setPetlBaselineLocation] = useState("");
   const [petlBaselineMessage, setPetlBaselineMessage] = useState<string | null>(null);
+
+  // BOM (Bill of Materials) state
+  const [bomData, setBomData] = useState<any | null>(null);
+  const [bomLoading, setBomLoading] = useState(false);
+  const [bomError, setBomError] = useState<string | null>(null);
+  const [bomView, setBomView] = useState<"petl" | "components">("petl");
 
   // Rarely used: keep import UIs behind a modal so they don't affect initial render/layout.
   const [importsModalOpen, setImportsModalOpen] = useState(false);
@@ -5824,6 +5831,56 @@ ${htmlBody}
     scheduleReloadTick,
     scheduleSummaryExpanded,
   ]);
+
+  // Load BOM data when BOM tab is active
+  useEffect(() => {
+    if (!project) return;
+    if (activeTab !== "BOM") return;
+    if (bomData) return; // Already loaded
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setBomError("Missing access token. Please login again.");
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadBom = async () => {
+      setBomLoading(true);
+      setBomError(null);
+
+      try {
+        const res = await fetch(`${API_BASE}/projects/${project.id}/bom`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (cancelled) return;
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          setBomError(`Failed to load BOM (${res.status}). ${text}`.slice(0, 500));
+          return;
+        }
+
+        const json = await res.json();
+        if (cancelled) return;
+        setBomData(json);
+      } catch (err: any) {
+        if (cancelled) return;
+        setBomError(err?.message ?? "Failed to load BOM");
+      } finally {
+        if (!cancelled) setBomLoading(false);
+      }
+    };
+
+    void loadBom();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project, activeTab, bomData]);
+
   const addDaysIso = (iso: string, deltaDays: number): string => {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
@@ -7986,16 +8043,22 @@ ${htmlBody}
   }, [activeTab, project, projectInvoices]);
 
   // If the URL requests a specific invoice, load it automatically (useful for full-screen invoice tabs).
+  // Track the invoice ID we're loading to prevent race conditions
+  const loadingInvoiceIdRef = useRef<string | null>(null);
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
     if (!token || !project) return;
     if (activeTab !== "FINANCIAL") return;
-    if (!invoiceIdFromUrl) return;
+    if (!invoiceIdFromUrl) {
+      loadingInvoiceIdRef.current = null;
+      return;
+    }
 
-    // Avoid reloading if already active.
-    if (String(activeInvoice?.id ?? "") === invoiceIdFromUrl) return;
+    // Skip if we're already loading this exact invoice or it's already active
+    if (loadingInvoiceIdRef.current === invoiceIdFromUrl) return;
 
     let cancelled = false;
+    loadingInvoiceIdRef.current = invoiceIdFromUrl;
 
     setActiveInvoiceLoading(true);
     setActiveInvoiceError(null);
@@ -8017,6 +8080,7 @@ ${htmlBody}
       .catch((err: any) => {
         if (cancelled) return;
         setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
+        loadingInvoiceIdRef.current = null; // Allow retry on error
       })
       .finally(() => {
         if (cancelled) return;
@@ -8025,6 +8089,10 @@ ${htmlBody}
 
     return () => {
       cancelled = true;
+      // Clear ref on cleanup so the effect can retry if it runs again
+      if (loadingInvoiceIdRef.current === invoiceIdFromUrl) {
+        loadingInvoiceIdRef.current = null;
+      }
     };
   }, [activeTab, project, invoiceIdFromUrl]);
 
@@ -12934,6 +13002,7 @@ ${htmlBody}
             { key: "DAILY_LOGS", label: "Daily Logs" },
             { key: "SCHEDULE", label: "Schedule" },
             { key: "PETL", label: "PETL" },
+            { key: "BOM", label: "BOM" },
             { key: "STRUCTURE", label: "Project Organization" },
             ...(isAdminOrAbove ? [{ key: "JOURNAL" as TabKey, label: "Journal" }] : []),
             { key: "FINANCIAL", label: "Financial" },
@@ -17986,18 +18055,19 @@ ${htmlBody}
                                   return;
                                 }
 
-                                // Always navigate to fullscreen invoice view (same tab)
+                                // Navigate to fullscreen invoice view if not already there
                                 if (!invoiceFullscreen) {
                                   router.push(
                                     `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
                                   );
-                                  return;
                                 }
 
-                                // Already in fullscreen mode - just load the invoice
+                                // Start loading the invoice immediately (don't wait for URL effect)
                                 setInvoiceMessage(null);
                                 setActiveInvoiceLoading(true);
                                 setActiveInvoiceError(null);
+                                // Mark this invoice as being loaded so URL effect doesn't duplicate
+                                loadingInvoiceIdRef.current = inv.id;
                                 try {
                                   const res = await fetch(
                                     `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
@@ -18013,6 +18083,7 @@ ${htmlBody}
                                   setActiveInvoice(json);
                                 } catch (err: any) {
                                   setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
+                                  loadingInvoiceIdRef.current = null; // Allow retry
                                 } finally {
                                   setActiveInvoiceLoading(false);
                                 }
@@ -21572,6 +21643,206 @@ ${htmlBody}
           </div>
         </div>
       )}
+      {/* BOM tab content */}
+      {activeTab === "BOM" && (
+        <div style={{ marginTop: 8, marginBottom: 16 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
+            Bill of Materials (BOM)
+          </h2>
+          <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 12 }}>
+            Aggregated material quantities from the PETL, grouped by Category/Selection code.
+            Compare with the Components CSV to reconcile.
+          </p>
+
+          {bomLoading && (
+            <p style={{ fontSize: 12, color: "#6b7280" }}>Loading BOM data…</p>
+          )}
+
+          {bomError && (
+            <p style={{ fontSize: 12, color: "#b91c1c" }}>{bomError}</p>
+          )}
+
+          {bomData && (
+            <div>
+              {/* View toggle */}
+              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => setBomView("petl")}
+                  style={{
+                    padding: "6px 12px",
+                    fontSize: 12,
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 4,
+                    background: bomView === "petl" ? "#2563eb" : "#fff",
+                    color: bomView === "petl" ? "#fff" : "#374151",
+                    cursor: "pointer",
+                    fontWeight: bomView === "petl" ? 600 : 400,
+                  }}
+                >
+                  PETL BOM ({bomData.petlBom?.uniqueCatSelCount ?? 0} Cat/Sel)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBomView("components")}
+                  style={{
+                    padding: "6px 12px",
+                    fontSize: 12,
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 4,
+                    background: bomView === "components" ? "#2563eb" : "#fff",
+                    color: bomView === "components" ? "#fff" : "#374151",
+                    cursor: "pointer",
+                    fontWeight: bomView === "components" ? 600 : 400,
+                  }}
+                >
+                  Components CSV ({bomData.componentsBom?.itemCount ?? 0} items)
+                </button>
+              </div>
+
+              {/* Summary */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: 24,
+                  marginBottom: 16,
+                  padding: 12,
+                  background: "#f9fafb",
+                  borderRadius: 6,
+                  fontSize: 12,
+                }}
+              >
+                <div>
+                  <div style={{ color: "#6b7280", marginBottom: 2 }}>PETL Total</div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>
+                    ${(bomData.petlBom?.totalAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </div>
+                  <div style={{ color: "#9ca3af", fontSize: 11 }}>
+                    {bomData.petlBom?.lineCount ?? 0} lines
+                  </div>
+                </div>
+                <div>
+                  <div style={{ color: "#6b7280", marginBottom: 2 }}>Components Total</div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>
+                    ${(bomData.componentsBom?.totalCost ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </div>
+                  <div style={{ color: "#9ca3af", fontSize: 11 }}>
+                    {bomData.componentsBom?.itemCount ?? 0} components
+                  </div>
+                </div>
+              </div>
+
+              {/* PETL BOM View */}
+              {bomView === "petl" && bomData.petlBom && (
+                <div>
+                  {/* Category summary */}
+                  <div style={{ marginBottom: 16 }}>
+                    <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>By Category</h3>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {(bomData.petlBom.byCategory ?? []).map((cat: any) => (
+                        <div
+                          key={cat.category}
+                          style={{
+                            padding: "6px 10px",
+                            background: "#eef2ff",
+                            borderRadius: 4,
+                            fontSize: 11,
+                          }}
+                        >
+                          <span style={{ fontWeight: 600 }}>{cat.category}</span>:
+                          ${cat.totalAmount?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? 0}
+                          <span style={{ color: "#6b7280" }}> ({cat.lineCount} lines)</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* PETL BOM table */}
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr style={{ background: "#f3f4f6", textAlign: "left" }}>
+                          <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb" }}>Cat/Sel</th>
+                          <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Total Qty</th>
+                          <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb" }}>Unit</th>
+                          <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Total $</th>
+                          <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Lines</th>
+                          <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb" }}>Sample Descriptions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(bomData.petlBom.items ?? []).map((item: any, idx: number) => (
+                          <tr key={item.catSel || idx} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                            <td style={{ padding: "6px", fontWeight: 500 }}>{item.catSel || "(none)"}</td>
+                            <td style={{ padding: "6px", textAlign: "right" }}>
+                              {item.totalQty?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? 0}
+                            </td>
+                            <td style={{ padding: "6px", color: "#6b7280" }}>{item.unit}</td>
+                            <td style={{ padding: "6px", textAlign: "right", fontWeight: 500 }}>
+                              ${item.totalAmount?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? 0}
+                            </td>
+                            <td style={{ padding: "6px", textAlign: "right", color: "#6b7280" }}>{item.lineCount}</td>
+                            <td style={{ padding: "6px", color: "#9ca3af", fontSize: 10, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {(item.sampleDescriptions ?? []).join("; ")}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Components BOM View */}
+              {bomView === "components" && bomData.componentsBom && (
+                <div>
+                  {bomData.componentsBom.items?.length === 0 ? (
+                    <p style={{ fontSize: 12, color: "#6b7280", fontStyle: "italic" }}>
+                      No components CSV imported yet. Import the components CSV from the Import screen.
+                    </p>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr style={{ background: "#f3f4f6", textAlign: "left" }}>
+                            <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb" }}>Code</th>
+                            <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb" }}>Description</th>
+                            <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Qty</th>
+                            <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb" }}>Unit</th>
+                            <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Unit $</th>
+                            <th style={{ padding: "8px 6px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Total $</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(bomData.componentsBom.items ?? []).map((item: any, idx: number) => (
+                            <tr key={item.code || idx} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                              <td style={{ padding: "6px", fontWeight: 500 }}>{item.code}</td>
+                              <td style={{ padding: "6px", maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {item.description}
+                              </td>
+                              <td style={{ padding: "6px", textAlign: "right" }}>
+                                {item.quantity?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? 0}
+                              </td>
+                              <td style={{ padding: "6px", color: "#6b7280" }}>{item.unit}</td>
+                              <td style={{ padding: "6px", textAlign: "right", color: "#6b7280" }}>
+                                ${item.unitPrice?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? 0}
+                              </td>
+                              <td style={{ padding: "6px", textAlign: "right", fontWeight: 500 }}>
+                                ${item.total?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? 0}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* IMPORT STRUCTURE tab content */}
       {activeTab === "STRUCTURE" && (
         <div style={{ marginTop: 8, marginBottom: 16 }}>

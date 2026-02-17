@@ -419,6 +419,184 @@ export class ProjectService {
     });
   }
 
+  /**
+   * Get Bill of Materials (BOM) for a project.
+   * 
+   * Returns two views:
+   * 1. PETL BOM - Aggregated quantities by Cat/Sel from all SowItems (includes manual items)
+   * 2. Components BOM - Original estimate components from ComponentSummary (CSV import)
+   * 
+   * This allows reconciliation between what's in the PETL vs the original estimate.
+   */
+  async getProjectBom(projectId: string, actor: AuthenticatedUser) {
+    const project = await this.getProjectByIdForUser(projectId, actor);
+
+    // Get the latest estimate version
+    const estimateVersion = await this.prisma.estimateVersion.findFirst({
+      where: { projectId: project.id },
+      orderBy: { sequenceNo: "desc" },
+      select: { id: true, sequenceNo: true },
+    });
+
+    if (!estimateVersion) {
+      return {
+        projectId: project.id,
+        projectName: project.name,
+        petlBom: { items: [], byCategory: [], totalQty: 0, lineCount: 0 },
+        componentsBom: { items: [], totalCost: 0, itemCount: 0 },
+      };
+    }
+
+    // ========== PETL BOM: Aggregate by Cat/Sel from SowItems ==========
+    const sowItems = await this.prisma.sowItem.findMany({
+      where: { estimateVersionId: estimateVersion.id },
+      select: {
+        id: true,
+        lineNo: true,
+        description: true,
+        qty: true,
+        unit: true,
+        unitCost: true,
+        itemAmount: true,
+        materialAmount: true,
+        categoryCode: true,
+        selectionCode: true,
+        projectParticle: {
+          select: { id: true, fullLabel: true },
+        },
+      },
+      orderBy: { lineNo: "asc" },
+    });
+
+    // Aggregate by Cat/Sel combination
+    const petlAggregated = new Map<
+      string,
+      {
+        categoryCode: string;
+        selectionCode: string;
+        totalQty: number;
+        unit: string;
+        totalAmount: number;
+        totalMaterialCost: number;
+        lineCount: number;
+        descriptions: Set<string>;
+        rooms: Set<string>;
+      }
+    >();
+
+    for (const item of sowItems) {
+      const cat = item.categoryCode || "";
+      const sel = item.selectionCode || "";
+      const key = `${cat}|${sel}`;
+      const existing = petlAggregated.get(key);
+
+      if (existing) {
+        existing.totalQty += item.qty ?? 0;
+        existing.totalAmount += item.itemAmount ?? 0;
+        existing.totalMaterialCost += item.materialAmount ?? 0;
+        existing.lineCount += 1;
+        if (item.description) existing.descriptions.add(item.description);
+        if (item.projectParticle?.fullLabel) {
+          existing.rooms.add(item.projectParticle.fullLabel);
+        }
+      } else {
+        petlAggregated.set(key, {
+          categoryCode: cat,
+          selectionCode: sel,
+          totalQty: item.qty ?? 0,
+          unit: item.unit ?? "",
+          totalAmount: item.itemAmount ?? 0,
+          totalMaterialCost: item.materialAmount ?? 0,
+          lineCount: 1,
+          descriptions: new Set(item.description ? [item.description] : []),
+          rooms: new Set(
+            item.projectParticle?.fullLabel ? [item.projectParticle.fullLabel] : [],
+          ),
+        });
+      }
+    }
+
+    // Convert to array and sort by total amount
+    const petlItems = Array.from(petlAggregated.values())
+      .map((item) => ({
+        categoryCode: item.categoryCode,
+        selectionCode: item.selectionCode,
+        catSel: item.categoryCode + (item.selectionCode ? `/${item.selectionCode}` : ""),
+        totalQty: item.totalQty,
+        unit: item.unit,
+        totalAmount: item.totalAmount,
+        totalMaterialCost: item.totalMaterialCost,
+        lineCount: item.lineCount,
+        sampleDescriptions: Array.from(item.descriptions).slice(0, 3),
+        roomCount: item.rooms.size,
+      }))
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+
+    // Aggregate by category only for summary
+    const petlByCategory = new Map<string, { totalQty: number; totalAmount: number; lineCount: number }>();
+    for (const item of petlItems) {
+      const cat = item.categoryCode || "Uncategorized";
+      const existing = petlByCategory.get(cat);
+      if (existing) {
+        existing.totalQty += item.totalQty;
+        existing.totalAmount += item.totalAmount;
+        existing.lineCount += item.lineCount;
+      } else {
+        petlByCategory.set(cat, {
+          totalQty: item.totalQty,
+          totalAmount: item.totalAmount,
+          lineCount: item.lineCount,
+        });
+      }
+    }
+
+    const petlCategorySummary = Array.from(petlByCategory.entries())
+      .map(([category, data]) => ({ category, ...data }))
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+
+    // ========== COMPONENTS BOM: From ComponentSummary (CSV import) ==========
+    const components = await this.prisma.componentSummary.findMany({
+      where: { estimateVersionId: estimateVersion.id },
+      orderBy: { total: "desc" },
+    });
+
+    const componentItems = components.map((c) => ({
+      code: c.code,
+      description: c.description,
+      quantity: c.quantity,
+      unit: c.unit,
+      unitPrice: c.unitPrice,
+      total: c.total,
+      taxStatus: c.taxStatus,
+      contractorSupplied: c.contractorSupplied,
+    }));
+
+    const componentsTotalCost = components.reduce((sum, c) => sum + (c.total ?? 0), 0);
+
+    // ========== Summary totals ==========
+    const petlTotalQty = sowItems.reduce((sum, item) => sum + (item.qty ?? 0), 0);
+    const petlTotalAmount = sowItems.reduce((sum, item) => sum + (item.itemAmount ?? 0), 0);
+
+    return {
+      projectId: project.id,
+      projectName: project.name,
+      estimateVersionId: estimateVersion.id,
+      petlBom: {
+        items: petlItems,
+        byCategory: petlCategorySummary,
+        totalQty: petlTotalQty,
+        totalAmount: petlTotalAmount,
+        lineCount: sowItems.length,
+        uniqueCatSelCount: petlItems.length,
+      },
+      componentsBom: {
+        items: componentItems,
+        totalCost: componentsTotalCost,
+        itemCount: components.length,
+      },
+    };
+  }
+
   async getHierarchy(
     projectId: string,
     userId: string,
