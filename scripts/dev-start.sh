@@ -76,9 +76,9 @@ fi
 
 if [[ ! -f "$WEB_ENV" ]]; then
   cat > "$WEB_ENV" << 'EOF_WEB'
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8001
 EOF_WEB
-  echo "[dev-start] Created apps/web/.env.local pointing to http://localhost:8000" | tee -a "$LOG_DIR/dev-start.log"
+  echo "[dev-start] Created apps/web/.env.local pointing to http://localhost:8001" | tee -a "$LOG_DIR/dev-start.log"
 fi
 
 # --- 2) Configure DATABASE_URL for local Postgres (or override externally) ---
@@ -113,10 +113,10 @@ echo "[dev-start] Using local DATABASE_URL=${SANITIZED_DB_URL}" | tee -a "$LOG_D
 if pgrep -f "apps/api.*ts-node-dev" >/dev/null 2>&1; then
   echo "[dev-start] API dev server already running" | tee -a "$LOG_DIR/dev-start.log"
 else
-  echo "[dev-start] Starting API dev server (local Docker Postgres) on API_PORT=8000..." | tee -a "$LOG_DIR/dev-start.log"
+  echo "[dev-start] Starting API dev server (local Docker Postgres) on API_PORT=8001..." | tee -a "$LOG_DIR/dev-start.log"
   (
     cd "$REPO_ROOT/apps/api"
-    API_PORT=8000 nohup npm run dev \
+    API_PORT=8001 nohup npm run dev \
       > "$LOG_DIR/api-dev.log" 2>&1 &
   )
   echo "[dev-start] Waiting 5 seconds for API dev to boot..." | tee -a "$LOG_DIR/dev-start.log"
@@ -162,12 +162,12 @@ WORKER_STATUS="FAILED"
 
 # API health (optional /health endpoint), with a short retry window so we
 # don't mark it as FAILED just because Next/Nest are still warming up.
-API_STATUS="FAILED (no response on :8000)"
+API_STATUS="FAILED (no response on :8001)"
 for i in {1..10}; do
-  if curl -sSf "http://localhost:8000/health" >/dev/null 2>&1; then
+  if curl -sSf "http://localhost:8001/health" >/dev/null 2>&1; then
     API_STATUS="OK (health)"
     break
-  elif curl -sSf "http://localhost:8000/" >/dev/null 2>&1; then
+  elif curl -sSf "http://localhost:8001/" >/dev/null 2>&1; then
     API_STATUS="OK (root)"
     break
   fi

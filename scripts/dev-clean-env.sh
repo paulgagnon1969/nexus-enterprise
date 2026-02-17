@@ -55,17 +55,17 @@ log "Waiting 2 seconds for processes to terminate..."
 sleep 2
 
 # 5) Verify key ports are free
-log "Verifying ports 3000 (web), 8000 (API), 5433 (Cloud SQL proxy) are free..."
+log "Verifying ports 3000 (web), 8001 (API dev), 5433 (Cloud SQL proxy) are free..."
 if lsof -iTCP:3000 -sTCP:LISTEN -n -P >/dev/null 2>&1; then
   log "WARNING: Something is still listening on port 3000."
 else
   log "Port 3000 is free."
 fi
 
-if lsof -iTCP:8000 -sTCP:LISTEN -n -P >/dev/null 2>&1; then
-  log "WARNING: Something is still listening on port 8000."
+if lsof -iTCP:8001 -sTCP:LISTEN -n -P >/dev/null 2>&1; then
+  log "WARNING: Something is still listening on port 8001 (dev API)."
 else
-  log "Port 8000 is free."
+  log "Port 8001 is free."
 fi
 
 if lsof -iTCP:5433 -sTCP:LISTEN -n -P >/dev/null 2>&1; then
