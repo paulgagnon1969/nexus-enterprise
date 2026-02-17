@@ -440,7 +440,19 @@ export class ProjectService {
       return {
         projectId: project.id,
         projectName: project.name,
-        petlBom: { items: [], byCategory: [], totalQty: 0, totalMaterialCost: 0, lineCount: 0 },
+        costDashboard: {
+          workersWage: 0,
+          laborBurden: 0,
+          laborOverhead: 0,
+          materials: 0,
+          equipment: 0,
+          marketConditions: 0,
+          salesTax: 0,
+          totalLabor: 0,
+          totalCost: 0,
+          lineCount: 0,
+        },
+        petlBom: { items: [], byCategory: [], totalQty: 0, totalMaterialCost: 0, lineCount: 0, uniqueCatSelCount: 0 },
         componentsBom: { items: [], totalCost: 0, itemCount: 0, rawRowCount: 0 },
       };
     }
@@ -576,6 +588,51 @@ export class ProjectService {
 
     const componentsTotalCost = componentItems.reduce((sum, c) => sum + c.total, 0);
 
+    // ========== COST DASHBOARD: Aggregate from RawXactRow ==========
+    // These are per-unit costs that we multiply by qty
+    const rawXactRows = await this.prisma.rawXactRow.findMany({
+      where: { estimateVersionId: estimateVersion.id },
+      select: {
+        qty: true,
+        workersWage: true,
+        laborBurden: true,
+        laborOverhead: true,
+        material: true,
+        equipment: true,
+        marketConditions: true,
+        salesTax: true,
+        itemAmount: true,
+      },
+    });
+
+    const costDashboard = {
+      workersWage: 0,
+      laborBurden: 0,
+      laborOverhead: 0,
+      materials: 0,
+      equipment: 0,
+      marketConditions: 0,
+      salesTax: 0,
+      totalLabor: 0,  // wage + burden + overhead
+      totalCost: 0,   // sum of all itemAmounts
+      lineCount: rawXactRows.length,
+    };
+
+    for (const row of rawXactRows) {
+      const qty = row.qty ?? 0;
+      costDashboard.workersWage += qty * (row.workersWage ?? 0);
+      costDashboard.laborBurden += qty * (row.laborBurden ?? 0);
+      costDashboard.laborOverhead += qty * (row.laborOverhead ?? 0);
+      costDashboard.materials += qty * (row.material ?? 0);
+      costDashboard.equipment += qty * (row.equipment ?? 0);
+      costDashboard.marketConditions += qty * (row.marketConditions ?? 0);
+      costDashboard.salesTax += row.salesTax ?? 0;  // salesTax is already total, not per-unit
+      costDashboard.totalCost += row.itemAmount ?? 0;
+    }
+
+    costDashboard.totalLabor =
+      costDashboard.workersWage + costDashboard.laborBurden + costDashboard.laborOverhead;
+
     // ========== Summary totals ==========
     const petlTotalQty = sowItems.reduce((sum, item) => sum + (item.qty ?? 0), 0);
     const petlTotalMaterialCost = sowItems.reduce(
@@ -587,6 +644,7 @@ export class ProjectService {
       projectId: project.id,
       projectName: project.name,
       estimateVersionId: estimateVersion.id,
+      costDashboard,
       petlBom: {
         items: petlItems,
         byCategory: petlCategorySummary,

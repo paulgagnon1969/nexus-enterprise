@@ -18426,6 +18426,10 @@ ${htmlBody}
                     boxShadow: activeInvoice.status === "DRAFT" ? "0 4px 12px rgba(59, 130, 246, 0.15)" : "none",
                   }}
                 >
+                  {/* DEBUG: This should be visible if the invoice detail renders */}
+                  <div className="no-print" style={{ padding: 4, marginBottom: 8, background: "#fef08a", borderRadius: 4, fontSize: 11 }}>
+                    DEBUG RENDER: Invoice ID = {activeInvoice.id} | Status = {activeInvoice.status}
+                  </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -21813,6 +21817,84 @@ ${htmlBody}
                   Raw Data (Debug)
                 </button>
               </div>
+
+              {/* Cost Dashboard */}
+              {bomData.costDashboard && (
+                <div
+                  style={{
+                    marginBottom: 16,
+                    padding: 16,
+                    background: "linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%)",
+                    borderRadius: 8,
+                    color: "#fff",
+                  }}
+                >
+                  <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: "#93c5fd" }}>
+                    📊 Cost Dashboard ({bomData.costDashboard.lineCount} line items)
+                  </h3>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
+                    {/* Labor Section */}
+                    <div style={{ background: "rgba(255,255,255,0.1)", padding: 10, borderRadius: 6 }}>
+                      <div style={{ fontSize: 10, color: "#93c5fd", marginBottom: 4 }}>Worker's Wage</div>
+                      <div style={{ fontSize: 16, fontWeight: 600 }}>
+                        ${(bomData.costDashboard.workersWage ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </div>
+                    </div>
+                    <div style={{ background: "rgba(255,255,255,0.1)", padding: 10, borderRadius: 6 }}>
+                      <div style={{ fontSize: 10, color: "#93c5fd", marginBottom: 4 }}>Labor Burden</div>
+                      <div style={{ fontSize: 16, fontWeight: 600 }}>
+                        ${(bomData.costDashboard.laborBurden ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </div>
+                    </div>
+                    <div style={{ background: "rgba(255,255,255,0.1)", padding: 10, borderRadius: 6 }}>
+                      <div style={{ fontSize: 10, color: "#93c5fd", marginBottom: 4 }}>Labor Overhead</div>
+                      <div style={{ fontSize: 16, fontWeight: 600 }}>
+                        ${(bomData.costDashboard.laborOverhead ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </div>
+                    </div>
+                    <div style={{ background: "rgba(59,130,246,0.3)", padding: 10, borderRadius: 6, border: "1px solid rgba(147,197,253,0.5)" }}>
+                      <div style={{ fontSize: 10, color: "#bfdbfe", marginBottom: 4 }}>Total Labor</div>
+                      <div style={{ fontSize: 18, fontWeight: 700 }}>
+                        ${(bomData.costDashboard.totalLabor ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </div>
+                    </div>
+                    {/* Materials & Equipment */}
+                    <div style={{ background: "rgba(255,255,255,0.1)", padding: 10, borderRadius: 6 }}>
+                      <div style={{ fontSize: 10, color: "#86efac", marginBottom: 4 }}>Materials</div>
+                      <div style={{ fontSize: 16, fontWeight: 600 }}>
+                        ${(bomData.costDashboard.materials ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </div>
+                    </div>
+                    <div style={{ background: "rgba(255,255,255,0.1)", padding: 10, borderRadius: 6 }}>
+                      <div style={{ fontSize: 10, color: "#fde68a", marginBottom: 4 }}>Equipment</div>
+                      <div style={{ fontSize: 16, fontWeight: 600 }}>
+                        ${(bomData.costDashboard.equipment ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </div>
+                    </div>
+                    <div style={{ background: "rgba(255,255,255,0.1)", padding: 10, borderRadius: 6 }}>
+                      <div style={{ fontSize: 10, color: "#fca5a5", marginBottom: 4 }}>Market Conditions</div>
+                      <div style={{ fontSize: 16, fontWeight: 600 }}>
+                        ${(bomData.costDashboard.marketConditions ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </div>
+                    </div>
+                    <div style={{ background: "rgba(255,255,255,0.1)", padding: 10, borderRadius: 6 }}>
+                      <div style={{ fontSize: 10, color: "#c4b5fd", marginBottom: 4 }}>Sales Tax</div>
+                      <div style={{ fontSize: 16, fontWeight: 600 }}>
+                        ${(bomData.costDashboard.salesTax ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Grand Total */}
+                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.2)", display: "flex", justifyContent: "flex-end" }}>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 10, color: "#93c5fd" }}>Total Project Cost (Item Amount)</div>
+                      <div style={{ fontSize: 24, fontWeight: 700 }}>
+                        ${(bomData.costDashboard.totalCost ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Summary */}
               <div
