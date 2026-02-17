@@ -1288,7 +1288,12 @@ export default function ProjectDetailPage({
   const [bomData, setBomData] = useState<any | null>(null);
   const [bomLoading, setBomLoading] = useState(false);
   const [bomError, setBomError] = useState<string | null>(null);
-  const [bomView, setBomView] = useState<"petl" | "components">("petl");
+  const [bomView, setBomView] = useState<"petl" | "components" | "raw">("petl");
+
+  // Raw Components data (for debugging/analysis)
+  const [componentsRawData, setComponentsRawData] = useState<any | null>(null);
+  const [componentsRawLoading, setComponentsRawLoading] = useState(false);
+  const [componentsRawError, setComponentsRawError] = useState<string | null>(null);
 
   // Rarely used: keep import UIs behind a modal so they don't affect initial render/layout.
   const [importsModalOpen, setImportsModalOpen] = useState(false);
@@ -5881,6 +5886,56 @@ ${htmlBody}
     };
   }, [project, activeTab, bomData]);
 
+  // Load raw components data when BOM tab is active and raw view is selected
+  useEffect(() => {
+    if (!project) return;
+    if (activeTab !== "BOM") return;
+    if (bomView !== "raw") return;
+    if (componentsRawData) return; // Already loaded
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setComponentsRawError("Missing access token. Please login again.");
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadComponentsRaw = async () => {
+      setComponentsRawLoading(true);
+      setComponentsRawError(null);
+
+      try {
+        const res = await fetch(`${API_BASE}/projects/${project.id}/components-raw`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (cancelled) return;
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          setComponentsRawError(`Failed to load components (${res.status}). ${text}`.slice(0, 500));
+          return;
+        }
+
+        const json = await res.json();
+        if (cancelled) return;
+        setComponentsRawData(json);
+      } catch (err: any) {
+        if (cancelled) return;
+        setComponentsRawError(err?.message ?? "Failed to load components");
+      } finally {
+        if (!cancelled) setComponentsRawLoading(false);
+      }
+    };
+
+    void loadComponentsRaw();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project, activeTab, bomView, componentsRawData]);
+
   const addDaysIso = (iso: string, deltaDays: number): string => {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
@@ -8041,6 +8096,11 @@ ${htmlBody}
       cancelled = true;
     };
   }, [activeTab, project, projectInvoices]);
+
+  // DEBUG: Track activeInvoice state changes
+  useEffect(() => {
+    console.log("[DEBUG activeInvoice] Changed to:", activeInvoice?.id, activeInvoice?.status);
+  }, [activeInvoice]);
 
   // If the URL requests a specific invoice, load it automatically (useful for full-screen invoice tabs).
   const invoiceLoadedIdRef = useRef<string | null>(null);
@@ -12992,7 +13052,7 @@ ${htmlBody}
             { key: "DAILY_LOGS", label: "Daily Logs" },
             { key: "SCHEDULE", label: "Schedule" },
             { key: "PETL", label: "PETL" },
-            { key: "BOM", label: "BOM" },
+            ...(isPmOrAbove ? [{ key: "BOM" as TabKey, label: "BOM" }] : []),
             { key: "STRUCTURE", label: "Project Organization" },
             ...(isAdminOrAbove ? [{ key: "JOURNAL" as TabKey, label: "Journal" }] : []),
             { key: "FINANCIAL", label: "Financial" },
@@ -21736,6 +21796,22 @@ ${htmlBody}
                 >
                   Components CSV ({bomData.componentsBom?.itemCount ?? 0} items)
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setBomView("raw")}
+                  style={{
+                    padding: "6px 12px",
+                    fontSize: 12,
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 4,
+                    background: bomView === "raw" ? "#dc2626" : "#fff",
+                    color: bomView === "raw" ? "#fff" : "#374151",
+                    cursor: "pointer",
+                    fontWeight: bomView === "raw" ? 600 : 400,
+                  }}
+                >
+                  Raw Data (Debug)
+                </button>
               </div>
 
               {/* Summary */}
@@ -21878,6 +21954,174 @@ ${htmlBody}
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Raw Components View (Debug) */}
+              {bomView === "raw" && (
+                <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 50, overflow: "auto", padding: 24 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                    <div>
+                      <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>
+                        Raw Components Data (Debug)
+                      </h2>
+                      <p style={{ fontSize: 12, color: "#6b7280" }}>
+                        Full ComponentSummary data grouped by code. Duplicates appear beneath each unique code.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setBomView("petl")}
+                      style={{
+                        padding: "8px 16px",
+                        fontSize: 12,
+                        background: "#374151",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 4,
+                        cursor: "pointer",
+                      }}
+                    >
+                      ✕ Close Raw View
+                    </button>
+                  </div>
+
+                  {componentsRawLoading && (
+                    <p style={{ fontSize: 12, color: "#6b7280" }}>Loading raw components data…</p>
+                  )}
+
+                  {componentsRawError && (
+                    <p style={{ fontSize: 12, color: "#b91c1c" }}>{componentsRawError}</p>
+                  )}
+
+                  {componentsRawData && (
+                    <div>
+                      {/* Summary stats */}
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: 24,
+                          marginBottom: 20,
+                          padding: 16,
+                          background: "#f9fafb",
+                          borderRadius: 8,
+                          fontSize: 12,
+                        }}
+                      >
+                        <div>
+                          <div style={{ color: "#6b7280", marginBottom: 2 }}>Total Rows</div>
+                          <div style={{ fontWeight: 600, fontSize: 16 }}>{componentsRawData.totalRows ?? 0}</div>
+                        </div>
+                        <div>
+                          <div style={{ color: "#6b7280", marginBottom: 2 }}>Unique Codes</div>
+                          <div style={{ fontWeight: 600, fontSize: 16 }}>{componentsRawData.uniqueCodes ?? 0}</div>
+                        </div>
+                        <div>
+                          <div style={{ color: "#6b7280", marginBottom: 2 }}>Duplicate Rows</div>
+                          <div style={{ fontWeight: 600, fontSize: 16, color: componentsRawData.duplicateCount > 0 ? "#dc2626" : "#16a34a" }}>
+                            {componentsRawData.duplicateCount ?? 0}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ color: "#6b7280", marginBottom: 2 }}>Codes with Duplicates</div>
+                          <div style={{ fontWeight: 600, fontSize: 16 }}>{componentsRawData.duplicateGroupCount ?? 0}</div>
+                        </div>
+                        <div>
+                          <div style={{ color: "#6b7280", marginBottom: 2 }}>Raw Total Cost</div>
+                          <div style={{ fontWeight: 600, fontSize: 16 }}>
+                            ${(componentsRawData.summary?.totalCost ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ color: "#6b7280", marginBottom: 2 }}>De-duped Total</div>
+                          <div style={{ fontWeight: 600, fontSize: 16, color: "#16a34a" }}>
+                            ${(componentsRawData.summary?.dedupedTotalCost ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Grouped data by code */}
+                      <div style={{ fontSize: 12 }}>
+                        {(componentsRawData.groups ?? []).map((group: any) => (
+                          <div
+                            key={group.code}
+                            style={{
+                              marginBottom: 12,
+                              border: group.isDuplicate ? "1px solid #fecaca" : "1px solid #e5e7eb",
+                              borderRadius: 6,
+                              overflow: "hidden",
+                              background: group.isDuplicate ? "#fef2f2" : "#fff",
+                            }}
+                          >
+                            {/* Group header */}
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                padding: "10px 12px",
+                                background: group.isDuplicate ? "#fee2e2" : "#f3f4f6",
+                                borderBottom: "1px solid #e5e7eb",
+                              }}
+                            >
+                              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                <span style={{ fontWeight: 600, fontFamily: "monospace" }}>{group.code}</span>
+                                {group.isDuplicate && (
+                                  <span style={{ fontSize: 10, padding: "2px 6px", background: "#dc2626", color: "#fff", borderRadius: 3 }}>
+                                    {group.count} duplicates
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontWeight: 600 }}>
+                                Total: ${group.totalForCode?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? 0}
+                              </div>
+                            </div>
+
+                            {/* Items table */}
+                            <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                              <thead>
+                                <tr style={{ background: "#fafafa", textAlign: "left" }}>
+                                  <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb", width: 40 }}>#</th>
+                                  <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>Description</th>
+                                  <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Qty</th>
+                                  <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>Unit</th>
+                                  <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Unit $</th>
+                                  <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Total $</th>
+                                  <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>Tax</th>
+                                  <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e7eb" }}>Contractor</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(group.items ?? []).map((item: any, idx: number) => (
+                                  <tr key={item.id || idx} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                                    <td style={{ padding: "6px 8px", color: "#9ca3af" }}>{item.rowNum ?? idx + 1}</td>
+                                    <td style={{ padding: "6px 8px", maxWidth: 400 }} title={item.description}>
+                                      {item.description}
+                                    </td>
+                                    <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                                      {item.quantity?.toLocaleString(undefined, { maximumFractionDigits: 4 }) ?? 0}
+                                    </td>
+                                    <td style={{ padding: "6px 8px", color: "#6b7280" }}>{item.unit}</td>
+                                    <td style={{ padding: "6px 8px", textAlign: "right", color: "#6b7280" }}>
+                                      ${item.unitPrice?.toLocaleString(undefined, { maximumFractionDigits: 4 }) ?? 0}
+                                    </td>
+                                    <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 500 }}>
+                                      ${item.total?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? 0}
+                                    </td>
+                                    <td style={{ padding: "6px 8px", color: "#6b7280" }}>{item.taxStatus ?? "-"}</td>
+                                    <td style={{ padding: "6px 8px", color: "#6b7280" }}>
+                                      {item.contractorSupplied === true ? "Yes" : item.contractorSupplied === false ? "No" : "-"}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
