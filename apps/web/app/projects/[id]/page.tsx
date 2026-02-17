@@ -2629,6 +2629,11 @@ export default function ProjectDetailPage({
   const printHtmlDocument = (title: string, htmlBody: string) => {
     // Use an iframe so we can print a clean, PDF-friendly HTML document
     // without mutating or re-styling the main app.
+    
+    // Save original document title and set to invoice title for PDF filename
+    const originalTitle = document.title;
+    document.title = title;
+    
     const iframe = document.createElement("iframe");
     iframe.setAttribute("title", "invoice-print");
     iframe.style.position = "fixed";
@@ -2964,6 +2969,8 @@ ${htmlBody}
         win.focus();
         win.print();
       } finally {
+        // Restore original document title
+        document.title = originalTitle;
         // Cleanup later; some browsers are finicky about removing immediately.
         window.setTimeout(() => iframe.remove(), 5000);
       }
