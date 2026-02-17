@@ -1457,6 +1457,7 @@ enum ProjectBillLineItemAmountSource {
 model CompanyInvoiceCounter {
   companyId     String   @id
   lastInvoiceNo Int      @default(0)
+  lastDraftNo   Int      @default(0)
   updatedAt     DateTime @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -1472,6 +1473,8 @@ model ProjectInvoice {
   status   ProjectInvoiceStatus   @default(DRAFT)
   category ProjectInvoiceCategory @default(PETL)
 
+  /// Provisional draft sequence number, assigned when draft is created.
+  draftSequenceNo Int?
   /// Assigned when the invoice is issued. Uniqueness is enforced by (companyId, invoiceSequenceNo).
   invoiceSequenceNo Int?
   invoiceNo         String?

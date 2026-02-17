@@ -8439,30 +8439,44 @@ export class ProjectService {
   }
 
   /**
-   * Format invoice number as INV-[PROJECT].[yyyymmdd].[sequence]
-   * Example: INV-NEXUS.20260213.047
+   * Format invoice number as INV-[COMPANY]:yymmdd.xxxzz
+   * Where xxxzz is a 5-digit sequence starting from a random 2-digit base.
+   * Example: INV-NCC:260217.00147
    */
-  private formatInvoiceNumber(sequenceNo: number, projectName?: string | null) {
+  private formatInvoiceNumber(sequenceNo: number, companyName?: string | null) {
     const now = new Date();
-    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
-    const prefix = this.computeProjectCodeFromName(projectName);
-    const seqStr = String(sequenceNo).padStart(3, "0");
-    return `INV-${prefix}.${dateStr}.${seqStr}`;
+    const yy = String(now.getFullYear()).slice(-2);
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const dateStr = `${yy}${mm}${dd}`;
+    const prefix = this.computeCompanyCodeFromName(companyName);
+    const seqStr = String(sequenceNo).padStart(5, "0");
+    return `INV-${prefix}:${dateStr}.${seqStr}`;
   }
 
   /**
-   * Extract first 5 alphanumeric characters from project name for invoice prefix.
-   * Falls back to "NEXUS" if project name is empty or has no valid chars.
+   * Format draft invoice number as DFT-[COMPANY]:xx
+   * Example: DFT-NCC:01
    */
-  private computeProjectCodeFromName(projectName: string | null | undefined): string {
-    const raw = String(projectName ?? "").trim();
-    if (!raw) return "NEXUS";
+  private formatDraftInvoiceNumber(draftSeqNo: number, companyName?: string | null) {
+    const prefix = this.computeCompanyCodeFromName(companyName);
+    const seqStr = String(draftSeqNo).padStart(2, "0");
+    return `DFT-${prefix}:${seqStr}`;
+  }
 
-    // Remove all non-alphanumeric characters and take first 5
+  /**
+   * Extract first 3 alphanumeric characters from company name for invoice prefix.
+   * Falls back to "NCC" if company name is empty or has no valid chars.
+   */
+  private computeCompanyCodeFromName(companyName: string | null | undefined): string {
+    const raw = String(companyName ?? "").trim();
+    if (!raw) return "NCC";
+
+    // Remove all non-alphanumeric characters and take first 3
     const cleaned = raw.replace(/[^a-zA-Z0-9]+/g, "").toUpperCase();
-    if (cleaned.length === 0) return "NEXUS";
+    if (cleaned.length === 0) return "NCC";
 
-    return cleaned.slice(0, 5).padEnd(5, "X");
+    return cleaned.slice(0, 3).padEnd(3, "X");
   }
 
   /**
@@ -9432,6 +9446,22 @@ export class ProjectService {
       return existingDraft;
     }
 
+    // Fetch company name for draft number prefix
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { name: true },
+    });
+
+    // Increment draft counter
+    const counter = await this.prisma.companyInvoiceCounter.upsert({
+      where: { companyId },
+      update: { lastDraftNo: { increment: 1 } },
+      create: { companyId, lastDraftNo: 1 },
+    });
+
+    const draftSeqNo = counter.lastDraftNo;
+    const draftInvoiceNo = this.formatDraftInvoiceNumber(draftSeqNo, company?.name);
+
     const categoryLabel = category === ProjectInvoiceCategory.EXPENSE
       ? "Billable Expenses"
       : category === ProjectInvoiceCategory.HOURS
@@ -9444,6 +9474,8 @@ export class ProjectService {
         projectId,
         category,
         status: ProjectInvoiceStatus.DRAFT,
+        draftSequenceNo: draftSeqNo,
+        invoiceNo: draftInvoiceNo,
         memo: categoryLabel,
         createdByUserId: actor.userId,
       },
@@ -9803,26 +9835,47 @@ export class ProjectService {
             orderBy: [{ createdAt: "desc" }],
           });
 
-      const invoice = existingDraft
-        ? await this.prisma.projectInvoice.update({
-            where: { id: existingDraft.id },
-            data: {
-              billToName: dto.billToName ?? existingDraft.billToName,
-              billToEmail: dto.billToEmail ?? existingDraft.billToEmail,
-              memo: dto.memo ?? existingDraft.memo,
-            },
-          })
-        : await this.prisma.projectInvoice.create({
-            data: {
-              companyId: project.companyId,
-              projectId: project.id,
-              status: ProjectInvoiceStatus.DRAFT,
-              billToName: dto.billToName ?? null,
-              billToEmail: dto.billToEmail ?? null,
-              memo: dto.memo ?? null,
-              createdByUserId: actor.userId,
-            },
-          });
+      let invoice;
+      if (existingDraft) {
+        invoice = await this.prisma.projectInvoice.update({
+          where: { id: existingDraft.id },
+          data: {
+            billToName: dto.billToName ?? existingDraft.billToName,
+            billToEmail: dto.billToEmail ?? existingDraft.billToEmail,
+            memo: dto.memo ?? existingDraft.memo,
+          },
+        });
+      } else {
+        // Create new draft with provisional draft number
+        const company = await this.prisma.company.findUnique({
+          where: { id: project.companyId },
+          select: { name: true },
+        });
+
+        // Increment draft counter
+        const counter = await this.prisma.companyInvoiceCounter.upsert({
+          where: { companyId: project.companyId },
+          update: { lastDraftNo: { increment: 1 } },
+          create: { companyId: project.companyId, lastDraftNo: 1 },
+        });
+
+        const draftSeqNo = counter.lastDraftNo;
+        const draftInvoiceNo = this.formatDraftInvoiceNumber(draftSeqNo, company?.name);
+
+        invoice = await this.prisma.projectInvoice.create({
+          data: {
+            companyId: project.companyId,
+            projectId: project.id,
+            status: ProjectInvoiceStatus.DRAFT,
+            draftSequenceNo: draftSeqNo,
+            invoiceNo: draftInvoiceNo,
+            billToName: dto.billToName ?? null,
+            billToEmail: dto.billToEmail ?? null,
+            memo: dto.memo ?? null,
+            createdByUserId: actor.userId,
+          },
+        });
+      }
 
       // Best effort: keep the living draft synced to PETL as the source of truth.
       // Only run if the Prisma client includes the new model.
@@ -11170,6 +11223,12 @@ export class ProjectService {
       const now = new Date();
 
       await this.prisma.$transaction(async (tx) => {
+        // Fetch company name for invoice prefix
+        const company = await tx.company.findUnique({
+          where: { id: project.companyId },
+          select: { name: true },
+        });
+
         // Check if counter exists for this company
         const existingCounter = await tx.companyInvoiceCounter.findUnique({
           where: { companyId: project.companyId },
@@ -11191,7 +11250,7 @@ export class ProjectService {
         }
 
         const sequenceNo = counter.lastInvoiceNo;
-        const invoiceNo = this.formatInvoiceNumber(sequenceNo, project.name);
+        const invoiceNo = this.formatInvoiceNumber(sequenceNo, company?.name);
 
         await tx.projectInvoice.update({
           where: { id: invoice.id },
