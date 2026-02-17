@@ -3002,10 +3002,13 @@ ${htmlBody}
     })();
 
     const invoiceNo = String(activeInvoice.invoiceNo ?? "Draft");
-    // Format date as yyyy.mm.dd - HH:mm for filename
+    // Format amount for filename
+    const totalAmount = Number(activeInvoice.totalAmount ?? 0);
+    const amountStr = `$${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    // Format date as yyyy.mm.dd for filename
     const now = new Date();
-    const dateStr = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")} - ${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
-    const title = `Invoice ${invoiceNo} ${dateStr}`;
+    const dateStr = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")}`;
+    const title = `${invoiceNo} - ${amountStr} - ${dateStr}`;
 
     const logoUrl = `${window.location.origin}/nexus-logo-mark.png`;
 
@@ -18411,10 +18414,6 @@ ${htmlBody}
                     boxShadow: activeInvoice.status === "DRAFT" ? "0 4px 12px rgba(59, 130, 246, 0.15)" : "none",
                   }}
                 >
-                  {/* DEBUG: This banner confirms activeInvoice is set */}
-                  <div style={{ background: activeInvoice.status === "DRAFT" ? "#22c55e" : "#f59e0b", color: "#fff", padding: "4px 8px", marginBottom: 8, borderRadius: 4, fontSize: 11 }}>
-                    DEBUG: activeInvoice.id={activeInvoice.id} status={activeInvoice.status}
-                  </div>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
