@@ -8054,11 +8054,11 @@ ${htmlBody}
       return;
     }
 
-    // Skip if we're already loading this exact invoice or it's already active
-    if (loadingInvoiceIdRef.current === invoiceIdFromUrl) return;
+    // Skip if already loaded this invoice
+    if (activeInvoice?.id === invoiceIdFromUrl) return;
 
-    let cancelled = false;
-    loadingInvoiceIdRef.current = invoiceIdFromUrl;
+    // DEBUG: Track what we're loading
+    console.log("[URL Effect] Loading invoice:", invoiceIdFromUrl);
 
     setActiveInvoiceLoading(true);
     setActiveInvoiceError(null);
@@ -8067,6 +8067,7 @@ ${htmlBody}
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(async (res) => {
+        console.log("[URL Effect] Response:", res.status);
         if (!res.ok) {
           const text = await res.text().catch(() => "");
           throw new Error(`Failed to load invoice (${res.status}) ${text}`);
@@ -8074,27 +8075,16 @@ ${htmlBody}
         return res.json();
       })
       .then((json: any) => {
-        if (cancelled) return;
+        console.log("[URL Effect] Got JSON:", json?.id, json?.status);
         setActiveInvoice(json);
+        setActiveInvoiceLoading(false);
       })
       .catch((err: any) => {
-        if (cancelled) return;
+        console.log("[URL Effect] Error:", err?.message);
         setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
-        loadingInvoiceIdRef.current = null; // Allow retry on error
-      })
-      .finally(() => {
-        if (cancelled) return;
         setActiveInvoiceLoading(false);
       });
-
-    return () => {
-      cancelled = true;
-      // Clear ref on cleanup so the effect can retry if it runs again
-      if (loadingInvoiceIdRef.current === invoiceIdFromUrl) {
-        loadingInvoiceIdRef.current = null;
-      }
-    };
-  }, [activeTab, project, invoiceIdFromUrl]);
+  }, [activeTab, project, invoiceIdFromUrl, activeInvoice?.id]);
 
   // Lazy-load project payments (cash receipts) when Financial tab is opened.
   // If the Payments card is collapsed, defer loading until the user expands it.
