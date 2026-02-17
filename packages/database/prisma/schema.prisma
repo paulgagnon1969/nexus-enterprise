@@ -166,6 +166,11 @@ model Company {
 
   // Invoice Unit Codes (editable dropdown for manual invoice line items)
   unitCodes CompanyUnitCode[]
+
+  // Supplier Bid Portal
+  supplierTags SupplierTag[]
+  suppliers    Supplier[]
+  bidRequests  BidRequest[]
 }
 
 model OrganizationTemplate {
@@ -333,7 +338,7 @@ model User {
 
   /// Stable, system-wide opaque token for this person. Used as the public
   /// subject in invite/referral flows and other token exchanges.
-  peopleToken               String                 @unique @default(cuid())
+  peopleToken String @unique @default(cuid())
 
   /// Percent of this user's profile that is complete (0–100). Starts at 10%
   /// once we have at least name + email, then increases as additional fields
@@ -443,20 +448,20 @@ model User {
   dailyLogRevisions  DailyLogRevision[] @relation("DailyLogRevisionEditedBy")
 
   // NEXUS System Documents
-  systemDocumentsCreated              SystemDocument[]              @relation("SystemDocumentCreatedBy")
-  systemDocumentVersionsCreated       SystemDocumentVersion[]       @relation("SystemDocVersionCreatedBy")
-  systemDocumentPublicationsPublished SystemDocumentPublication[]   @relation("SystemDocPubPublishedBy")
-  systemDocumentPublicationsRetracted SystemDocumentPublication[]   @relation("SystemDocPubRetractedBy")
-  tenantDocumentCopiesCopied          TenantDocumentCopy[]          @relation("TenantDocCopyCopiedBy")
-  tenantDocumentCopiesPublished       TenantDocumentCopy[]          @relation("TenantDocCopyPublishedBy")
-  tenantDocumentCopyVersionsCreated   TenantDocumentCopyVersion[]   @relation("TenantDocCopyVersionCreatedBy")
+  systemDocumentsCreated              SystemDocument[]            @relation("SystemDocumentCreatedBy")
+  systemDocumentVersionsCreated       SystemDocumentVersion[]     @relation("SystemDocVersionCreatedBy")
+  systemDocumentPublicationsPublished SystemDocumentPublication[] @relation("SystemDocPubPublishedBy")
+  systemDocumentPublicationsRetracted SystemDocumentPublication[] @relation("SystemDocPubRetractedBy")
+  tenantDocumentCopiesCopied          TenantDocumentCopy[]        @relation("TenantDocCopyCopiedBy")
+  tenantDocumentCopiesPublished       TenantDocumentCopy[]        @relation("TenantDocCopyPublishedBy")
+  tenantDocumentCopyVersionsCreated   TenantDocumentCopyVersion[] @relation("TenantDocCopyVersionCreatedBy")
 
   // Tenant Manual Copies (two-stage publishing)
   tenantManualCopiesReceived  TenantManualCopy[] @relation("TenantManualCopyReceivedBy")
   tenantManualCopiesPublished TenantManualCopy[] @relation("TenantManualCopyPublishedBy")
 
   // System Tags (NEXUS-level tenant classification)
-  systemTagsCreated       SystemTag[]        @relation("SystemTagCreatedBy")
+  systemTagsCreated         SystemTag[]        @relation("SystemTagCreatedBy")
   companySystemTagsAssigned CompanySystemTag[] @relation("CompanySystemTagAssignedBy")
 
   // Manuals / Document Collections
@@ -471,6 +476,9 @@ model User {
 
   // Description Keeper (Saved Phrases)
   savedPhrases SavedPhrase[]
+
+  // Supplier Bid Portal
+  bidRequestsRequested BidRequest[] @relation("BidRequestRequestedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -1020,7 +1028,7 @@ model Project {
 
   /// Optional link to a shared tenant client record.
   /// When set, client contact info is sourced from TenantClient.
-  tenantClientId    String?
+  tenantClientId String?
 
   allocationRules           ComponentAllocationRule[]
   componentSummaries        ComponentSummary[]
@@ -1083,6 +1091,9 @@ model Project {
   // Claim Journal (carrier negotiation tracking)
   claimJournalEntries ClaimJournalEntry[]
 
+  // Supplier Bid Portal
+  bidRequests BidRequest[]
+
   @@index([companyId, groupId], map: "Project_company_group_idx")
   @@index([tenantClientId], map: "Project_tenant_client_idx")
 }
@@ -1091,20 +1102,20 @@ model Project {
 /// Multiple projects can link to the same client, enabling
 /// shared contact info and cross-project visibility.
 model TenantClient {
-  id          String   @id @default(cuid())
-  companyId   String
-  firstName   String
-  lastName    String
-  displayName String?  // Computed or custom display name
-  email       String?  // Primary email
-  phone       String?  // Primary phone
-  additionalEmails Json?  // Array of additional email addresses
-  additionalPhones Json?  // Array of additional phone numbers
-  company     String?  // Company/organization name
-  notes       String?  @db.Text
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(cuid())
+  companyId        String
+  firstName        String
+  lastName         String
+  displayName      String? // Computed or custom display name
+  email            String? // Primary email
+  phone            String? // Primary phone
+  additionalEmails Json? // Array of additional email addresses
+  additionalPhones Json? // Array of additional phone numbers
+  company          String? // Company/organization name
+  notes            String?  @db.Text
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   tenant   Company   @relation(fields: [companyId], references: [id])
   projects Project[]
@@ -1474,7 +1485,7 @@ model ProjectInvoice {
   category ProjectInvoiceCategory @default(PETL)
 
   /// Provisional draft sequence number, assigned when draft is created.
-  draftSequenceNo Int?
+  draftSequenceNo   Int?
   /// Assigned when the invoice is issued. Uniqueness is enforced by (companyId, invoiceSequenceNo).
   invoiceSequenceNo Int?
   invoiceNo         String?
@@ -1792,16 +1803,16 @@ model ProjectBill {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy      User?           @relation("ProjectBillCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  targetInvoice  ProjectInvoice? @relation("BillTargetInvoice", fields: [targetInvoiceId], references: [id], onDelete: SetNull)
+  company       Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy     User?           @relation("ProjectBillCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  targetInvoice ProjectInvoice? @relation("BillTargetInvoice", fields: [targetInvoiceId], references: [id], onDelete: SetNull)
 
-  lineItems        ProjectBillLineItem[]
-  attachments      ProjectBillAttachment[]
-  invoiceLines     ProjectInvoiceLineItem[] @relation("InvoiceLineItemSourceBill")
-  sourceDailyLog   DailyLog?                @relation("DailyLogSourceBill")
-  ocrResult        ReceiptOcrResult?
+  lineItems      ProjectBillLineItem[]
+  attachments    ProjectBillAttachment[]
+  invoiceLines   ProjectInvoiceLineItem[] @relation("InvoiceLineItemSourceBill")
+  sourceDailyLog DailyLog?                @relation("DailyLogSourceBill")
+  ocrResult      ReceiptOcrResult?
 
   @@index([companyId, projectId, billDate], map: "ProjectBill_company_project_date_idx")
   @@index([projectId, billDate], map: "ProjectBill_project_date_idx")
@@ -1854,13 +1865,13 @@ model ProjectBillAttachment {
 
 /// OCR extraction results for receipt images
 model ReceiptOcrResult {
-  id            String    @id @default(cuid())
-  dailyLogId    String?   @unique
-  billId        String?   @unique
+  id            String  @id @default(cuid())
+  dailyLogId    String? @unique
+  billId        String? @unique
   projectFileId String
 
   status   OcrStatus @default(PENDING)
-  provider String?   // "openai", "aws_textract", "google_documentai"
+  provider String? // "openai", "aws_textract", "google_documentai"
 
   // Extracted fields
   vendorName    String?
@@ -1870,14 +1881,14 @@ model ReceiptOcrResult {
   taxAmount     Decimal?  @db.Decimal(12, 2)
   totalAmount   Decimal?  @db.Decimal(12, 2)
   currency      String?   @default("USD")
-  paymentMethod String?   // "CASH", "CARD", etc.
+  paymentMethod String? // "CASH", "CARD", etc.
 
   // Line items as JSON array: [{description, qty, unitPrice, amount}]
   lineItemsJson String?
 
   // Raw response for audit trail
   rawResponseJson String?
-  confidence      Float?    // 0-1 overall confidence
+  confidence      Float? // 0-1 overall confidence
 
   errorMessage String?
   processedAt  DateTime?
@@ -2631,7 +2642,7 @@ model PetlReconciliationEvent {
 }
 
 model DailyLog {
-  id                   String               @id @default(cuid())
+  id                   String         @id @default(cuid())
   projectId            String
   createdById          String
   logDate              DateTime
@@ -2650,44 +2661,44 @@ model DailyLog {
   unitId               String?
   roomParticleId       String?
   sowItemId            String?
-  shareInternal        Boolean              @default(true)
-  shareSubs            Boolean              @default(false)
-  shareClient          Boolean              @default(false)
-  sharePrivate         Boolean              @default(false)
+  shareInternal        Boolean        @default(true)
+  shareSubs            Boolean        @default(false)
+  shareClient          Boolean        @default(false)
+  sharePrivate         Boolean        @default(false)
   notifyUserIdsJson    String?
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
-  effectiveShareClient Boolean              @default(false)
-  status               DailyLogStatus       @default(SUBMITTED)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  effectiveShareClient Boolean        @default(false)
+  status               DailyLogStatus @default(SUBMITTED)
   /// Delay publish workflow
-  isDelayedPublish     Boolean              @default(false)
+  isDelayedPublish     Boolean        @default(false)
   delayedById          String?
   delayedAt            DateTime?
   publishedById        String?
   publishedAt          DateTime?
 
   /// Daily log type classification
-  type                 DailyLogType         @default(PUDL)
+  type DailyLogType @default(PUDL)
 
   /// Receipt/expense fields (used when type = RECEIPT_EXPENSE)
-  expenseVendor        String?
-  expenseAmount        Decimal?             @db.Decimal(12, 2)
-  expenseDate          DateTime?
-  sourceBillId         String?              @unique
+  expenseVendor String?
+  expenseAmount Decimal?  @db.Decimal(12, 2)
+  expenseDate   DateTime?
+  sourceBillId  String?   @unique
 
-  createdBy            User                 @relation(fields: [createdById], references: [id])
-  project              Project              @relation(fields: [projectId], references: [id])
-  attachments          DailyLogAttachment[]
-  revisions            DailyLogRevision[]
-  assetUsages          AssetUsage[]
-  building             ProjectBuilding?     @relation("ProjectBuildingDailyLogs", fields: [buildingId], references: [id])
-  unit                 ProjectUnit?         @relation("ProjectUnitDailyLogs", fields: [unitId], references: [id])
-  roomParticle         ProjectParticle?     @relation("ProjectParticleDailyLogs", fields: [roomParticleId], references: [id])
-  sowItem              SowItem?             @relation("SowItemDailyLogs", fields: [sowItemId], references: [id])
-  delayedBy            User?                @relation("DailyLogDelayedBy", fields: [delayedById], references: [id])
-  publishedBy          User?                @relation("DailyLogPublishedBy", fields: [publishedById], references: [id])
-  sourceBill           ProjectBill?         @relation("DailyLogSourceBill", fields: [sourceBillId], references: [id])
-  ocrResult            ReceiptOcrResult?
+  createdBy    User                 @relation(fields: [createdById], references: [id])
+  project      Project              @relation(fields: [projectId], references: [id])
+  attachments  DailyLogAttachment[]
+  revisions    DailyLogRevision[]
+  assetUsages  AssetUsage[]
+  building     ProjectBuilding?     @relation("ProjectBuildingDailyLogs", fields: [buildingId], references: [id])
+  unit         ProjectUnit?         @relation("ProjectUnitDailyLogs", fields: [unitId], references: [id])
+  roomParticle ProjectParticle?     @relation("ProjectParticleDailyLogs", fields: [roomParticleId], references: [id])
+  sowItem      SowItem?             @relation("SowItemDailyLogs", fields: [sowItemId], references: [id])
+  delayedBy    User?                @relation("DailyLogDelayedBy", fields: [delayedById], references: [id])
+  publishedBy  User?                @relation("DailyLogPublishedBy", fields: [publishedById], references: [id])
+  sourceBill   ProjectBill?         @relation("DailyLogSourceBill", fields: [sourceBillId], references: [id])
+  ocrResult    ReceiptOcrResult?
 
   @@index([projectId], map: "DailyLog_project_idx")
   @@index([projectId, roomParticleId], map: "DailyLog_project_room_idx")
@@ -3444,11 +3455,11 @@ enum DailyLogStatus {
 }
 
 enum DailyLogType {
-  PUDL              // Standard daily log (default)
-  RECEIPT_EXPENSE   // Receipt/expense submission
-  JSA               // Job Safety Assessment
-  INCIDENT          // Safety incident report
-  QUALITY           // Quality inspection
+  PUDL // Standard daily log (default)
+  RECEIPT_EXPENSE // Receipt/expense submission
+  JSA // Job Safety Assessment
+  INCIDENT // Safety incident report
+  QUALITY // Quality inspection
 }
 
 enum OcrStatus {
@@ -4953,7 +4964,7 @@ model ClaimJournalAttachment {
 model FieldSecurityPolicy {
   id          String   @id @default(cuid())
   companyId   String
-  resourceKey String   // e.g. "petl.rcvAmount", "project.financial.payments"
+  resourceKey String // e.g. "petl.rcvAmount", "project.financial.payments"
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -4970,7 +4981,7 @@ model FieldSecurityPolicy {
 model FieldSecurityPermission {
   id        String  @id @default(cuid())
   policyId  String
-  roleCode  String  // "CLIENT", "CREW", "FOREMAN", "SUPER", "PM", "ADMIN", "OWNER", "SUPER_ADMIN"
+  roleCode  String // "CLIENT", "CREW", "FOREMAN", "SUPER", "PM", "ADMIN", "OWNER", "SUPER_ADMIN"
   canView   Boolean @default(true)
   canEdit   Boolean @default(false)
   canExport Boolean @default(true)
@@ -4987,7 +4998,7 @@ model FieldSecurityAuditLog {
   companyId    String
   policyId     String?
   resourceKey  String
-  action       String   // "CREATE", "UPDATE", "DELETE"
+  action       String // "CREATE", "UPDATE", "DELETE"
   actorUserId  String
   actorEmail   String
   previousJson Json?
@@ -5004,15 +5015,15 @@ model FieldSecurityAuditLog {
 
 /// Publication target type for system documents
 enum SystemDocumentPublicationTarget {
-  ALL_TENANTS   // Published to all tenant organizations
+  ALL_TENANTS // Published to all tenant organizations
   SINGLE_TENANT // Published to a specific tenant only
 }
 
 /// Status of tenant document/manual copies (two-stage publishing)
 enum TenantDocumentStatus {
-  UNRELEASED  // Received from NEXUS but not yet published to org
-  PUBLISHED   // Published and visible to org users
-  ARCHIVED    // Hidden/archived by tenant admin
+  UNRELEASED // Received from NEXUS but not yet published to org
+  PUBLISHED // Published and visible to org users
+  ARCHIVED // Hidden/archived by tenant admin
 }
 
 /// Master document owned by NEXUS System (not tenant-scoped)
@@ -5021,8 +5032,8 @@ model SystemDocument {
   code             String   @unique // Unique identifier code (e.g., "SOP-001")
   title            String
   description      String?
-  category         String?  // Primary category (e.g., "Safety", "HR", "Operations")
-  subcategory      String?  // Subcategory for finer organization
+  category         String? // Primary category (e.g., "Safety", "HR", "Operations")
+  subcategory      String? // Subcategory for finer organization
   tags             String[] // Tags for filtering
   active           Boolean  @default(true) // Soft delete
   currentVersionId String?  @unique
@@ -5036,8 +5047,8 @@ model SystemDocument {
   versions        SystemDocumentVersion[]
   publications    SystemDocumentPublication[]
   tenantCopies    TenantDocumentCopy[]
-  manualDocuments ManualDocument[]            // Documents included in manuals
-  shareLinks      DocumentShareLink[]         // Private share links
+  manualDocuments ManualDocument[] // Documents included in manuals
+  shareLinks      DocumentShareLink[] // Private share links
   createdBy       User                        @relation("SystemDocumentCreatedBy", fields: [createdByUserId], references: [id])
 
   @@index([category], map: "SystemDocument_category_idx")
@@ -5049,10 +5060,10 @@ model SystemDocument {
 model SystemDocumentVersion {
   id               String   @id @default(cuid())
   systemDocumentId String
-  versionNo        Int      // Sequential version number (1, 2, 3...)
+  versionNo        Int // Sequential version number (1, 2, 3...)
   htmlContent      String   @db.Text // Rich text content
-  contentHash      String?  // Hash for change detection
-  notes            String?  // Revision notes (what changed)
+  contentHash      String? // Hash for change detection
+  notes            String? // Revision notes (what changed)
   createdByUserId  String
   createdAt        DateTime @default(now())
 
@@ -5071,10 +5082,10 @@ model SystemDocumentPublication {
   systemDocumentId        String
   systemDocumentVersionId String
   targetType              SystemDocumentPublicationTarget
-  targetCompanyId         String?                         // Null for ALL_TENANTS
+  targetCompanyId         String? // Null for ALL_TENANTS
   publishedAt             DateTime                        @default(now())
   publishedByUserId       String
-  retractedAt             DateTime?                       // When unpublished (null = active)
+  retractedAt             DateTime? // When unpublished (null = active)
   retractedByUserId       String?
 
   systemDocument        SystemDocument        @relation(fields: [systemDocumentId], references: [id], onDelete: Cascade)
@@ -5092,25 +5103,25 @@ model SystemDocumentPublication {
 model TenantDocumentCopy {
   id                     String               @id @default(cuid())
   companyId              String
-  sourceSystemDocumentId String               // Reference back to source for audit
-  sourceVersionNo        Int                  // Version number when copied
-  title                  String               // Can be modified by tenant
+  sourceSystemDocumentId String // Reference back to source for audit
+  sourceVersionNo        Int // Version number when copied
+  title                  String // Can be modified by tenant
   currentVersionId       String?              @unique
   status                 TenantDocumentStatus @default(UNRELEASED) // Two-stage publishing
   copiedByUserId         String
   copiedAt               DateTime             @default(now())
-  publishedAt            DateTime?            // When tenant admin published to org
-  publishedByUserId      String?              // User who published to org
+  publishedAt            DateTime? // When tenant admin published to org
+  publishedByUserId      String? // User who published to org
   internalNotes          String?              @db.Text // Tenant-specific notes
   hasNewerSystemVersion  Boolean              @default(false) // Flag for update indicator
   updatedAt              DateTime             @updatedAt
 
-  company              Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  sourceSystemDocument SystemDocument             @relation(fields: [sourceSystemDocumentId], references: [id])
-  currentVersion       TenantDocumentCopyVersion? @relation("TenantDocCopyCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  company              Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sourceSystemDocument SystemDocument              @relation(fields: [sourceSystemDocumentId], references: [id])
+  currentVersion       TenantDocumentCopyVersion?  @relation("TenantDocCopyCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
   versions             TenantDocumentCopyVersion[]
-  copiedBy             User                       @relation("TenantDocCopyCopiedBy", fields: [copiedByUserId], references: [id])
-  publishedBy          User?                      @relation("TenantDocCopyPublishedBy", fields: [publishedByUserId], references: [id])
+  copiedBy             User                        @relation("TenantDocCopyCopiedBy", fields: [copiedByUserId], references: [id])
+  publishedBy          User?                       @relation("TenantDocCopyPublishedBy", fields: [publishedByUserId], references: [id])
 
   @@index([companyId], map: "TenantDocCopy_company_idx")
   @@index([sourceSystemDocumentId], map: "TenantDocCopy_source_idx")
@@ -5122,10 +5133,10 @@ model TenantDocumentCopy {
 model TenantDocumentCopyVersion {
   id                   String   @id @default(cuid())
   tenantDocumentCopyId String
-  versionNo            Int      // Sequential version number
+  versionNo            Int // Sequential version number
   htmlContent          String   @db.Text
   contentHash          String?
-  notes                String?  // What changed in this revision
+  notes                String? // What changed in this revision
   createdByUserId      String
   createdAt            DateTime @default(now())
 
@@ -5141,22 +5152,22 @@ model TenantDocumentCopyVersion {
 model TenantManualCopy {
   id                    String               @id @default(cuid())
   companyId             String
-  sourceManualId        String               // Reference to source manual
-  sourceManualVersion   Int                  // Version when distributed
-  title                 String               // Can be customized by tenant
+  sourceManualId        String // Reference to source manual
+  sourceManualVersion   Int // Version when distributed
+  title                 String // Can be customized by tenant
   status                TenantDocumentStatus @default(UNRELEASED)
   hasNewerSourceVersion Boolean              @default(false) // Flag for update indicator
   receivedAt            DateTime             @default(now())
-  receivedByUserId      String               // System user or admin who triggered distribution
-  publishedAt           DateTime?            // When tenant admin published to org
-  publishedByUserId     String?              // User who published
+  receivedByUserId      String // System user or admin who triggered distribution
+  publishedAt           DateTime? // When tenant admin published to org
+  publishedByUserId     String? // User who published
   internalNotes         String?              @db.Text
   updatedAt             DateTime             @updatedAt
 
-  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   sourceManual Manual  @relation(fields: [sourceManualId], references: [id])
-  receivedBy  User    @relation("TenantManualCopyReceivedBy", fields: [receivedByUserId], references: [id])
-  publishedBy User?   @relation("TenantManualCopyPublishedBy", fields: [publishedByUserId], references: [id])
+  receivedBy   User    @relation("TenantManualCopyReceivedBy", fields: [receivedByUserId], references: [id])
+  publishedBy  User?   @relation("TenantManualCopyPublishedBy", fields: [publishedByUserId], references: [id])
 
   @@unique([companyId, sourceManualId], map: "TenantManualCopy_company_manual_key")
   @@index([companyId], map: "TenantManualCopy_company_idx")
@@ -5171,21 +5182,21 @@ model TenantManualCopy {
 /// NEXUS System-level tags for classifying tenants (not tenant-scoped).
 /// Used for selective document/manual distribution (e.g., "tier:premium", "region:west").
 model SystemTag {
-  id          String   @id @default(cuid())
-  code        String   @unique // Unique identifier (e.g., "tier:premium", "feature:advanced-reporting")
-  label       String   // Display name (e.g., "Premium Tier")
-  description String?  // Optional description
-  category    String?  // Grouping category (e.g., "tier", "region", "feature")
-  color       String?  // Hex color for UI display (e.g., "#f59e0b")
-  sortOrder   Int      @default(0)
-  active      Boolean  @default(true)
+  id              String   @id @default(cuid())
+  code            String   @unique // Unique identifier (e.g., "tier:premium", "feature:advanced-reporting")
+  label           String // Display name (e.g., "Premium Tier")
+  description     String? // Optional description
+  category        String? // Grouping category (e.g., "tier", "region", "feature")
+  color           String? // Hex color for UI display (e.g., "#f59e0b")
+  sortOrder       Int      @default(0)
+  active          Boolean  @default(true)
   createdByUserId String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   createdBy        User               @relation("SystemTagCreatedBy", fields: [createdByUserId], references: [id])
   companyTags      CompanySystemTag[]
-  manualTargetTags ManualTargetTag[]  // Manuals that target this tag
+  manualTargetTags ManualTargetTag[] // Manuals that target this tag
 
   @@index([category], map: "SystemTag_category_idx")
   @@index([active], map: "SystemTag_active_idx")
@@ -5194,11 +5205,11 @@ model SystemTag {
 /// Join table assigning system tags to tenant companies.
 /// Enables tag-based document/manual distribution.
 model CompanySystemTag {
-  id              String   @id @default(cuid())
-  companyId       String
-  systemTagId     String
+  id               String   @id @default(cuid())
+  companyId        String
+  systemTagId      String
   assignedByUserId String
-  assignedAt      DateTime @default(now())
+  assignedAt       DateTime @default(now())
 
   company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   systemTag  SystemTag @relation(fields: [systemTagId], references: [id], onDelete: Cascade)
@@ -5242,26 +5253,26 @@ model Manual {
   isPublic            Boolean      @default(false) // Whether accessible without auth
   publishToAllTenants Boolean      @default(false) // If true, ignores tag filters
   coverImageUrl       String?
-  iconEmoji           String?      // Optional emoji for display (e.g., "📘")
+  iconEmoji           String? // Optional emoji for display (e.g., "📘")
   createdByUserId     String
-  publishedAt         DateTime?    // When first published
+  publishedAt         DateTime? // When first published
   archivedAt          DateTime?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
   // Ownership & Access Control
-  ownerCompanyId      String?      // Null = NEXUS System manual; Set = Tenant-owned manual
+  ownerCompanyId      String? // Null = NEXUS System manual; Set = Tenant-owned manual
   isNexusInternal     Boolean      @default(false) // If true, only visible to users with requiredGlobalRoles
   requiredGlobalRoles GlobalRole[] // Which global roles can see this (when isNexusInternal=true)
 
-  createdBy     User                   @relation("ManualCreatedBy", fields: [createdByUserId], references: [id])
-  ownerCompany  Company?               @relation("ManualOwner", fields: [ownerCompanyId], references: [id], onDelete: Cascade)
-  chapters      ManualChapter[]
-  documents     ManualDocument[]
-  versions      ManualVersion[]
-  targetTags    ManualTargetTag[]      // Which tenant tags can see this manual
-  tenantCopies  TenantManualCopy[]     // Distributed copies to tenants
-  shareLinks    DocumentShareLink[]    // Private share links
+  createdBy    User                @relation("ManualCreatedBy", fields: [createdByUserId], references: [id])
+  ownerCompany Company?            @relation("ManualOwner", fields: [ownerCompanyId], references: [id], onDelete: Cascade)
+  chapters     ManualChapter[]
+  documents    ManualDocument[]
+  versions     ManualVersion[]
+  targetTags   ManualTargetTag[] // Which tenant tags can see this manual
+  tenantCopies TenantManualCopy[] // Distributed copies to tenants
+  shareLinks   DocumentShareLink[] // Private share links
 
   @@index([status], map: "Manual_status_idx")
   @@index([isPublic], map: "Manual_public_idx")
@@ -5273,10 +5284,10 @@ model Manual {
 model ManualVersion {
   id                String                  @id @default(cuid())
   manualId          String
-  version           Int                     // Sequential version number
+  version           Int // Sequential version number
   changeType        ManualVersionChangeType
-  changeNotes       String?                 // Description of what changed
-  structureSnapshot Json?                   // JSON snapshot of chapters/documents at this version
+  changeNotes       String? // Description of what changed
+  structureSnapshot Json? // JSON snapshot of chapters/documents at this version
   createdByUserId   String
   createdAt         DateTime                @default(now())
 
@@ -5308,21 +5319,21 @@ model ManualChapter {
 model ManualDocument {
   id                     String   @id @default(cuid())
   manualId               String
-  chapterId              String?  // Null for root-level documents
+  chapterId              String? // Null for root-level documents
   systemDocumentId       String
   sortOrder              Int      @default(0) // Order within chapter
-  displayTitleOverride   String?  // Optional override (e.g., "PPE Policy" instead of full title)
+  displayTitleOverride   String? // Optional override (e.g., "PPE Policy" instead of full title)
   includeInToc           Boolean  @default(true) // Whether to show in Table of Contents
   includeInPrint         Boolean  @default(true) // Whether to include content in print/PDF (false = "This Section Intentionally Blank")
-  addedInManualVersion   Int      // Which manual version added this doc
-  removedInManualVersion Int?     // Null if still active, set when removed
+  addedInManualVersion   Int // Which manual version added this doc
+  removedInManualVersion Int? // Null if still active, set when removed
   active                 Boolean  @default(true) // Derived from removedInManualVersion being null
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
-  manual         Manual          @relation(fields: [manualId], references: [id], onDelete: Cascade)
-  chapter        ManualChapter?  @relation(fields: [chapterId], references: [id], onDelete: SetNull)
-  systemDocument SystemDocument  @relation(fields: [systemDocumentId], references: [id], onDelete: Cascade)
+  manual         Manual         @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  chapter        ManualChapter? @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  systemDocument SystemDocument @relation(fields: [systemDocumentId], references: [id], onDelete: Cascade)
 
   @@unique([manualId, systemDocumentId, removedInManualVersion], map: "ManualDocument_manual_doc_version_key")
   @@index([manualId, chapterId, sortOrder], map: "ManualDocument_chapter_order_idx")
@@ -5352,7 +5363,7 @@ model ManualTargetTag {
 model PublicationGroup {
   id              String   @id @default(cuid())
   code            String   @unique // e.g., "west-coast-clients"
-  name            String           // e.g., "West Coast Clients"
+  name            String // e.g., "West Coast Clients"
   description     String?  @db.Text
   createdByUserId String
   createdAt       DateTime @default(now())
@@ -5384,21 +5395,21 @@ model PublicationGroupMember {
 // =============================================================================
 
 enum ShareLinkType {
-  PUBLIC_URL    // Accessible via public slug (no token needed)
-  PRIVATE_LINK  // Requires access token
+  PUBLIC_URL // Accessible via public slug (no token needed)
+  PRIVATE_LINK // Requires access token
 }
 
 /// Share link for private document/manual sharing with optional expiration
 model DocumentShareLink {
   id               String        @id @default(cuid())
-  systemDocumentId String?       // Either document or manual, not both
-  manualId         String?       // Either document or manual, not both
+  systemDocumentId String? // Either document or manual, not both
+  manualId         String? // Either document or manual, not both
   shareType        ShareLinkType @default(PRIVATE_LINK)
   accessToken      String        @unique // Random token for private links
-  expiresAt        DateTime?     // Optional expiration
-  passcode         String?       // Optional passcode (hashed)
+  expiresAt        DateTime? // Optional expiration
+  passcode         String? // Optional passcode (hashed)
   accessCount      Int           @default(0) // Track number of views
-  lastAccessedAt   DateTime?     // When last accessed
+  lastAccessedAt   DateTime? // When last accessed
   isActive         Boolean       @default(true) // Can be revoked
   createdByUserId  String
   createdAt        DateTime      @default(now())
@@ -5430,10 +5441,10 @@ enum SavedPhraseCategory {
 model SavedPhrase {
   id        String              @id @default(cuid())
   companyId String
-  userId    String?             // Null = company-wide, Set = user-specific
+  userId    String? // Null = company-wide, Set = user-specific
   category  SavedPhraseCategory @default(GENERAL)
   phrase    String              @db.Text
-  label     String?             // Optional short label for quick identification
+  label     String? // Optional short label for quick identification
   sortOrder Int                 @default(0)
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
@@ -5455,8 +5466,8 @@ model SavedPhrase {
 model CompanyUnitCode {
   id        String   @id @default(cuid())
   companyId String
-  code      String   // Max 5 characters, e.g. "EA", "HR", "SF"
-  label     String?  // Optional friendly label, e.g. "Each", "Hour"
+  code      String // Max 5 characters, e.g. "EA", "HR", "SF"
+  label     String? // Optional friendly label, e.g. "Each", "Hour"
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -5474,8 +5485,8 @@ model CompanyUnitCode {
 /// Category for supplier tags (region, trade, or custom scope)
 enum SupplierTagCategory {
   REGION // Geographic: FL, GA, TX, Southeast
-  TRADE  // Trade type: Roofer, Electrician, Plumber, Drywall
-  SCOPE  // Custom scope: Interior, Exterior, Commercial, Residential
+  TRADE // Trade type: Roofer, Electrician, Plumber, Drywall
+  SCOPE // Custom scope: Interior, Exterior, Commercial, Residential
 }
 
 /// Tags for categorizing suppliers (used for filtering when creating bid requests)
@@ -5483,9 +5494,9 @@ model SupplierTag {
   id        String              @id @default(cuid())
   companyId String
   category  SupplierTagCategory
-  code      String              // Short code, e.g. "FL", "ROOF"
-  label     String              // Display label, e.g. "Florida", "Roofing"
-  color     String?             // Optional hex color for UI
+  code      String // Short code, e.g. "FL", "ROOF"
+  label     String // Display label, e.g. "Florida", "Roofing"
+  color     String? // Optional hex color for UI
   sortOrder Int                 @default(0)
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
@@ -5501,7 +5512,7 @@ model SupplierTag {
 model Supplier {
   id        String  @id @default(cuid())
   companyId String
-  name      String  // Company/business name
+  name      String // Company/business name
   email     String? // Primary email
   phone     String? // Primary phone
   website   String?
@@ -5537,14 +5548,14 @@ model Supplier {
 
 /// Individual contact at a supplier (for multi-contact suppliers)
 model SupplierContact {
-  id         String  @id @default(cuid())
+  id         String   @id @default(cuid())
   supplierId String
   name       String
   email      String?
   phone      String?
   role       String? // e.g. "Sales Rep", "Estimator", "Owner"
-  isPrimary  Boolean @default(false)
-  isActive   Boolean @default(true)
+  isPrimary  Boolean  @default(false)
+  isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -5571,34 +5582,34 @@ model SupplierTagAssignment {
 
 /// Status of a bid request
 enum BidRequestStatus {
-  DRAFT    // Being configured, not sent yet
-  SENT     // Sent to suppliers, awaiting responses
-  CLOSED   // Bidding closed (manually or by due date)
+  DRAFT // Being configured, not sent yet
+  SENT // Sent to suppliers, awaiting responses
+  CLOSED // Bidding closed (manually or by due date)
   CANCELED // Canceled by requestor
 }
 
 /// Status of a bid request recipient
 enum BidRecipientStatus {
-  PENDING   // Not yet sent (draft)
-  SENT      // Email sent, awaiting response
-  VIEWED    // Supplier accessed the portal
+  PENDING // Not yet sent (draft)
+  SENT // Email sent, awaiting response
+  VIEWED // Supplier accessed the portal
   RESPONDED // Supplier submitted a response
-  DECLINED  // Supplier declined to bid
+  DECLINED // Supplier declined to bid
 }
 
 /// Cost type filter for bid request items
 enum BidCostType {
-  MATERIAL  // Materials only
-  LABOR     // Labor only
+  MATERIAL // Materials only
+  LABOR // Labor only
   EQUIPMENT // Equipment only
-  ALL       // All cost types
+  ALL // All cost types
 }
 
 /// Source type for bid request items
 enum BidItemSourceType {
-  PETL      // From SowItem (PETL line)
+  PETL // From SowItem (PETL line)
   COMPONENT // From ComponentSummary
-  MANUAL    // Manually added
+  MANUAL // Manually added
 }
 
 /// A bid request sent to one or more suppliers for pricing
@@ -5607,7 +5618,7 @@ model BidRequest {
   companyId String
   projectId String
 
-  title       String  // e.g. "Drywall Materials - 1548 Skyline"
+  title       String // e.g. "Drywall Materials - 1548 Skyline"
   description String? @db.Text
   notes       String? @db.Text // Internal notes (not shared with suppliers)
 
@@ -5644,7 +5655,7 @@ model BidRequestItem {
   bidRequestId String
 
   sourceType BidItemSourceType @default(PETL)
-  sourceId   String?           // sowItemId or componentSummaryId
+  sourceId   String? // sowItemId or componentSummaryId
 
   // Denormalized for display and CSV export
   catSel       String? // e.g. "DRY/1/2+"
@@ -5661,7 +5672,7 @@ model BidRequestItem {
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
 
-  bidRequest    BidRequest          @relation(fields: [bidRequestId], references: [id], onDelete: Cascade)
+  bidRequest    BidRequest        @relation(fields: [bidRequestId], references: [id], onDelete: Cascade)
   responseItems BidResponseItem[]
 
   @@index([bidRequestId, sortOrder], map: "BidRequestItem_request_sort_idx")
@@ -5677,9 +5688,9 @@ model BidRequestRecipient {
   supplierContactId String?
 
   // Secure access credentials
-  accessToken String  @unique // 32-char random hex for portal URL
-  accessPin   String  // 6-digit PIN, hashed with bcrypt
-  pinAttempts Int     @default(0) // Track failed PIN attempts
+  accessToken String    @unique // 32-char random hex for portal URL
+  accessPin   String // 6-digit PIN, hashed with bcrypt
+  pinAttempts Int       @default(0) // Track failed PIN attempts
   pinLockedAt DateTime? // Locked after too many attempts
 
   // Expiration
@@ -5712,16 +5723,16 @@ model BidRequestRecipient {
 
 /// Status of a bid response
 enum BidResponseStatus {
-  DRAFT     // Started but not submitted
+  DRAFT // Started but not submitted
   SUBMITTED // Submitted by supplier
 }
 
 /// Availability status for a bid response item
 enum BidItemAvailability {
-  IN_STOCK      // Available immediately
-  BACKORDERED   // Available after lead time
+  IN_STOCK // Available immediately
+  BACKORDERED // Available after lead time
   SPECIAL_ORDER // Requires special order
-  UNAVAILABLE   // Not available
+  UNAVAILABLE // Not available
 }
 
 /// A supplier's response to a bid request
@@ -5751,9 +5762,9 @@ model BidResponse {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  bidRequest BidRequest            @relation(fields: [bidRequestId], references: [id], onDelete: Cascade)
-  recipient  BidRequestRecipient   @relation(fields: [recipientId], references: [id], onDelete: Cascade)
-  supplier   Supplier              @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  bidRequest BidRequest          @relation(fields: [bidRequestId], references: [id], onDelete: Cascade)
+  recipient  BidRequestRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  supplier   Supplier            @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   items      BidResponseItem[]
 
   @@unique([recipientId], map: "BidResponse_recipient_key") // One response per recipient
@@ -5773,7 +5784,7 @@ model BidResponseItem {
 
   // Additional info
   notes        String? @db.Text
-  leadTimeDays Int?    // Days until available
+  leadTimeDays Int? // Days until available
 
   availability BidItemAvailability?
 

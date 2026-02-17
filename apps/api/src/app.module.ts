@@ -45,6 +45,7 @@ import { TenantDocumentsModule } from "./modules/tenant-documents/tenant-documen
 import { PublicDocsModule } from "./modules/public-docs/public-docs.module";
 import { PublicationGroupsModule } from "./modules/publication-groups/publication-groups.module";
 import { SavedPhrasesModule } from "./modules/saved-phrases/saved-phrases.module";
+import { SupplierModule } from "./modules/supplier/supplier.module";
 
 @Module({
   imports: [
@@ -98,6 +99,7 @@ import { SavedPhrasesModule } from "./modules/saved-phrases/saved-phrases.module
     PublicDocsModule,
     PublicationGroupsModule,
     SavedPhrasesModule,
+    SupplierModule,
   ],
   controllers: [DevController]
 })
