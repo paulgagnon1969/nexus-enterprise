@@ -16,7 +16,7 @@ import * as path from "path";
 import * as fs from "fs";
 import prisma from "./client";
 import { parseAllSops, type ParsedSop } from "./sop-sync";
-import { GlobalRole } from "@prisma/client";
+import { GlobalRole, Prisma } from "@prisma/client";
 
 // Find repo root by looking for package.json with workspaces
 function findRepoRoot(): string {
@@ -116,7 +116,7 @@ async function syncSingleSop(
         return { code: sop.code, title: sop.frontmatter.title, action: "created" };
       }
 
-      const result = await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         const doc = await tx.systemDocument.create({
           data: {
             code: sop.code,
@@ -227,7 +227,7 @@ async function syncSingleSop(
       return { code: sop.code, title: sop.frontmatter.title, action: "updated", systemDocumentId: existing.id };
     }
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const latestVersion = await tx.systemDocumentVersion.findFirst({
         where: { systemDocumentId: existing.id },
         orderBy: { versionNo: "desc" },
