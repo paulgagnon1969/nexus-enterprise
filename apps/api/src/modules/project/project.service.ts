@@ -11058,10 +11058,15 @@ export class ProjectService {
     try {
       const { project, invoice } = await this.getInvoiceOrThrow(projectId, invoiceId, actor);
 
-      // Only ISSUED invoices can be unlocked
-      if (invoice.status !== ProjectInvoiceStatus.ISSUED) {
+      // Only non-DRAFT, non-VOID invoices can be unlocked
+      if (invoice.status === ProjectInvoiceStatus.DRAFT) {
         throw new BadRequestException(
-          `Cannot unlock invoice with status '${invoice.status}'. Only ISSUED invoices can be unlocked.`
+          "Cannot unlock a draft invoice. It's already editable."
+        );
+      }
+      if (invoice.status === ProjectInvoiceStatus.VOID) {
+        throw new BadRequestException(
+          "Cannot unlock a voided invoice."
         );
       }
 

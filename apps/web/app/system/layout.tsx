@@ -45,6 +45,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
   const [orgProjects, setOrgProjects] = useState<OrgProjectSummary[]>([]);
   const [orgProjectsLoading, setOrgProjectsLoading] = useState(false);
   const [orgProjectsError, setOrgProjectsError] = useState<string | null>(null);
+  const [switchingToProject, setSwitchingToProject] = useState<string | null>(null);
 
   function getTokenOrThrow() {
     const t = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
@@ -199,6 +200,46 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [selectedCompanyId]);
+
+  const handleOpenProjectInTenant = async (companyId: string, projectId: string) => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    try {
+      setSwitchingToProject(projectId);
+
+      // Switch company context first
+      const res = await fetch(`${API_BASE}/auth/switch-company`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ companyId }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to switch company (${res.status}) ${text}`);
+      }
+
+      const json: any = await res.json();
+      if (json.accessToken && json.refreshToken && json.company?.id) {
+        window.localStorage.setItem("accessToken", json.accessToken);
+        window.localStorage.setItem("refreshToken", json.refreshToken);
+        window.localStorage.setItem("companyId", json.company.id);
+      }
+
+      // Navigate to the project overview page
+      window.location.href = `/projects/${projectId}`;
+    } catch (e: any) {
+      console.error("Failed to open project:", e);
+      alert(e?.message ?? "Failed to open project in tenant workspace");
+    } finally {
+      setSwitchingToProject(null);
+    }
+  };
 
   const handleCreateOrg = async () => {
     setNewOrgError(null);
@@ -557,21 +598,27 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
                 .slice()
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .map(p => {
-                  const active = selectedCompanyId && selectedProjectId === p.id;
+                  const isSwitching = switchingToProject === p.id;
                   return (
                     <li key={p.id}>
-                      <Link
-                        href={`/system/${selectedCompanyId}?projectId=${p.id}`}
+                      <button
+                        type="button"
+                        onClick={() => selectedCompanyId && handleOpenProjectInTenant(selectedCompanyId, p.id)}
+                        disabled={isSwitching}
                         style={{
                           display: "block",
+                          width: "calc(100% + 16px)",
                           margin: "0 -8px 4px",
                           padding: "6px 12px",
                           fontSize: 12,
-                          textDecoration: "none",
+                          textAlign: "left",
+                          border: "none",
                           borderBottom: "1px solid #e5e7eb",
-                          color: active ? "#0f172a" : "#111827",
-                          backgroundColor: active ? "#bfdbfe" : "transparent",
+                          color: isSwitching ? "#6b7280" : "#111827",
+                          backgroundColor: isSwitching ? "#f3f4f6" : "transparent",
+                          cursor: isSwitching ? "default" : "pointer",
                         }}
+                        title="Open in tenant project overview"
                       >
                         <div
                           style={{
@@ -580,14 +627,14 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
                             textOverflow: "ellipsis",
                           }}
                         >
-                          {p.name}
+                          {isSwitching ? "Opening…" : p.name}
                         </div>
                         {p.status && (
                           <div style={{ fontSize: 11, color: "#6b7280" }}>
                             {p.status}
                           </div>
                         )}
-                      </Link>
+                      </button>
                     </li>
                   );
                 })}

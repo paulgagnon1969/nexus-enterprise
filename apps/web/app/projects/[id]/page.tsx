@@ -18172,8 +18172,9 @@ ${htmlBody}
                                     Delete $0 Draft
                                   </button>
                                 )}
-                                {/* Unlock button for ISSUED invoices with $0 paid (Admin/Owner only) */}
-                                {inv.status === "ISSUED" &&
+                                {/* Unlock button for issued invoices with $0 paid (Admin/Owner only) */}
+                                {inv.status !== "DRAFT" &&
+                                  inv.status !== "VOID" &&
                                   (inv.paidAmount ?? 0) === 0 &&
                                   project &&
                                   (project.userRole === "OWNER" || project.userRole === "ADMIN") && (
@@ -18466,8 +18467,9 @@ ${htmlBody}
                             </button>
                           )}
 
-                          {/* Unlock button for ISSUED invoices with $0 paid (Admin/Owner only) */}
-                          {activeInvoice.status === "ISSUED" &&
+                          {/* Unlock button for issued invoices with $0 paid (Admin/Owner only) */}
+                          {activeInvoice.status !== "DRAFT" &&
+                            activeInvoice.status !== "VOID" &&
                             (activeInvoice.paidAmount ?? 0) === 0 &&
                             project &&
                             (project.userRole === "OWNER" || project.userRole === "ADMIN") && (
