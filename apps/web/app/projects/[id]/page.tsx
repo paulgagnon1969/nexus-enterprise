@@ -20729,19 +20729,19 @@ ${htmlBody}
                     )}
                   </div>
 
-                  {/* Draft: line item CRUD + issue */}
-                  {activeInvoice.status === "DRAFT" && (
-                    <div style={{ marginTop: 10 }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          gap: 8,
-                          marginBottom: 6,
-                        }}
-                      >
-                        <div style={{ fontWeight: 600 }}>Line items</div>
+                  {/* Line items - shown for all invoices, editing for DRAFT/unlocked only */}
+                  <div style={{ marginTop: 10 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 8,
+                        marginBottom: 6,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600 }}>Line items</div>
+                      {(activeInvoice.status === "DRAFT" || invoiceEditUnlocked) && (
                         <button
                           type="button"
                           onClick={() => setInvoiceCostBookPickerOpen(true)}
@@ -20758,7 +20758,8 @@ ${htmlBody}
                         >
                           Add from Cost Book
                         </button>
-                      </div>
+                      )}
+                    </div>
 
                       <div style={{ maxHeight: invoiceFullscreen ? "45vh" : 240, overflow: "auto" }}>
                         <table
@@ -20874,6 +20875,8 @@ ${htmlBody}
                                           whiteSpace: "nowrap",
                                         }}
                                       >
+                                        {(activeInvoice.status === "DRAFT" || invoiceEditUnlocked) && (
+                                          <>
                                         <button
                                           type="button"
                                           onClick={async () => {
@@ -21024,6 +21027,8 @@ ${htmlBody}
                                         >
                                           Delete
                                         </button>
+                                          </>
+                                        )}
                                       </td>
                                     </tr>,
                                   );
@@ -21036,6 +21041,7 @@ ${htmlBody}
                         </table>
                       </div>
 
+                      {(activeInvoice.status === "DRAFT" || invoiceEditUnlocked) && (
                       <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
                         <select
                           value={newInvoiceLineKind}
@@ -21621,6 +21627,7 @@ ${htmlBody}
                             </>)}
                         </div>
                       </div>
+                      )}
 
                       {/* Attachments list */}
                       {Array.isArray(activeInvoice?.attachments) && activeInvoice.attachments.length > 0 && (
@@ -21649,6 +21656,7 @@ ${htmlBody}
                         </div>
                       )}
 
+                      {activeInvoice.status === "DRAFT" && (
                       <div style={{ marginTop: 12 }}>
                         <div style={{ fontWeight: 600, marginBottom: 6 }}>Issue invoice</div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -21716,6 +21724,7 @@ ${htmlBody}
                           </button>
                         </div>
                       </div>
+                      )}
                     </div>
                   )}
 
