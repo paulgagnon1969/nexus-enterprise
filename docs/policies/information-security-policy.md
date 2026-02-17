@@ -1,3 +1,14 @@
+---
+title: "Information Security Policy"
+module: security
+revision: "1.0"
+tags: [policy, security, authentication, access-control, data-protection, admin]
+status: published
+created: 2026-02-16
+updated: 2026-02-16
+author: NFS Group
+---
+
 # Information Security Policy
 
 **Nexus Contractor Connect (NCC)**

@@ -8791,11 +8791,15 @@ export class ProjectService {
           lineItems: true,
           attachments: { orderBy: { createdAt: "asc" } },
           // Include source daily log to check if it still exists and is still a receipt
+          // Also include location info (building/unit/room) for display in expense tables
           sourceDailyLog: {
             select: {
               id: true,
               type: true,
               title: true,
+              building: { select: { id: true, name: true } },
+              unit: { select: { id: true, label: true } },
+              roomParticle: { select: { id: true, name: true } },
             },
           },
         },

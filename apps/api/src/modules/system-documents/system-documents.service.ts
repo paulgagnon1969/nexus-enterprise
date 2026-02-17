@@ -13,8 +13,10 @@ import {
   UpdateTenantCopyDto,
 } from "./dto/system-document.dto";
 
-// Path to staged SOPs relative to repo root
+// Paths to document sources relative to repo root
 const STAGING_DIR = path.resolve(__dirname, "../../../../../docs/sops-staging");
+const POLICIES_DIR = path.resolve(__dirname, "../../../../../docs/policies");
+const SOURCE_DIRS = [STAGING_DIR, POLICIES_DIR];
 
 @Injectable()
 export class SystemDocumentsService {
@@ -198,13 +200,15 @@ export class SystemDocumentsService {
       this.prisma.manual.count({ where: { ownerCompanyId: { not: null }, archivedAt: null } }),
     ]);
 
-    // Count staged SOPs from docs/sops-staging
+    // Count staged documents from all source directories
     let stagedSops = 0;
-    try {
-      const files = fs.readdirSync(STAGING_DIR);
-      stagedSops = files.filter((f) => f.endsWith(".md")).length;
-    } catch {
-      // Directory may not exist in production
+    for (const dir of SOURCE_DIRS) {
+      try {
+        const files = fs.readdirSync(dir);
+        stagedSops += files.filter((f) => f.endsWith(".md")).length;
+      } catch {
+        // Directory may not exist in production
+      }
     }
 
     return {
