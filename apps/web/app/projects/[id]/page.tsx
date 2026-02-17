@@ -21726,7 +21726,6 @@ ${htmlBody}
                       </div>
                       )}
                     </div>
-                  )}
 
                   {/* Issued: payments shown above Payroll & Workforce */}
                 </div>
