@@ -72,6 +72,26 @@ export class TenantClientController {
   }
 
   /**
+   * POST /clients/from-user
+   * Create a client record from an existing Nexus user.
+   * 
+   * This is used when a tenant admin finds an existing user in the marketplace
+   * and wants to add them as a client. The TenantClient is created and immediately
+   * linked to the User, granting them portal access.
+   */
+  @Post("from-user")
+  async createFromUser(
+    @Req() req: any,
+    @Body() body: { userId: string; email: string },
+  ) {
+    const companyId = req.user?.companyId;
+    if (!companyId) {
+      throw new Error("Company context required");
+    }
+    return this.tenantClientService.createFromExistingUser(companyId, body.userId, body.email);
+  }
+
+  /**
    * PATCH /clients/:id
    * Update an existing client.
    */

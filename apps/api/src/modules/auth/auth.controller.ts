@@ -79,6 +79,22 @@ export class AuthController {
     return this.auth.resetPasswordWithToken(token, password);
   }
 
+  // --- Client Portal Registration ---
+
+  // Public: validate a client invite token and return metadata for the registration form.
+  @Get("client-register")
+  getClientInvite(@Query("token") token: string) {
+    return this.auth.getClientInviteInfo(token);
+  }
+
+  // Public: complete client registration (set password) using invite token.
+  @Post("client-register")
+  completeClientRegistration(
+    @Body() body: { token: string; password: string },
+  ) {
+    return this.auth.completeClientRegistration(body.token, body.password);
+  }
+
   @Post("refresh")
   refresh(@Body("refreshToken") refreshToken: string) {
     return this.auth.refresh(refreshToken);

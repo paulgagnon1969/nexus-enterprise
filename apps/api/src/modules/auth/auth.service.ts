@@ -979,6 +979,98 @@ export class AuthService {
     return { ok: true };
   }
 
+  // --- Client Portal Registration ---
+
+  /**
+   * Get client invite info from token for the registration form.
+   * Returns email, name, and company name so the form can be pre-filled.
+   */
+  async getClientInviteInfo(token: string) {
+    if (!token) {
+      throw new BadRequestException("Invite token is required");
+    }
+
+    const redisClient = this.redis.getClient();
+    const raw = await redisClient.get(`clientinvite:${token}`);
+    if (!raw) {
+      throw new BadRequestException("Invite token is invalid or expired");
+    }
+
+    let payload: {
+      userId: string;
+      email: string;
+      firstName: string;
+      lastName: string;
+      companyName: string;
+    };
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      throw new BadRequestException("Invite token is invalid");
+    }
+
+    return {
+      email: payload.email,
+      firstName: payload.firstName,
+      lastName: payload.lastName,
+      companyName: payload.companyName,
+    };
+  }
+
+  /**
+   * Complete client registration by setting their password.
+   * Validates the token, sets the password, and returns login credentials.
+   */
+  async completeClientRegistration(token: string, password: string) {
+    if (!token) {
+      throw new BadRequestException("Invite token is required");
+    }
+    if (!password || password.length < 8) {
+      throw new BadRequestException("Password must be at least 8 characters");
+    }
+
+    const redisClient = this.redis.getClient();
+    const raw = await redisClient.get(`clientinvite:${token}`);
+    if (!raw) {
+      throw new BadRequestException("Invite token is invalid or expired");
+    }
+
+    let payload: {
+      userId: string;
+      email: string;
+      firstName: string;
+      lastName: string;
+      companyName: string;
+    };
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      throw new BadRequestException("Invite token is invalid");
+    }
+
+    const passwordHash = await argon2.hash(password);
+
+    // Update user with password and name if not already set
+    const user = await this.prisma.user.update({
+      where: { id: payload.userId },
+      data: {
+        passwordHash,
+        firstName: payload.firstName || undefined,
+        lastName: payload.lastName || undefined,
+      },
+    });
+
+    // Delete the token
+    await redisClient.del(`clientinvite:${token}`);
+
+    // Return success - client will be redirected to login
+    return {
+      ok: true,
+      email: user.email,
+      message: "Account activated! You can now sign in.",
+    };
+  }
+
   async createOrgInvite(actor: AuthenticatedUser, emailRaw: string, expiresInDays?: number) {
     const email = this.normalizeEmail(emailRaw || "");
     if (!email) {
