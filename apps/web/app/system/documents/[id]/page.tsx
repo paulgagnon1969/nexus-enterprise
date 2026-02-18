@@ -1,9 +1,36 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { TenantPublishModal } from "../components/TenantPublishModal";
+
+// Mermaid rendering hook - renders .mermaid divs after content loads
+function useMermaidRender(htmlContent: string | undefined, containerRef: React.RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    if (!htmlContent || !containerRef.current) return;
+    
+    // Check if there are any mermaid blocks to render
+    const mermaidBlocks = containerRef.current.querySelectorAll('.mermaid');
+    if (mermaidBlocks.length === 0) return;
+    
+    // Dynamically import mermaid only when needed
+    import('mermaid').then((mermaidModule) => {
+      const mermaid = mermaidModule.default;
+      mermaid.initialize({ 
+        startOnLoad: false,
+        theme: 'default',
+        securityLevel: 'strict', // Prevents XSS
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+      });
+      
+      // Run mermaid on all .mermaid elements in the container
+      mermaid.run({ nodes: Array.from(mermaidBlocks) as HTMLElement[] });
+    }).catch((err) => {
+      console.error('Failed to load Mermaid:', err);
+    });
+  }, [htmlContent, containerRef]);
+}
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -74,6 +101,12 @@ export default function SystemDocumentDetailPage() {
 
   // Reader mode (full-width document view)
   const [readerMode, setReaderMode] = useState(false);
+
+  // Ref for document content container (for Mermaid rendering)
+  const contentRef = useRef<HTMLDivElement>(null);
+  
+  // Render Mermaid diagrams when content loads
+  useMermaidRender(document?.currentVersion?.htmlContent, contentRef);
 
   useEffect(() => {
     if (id) {
@@ -536,6 +569,7 @@ export default function SystemDocumentDetailPage() {
             )}
             {!readerMode && <h3 style={{ margin: "0 0 12px", fontSize: 14, color: "#6b7280" }}>Content Preview</h3>}
             <div
+              ref={contentRef}
               style={{ 
                 fontSize: readerMode ? 16 : 14, 
                 lineHeight: 1.8,
@@ -902,6 +936,11 @@ function PrintView({
   document: SystemDocument;
   onClose: () => void;
 }) {
+  const printContentRef = useRef<HTMLDivElement>(null);
+  
+  // Render Mermaid diagrams in print view
+  useMermaidRender(document?.currentVersion?.htmlContent, printContentRef);
+  
   const handlePrint = () => {
     window.print();
   };
@@ -1183,6 +1222,7 @@ function PrintView({
 
             {/* Document Body */}
             <div
+              ref={printContentRef}
               className="print-document-content"
               style={{
                 fontSize: 14,
