@@ -72,6 +72,9 @@ export default function SystemDocumentDetailPage() {
   // Print modal
   const [showPrintView, setShowPrintView] = useState(false);
 
+  // Reader mode (full-width document view)
+  const [readerMode, setReaderMode] = useState(false);
+
   useEffect(() => {
     if (id) {
       loadDocument();
@@ -231,6 +234,24 @@ export default function SystemDocumentDetailPage() {
         <div style={{ display: "flex", gap: 8 }}>
           {!editing && (
             <>
+              <button
+                onClick={() => setReaderMode(!readerMode)}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 4,
+                  border: readerMode ? "1px solid #2563eb" : "1px solid #d1d5db",
+                  background: readerMode ? "#eff6ff" : "white",
+                  color: readerMode ? "#2563eb" : "inherit",
+                  fontSize: 13,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+                title={readerMode ? "Exit reader mode" : "Full-width reader mode"}
+              >
+                📖 {readerMode ? "Exit Reader" : "Reader Mode"}
+              </button>
               <button
                 onClick={() => setShowPrintView(true)}
                 style={{
@@ -466,10 +487,62 @@ export default function SystemDocumentDetailPage() {
       ) : (
         <>
           {/* Content Preview */}
-          <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: 8, padding: 16, marginBottom: 24 }}>
-            <h3 style={{ margin: "0 0 12px", fontSize: 14, color: "#6b7280" }}>Content Preview</h3>
+          <div 
+            style={{ 
+              background: "white", 
+              border: "1px solid #e5e7eb", 
+              borderRadius: 8, 
+              padding: readerMode ? "32px 48px" : 16, 
+              marginBottom: 24,
+              ...(readerMode ? {
+                position: "fixed",
+                inset: 0,
+                zIndex: 100,
+                overflow: "auto",
+                borderRadius: 0,
+              } : {})
+            }}
+          >
+            {readerMode && (
+              <div style={{ 
+                display: "flex", 
+                justifyContent: "space-between", 
+                alignItems: "center",
+                marginBottom: 24,
+                paddingBottom: 16,
+                borderBottom: "1px solid #e5e7eb",
+              }}>
+                <div>
+                  <h1 style={{ margin: 0, fontSize: 24 }}>{document.code}: {document.title}</h1>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+                    Version {document.currentVersion?.versionNo || 0}
+                    {document.category && ` · ${document.category}`}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setReaderMode(false)}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: "white",
+                    fontSize: 13,
+                    cursor: "pointer",
+                  }}
+                >
+                  ✕ Close Reader Mode
+                </button>
+              </div>
+            )}
+            {!readerMode && <h3 style={{ margin: "0 0 12px", fontSize: 14, color: "#6b7280" }}>Content Preview</h3>}
             <div
-              style={{ fontSize: 14, lineHeight: 1.6 }}
+              style={{ 
+                fontSize: readerMode ? 16 : 14, 
+                lineHeight: 1.8,
+                maxWidth: readerMode ? 900 : "none",
+                margin: readerMode ? "0 auto" : 0,
+              }}
+              className="document-content"
               dangerouslySetInnerHTML={{ __html: document.currentVersion?.htmlContent || "<em>No content</em>" }}
             />
           </div>
@@ -850,6 +923,7 @@ function PrintView({
             top: 0;
             width: 100%;
             padding: 0;
+            margin: 0;
           }
           .no-print {
             display: none !important;
@@ -864,6 +938,32 @@ function PrintView({
             font-weight: bold;
             pointer-events: none;
             z-index: -1;
+          }
+          /* Prevent images from being cut across pages */
+          img {
+            page-break-inside: avoid;
+            break-inside: avoid;
+            max-width: 100% !important;
+            height: auto !important;
+          }
+          /* Prevent tables from being cut */
+          table, tr, td, th {
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          /* Prevent headings from being orphaned */
+          h1, h2, h3, h4, h5, h6 {
+            page-break-after: avoid;
+            break-after: avoid;
+          }
+          /* Keep paragraphs together when possible */
+          p {
+            orphans: 3;
+            widows: 3;
+          }
+          /* Ensure content doesn't overflow */
+          .print-container div {
+            overflow: visible !important;
           }
         }
         @media screen {
@@ -893,7 +993,7 @@ function PrintView({
             background: "white",
             borderRadius: 8,
             width: "100%",
-            maxWidth: 800,
+            maxWidth: 900,
             minHeight: "100%",
           }}
           onClick={(e) => e.stopPropagation()}
