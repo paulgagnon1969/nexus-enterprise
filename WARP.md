@@ -196,6 +196,59 @@ npm -w packages/database exec -- npx prisma db push
 - Create a proper migration instead
 - Or ask the user how they want to handle it
 
+## Diagrams in NCC eDocs
+
+As of Feb 18, 2026, NCC eDocs supports **Mermaid diagrams** natively. Documents containing `<div class="mermaid">` blocks will automatically render as flowcharts, architecture diagrams, etc.
+
+### How to Add Diagrams
+
+Use Mermaid syntax inside a `<div class="mermaid">` block:
+
+```html
+<div class="mermaid">
+graph TD
+    A[NCC Core] --> B[Estimating]
+    B --> C[Scheduling & Gantt]
+    C --> D[Daily Logs]
+    D --> E[Time & Payroll]
+    E --> F[Invoicing]
+
+    subgraph Collaborator Technology
+        G[Owner] -.->|scoped access| B
+        G -.->|scoped access| C
+    end
+
+    style G fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+</div>
+```
+
+### Tips
+
+- **Test syntax first** at https://mermaid.live/ before pasting into documents
+- **Use subgraphs** for grouping modules or logical sections
+- **Dashed lines** (`-.->`) work well for cross-cutting concerns (e.g., Collaborator Technology)
+- **Styling** with `style NodeName fill:#color,stroke:#color` for emphasis
+- **Error handling**: If syntax is invalid, the viewer shows an error message with the problematic code
+
+### Security
+
+- Only Mermaid code is processed — no `<script>` or arbitrary JavaScript allowed
+- All HTML is sanitized with DOMPurify before rendering
+- Mermaid runs with `securityLevel: 'strict'` (no external resources, no eval)
+
+### Supported Views
+
+Mermaid diagrams render in:
+- Normal document view
+- Reader Mode (full-screen)
+- Print / PDF export
+
+### Future Extensions
+
+The same pattern can be extended for:
+- **KaTeX** — math equations (`<div class="katex">` or `$$ ... $$`)
+- **Syntax highlighting** — code blocks with Prism.js
+
 ## How future agents should work here
 
 - Prefer running tasks via root `npm` scripts when touching multiple apps; drop into app/package directories only when you need fine-grained control.
