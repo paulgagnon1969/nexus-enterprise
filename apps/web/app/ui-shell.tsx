@@ -1173,6 +1173,26 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
             </button>
           )}
 
+          {canManageCompany && (
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = "/settings/clients";
+              }}
+              style={{
+                width: "100%",
+                padding: "6px 8px",
+                fontSize: 13,
+                textAlign: "left",
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+              }}
+            >
+              Client Portal
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => {

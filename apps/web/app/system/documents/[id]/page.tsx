@@ -64,7 +64,23 @@ function useMermaidRender(htmlContent: string | undefined, containerRef: React.R
       
       // Render each mermaid block individually for better error handling
       for (const block of Array.from(mermaidBlocks)) {
-        const code = block.textContent?.trim();
+        // Get the raw HTML and convert to Mermaid-compatible code
+        let code = block.innerHTML;
+        
+        // Convert <br> tags to Mermaid's line break syntax within node labels
+        // Mermaid uses <br/> as literal text for line breaks in labels
+        code = code
+          .replace(/<br\s*\/?>/gi, '<br/>')  // Normalize all br tags
+          .replace(/&lt;/g, '<')              // Decode HTML entities
+          .replace(/&gt;/g, '>')
+          .replace(/&amp;/g, '&')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'");
+        
+        // Remove any HTML tags EXCEPT <br/> which Mermaid uses for line breaks
+        // This regex keeps <br/> but removes other tags
+        code = code.replace(/<(?!\/?(br)\s*\/?>)[^>]+>/gi, '').trim();
+        
         if (!code) continue;
         
         try {

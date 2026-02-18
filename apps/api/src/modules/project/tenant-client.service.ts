@@ -278,6 +278,117 @@ export class TenantClientService {
   }
 
   /**
+   * Create a TenantClient from an existing Nexus User.
+   * 
+   * Used when a tenant admin finds an existing user via marketplace search
+   * and wants to add them as a client. The TenantClient is created and
+   * immediately linked to the User, giving them instant portal access.
+   * 
+   * Pulls as much user data as possible (name, phone, etc.) from the User
+   * record and associated onboarding profiles.
+   */
+  async createFromExistingUser(companyId: string, userId: string, email: string) {
+    // 1. Verify the user exists and fetch all available profile data
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        // Get onboarding profile data if available (for phone, additional name data)
+        onboardingSessions: {
+          select: {
+            profile: {
+              select: {
+                firstName: true,
+                lastName: true,
+                phone: true,
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" as const },
+          take: 1,
+        },
+        // Get NexNet candidate data if available
+        nexNetCandidate: {
+          select: {
+            firstName: true,
+            lastName: true,
+            phone: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException("User not found");
+    }
+
+    // Verify email matches (security check)
+    if (user.email.toLowerCase() !== email.toLowerCase()) {
+      throw new BadRequestException("Email mismatch");
+    }
+
+    // 2. Check if this user is already a client for this company
+    const existingClient = await this.prisma.tenantClient.findFirst({
+      where: {
+        companyId,
+        userId: user.id,
+      },
+    });
+
+    if (existingClient) {
+      return {
+        id: existingClient.id,
+        firstName: existingClient.firstName,
+        lastName: existingClient.lastName,
+        displayName: existingClient.displayName || `${existingClient.firstName} ${existingClient.lastName}`,
+        email: existingClient.email,
+        phone: existingClient.phone,
+        alreadyExisted: true,
+        hasPortalAccess: true,
+      };
+    }
+
+    // 3. Gather best available data from all sources
+    const onboardingProfile = user.onboardingSessions?.[0]?.profile;
+    const candidate = user.nexNetCandidate;
+
+    // Priority: User fields > Onboarding profile > NexNet candidate
+    // Note: User model doesn't have phone; we get it from profile sources
+    const firstName = user.firstName || onboardingProfile?.firstName || candidate?.firstName || "";
+    const lastName = user.lastName || onboardingProfile?.lastName || candidate?.lastName || "";
+    const phone = onboardingProfile?.phone || candidate?.phone || null;
+
+    // 4. Create new TenantClient linked to user with all available data
+    const client = await this.prisma.tenantClient.create({
+      data: {
+        companyId,
+        userId: user.id,
+        firstName,
+        lastName,
+        displayName: firstName && lastName ? `${firstName} ${lastName}` : null,
+        email: user.email,
+        phone,
+      },
+    });
+
+    this.logger.log(`Created TenantClient ${client.id} from existing user ${user.id} for company ${companyId}`);
+
+    return {
+      id: client.id,
+      firstName: client.firstName,
+      lastName: client.lastName,
+      displayName: client.displayName || `${client.firstName} ${client.lastName}`.trim() || client.email,
+      email: client.email,
+      phone: client.phone,
+      alreadyExisted: false,
+      hasPortalAccess: true,
+    };
+  }
+
+  /**
    * List all clients for a company.
    */
   async list(companyId: string, includeInactive = false) {
@@ -430,15 +541,22 @@ export class TenantClientService {
       });
       const companyName = company?.name || "Your contractor";
 
-      // For new users, store password reset token and generate URL
+      // For new users, store client invite token with extra metadata and generate URL
       if (isNewUser && passwordResetToken) {
         const redisClient = this.redis.getClient();
         await redisClient.setex(
-          `pwdreset:${passwordResetToken}`,
+          `clientinvite:${passwordResetToken}`,
           PASSWORD_RESET_TTL_SECONDS,
-          JSON.stringify({ userId: user.id }),
+          JSON.stringify({
+            userId: user.id,
+            email: user.email,
+            firstName: client.firstName,
+            lastName: client.lastName,
+            companyName,
+          }),
         );
-        passwordResetUrl = `${webBase.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(passwordResetToken)}`;
+        // Use simplified client registration page instead of generic password reset
+        passwordResetUrl = `${webBase.replace(/\/$/, "")}/register/client?token=${encodeURIComponent(passwordResetToken)}`;
       }
 
       // Get project details for the email
