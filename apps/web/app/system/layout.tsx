@@ -183,7 +183,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
         style={{
           display: "flex",
           alignItems: "stretch",
-          gap: 16,
+          gap: hideSidebar ? 0 : 16,
           minHeight: "calc(100vh - 79px)",
         }}
       >
@@ -452,8 +452,8 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
 
       {/* Right pane */}
       <div style={{ flex: 1, minWidth: 0, position: "relative", width: hideSidebar ? "100%" : undefined }}>
-        {/* Superuser banner inside System frame (SUPER_ADMIN only) */}
-        {isSuperAdmin && (
+        {/* Superuser banner inside System frame (SUPER_ADMIN only) - hidden on document detail pages */}
+        {isSuperAdmin && !hideSidebar && (
           <div
             style={{
               marginBottom: 8,
@@ -621,7 +621,8 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
         )}
 
-        {/* Tenant workspace menu under the Superuser frame */}
+        {/* Tenant workspace menu under the Superuser frame - hidden on document detail pages */}
+        {!hideSidebar && (
         <div
           style={{
             marginBottom: 12,
@@ -735,6 +736,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
             Prospective People
           </Link>
         </div>
+        )}
 
         {children}
 
