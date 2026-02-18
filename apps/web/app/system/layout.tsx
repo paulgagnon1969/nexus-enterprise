@@ -122,6 +122,12 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
   const isActiveCompany = (id: string) => pathname?.startsWith(`/system/${id}`);
   const isOverview = pathname === "/system";
 
+  // Check if we're on a document detail page (should hide sidebar for full-width view)
+  const isDocumentDetailPage = pathname?.match(/^\/system\/documents\/[^/]+$/) && 
+    !pathname?.endsWith("/library") && 
+    pathname !== "/system/documents";
+  const hideSidebar = isDocumentDetailPage;
+
   const path = pathname ?? "";
   const selectedCompanyId = path.startsWith("/system/")
     ? path.split("/")[2] ?? null
@@ -181,7 +187,8 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
           minHeight: "calc(100vh - 79px)",
         }}
       >
-      {/* Left sidebar: organizations list */}
+      {/* Left sidebar: organizations list (hidden on document detail pages) */}
+      {!hideSidebar && (
       <aside
         style={{
           width: 260,
@@ -441,9 +448,10 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
         )}
       </aside>
+      )}
 
       {/* Right pane */}
-      <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+      <div style={{ flex: 1, minWidth: 0, position: "relative", width: hideSidebar ? "100%" : undefined }}>
         {/* Superuser banner inside System frame (SUPER_ADMIN only) */}
         {isSuperAdmin && (
           <div
