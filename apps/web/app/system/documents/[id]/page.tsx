@@ -910,20 +910,48 @@ function PrintView({
     <>
       {/* Print-specific styles */}
       <style jsx global>{`
+        @page {
+          size: letter;
+          margin: 0.75in;
+        }
         @media print {
-          body * {
-            visibility: hidden;
+          /* Hide everything except print container */
+          html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background: white !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
-          .print-container, .print-container * {
-            visibility: visible;
+          body > *:not(.print-overlay) {
+            display: none !important;
+          }
+          .print-overlay {
+            display: block !important;
+            position: static !important;
+            background: transparent !important;
+            padding: 0 !important;
+            overflow: visible !important;
+          }
+          .print-overlay > div {
+            background: transparent !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            max-width: none !important;
+            width: 100% !important;
           }
           .print-container {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            padding: 0;
-            margin: 0;
+            position: static !important;
+            width: 100% !important;
+            max-width: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+            border-radius: 0 !important;
+            background: white !important;
           }
           .no-print {
             display: none !important;
@@ -933,37 +961,62 @@ function PrintView({
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%) rotate(-45deg);
-            font-size: 120px;
+            font-size: 100px;
             color: rgba(0, 0, 0, 0.03);
             font-weight: bold;
             pointer-events: none;
-            z-index: -1;
+            z-index: 9999;
+          }
+          /* Document content styling */
+          .print-document-content {
+            padding: 0 !important;
           }
           /* Prevent images from being cut across pages */
-          img {
-            page-break-inside: avoid;
-            break-inside: avoid;
+          .print-document-content img {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
             max-width: 100% !important;
             height: auto !important;
+            display: block;
+            margin: 16px auto;
           }
           /* Prevent tables from being cut */
-          table, tr, td, th {
-            page-break-inside: avoid;
-            break-inside: avoid;
+          .print-document-content table {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            width: 100% !important;
+          }
+          .print-document-content tr, 
+          .print-document-content td, 
+          .print-document-content th {
+            page-break-inside: avoid !important;
           }
           /* Prevent headings from being orphaned */
-          h1, h2, h3, h4, h5, h6 {
-            page-break-after: avoid;
-            break-after: avoid;
+          .print-document-content h1,
+          .print-document-content h2,
+          .print-document-content h3,
+          .print-document-content h4,
+          .print-document-content h5,
+          .print-document-content h6 {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+            page-break-inside: avoid !important;
           }
           /* Keep paragraphs together when possible */
-          p {
+          .print-document-content p {
             orphans: 3;
             widows: 3;
           }
-          /* Ensure content doesn't overflow */
-          .print-container div {
-            overflow: visible !important;
+          /* Callouts and divs should not break */
+          .print-document-content .callout,
+          .print-document-content > div {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+          /* Links should be visible */
+          .print-document-content a {
+            color: #2563eb !important;
+            text-decoration: underline !important;
           }
         }
         @media screen {
@@ -974,6 +1027,7 @@ function PrintView({
       `}</style>
 
       <div
+        className="print-overlay"
         style={{
           position: "fixed",
           inset: 0,
@@ -1126,6 +1180,7 @@ function PrintView({
 
             {/* Document Body */}
             <div
+              className="print-document-content"
               style={{
                 fontSize: 14,
                 lineHeight: 1.8,
