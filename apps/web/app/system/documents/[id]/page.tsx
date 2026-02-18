@@ -1037,19 +1037,29 @@ function PrintView({
             print-color-adjust: exact !important;
           }
           /* Hide everything by default */
-          body * {
-            visibility: hidden !important;
+          body > *:not(.print-overlay),
+          body > *:not(.print-overlay) * {
+            display: none !important;
           }
-          /* Show only the print container and its contents */
-          .print-container,
-          .print-container * {
+          /* Show the print overlay and all its contents */
+          .print-overlay,
+          .print-overlay * {
+            display: block !important;
             visibility: visible !important;
           }
-          /* Position print container for proper flow */
+          /* Print overlay should be static and flow naturally */
+          .print-overlay {
+            position: static !important;
+            background: transparent !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            overflow: visible !important;
+            height: auto !important;
+            width: 100% !important;
+          }
+          /* Print container flows naturally for multi-page */
           .print-container {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+            position: static !important;
             width: 100% !important;
             max-width: none !important;
             padding: 0 !important;
@@ -1059,14 +1069,8 @@ function PrintView({
             border-radius: 0 !important;
             background: white !important;
             overflow: visible !important;
-          }
-          /* Hide the overlay background */
-          .print-overlay {
-            background: transparent !important;
-            padding: 0 !important;
-            position: static !important;
-            overflow: visible !important;
-            display: block !important;
+            height: auto !important;
+            min-height: auto !important;
           }
           /* Hide no-print elements */
           .no-print,
