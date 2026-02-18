@@ -372,6 +372,102 @@ export class EmailService {
 
     return this.sendMail({ to: params.toEmail, subject, html, text });
   }
+
+  /**
+   * Send client portal invite/welcome email
+   */
+  async sendClientPortalInvite(params: {
+    toEmail: string;
+    clientName: string;
+    companyName: string;
+    projects: Array<{ name: string; address?: string }>;
+    portalUrl: string;
+    isNewUser: boolean;
+    passwordResetUrl?: string;
+  }) {
+    const subject = `You've been invited to view your projects on ${params.companyName}'s portal`;
+
+    const projectListHtml = params.projects
+      .slice(0, 5) // Show max 5 projects
+      .map(
+        (p) =>
+          `<li style="margin-bottom: 6px;">
+            <strong>${escapeHtml(p.name)}</strong>
+            ${p.address ? `<br /><span style="color: #6b7280; font-size: 12px;">${escapeHtml(p.address)}</span>` : ""}
+          </li>`,
+      )
+      .join("");
+
+    const moreProjectsNote =
+      params.projects.length > 5
+        ? `<p style="margin: 8px 0 0; color: #6b7280; font-size: 12px;">...and ${params.projects.length - 5} more project(s)</p>`
+        : "";
+
+    const loginInstructions = params.isNewUser
+      ? `
+        <p style="margin: 0 0 12px;">To get started, click below to set your password and access the portal:</p>
+        <p style="margin: 0 0 24px; text-align: center;">
+          <a href="${params.passwordResetUrl || params.portalUrl}" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); color: #fff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
+            Set Password & Access Portal
+          </a>
+        </p>
+      `
+      : `
+        <p style="margin: 0 0 12px;">You can access the portal using your existing NEXUS account:</p>
+        <p style="margin: 0 0 24px; text-align: center;">
+          <a href="${params.portalUrl}" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); color: #fff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
+            Go to Client Portal
+          </a>
+        </p>
+      `;
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); color: #fff; padding: 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 20px;">Welcome to Your Client Portal</h1>
+          <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">from ${escapeHtml(params.companyName)}</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Hello ${escapeHtml(params.clientName)},</p>
+          <p style="margin: 0 0 16px;">
+            ${escapeHtml(params.companyName)} has granted you access to view your project${params.projects.length > 1 ? "s" : ""} through their client portal.
+          </p>
+          
+          <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+            <h2 style="margin: 0 0 12px; font-size: 15px; color: #374151;">Your Project${params.projects.length > 1 ? "s" : ""}</h2>
+            <ul style="margin: 0; padding-left: 20px;">
+              ${projectListHtml}
+            </ul>
+            ${moreProjectsNote}
+          </div>
+
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+            <h3 style="margin: 0 0 8px; font-size: 14px; color: #1e40af;">What you can do in the portal:</h3>
+            <ul style="margin: 0; padding-left: 20px; color: #374151; font-size: 13px;">
+              <li style="margin-bottom: 4px;">View project status and progress</li>
+              <li style="margin-bottom: 4px;">Access shared files and photos</li>
+              <li style="margin-bottom: 4px;">Review project schedules</li>
+              <li>Communicate with the ${escapeHtml(params.companyName)} team</li>
+            </ul>
+          </div>
+
+          ${loginInstructions}
+
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">This invitation was sent by NEXUS on behalf of ${escapeHtml(params.companyName)}. If you weren't expecting this email, please contact ${escapeHtml(params.companyName)} directly.</p>
+        </div>
+      </div>
+    `.trim();
+
+    const projectListText = params.projects
+      .slice(0, 5)
+      .map((p) => `  - ${p.name}${p.address ? ` (${p.address})` : ""}`)
+      .join("\n");
+
+    const text = `Welcome to Your Client Portal\n\nHello ${params.clientName},\n\n${params.companyName} has granted you access to view your project(s):\n\n${projectListText}${params.projects.length > 5 ? `\n  ...and ${params.projects.length - 5} more` : ""}\n\nAccess the portal: ${params.passwordResetUrl || params.portalUrl}\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
 }
 
 function escapeHtml(input: string) {

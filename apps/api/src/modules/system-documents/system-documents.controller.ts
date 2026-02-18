@@ -22,6 +22,7 @@ import {
   CopyToOrgDto,
   UpdateTenantCopyDto,
   RollbackTenantCopyDto,
+  ImportWithManualDto,
 } from "./dto/system-document.dto";
 
 function getUser(req: FastifyRequest): AuthenticatedUser {
@@ -131,6 +132,20 @@ export class SystemDocumentsController {
     const user = getUser(req);
     assertSuperAdmin(user);
     return this.service.getPublications(id);
+  }
+
+  // =========================================================================
+  // Unified Import (Document + Manual Placement)
+  // =========================================================================
+
+  @Post("import-with-manual")
+  async importWithManual(
+    @Req() req: FastifyRequest,
+    @Body() dto: ImportWithManualDto,
+  ) {
+    const user = getUser(req);
+    assertSuperAdmin(user);
+    return this.service.importWithManual(user.userId, dto);
   }
 }
 

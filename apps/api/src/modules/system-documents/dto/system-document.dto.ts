@@ -115,3 +115,43 @@ export class RollbackTenantCopyDto {
   @IsNumber()
   versionNo?: number;
 }
+
+export class ImportWithManualDto {
+  // Document fields
+  @IsString()
+  code!: string;
+
+  @IsString()
+  title!: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  @IsString()
+  htmlContent!: string;
+
+  // Manual placement fields
+  @IsString()
+  manualCode!: string;
+
+  @IsOptional()
+  @IsString()
+  manualTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  manualIcon?: string;
+
+  @IsOptional()
+  @IsNumber()
+  chapterNumber?: number;
+
+  @IsOptional()
+  @IsString()
+  chapterTitle?: string;
+}

@@ -201,6 +201,54 @@ export class ProjectService {
     return url;
   }
 
+  /**
+   * Auto-sync client portal membership when a project is linked to a TenantClient.
+   * 
+   * If the TenantClient has a linked User (portal access enabled), this method
+   * ensures the user has a ProjectMembership with EXTERNAL_CONTACT scope.
+   * 
+   * This is called automatically when:
+   * - A new project is created with a tenantClientId
+   * - An existing project is updated to link to a TenantClient
+   */
+  private async syncClientMembershipForProject(
+    projectId: string,
+    companyId: string,
+    tenantClientId: string | null | undefined,
+  ): Promise<void> {
+    if (!tenantClientId) return;
+
+    const tenantClient = await this.prisma.tenantClient.findUnique({
+      where: { id: tenantClientId },
+      select: { userId: true },
+    });
+
+    if (!tenantClient?.userId) return;
+
+    // Create or update membership for the client user
+    await this.prisma.projectMembership.upsert({
+      where: {
+        userId_projectId: {
+          userId: tenantClient.userId,
+          projectId,
+        },
+      },
+      create: {
+        userId: tenantClient.userId,
+        projectId,
+        companyId,
+        role: ProjectRole.VIEWER,
+        scope: ProjectParticipantScope.EXTERNAL_CONTACT,
+        visibility: ProjectVisibilityLevel.LIMITED,
+      },
+      update: {}, // no-op if already exists
+    });
+
+    this.logger.log(
+      `Auto-synced client membership: project=${projectId}, client=${tenantClientId}, user=${tenantClient.userId}`
+    );
+  }
+
   async createProject(dto: CreateProjectDto, actor: AuthenticatedUser) {
     const { userId, companyId } = actor;
 
@@ -267,6 +315,9 @@ export class ProjectService {
         role: ProjectRole.OWNER
       }
     });
+
+    // Auto-sync client portal membership if project is linked to a TenantClient
+    await this.syncClientMembershipForProject(project.id, companyId, dto.tenantClientId);
 
     await this.audit.log(actor, "PROJECT_CREATED", {
       companyId,
@@ -349,6 +400,11 @@ export class ProjectService {
       }
     });
 
+    // Auto-sync client portal membership if tenantClientId was changed
+    if (dto.tenantClientId !== undefined && dto.tenantClientId !== project.tenantClientId) {
+      await this.syncClientMembershipForProject(projectId, companyId, dto.tenantClientId);
+    }
+
     await this.audit.log(actor, "PROJECT_UPDATED", {
       companyId,
       projectId: updated.id,
@@ -359,6 +415,193 @@ export class ProjectService {
     });
 
     return updated;
+  }
+
+  /**
+   * List projects for a client portal user.
+   * 
+   * Returns all projects where the user has a ProjectMembership,
+   * grouped by company (since a client can have projects across multiple companies).
+   * 
+   * Data is filtered based on each membership's visibility level.
+   */
+  async listProjectsForClientPortal(userId: string) {
+    const memberships = await this.prisma.projectMembership.findMany({
+      where: {
+        userId,
+        scope: ProjectParticipantScope.EXTERNAL_CONTACT,
+      },
+      include: {
+        project: {
+          include: {
+            company: { select: { id: true, name: true } },
+            tenantClient: {
+              where: { userId },
+              select: { id: true, displayName: true, firstName: true, lastName: true },
+            },
+          },
+        },
+      },
+      orderBy: { project: { updatedAt: "desc" } },
+    });
+
+    // Group by company
+    const byCompany = new Map<string, {
+      company: { id: string; name: string };
+      projects: Array<{
+        id: string;
+        name: string;
+        status: string;
+        addressLine1: string;
+        city: string;
+        state: string;
+        visibility: ProjectVisibilityLevel;
+        updatedAt: Date;
+      }>;
+    }>();
+
+    for (const m of memberships) {
+      const companyId = m.project.companyId;
+      const companyData = m.project.company;
+
+      if (!byCompany.has(companyId)) {
+        byCompany.set(companyId, {
+          company: companyData,
+          projects: [],
+        });
+      }
+
+      byCompany.get(companyId)!.projects.push({
+        id: m.project.id,
+        name: m.project.name,
+        status: m.project.status,
+        addressLine1: m.project.addressLine1,
+        city: m.project.city,
+        state: m.project.state,
+        visibility: m.visibility,
+        updatedAt: m.project.updatedAt,
+      });
+    }
+
+    return Array.from(byCompany.values());
+  }
+
+  /**
+   * Get project details for a client portal user.
+   * 
+   * Returns project data filtered based on the user's visibility level:
+   * - FULL: All project data (same as internal users)
+   * - LIMITED: Basic info, messages, files, schedule; excludes financials/PETL details
+   * - READ_ONLY: Same as LIMITED but emphasizes no edit capability
+   */
+  async getProjectForClientPortal(projectId: string, userId: string) {
+    const membership = await this.prisma.projectMembership.findUnique({
+      where: {
+        userId_projectId: { userId, projectId },
+      },
+    });
+
+    if (!membership) {
+      throw new ForbiddenException("You do not have access to this project");
+    }
+
+    const visibility = membership.visibility;
+
+    // Fetch project with all potential includes, then filter based on visibility
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        company: { select: { id: true, name: true } },
+        tenantClient: {
+          select: { id: true, displayName: true, firstName: true, lastName: true, email: true, phone: true },
+        },
+        scheduleTasks: {
+          orderBy: { startDate: "asc" },
+          select: {
+            id: true,
+            trade: true,
+            phaseLabel: true,
+            room: true,
+            startDate: true,
+            endDate: true,
+            durationDays: true,
+          },
+        },
+      },
+    });
+
+    if (!project) {
+      throw new NotFoundException("Project not found");
+    }
+
+    // Fetch message threads separately if visibility allows
+    let messageThreads: any[] = [];
+    if (visibility !== ProjectVisibilityLevel.READ_ONLY) {
+      messageThreads = await this.prisma.messageThread.findMany({
+        where: {
+          projectId,
+          type: MessageThreadType.CUSTOMER,
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 10,
+        include: {
+          messages: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { id: true, body: true, createdAt: true },
+          },
+        },
+      });
+    }
+
+    // Build response
+    const tenantClient = project.tenantClient;
+    const response: any = {
+      id: project.id,
+      name: project.name,
+      status: project.status,
+      addressLine1: project.addressLine1,
+      addressLine2: project.addressLine2,
+      city: project.city,
+      state: project.state,
+      postalCode: project.postalCode,
+      company: project.company,
+      visibility,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+      // Client contact info (their own info)
+      clientContact: tenantClient ? {
+        name: tenantClient.displayName || `${tenantClient.firstName} ${tenantClient.lastName}`,
+        email: tenantClient.email,
+        phone: tenantClient.phone,
+      } : null,
+      // Schedule is always visible - map to friendly format
+      schedule: project.scheduleTasks.map((t) => ({
+        id: t.id,
+        name: t.room ? `${t.room} - ${t.phaseLabel}` : t.phaseLabel,
+        trade: t.trade,
+        startDate: t.startDate,
+        endDate: t.endDate,
+        durationDays: t.durationDays,
+      })),
+    };
+
+    // Add message threads for LIMITED and FULL visibility
+    if (visibility !== ProjectVisibilityLevel.READ_ONLY && messageThreads.length > 0) {
+      response.recentMessages = messageThreads.map((t) => ({
+        id: t.id,
+        subject: t.subject,
+        updatedAt: t.updatedAt,
+        lastMessage: t.messages?.[0] ?? null,
+      }));
+    }
+
+    // FULL visibility gets additional financial/PETL data
+    if (visibility === ProjectVisibilityLevel.FULL) {
+      response.hasFullAccess = true;
+    }
+
+    return response;
   }
 
   async listProjectsForUser(

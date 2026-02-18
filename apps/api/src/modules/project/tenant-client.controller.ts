@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -11,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { TenantClientService, CreateTenantClientDto, UpdateTenantClientDto } from "./tenant-client.service";
+import { ProjectVisibilityLevel } from "@prisma/client";
 
 @Controller("clients")
 @UseGuards(JwtAuthGuard)
@@ -84,5 +86,58 @@ export class TenantClientController {
       throw new Error("Company context required");
     }
     return this.tenantClientService.update(companyId, clientId, dto);
+  }
+
+  /**
+   * POST /clients/:id/invite
+   * Invite a client to the portal.
+   * 
+   * Creates or links a User account for the client, granting them access
+   * to view their projects. The client can then log in and see all projects
+   * linked to their TenantClient record.
+   * 
+   * Optional body params:
+   * - visibility: "FULL" | "LIMITED" | "READ_ONLY" (default: "LIMITED")
+   */
+  @Post(":id/invite")
+  async inviteToPortal(
+    @Req() req: any,
+    @Param("id") clientId: string,
+    @Body() body?: { visibility?: string },
+  ) {
+    const companyId = req.user?.companyId;
+    if (!companyId) {
+      throw new Error("Company context required");
+    }
+
+    // Parse visibility level
+    let visibility: ProjectVisibilityLevel | undefined;
+    if (body?.visibility) {
+      const v = body.visibility.toUpperCase();
+      if (v === "FULL" || v === "LIMITED" || v === "READ_ONLY") {
+        visibility = v as ProjectVisibilityLevel;
+      }
+    }
+
+    return this.tenantClientService.inviteToPortal(companyId, clientId, { visibility });
+  }
+
+  /**
+   * DELETE /clients/:id/portal-access
+   * Revoke a client's portal access.
+   * 
+   * Unlinks the User from the TenantClient and removes their ProjectMemberships
+   * for all projects linked to this client.
+   */
+  @Delete(":id/portal-access")
+  async revokePortalAccess(
+    @Req() req: any,
+    @Param("id") clientId: string,
+  ) {
+    const companyId = req.user?.companyId;
+    if (!companyId) {
+      throw new Error("Company context required");
+    }
+    return this.tenantClientService.revokePortalAccess(companyId, clientId);
   }
 }
