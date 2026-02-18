@@ -1,9 +1,22 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import DOMPurify from "dompurify";
 import { TenantPublishModal } from "../components/TenantPublishModal";
+
+// Sanitize HTML content while preserving mermaid blocks
+function sanitizeHtml(html: string): string {
+  if (typeof window === "undefined") return html; // SSR fallback
+  
+  return DOMPurify.sanitize(html, {
+    ADD_TAGS: ["div", "pre", "code"], // Allow mermaid containers
+    ADD_ATTR: ["class", "style"], // Allow class="mermaid" and inline styles
+    FORBID_TAGS: ["script", "iframe", "object", "embed", "form"], // Block dangerous tags
+    FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover"], // Block event handlers
+  });
+}
 
 // Mermaid rendering hook - renders .mermaid divs after content loads
 function useMermaidRender(htmlContent: string | undefined, containerRef: React.RefObject<HTMLDivElement | null>) {
@@ -11,21 +24,44 @@ function useMermaidRender(htmlContent: string | undefined, containerRef: React.R
     if (!htmlContent || !containerRef.current) return;
     
     // Check if there are any mermaid blocks to render
-    const mermaidBlocks = containerRef.current.querySelectorAll('.mermaid');
+    const mermaidBlocks = containerRef.current.querySelectorAll('.mermaid:not([data-processed])');
     if (mermaidBlocks.length === 0) return;
     
     // Dynamically import mermaid only when needed
-    import('mermaid').then((mermaidModule) => {
+    import('mermaid').then(async (mermaidModule) => {
       const mermaid = mermaidModule.default;
       mermaid.initialize({ 
         startOnLoad: false,
         theme: 'default',
         securityLevel: 'strict', // Prevents XSS
         fontFamily: 'system-ui, -apple-system, sans-serif',
+        themeVariables: {
+          primaryColor: '#0d47a1',
+          primaryTextColor: '#ffffff',
+          secondaryColor: '#e3f2fd',
+          lineColor: '#0d47a1',
+        },
       });
       
-      // Run mermaid on all .mermaid elements in the container
-      mermaid.run({ nodes: Array.from(mermaidBlocks) as HTMLElement[] });
+      // Render each mermaid block individually for better error handling
+      for (const block of Array.from(mermaidBlocks)) {
+        const code = block.textContent?.trim();
+        if (!code) continue;
+        
+        try {
+          const id = 'mermaid-' + Math.random().toString(36).substring(2, 11);
+          const { svg } = await mermaid.render(id, code);
+          block.innerHTML = svg;
+          block.setAttribute('data-processed', 'true');
+        } catch (err: any) {
+          console.error('Mermaid render error:', err);
+          block.innerHTML = `<div style="padding: 12px; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; color: #b91c1c; font-size: 13px;">
+            <strong>Diagram Error:</strong> ${err?.message || 'Invalid Mermaid syntax'}
+            <pre style="margin-top: 8px; font-size: 11px; overflow: auto;">${code.substring(0, 200)}${code.length > 200 ? '...' : ''}</pre>
+          </div>`;
+          block.setAttribute('data-processed', 'true');
+        }
+      }
     }).catch((err) => {
       console.error('Failed to load Mermaid:', err);
     });
@@ -577,7 +613,7 @@ export default function SystemDocumentDetailPage() {
                 margin: readerMode ? "0 auto" : 0,
               }}
               className="document-content"
-              dangerouslySetInnerHTML={{ __html: document.currentVersion?.htmlContent || "<em>No content</em>" }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(document.currentVersion?.htmlContent || "<em>No content</em>") }}
             />
           </div>
 
@@ -1230,7 +1266,7 @@ function PrintView({
                 color: "#1f2937",
               }}
               dangerouslySetInnerHTML={{
-                __html: document.currentVersion?.htmlContent || "<em>No content</em>",
+                __html: sanitizeHtml(document.currentVersion?.htmlContent || "<em>No content</em>"),
               }}
             />
 
