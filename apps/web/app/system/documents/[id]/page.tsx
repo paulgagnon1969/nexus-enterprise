@@ -53,6 +53,7 @@ export default function SystemDocumentDetailPage() {
 
   // Edit mode
   const [editing, setEditing] = useState(false);
+  const [editingHtml, setEditingHtml] = useState(false); // Structured HTML edit mode
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editCategory, setEditCategory] = useState("");
@@ -60,6 +61,7 @@ export default function SystemDocumentDetailPage() {
   const [editNotes, setEditNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [EditorComponent, setEditorComponent] = useState<React.ComponentType<any> | null>(null);
+  const [showHtmlPreview, setShowHtmlPreview] = useState(false);
 
   // Publish modal
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -108,6 +110,19 @@ export default function SystemDocumentDetailPage() {
     setEditCategory(document.category || "");
     setEditContent(document.currentVersion?.htmlContent || "");
     setEditNotes("");
+    setEditingHtml(false);
+    setEditing(true);
+  }
+
+  function startEditingHtml() {
+    if (!document) return;
+    setEditTitle(document.title);
+    setEditDescription(document.description || "");
+    setEditCategory(document.category || "");
+    setEditContent(document.currentVersion?.htmlContent || "");
+    setEditNotes("");
+    setEditingHtml(true);
+    setShowHtmlPreview(false);
     setEditing(true);
   }
 
@@ -135,6 +150,7 @@ export default function SystemDocumentDetailPage() {
       if (!res.ok) throw new Error("Failed to save");
 
       setEditing(false);
+      setEditingHtml(false);
       loadDocument();
     } catch (err: any) {
       alert(err.message || "Failed to save");
@@ -262,6 +278,23 @@ export default function SystemDocumentDetailPage() {
                 Edit
               </button>
               <button
+                onClick={startEditingHtml}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 4,
+                  border: "1px solid #7c3aed",
+                  background: "#f5f3ff",
+                  color: "#7c3aed",
+                  fontSize: 13,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                📝 Edit Structured HTML
+              </button>
+              <button
                 onClick={() => setShowPublishModal(true)}
                 style={{
                   padding: "6px 12px",
@@ -325,8 +358,60 @@ export default function SystemDocumentDetailPage() {
               />
             </label>
             <label style={{ fontSize: 13 }}>
-              <span style={{ display: "block", marginBottom: 4 }}>Content</span>
-              {EditorComponent ? (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <span>Content {editingHtml && "(Structured HTML)"}</span>
+                {editingHtml && (
+                  <button
+                    type="button"
+                    onClick={() => setShowHtmlPreview(!showHtmlPreview)}
+                    style={{
+                      padding: "4px 8px",
+                      fontSize: 11,
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      background: showHtmlPreview ? "#f3f4f6" : "white",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {showHtmlPreview ? "Hide Preview" : "Show Preview"}
+                  </button>
+                )}
+              </div>
+              {editingHtml ? (
+                <div style={{ display: "flex", gap: 12 }}>
+                  <textarea
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    placeholder="Paste your structured HTML here..."
+                    style={{
+                      flex: 1,
+                      minHeight: 400,
+                      padding: 12,
+                      borderRadius: 6,
+                      border: "1px solid #d1d5db",
+                      fontFamily: "monospace",
+                      fontSize: 12,
+                      lineHeight: 1.5,
+                      resize: "vertical",
+                    }}
+                  />
+                  {showHtmlPreview && (
+                    <div
+                      style={{
+                        flex: 1,
+                        minHeight: 400,
+                        padding: 12,
+                        borderRadius: 6,
+                        border: "1px solid #d1d5db",
+                        backgroundColor: "#fafafa",
+                        overflow: "auto",
+                        fontSize: 14,
+                      }}
+                      dangerouslySetInnerHTML={{ __html: editContent }}
+                    />
+                  )}
+                </div>
+              ) : EditorComponent ? (
                 <EditorComponent content={editContent} onChange={setEditContent} />
               ) : (
                 <div style={{ padding: 16, color: "#9ca3af", border: "1px solid #d1d5db", borderRadius: 6 }}>
@@ -347,7 +432,10 @@ export default function SystemDocumentDetailPage() {
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
             <button
-              onClick={() => setEditing(false)}
+              onClick={() => {
+                setEditing(false);
+                setEditingHtml(false);
+              }}
               style={{
                 padding: "8px 16px",
                 borderRadius: 4,
