@@ -6,6 +6,7 @@ import { formatPhone } from "../../lib/phone";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 const FORTIFIED_COMPANY_ID = "cmjr9okjz000401s6rdkbatvr";
+const NEXUS_SYSTEM_COMPANY_ID = "cmjr7o4zs000101s6z1rt1ssz";
 
 type CompanyRole = "OWNER" | "ADMIN" | "MEMBER" | "CLIENT";
 
@@ -1826,6 +1827,15 @@ function CompanyUsersPageInner() {
         <ProspectiveCandidatesPanel
           companyId={companyId}
           companyName={companyName}
+          actorGlobalRole={actorGlobalRole}
+          isNexusSystemAdmin={
+            actorGlobalRole === "SUPER_ADMIN" ||
+            (me?.memberships ?? []).some(
+              m =>
+                m.companyId === NEXUS_SYSTEM_COMPANY_ID &&
+                (m.role === "OWNER" || m.role === "ADMIN"),
+            )
+          }
           tenantShareTargets={
             me?.memberships?.map(m => ({
               id: m.companyId,
@@ -3753,12 +3763,18 @@ function stateToRegion(state: string | null | undefined): string {
 function ProspectiveCandidatesPanel({
   companyId,
   companyName,
+  actorGlobalRole,
+  isNexusSystemAdmin,
   tenantShareTargets,
 }: {
   companyId: string;
   companyName: string;
+  actorGlobalRole?: string | null;
+  isNexusSystemAdmin?: boolean;
   tenantShareTargets?: { id: string; name: string }[];
 }) {
+  // Only NEXUS System admins (SUPER_ADMIN or NEXUS System OWNER/ADMIN) can share with tenants
+  const canShareWithTenants = isNexusSystemAdmin === true;
   const [rows, setRows] = useState<CandidateRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -3846,6 +3862,42 @@ function ProspectiveCandidatesPanel({
   const isFortifiedCompany = companyName
     .toLowerCase()
     .startsWith("nexus fortified structures");
+
+  // --- Cross-Tenant Person Search State ---
+  const [crossTenantSearchPhone, setCrossTenantSearchPhone] = useState("");
+  const [crossTenantSearching, setCrossTenantSearching] = useState(false);
+  const [crossTenantSearchResults, setCrossTenantSearchResults] = useState<
+    { id: string; maskedPhone: string; initials: string; isAlreadyMember: boolean }[] | null
+  >(null);
+  const [crossTenantSearchError, setCrossTenantSearchError] = useState<string | null>(null);
+  // Stage 2: Selected person details
+  const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
+  const [selectedPersonPhone, setSelectedPersonPhone] = useState<string | null>(null);
+  const [personDetails, setPersonDetails] = useState<{
+    userId: string;
+    initials: string;
+    maskedPhone: string;
+    emails: { masked: string; full: string; isPrimary: boolean; verified: boolean }[];
+    peopleToken: string | null;
+    isAlreadyMember: boolean;
+  } | null>(null);
+  const [personDetailsLoading, setPersonDetailsLoading] = useState(false);
+  const [personDetailsError, setPersonDetailsError] = useState<string | null>(null);
+  // Stage 3: Invite flow
+  const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
+  const [manualEmail, setManualEmail] = useState("");
+  const [useManualEmail, setUseManualEmail] = useState(false);
+  const [inviteRole, setInviteRole] = useState<"OWNER" | "ADMIN" | "MEMBER">("MEMBER");
+  const [inviteSending, setInviteSending] = useState(false);
+  const [inviteSuccess, setInviteSuccess] = useState<{
+    inviteId: string;
+    token: string;
+    inviteeEmail: string;
+  } | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+
+  // Can the current user search for people? (OWNER/ADMIN only)
+  const canSearchPeople = actorGlobalRole === "SUPER_ADMIN" || true; // All OWNER/ADMIN can search via API guard
 
   // Load candidate status definitions (global + company) once when tab is candidates
   useEffect(() => {
@@ -4577,12 +4629,430 @@ function ProspectiveCandidatesPanel({
     setShowBulkMessageModal(true);
   }
 
+  // --- Cross-Tenant Search & Invite Handlers ---
+
+  async function handleCrossTenantSearch() {
+    const phone = crossTenantSearchPhone.replace(/\D/g, "").trim();
+    if (!phone || phone.length < 7) {
+      setCrossTenantSearchError("Enter a valid phone number (at least 7 digits)");
+      return;
+    }
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setCrossTenantSearchError("Missing access token. Please log in again.");
+      return;
+    }
+    try {
+      setCrossTenantSearching(true);
+      setCrossTenantSearchError(null);
+      setCrossTenantSearchResults(null);
+      setPersonDetails(null);
+      setSelectedPersonId(null);
+      setInviteSuccess(null);
+
+      const res = await fetch(`${API_BASE}/onboarding/cross-tenant/search?phone=${encodeURIComponent(phone)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Search failed (${res.status})`);
+      }
+      const json = await res.json();
+      if (!json.found || !json.results?.length) {
+        setCrossTenantSearchResults([]);
+        return;
+      }
+      setCrossTenantSearchResults(json.results);
+    } catch (e: any) {
+      setCrossTenantSearchError(e?.message ?? "Search failed");
+    } finally {
+      setCrossTenantSearching(false);
+    }
+  }
+
+  async function handleSelectPerson(personId: string) {
+    const phone = crossTenantSearchPhone.replace(/\D/g, "").trim();
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setPersonDetailsError("Missing access token. Please log in again.");
+      return;
+    }
+    try {
+      setPersonDetailsLoading(true);
+      setPersonDetailsError(null);
+      setPersonDetails(null);
+      setSelectedPersonId(personId);
+      setSelectedPersonPhone(phone);
+      setSelectedEmail(null);
+      setUseManualEmail(false);
+      setManualEmail("");
+
+      const res = await fetch(
+        `${API_BASE}/onboarding/cross-tenant/person/${encodeURIComponent(personId)}?phone=${encodeURIComponent(phone)}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Failed to load person details (${res.status})`);
+      }
+      const json = await res.json();
+      setPersonDetails(json);
+      // Auto-select primary email if available
+      const primaryEmail = json.emails?.find((e: any) => e.isPrimary);
+      if (primaryEmail) {
+        setSelectedEmail(primaryEmail.full);
+      }
+    } catch (e: any) {
+      setPersonDetailsError(e?.message ?? "Failed to load person details");
+    } finally {
+      setPersonDetailsLoading(false);
+    }
+  }
+
+  async function handleSendCrossTenantInvite() {
+    const email = useManualEmail ? manualEmail.trim().toLowerCase() : selectedEmail;
+    if (!email) {
+      setInviteError("Please select or enter an email address");
+      return;
+    }
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setInviteError("Missing access token. Please log in again.");
+      return;
+    }
+    try {
+      setInviteSending(true);
+      setInviteError(null);
+
+      const res = await fetch(`${API_BASE}/onboarding/cross-tenant/invite`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          targetCompanyId: companyId,
+          inviteeUserId: personDetails?.userId || null,
+          inviteeEmail: email,
+          inviteePhone: selectedPersonPhone || null,
+          role: inviteRole,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Failed to send invite (${res.status})`);
+      }
+      const json = await res.json();
+      setInviteSuccess({
+        inviteId: json.inviteId,
+        token: json.token,
+        inviteeEmail: json.inviteeEmail,
+      });
+      // Reset search state
+      setCrossTenantSearchResults(null);
+      setPersonDetails(null);
+      setSelectedPersonId(null);
+    } catch (e: any) {
+      setInviteError(e?.message ?? "Failed to send invite");
+    } finally {
+      setInviteSending(false);
+    }
+  }
+
+  function handleResetCrossTenantSearch() {
+    setCrossTenantSearchPhone("");
+    setCrossTenantSearchResults(null);
+    setCrossTenantSearchError(null);
+    setPersonDetails(null);
+    setPersonDetailsError(null);
+    setSelectedPersonId(null);
+    setSelectedPersonPhone(null);
+    setSelectedEmail(null);
+    setManualEmail("");
+    setUseManualEmail(false);
+    setInviteSuccess(null);
+    setInviteError(null);
+  }
+
   return (
     <section style={{ marginTop: 8 }}>
       <h2 style={{ fontSize: 16, marginBottom: 4 }}>Prospective candidates</h2>
       <p style={{ fontSize: 12, color: "#4b5563", marginTop: 0 }}>
         Candidates who have submitted onboarding for <strong>{companyName}</strong>. Filter by region/state/city.
       </p>
+
+      {/* Cross-Tenant Person Search Panel */}
+      <div
+        style={{
+          marginTop: 8,
+          marginBottom: 12,
+          padding: 12,
+          borderRadius: 8,
+          border: "1px solid #d1d5db",
+          background: "#f8fafc",
+        }}
+      >
+        <h3 style={{ fontSize: 14, marginTop: 0, marginBottom: 4 }}>Find person in NEXUS</h3>
+        <p style={{ fontSize: 11, color: "#6b7280", marginTop: 0, marginBottom: 8 }}>
+          Search by phone number to find and invite people who already exist in the NEXUS System.
+        </p>
+
+        {/* Success message */}
+        {inviteSuccess && (
+          <div
+            style={{
+              padding: 10,
+              borderRadius: 6,
+              background: "#dcfce7",
+              border: "1px solid #86efac",
+              marginBottom: 10,
+            }}
+          >
+            <div style={{ fontWeight: 600, color: "#166534", marginBottom: 4 }}>Invite sent!</div>
+            <div style={{ fontSize: 12, color: "#166534" }}>
+              An invitation has been sent to <strong>{inviteSuccess.inviteeEmail}</strong> to join{" "}
+              <strong>{companyName}</strong>.
+            </div>
+            <button
+              type="button"
+              onClick={handleResetCrossTenantSearch}
+              style={{
+                marginTop: 8,
+                padding: "4px 10px",
+                borderRadius: 4,
+                border: "1px solid #166534",
+                background: "#166534",
+                color: "#ffffff",
+                fontSize: 11,
+                cursor: "pointer",
+              }}
+            >
+              Search another person
+            </button>
+          </div>
+        )}
+
+        {!inviteSuccess && (
+          <>
+            {/* Stage 1: Phone search */}
+            {!personDetails && (
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <span style={{ fontSize: 11 }}>Phone number</span>
+                  <input
+                    type="tel"
+                    value={crossTenantSearchPhone}
+                    onChange={e => setCrossTenantSearchPhone(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && handleCrossTenantSearch()}
+                    placeholder="(555) 123-4567"
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      minWidth: 180,
+                      fontSize: 13,
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={handleCrossTenantSearch}
+                  disabled={crossTenantSearching || !crossTenantSearchPhone.trim()}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 4,
+                    border: "1px solid #0f172a",
+                    background: crossTenantSearching || !crossTenantSearchPhone.trim() ? "#e5e7eb" : "#0f172a",
+                    color: crossTenantSearching || !crossTenantSearchPhone.trim() ? "#6b7280" : "#ffffff",
+                    fontSize: 12,
+                    cursor: crossTenantSearching || !crossTenantSearchPhone.trim() ? "default" : "pointer",
+                  }}
+                >
+                  {crossTenantSearching ? "Searching…" : "Search"}
+                </button>
+              </div>
+            )}
+
+            {/* Search error */}
+            {crossTenantSearchError && (
+              <p style={{ marginTop: 6, fontSize: 12, color: "#b91c1c" }}>{crossTenantSearchError}</p>
+            )}
+
+            {/* Search results: masked phone + initials */}
+            {crossTenantSearchResults !== null && !personDetails && (
+              <div style={{ marginTop: 10 }}>
+                {crossTenantSearchResults.length === 0 ? (
+                  <p style={{ fontSize: 12, color: "#6b7280" }}>
+                    No matching person found with that phone number.
+                  </p>
+                ) : (
+                  <>
+                    <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 6 }}>
+                      Select the person you're looking for:
+                    </p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {crossTenantSearchResults.map(r => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => handleSelectPerson(r.id)}
+                          disabled={r.isAlreadyMember}
+                          style={{
+                            padding: "8px 14px",
+                            borderRadius: 6,
+                            border: r.isAlreadyMember ? "1px solid #d1d5db" : "1px solid #2563eb",
+                            background: r.isAlreadyMember ? "#f3f4f6" : "#eff6ff",
+                            color: r.isAlreadyMember ? "#9ca3af" : "#1e40af",
+                            fontSize: 13,
+                            cursor: r.isAlreadyMember ? "default" : "pointer",
+                          }}
+                        >
+                          <span style={{ fontWeight: 600 }}>{r.maskedPhone}</span>
+                          <span style={{ marginLeft: 8 }}>– {r.initials}</span>
+                          {r.isAlreadyMember && (
+                            <span style={{ marginLeft: 8, fontSize: 10, color: "#6b7280" }}>(already member)</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Stage 2: Person details + email selection */}
+            {personDetailsLoading && (
+              <p style={{ marginTop: 10, fontSize: 12, color: "#6b7280" }}>Loading person details…</p>
+            )}
+            {personDetailsError && (
+              <p style={{ marginTop: 6, fontSize: 12, color: "#b91c1c" }}>{personDetailsError}</p>
+            )}
+            {personDetails && !personDetailsLoading && (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: 10,
+                  borderRadius: 6,
+                  border: "1px solid #e5e7eb",
+                  background: "#ffffff",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <div>
+                    <span style={{ fontWeight: 600 }}>{personDetails.maskedPhone}</span>
+                    <span style={{ marginLeft: 8 }}>– {personDetails.initials}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleResetCrossTenantSearch}
+                    style={{
+                      padding: "2px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      background: "#f9fafb",
+                      color: "#4b5563",
+                      fontSize: 11,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Start over
+                  </button>
+                </div>
+
+                {personDetails.isAlreadyMember ? (
+                  <p style={{ fontSize: 12, color: "#b91c1c" }}>
+                    This person is already a member of <strong>{companyName}</strong>.
+                  </p>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 12, color: "#4b5563", marginBottom: 6 }}>Select email to invite:</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {personDetails.emails.map((e, idx) => (
+                        <label
+                          key={idx}
+                          style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
+                        >
+                          <input
+                            type="radio"
+                            name="invite-email"
+                            checked={!useManualEmail && selectedEmail === e.full}
+                            onChange={() => {
+                              setSelectedEmail(e.full);
+                              setUseManualEmail(false);
+                            }}
+                          />
+                          <span style={{ fontFamily: "monospace", fontSize: 12 }}>{e.full}</span>
+                          {e.isPrimary && (
+                            <span style={{ fontSize: 10, color: "#6b7280", background: "#f3f4f6", padding: "1px 4px", borderRadius: 3 }}>
+                              primary
+                            </span>
+                          )}
+                        </label>
+                      ))}
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="invite-email"
+                          checked={useManualEmail}
+                          onChange={() => setUseManualEmail(true)}
+                        />
+                        <span style={{ fontSize: 12 }}>Use different email:</span>
+                        <input
+                          type="email"
+                          value={manualEmail}
+                          onChange={e => setManualEmail(e.target.value)}
+                          onFocus={() => setUseManualEmail(true)}
+                          placeholder="email@example.com"
+                          style={{
+                            padding: "4px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                            minWidth: 200,
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    {/* Role selector + invite button */}
+                    <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+                        Role:
+                        <select
+                          value={inviteRole}
+                          onChange={e => setInviteRole(e.target.value as any)}
+                          style={{ padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                        >
+                          <option value="MEMBER">MEMBER</option>
+                          <option value="ADMIN">ADMIN</option>
+                          <option value="OWNER">OWNER</option>
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleSendCrossTenantInvite}
+                        disabled={inviteSending || (!selectedEmail && !manualEmail.trim())}
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: 4,
+                          border: "1px solid #16a34a",
+                          background: inviteSending || (!selectedEmail && !manualEmail.trim()) ? "#e5e7eb" : "#16a34a",
+                          color: inviteSending || (!selectedEmail && !manualEmail.trim()) ? "#6b7280" : "#ffffff",
+                          fontSize: 12,
+                          cursor: inviteSending || (!selectedEmail && !manualEmail.trim()) ? "default" : "pointer",
+                        }}
+                      >
+                        {inviteSending ? "Sending…" : `Invite to ${companyName}`}
+                      </button>
+                    </div>
+                    {inviteError && <p style={{ marginTop: 6, fontSize: 12, color: "#b91c1c" }}>{inviteError}</p>}
+                  </>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {isFortifiedCompany && (
         <div
@@ -4871,7 +5341,8 @@ function ProspectiveCandidatesPanel({
           )}
         </div>
 
-        {tenantShareTargets && tenantShareTargets.length > 0 && (
+        {/* Share with tenants - NEXUS System admins only */}
+        {canShareWithTenants && tenantShareTargets && tenantShareTargets.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <span>Share with tenants</span>
             <select
@@ -4952,7 +5423,8 @@ function ProspectiveCandidatesPanel({
             >
               Send note / update to selected
             </button>
-            {tenantShareTargets && tenantShareTargets.length > 0 && (
+            {/* Share button - NEXUS System admins only */}
+            {canShareWithTenants && tenantShareTargets && tenantShareTargets.length > 0 && (
               <button
                 type="button"
                 onClick={() => void handleBulkShareProspects()}

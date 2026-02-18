@@ -390,4 +390,99 @@ export class OnboardingController {
     const actor = req.user as AuthenticatedUser;
     return this.onboarding.updateSessionBankInfo(id, actor, body ?? {});
   }
+
+  // ---------------------------------------------------------------------------
+  // Cross-Tenant Person Search & Invite
+  // ---------------------------------------------------------------------------
+
+  // Search for people across the NEXUS System by phone number.
+  // Returns masked results (phone + initials) for privacy-first verification.
+  // Stage 1 of the two-stage person search flow.
+  @UseGuards(JwtAuthGuard)
+  @Get("cross-tenant/search")
+  async crossTenantSearch(
+    @Req() req: any,
+    @Query("phone") phone?: string,
+    @Query("email") email?: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.onboarding.crossTenantSearch(actor, { phone, email });
+  }
+
+  // Get full details for a person after initials selection.
+  // Stage 2 of the two-stage person search flow.
+  // Returns all emails (primary + aliases) for the inviter to select from.
+  @UseGuards(JwtAuthGuard)
+  @Get("cross-tenant/person/:personId")
+  async crossTenantGetPerson(
+    @Req() req: any,
+    @Param("personId") personId: string,
+    @Query("phone") phone: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.onboarding.crossTenantGetPersonDetails(actor, { personId, phone });
+  }
+
+  // Create a cross-tenant invite with full token relationship tracking.
+  // Captures: tenant token, inviter people token, invitee people token.
+  @UseGuards(JwtAuthGuard)
+  @Post("cross-tenant/invite")
+  async createCrossTenantInvite(
+    @Req() req: any,
+    @Body()
+    body: {
+      targetCompanyId?: string;
+      inviteeUserId?: string;
+      inviteeEmail: string;
+      inviteePhone?: string;
+      role?: string;
+    },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.onboarding.createCrossTenantInvite(actor, {
+      targetCompanyId: body.targetCompanyId || actor.companyId,
+      inviteeUserId: body.inviteeUserId,
+      inviteeEmail: body.inviteeEmail,
+      inviteePhone: body.inviteePhone,
+      role: body.role as any,
+    });
+  }
+
+  // Accept a cross-tenant invite.
+  // Handles account consolidation if phone matches existing user.
+  // Public endpoint - no auth required (uses invite token).
+  @Post("cross-tenant/invite/:token/accept")
+  async acceptCrossTenantInvite(
+    @Param("token") token: string,
+    @Body()
+    body: {
+      email: string;
+      phone?: string;
+      firstName?: string;
+      lastName?: string;
+    },
+  ) {
+    return this.onboarding.acceptCrossTenantInvite(token, {
+      email: body.email,
+      phone: body.phone,
+      firstName: body.firstName,
+      lastName: body.lastName,
+    });
+  }
+
+  // Verify account link via SMS code.
+  // Called after accepting an invite that triggered account linking.
+  @Post("cross-tenant/account-link/:eventId/verify")
+  async verifyAccountLink(
+    @Param("eventId") eventId: string,
+    @Body() body: { code: string },
+  ) {
+    return this.onboarding.verifyAccountLink(eventId, body.code);
+  }
+
+  // Resend SMS verification code for account link.
+  @Post("cross-tenant/account-link/:eventId/resend")
+  async resendAccountLinkVerification(@Param("eventId") eventId: string) {
+    return this.onboarding.resendAccountLinkVerification(eventId);
+  }
 }
