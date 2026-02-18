@@ -494,26 +494,30 @@ export class SystemDocumentsService {
   async importWithManual(userId: string, dto: ImportWithManualDto) {
     return this.prisma.$transaction(async (tx) => {
       // 1. Check if document already exists by code
-      let doc = await tx.systemDocument.findUnique({
+      const existingDoc = await tx.systemDocument.findUnique({
         where: { code: dto.code },
         include: { currentVersion: true },
       });
 
       const contentHash = this.hashContent(dto.htmlContent);
+      let docId: string;
+      let docCode: string;
 
-      if (doc) {
+      if (existingDoc) {
+        docId = existingDoc.id;
+        docCode = existingDoc.code;
         // Document exists - check if content changed
-        if (doc.currentVersion?.contentHash !== contentHash) {
+        if (existingDoc.currentVersion?.contentHash !== contentHash) {
           // Create new version
           const lastVersion = await tx.systemDocumentVersion.findFirst({
-            where: { systemDocumentId: doc.id },
+            where: { systemDocumentId: existingDoc.id },
             orderBy: { versionNo: "desc" },
           });
           const nextVersionNo = (lastVersion?.versionNo ?? 0) + 1;
 
           const version = await tx.systemDocumentVersion.create({
             data: {
-              systemDocumentId: doc.id,
+              systemDocumentId: existingDoc.id,
               versionNo: nextVersionNo,
               htmlContent: dto.htmlContent,
               contentHash,
@@ -523,7 +527,7 @@ export class SystemDocumentsService {
           });
 
           await tx.systemDocument.update({
-            where: { id: doc.id },
+            where: { id: existingDoc.id },
             data: {
               currentVersionId: version.id,
               title: dto.title,
@@ -534,7 +538,7 @@ export class SystemDocumentsService {
         }
       } else {
         // Create new document
-        doc = await tx.systemDocument.create({
+        const newDoc = await tx.systemDocument.create({
           data: {
             code: dto.code,
             title: dto.title,
@@ -543,10 +547,12 @@ export class SystemDocumentsService {
             createdByUserId: userId,
           },
         });
+        docId = newDoc.id;
+        docCode = newDoc.code;
 
         const version = await tx.systemDocumentVersion.create({
           data: {
-            systemDocumentId: doc.id,
+            systemDocumentId: newDoc.id,
             versionNo: 1,
             htmlContent: dto.htmlContent,
             contentHash,
@@ -556,7 +562,7 @@ export class SystemDocumentsService {
         });
 
         await tx.systemDocument.update({
-          where: { id: doc.id },
+          where: { id: newDoc.id },
           data: { currentVersionId: version.id },
         });
       }
@@ -565,6 +571,8 @@ export class SystemDocumentsService {
       let manual = await tx.manual.findUnique({
         where: { code: dto.manualCode },
       });
+
+      let manualVersion = 1;
 
       if (!manual) {
         // Create the manual
@@ -589,18 +597,20 @@ export class SystemDocumentsService {
             structureSnapshot: { chapters: [], documents: [] },
           },
         });
+      } else {
+        manualVersion = manual.currentVersion;
       }
 
       // 3. Check if document is already in manual
       const existingManualDoc = await tx.manualDocument.findFirst({
         where: {
           manualId: manual.id,
-          systemDocumentId: doc.id,
+          systemDocumentId: docId,
           active: true,
         },
       });
 
-      let chapter = null;
+      let chapter: { id: string; title: string; sortOrder: number } | null = null;
 
       if (!existingManualDoc) {
         // Check if we need to create a chapter or add to existing one
@@ -639,6 +649,9 @@ export class SystemDocumentsService {
           }
         }
 
+        // Increment manual version for adding document
+        const newManualVersion = manualVersion + 1;
+
         // Get max sort order for documents in the target location
         const maxDocOrder = await tx.manualDocument.aggregate({
           where: {
@@ -653,23 +666,23 @@ export class SystemDocumentsService {
         await tx.manualDocument.create({
           data: {
             manualId: manual.id,
-            chapterId: chapter?.id,
-            systemDocumentId: doc.id,
+            chapterId: chapter?.id ?? null,
+            systemDocumentId: docId,
             sortOrder: (maxDocOrder._max.sortOrder ?? -1) + 1,
+            addedInManualVersion: newManualVersion,
           },
         });
 
-        // Increment manual version
-        const newVersion = manual.currentVersion + 1;
+        // Update manual version
         await tx.manual.update({
           where: { id: manual.id },
-          data: { currentVersion: newVersion },
+          data: { currentVersion: newManualVersion },
         });
 
         await tx.manualVersion.create({
           data: {
             manualId: manual.id,
-            version: newVersion,
+            version: newManualVersion,
             changeType: ManualVersionChangeType.DOCUMENT_ADDED,
             changeNotes: `Added document: ${dto.title}`,
             createdByUserId: userId,
@@ -681,8 +694,8 @@ export class SystemDocumentsService {
       // Return the result
       return {
         document: {
-          id: doc.id,
-          code: doc.code,
+          id: docId,
+          code: docCode,
           title: dto.title,
         },
         manual: {
