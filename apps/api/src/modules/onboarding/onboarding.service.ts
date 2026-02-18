@@ -3081,4 +3081,751 @@ export class OnboardingService {
 
     return { sessionId: session.id, status: "REJECTED" };
   }
+
+  // ---------------------------------------------------------------------------
+  // Cross-Tenant Person Search & Invite
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Search for people across the entire NEXUS System by phone number.
+   * Returns masked results (phone + initials) for privacy.
+   * Only OWNER/ADMIN of a tenant can search.
+   */
+  async crossTenantSearch(
+    actor: AuthenticatedUser,
+    params: { phone?: string; email?: string },
+  ) {
+    // Only OWNER/ADMIN can search
+    if (actor.role !== "OWNER" && actor.role !== "ADMIN" && actor.globalRole !== "SUPER_ADMIN") {
+      throw new ForbiddenException("Only company admins can search for people across tenants");
+    }
+
+    const phone = (params.phone || "").replace(/\D/g, "").trim();
+    const email = this.normalizeEmail(params.email || "");
+
+    if (!phone && !email) {
+      throw new BadRequestException("Phone number is required for cross-tenant search");
+    }
+
+    // Build search conditions
+    const conditions: any[] = [];
+
+    // Search Users by phone (from onboarding profiles or UserPortfolio)
+    if (phone) {
+      // Search OnboardingSession profiles for phone matches
+      const sessionProfiles = await this.prisma.onboardingProfile.findMany({
+        where: {
+          phone: { contains: phone },
+        },
+        include: {
+          session: {
+            select: {
+              id: true,
+              email: true,
+              userId: true,
+              user: {
+                select: {
+                  id: true,
+                  email: true,
+                  firstName: true,
+                  lastName: true,
+                  peopleToken: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // Also search NexNetCandidate for phone matches
+      const candidates = await this.prisma.nexNetCandidate.findMany({
+        where: {
+          phone: { contains: phone },
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              peopleToken: true,
+            },
+          },
+        },
+      });
+
+      // Collect unique users from both sources
+      const userMap = new Map<string, {
+        userId: string | null;
+        email: string;
+        firstName: string | null;
+        lastName: string | null;
+        phone: string;
+        peopleToken: string | null;
+      }>();
+
+      for (const profile of sessionProfiles) {
+        const user = profile.session?.user;
+        const userEmail = user?.email || profile.session?.email || "";
+        const key = user?.id || userEmail;
+        if (!key) continue;
+
+        if (!userMap.has(key)) {
+          userMap.set(key, {
+            userId: user?.id || null,
+            email: userEmail,
+            firstName: profile.firstName || user?.firstName || null,
+            lastName: profile.lastName || user?.lastName || null,
+            phone: profile.phone || "",
+            peopleToken: user?.peopleToken || null,
+          });
+        }
+      }
+
+      for (const candidate of candidates) {
+        const user = candidate.user;
+        const userEmail = user?.email || candidate.email || "";
+        const key = user?.id || candidate.id;
+        if (!key) continue;
+
+        if (!userMap.has(key)) {
+          userMap.set(key, {
+            userId: user?.id || null,
+            email: userEmail,
+            firstName: candidate.firstName || user?.firstName || null,
+            lastName: candidate.lastName || user?.lastName || null,
+            phone: candidate.phone || "",
+            peopleToken: user?.peopleToken || null,
+          });
+        }
+      }
+
+      // If email is also provided, filter to exact email match
+      let results = Array.from(userMap.values());
+      if (email) {
+        results = results.filter(r => this.normalizeEmail(r.email) === email);
+      }
+
+      // Check if any results are already members of the requesting company
+      const membershipsByUserId = new Map<string, boolean>();
+      const userIds = results.filter(r => r.userId).map(r => r.userId as string);
+      if (userIds.length > 0 && actor.companyId) {
+        const memberships = await this.prisma.companyMembership.findMany({
+          where: {
+            userId: { in: userIds },
+            companyId: actor.companyId,
+            isActive: true,
+          },
+          select: { userId: true },
+        });
+        for (const m of memberships) {
+          membershipsByUserId.set(m.userId, true);
+        }
+      }
+
+      // Return masked results: masked phone + initials only
+      return {
+        found: results.length > 0,
+        results: results.map(r => {
+          const initials = this.getInitials(r.firstName, r.lastName);
+          const maskedPhone = this.maskPhone(r.phone);
+          return {
+            id: r.userId || r.email, // Use as identifier for selection
+            maskedPhone,
+            initials,
+            isAlreadyMember: r.userId ? membershipsByUserId.get(r.userId) ?? false : false,
+          };
+        }),
+      };
+    }
+
+    return { found: false, results: [] };
+  }
+
+  /**
+   * Get full details for a person after initials selection.
+   * Returns partially masked email for verification.
+   */
+  async crossTenantGetPersonDetails(
+    actor: AuthenticatedUser,
+    params: { personId: string; phone: string },
+  ) {
+    if (actor.role !== "OWNER" && actor.role !== "ADMIN" && actor.globalRole !== "SUPER_ADMIN") {
+      throw new ForbiddenException("Only company admins can view person details");
+    }
+
+    const phone = (params.phone || "").replace(/\D/g, "").trim();
+    const personId = params.personId;
+
+    if (!personId || !phone) {
+      throw new BadRequestException("Person ID and phone are required");
+    }
+
+    // Try to find as User first
+    let user = await this.prisma.user.findUnique({
+      where: { id: personId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        peopleToken: true,
+        emailAliases: {
+          select: { email: true, verified: true },
+        },
+      },
+    });
+
+    // If not found by ID, try by email
+    if (!user) {
+      user = await this.prisma.user.findUnique({
+        where: { email: personId },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          peopleToken: true,
+          emailAliases: {
+            select: { email: true, verified: true },
+          },
+        },
+      });
+    }
+
+    if (!user) {
+      throw new NotFoundException("Person not found");
+    }
+
+    // Collect all emails (primary + aliases)
+    const allEmails = [
+      { email: user.email, isPrimary: true, verified: true },
+      ...(user.emailAliases || []).map(a => ({
+        email: a.email,
+        isPrimary: false,
+        verified: a.verified,
+      })),
+    ];
+
+    // Check if already a member
+    let isAlreadyMember = false;
+    if (actor.companyId) {
+      const membership = await this.prisma.companyMembership.findUnique({
+        where: {
+          userId_companyId: {
+            userId: user.id,
+            companyId: actor.companyId,
+          },
+        },
+        select: { isActive: true },
+      });
+      isAlreadyMember = membership?.isActive ?? false;
+    }
+
+    return {
+      userId: user.id,
+      initials: this.getInitials(user.firstName, user.lastName),
+      maskedPhone: this.maskPhone(phone),
+      emails: allEmails.map(e => ({
+        masked: this.maskEmail(e.email),
+        full: e.email, // Revealed at this stage
+        isPrimary: e.isPrimary,
+        verified: e.verified,
+      })),
+      peopleToken: user.peopleToken,
+      isAlreadyMember,
+    };
+  }
+
+  /**
+   * Create a cross-tenant invite with full token relationship tracking.
+   */
+  async createCrossTenantInvite(
+    actor: AuthenticatedUser,
+    params: {
+      targetCompanyId: string;
+      inviteeUserId?: string;
+      inviteeEmail: string;
+      inviteePhone?: string;
+      role?: Role;
+    },
+  ) {
+    if (actor.role !== "OWNER" && actor.role !== "ADMIN" && actor.globalRole !== "SUPER_ADMIN") {
+      throw new ForbiddenException("Only company admins can send cross-tenant invites");
+    }
+
+    const targetCompanyId = params.targetCompanyId || actor.companyId;
+    if (!targetCompanyId) {
+      throw new BadRequestException("Target company ID is required");
+    }
+
+    const email = this.normalizeEmail(params.inviteeEmail);
+    if (!email) {
+      throw new BadRequestException("Invitee email is required");
+    }
+
+    // Get target company and its worker invite token
+    const targetCompany = await this.prisma.company.findUnique({
+      where: { id: targetCompanyId },
+      select: { id: true, name: true, workerInviteToken: true },
+    });
+
+    if (!targetCompany) {
+      throw new NotFoundException("Target company not found");
+    }
+
+    // Get inviter's people token
+    const inviter = await this.prisma.user.findUnique({
+      where: { id: actor.userId },
+      select: { id: true, peopleToken: true },
+    });
+
+    if (!inviter) {
+      throw new NotFoundException("Inviter not found");
+    }
+
+    // Get invitee info if they exist
+    let inviteeUser: { id: string; peopleToken: string } | null = null;
+    if (params.inviteeUserId) {
+      inviteeUser = await this.prisma.user.findUnique({
+        where: { id: params.inviteeUserId },
+        select: { id: true, peopleToken: true },
+      });
+    } else {
+      // Try to find by email
+      inviteeUser = await this.prisma.user.findUnique({
+        where: { email },
+        select: { id: true, peopleToken: true },
+      });
+    }
+
+    // Check if already a member
+    if (inviteeUser) {
+      const existingMembership = await this.prisma.companyMembership.findUnique({
+        where: {
+          userId_companyId: {
+            userId: inviteeUser.id,
+            companyId: targetCompanyId,
+          },
+        },
+        select: { isActive: true },
+      });
+
+      if (existingMembership?.isActive) {
+        throw new ConflictException("This person is already a member of this company");
+      }
+    }
+
+    // Check for existing pending invite
+    const existingInvite = await this.prisma.crossTenantInvite.findFirst({
+      where: {
+        targetCompanyId,
+        inviteeEmail: email,
+        status: "PENDING",
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (existingInvite) {
+      throw new ConflictException("An invite is already pending for this email");
+    }
+
+    // Generate invite token
+    const token = this.generateToken();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    // Create the invite
+    const invite = await this.prisma.crossTenantInvite.create({
+      data: {
+        targetCompanyId,
+        inviterUserId: inviter.id,
+        inviteeUserId: inviteeUser?.id || null,
+        inviteeEmail: email,
+        inviteePhone: params.inviteePhone || null,
+        token,
+        tenantToken: targetCompany.workerInviteToken || null,
+        inviterPeopleToken: inviter.peopleToken,
+        inviteePeopleToken: inviteeUser?.peopleToken || null,
+        role: params.role || ("MEMBER" as Role),
+        status: "PENDING",
+        expiresAt,
+      },
+    });
+
+    // TODO: Send invite email to invitee
+
+    return {
+      inviteId: invite.id,
+      token: invite.token,
+      targetCompany: { id: targetCompany.id, name: targetCompany.name },
+      inviteeEmail: email,
+      expiresAt,
+      trackingTokens: {
+        tenantToken: invite.tenantToken,
+        inviterPeopleToken: invite.inviterPeopleToken,
+        inviteePeopleToken: invite.inviteePeopleToken,
+      },
+    };
+  }
+
+  /**
+   * Accept a cross-tenant invite and auto-link accounts if phone matches.
+   * This handles the account consolidation logic:
+   * 1. Validate the invite token
+   * 2. Check if the accepting user's phone matches any existing account
+   * 3. If match found, auto-link the accounts (primary + alias emails)
+   * 4. Create AccountLinkEvent for audit trail
+   * 5. Create company membership
+   * 6. Trigger SMS verification (deferred, non-blocking)
+   */
+  async acceptCrossTenantInvite(
+    token: string,
+    acceptingUser: {
+      email: string;
+      phone?: string;
+      firstName?: string;
+      lastName?: string;
+    },
+  ) {
+    // Find the invite
+    const invite = await this.prisma.crossTenantInvite.findUnique({
+      where: { token },
+      include: {
+        targetCompany: { select: { id: true, name: true } },
+        inviter: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+
+    if (!invite) {
+      throw new NotFoundException("Invite not found");
+    }
+
+    if (invite.status !== "PENDING") {
+      throw new ConflictException(`Invite has already been ${invite.status.toLowerCase()}`);
+    }
+
+    if (invite.expiresAt && invite.expiresAt < new Date()) {
+      // Mark as expired
+      await this.prisma.crossTenantInvite.update({
+        where: { id: invite.id },
+        data: { status: "EXPIRED" },
+      });
+      throw new ConflictException("Invite has expired");
+    }
+
+    const normalizedEmail = this.normalizeEmail(acceptingUser.email);
+    const normalizedPhone = acceptingUser.phone?.replace(/\D/g, "") || null;
+
+    // Check if accepting user already exists
+    let existingUser = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true, peopleToken: true },
+    });
+
+    let accountLinked = false;
+    let linkedFromUserId: string | null = null;
+    let accountLinkEventId: string | null = null;
+    let matchedPhone: string | null = null;
+
+    // If no user by email, check if phone matches an existing user (via OnboardingProfile or NexNetCandidate)
+    if (!existingUser && normalizedPhone) {
+      // Search for phone match in OnboardingProfile
+      const profileMatch = await this.prisma.onboardingProfile.findFirst({
+        where: {
+          phone: { contains: normalizedPhone.slice(-10) },
+        },
+        include: {
+          session: {
+            select: {
+              userId: true,
+              user: { select: { id: true, email: true, peopleToken: true } },
+            },
+          },
+        },
+      });
+
+      let phoneMatchUser: { id: string; email: string; peopleToken: string } | null = null;
+      if (profileMatch?.session?.user) {
+        phoneMatchUser = profileMatch.session.user;
+        matchedPhone = profileMatch.phone;
+      } else {
+        // Also check NexNetCandidate
+        const candidateMatch = await this.prisma.nexNetCandidate.findFirst({
+          where: {
+            phone: { contains: normalizedPhone.slice(-10) },
+          },
+          include: {
+            user: { select: { id: true, email: true, peopleToken: true } },
+          },
+        });
+        if (candidateMatch?.user) {
+          phoneMatchUser = candidateMatch.user;
+          matchedPhone = candidateMatch.phone;
+        }
+      }
+
+      if (phoneMatchUser) {
+        // Phone matches! Auto-link the accounts
+        // The new email becomes an alias for the existing account
+        accountLinked = true;
+        linkedFromUserId = phoneMatchUser.id;
+        existingUser = phoneMatchUser;
+
+        // Create email alias for the new email
+        await this.prisma.userEmailAlias.create({
+          data: {
+            userId: phoneMatchUser.id,
+            email: normalizedEmail,
+            verified: false, // Will be verified via SMS confirmation
+          },
+        });
+
+        // Generate SMS verification code
+        const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+        // Create AccountLinkEvent for audit trail
+        const linkEvent = await this.prisma.accountLinkEvent.create({
+          data: {
+            primaryUserId: phoneMatchUser.id,
+            linkedEmail: normalizedEmail,
+            phone: normalizedPhone,
+            status: "PENDING_VERIFICATION",
+            verificationCode,
+            verificationSentAt: new Date(),
+            triggeredByInviteId: invite.id,
+          },
+        });
+        accountLinkEventId = linkEvent.id;
+
+        // TODO: Send SMS verification code to the phone number
+        // await this.smsService.sendVerificationCode(normalizedPhone, verificationCode);
+      }
+    }
+
+    // If still no existing user, create a new one
+    if (!existingUser) {
+      const peopleToken = this.generateToken();
+      existingUser = await this.prisma.user.create({
+        data: {
+          email: normalizedEmail,
+          passwordHash: "", // Will be set when user creates password
+          firstName: acceptingUser.firstName || null,
+          lastName: acceptingUser.lastName || null,
+          peopleToken,
+          globalRole: "NONE",
+        },
+        select: { id: true, peopleToken: true },
+      });
+    }
+
+    // Check if already a member of the target company
+    const existingMembership = await this.prisma.companyMembership.findUnique({
+      where: {
+        userId_companyId: {
+          userId: existingUser.id,
+          companyId: invite.targetCompanyId,
+        },
+      },
+    });
+
+    if (existingMembership?.isActive) {
+      // Already a member, just mark invite as accepted
+      await this.prisma.crossTenantInvite.update({
+        where: { id: invite.id },
+        data: {
+          status: "ACCEPTED",
+          acceptedAt: new Date(),
+          inviteePeopleToken: existingUser.peopleToken,
+        },
+      });
+
+      return {
+        success: true,
+        alreadyMember: true,
+        companyId: invite.targetCompanyId,
+        companyName: invite.targetCompany.name,
+        accountLinked,
+        accountLinkEventId,
+        requiresVerification: accountLinked,
+      };
+    }
+
+    // Create or reactivate membership
+    if (existingMembership) {
+      await this.prisma.companyMembership.update({
+        where: {
+          userId_companyId: {
+            userId: existingUser.id,
+            companyId: invite.targetCompanyId,
+          },
+        },
+        data: { isActive: true, role: invite.role as Role },
+      });
+    } else {
+      await this.prisma.companyMembership.create({
+        data: {
+          userId: existingUser.id,
+          companyId: invite.targetCompanyId,
+          role: invite.role as Role,
+          isActive: true,
+        },
+      });
+    }
+
+    // Update invite status
+    await this.prisma.crossTenantInvite.update({
+      where: { id: invite.id },
+      data: {
+        status: "ACCEPTED",
+        acceptedAt: new Date(),
+        inviteeUserId: existingUser.id,
+        inviteePeopleToken: existingUser.peopleToken,
+      },
+    });
+
+    return {
+      success: true,
+      alreadyMember: false,
+      userId: existingUser.id,
+      companyId: invite.targetCompanyId,
+      companyName: invite.targetCompany.name,
+      role: invite.role,
+      accountLinked,
+      linkedFromUserId,
+      accountLinkEventId,
+      requiresVerification: accountLinked,
+      message: accountLinked
+        ? "We found an existing account with this phone number. Your accounts have been linked. Please verify via SMS."
+        : undefined,
+    };
+  }
+
+  /**
+   * Verify account link via SMS code.
+   * This confirms the person accepting the invite owns the phone number.
+   */
+  async verifyAccountLink(accountLinkEventId: string, verificationCode: string) {
+    const linkEvent = await this.prisma.accountLinkEvent.findUnique({
+      where: { id: accountLinkEventId },
+      include: {
+        primaryUser: { select: { id: true, email: true } },
+      },
+    });
+
+    if (!linkEvent) {
+      throw new NotFoundException("Account link event not found");
+    }
+
+    if (linkEvent.status === "VERIFIED") {
+      return { success: true, alreadyVerified: true };
+    }
+
+    if (linkEvent.status !== "PENDING_VERIFICATION") {
+      throw new ConflictException(`Account link is ${linkEvent.status.toLowerCase().replace("_", " ")}`);
+    }
+
+    // Check if code is expired (10 min after sent)
+    if (linkEvent.verificationSentAt) {
+      const expiresAt = new Date(linkEvent.verificationSentAt.getTime() + 10 * 60 * 1000);
+      if (expiresAt < new Date()) {
+        throw new ConflictException("Verification code has expired. Please request a new code.");
+      }
+    }
+
+    if (linkEvent.verificationCode !== verificationCode) {
+      throw new BadRequestException("Invalid verification code");
+    }
+
+    // Mark as verified
+    await this.prisma.accountLinkEvent.update({
+      where: { id: accountLinkEventId },
+      data: {
+        status: "VERIFIED",
+        verifiedAt: new Date(),
+      },
+    });
+
+    // Mark the email alias as verified
+    await this.prisma.userEmailAlias.updateMany({
+      where: {
+        userId: linkEvent.primaryUserId,
+        email: linkEvent.linkedEmail,
+      },
+      data: { verified: true },
+    });
+
+    return {
+      success: true,
+      alreadyVerified: false,
+      primaryEmail: linkEvent.primaryUser.email,
+      linkedEmail: linkEvent.linkedEmail,
+    };
+  }
+
+  /**
+   * Resend SMS verification code for account link.
+   */
+  async resendAccountLinkVerification(accountLinkEventId: string) {
+    const linkEvent = await this.prisma.accountLinkEvent.findUnique({
+      where: { id: accountLinkEventId },
+    });
+
+    if (!linkEvent) {
+      throw new NotFoundException("Account link event not found");
+    }
+
+    if (linkEvent.status === "VERIFIED") {
+      return { success: true, alreadyVerified: true };
+    }
+
+    if (linkEvent.status !== "PENDING_VERIFICATION") {
+      throw new ConflictException("Cannot resend verification for this account link");
+    }
+
+    // Generate new code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationSentAt = new Date();
+
+    await this.prisma.accountLinkEvent.update({
+      where: { id: accountLinkEventId },
+      data: {
+        verificationCode,
+        verificationSentAt,
+      },
+    });
+
+    // TODO: Send SMS verification code
+    // const phone = linkEvent.phone;
+    // await this.smsService.sendVerificationCode(phone, verificationCode);
+
+    return {
+      success: true,
+      message: "Verification code sent",
+      expiresAt: new Date(verificationSentAt.getTime() + 10 * 60 * 1000),
+    };
+  }
+
+  // --- Helper methods for privacy masking ---
+
+  private getInitials(firstName: string | null, lastName: string | null): string {
+    const f = (firstName || "").trim().charAt(0).toUpperCase();
+    const l = (lastName || "").trim().charAt(0).toUpperCase();
+    return `${f}${l}` || "??";
+  }
+
+  private maskPhone(phone: string): string {
+    const digits = (phone || "").replace(/\D/g, "");
+    if (digits.length < 4) return "***.***.**" + digits;
+    // Show last 4 digits only
+    return "***.***" + digits.slice(-4);
+  }
+
+  private maskEmail(email: string): string {
+    if (!email) return "***@***.***";
+    const [local, domain] = email.split("@");
+    if (!local || !domain) return "***@***.***";
+    const maskedLocal = local.charAt(0) + "***";
+    return `${maskedLocal}@${domain}`;
+  }
 }

@@ -183,6 +183,9 @@ model Company {
   supplierTags SupplierTag[]
   suppliers    Supplier[]
   bidRequests  BidRequest[]
+
+  // Cross-Tenant Invites targeting this company
+  crossTenantInvites CrossTenantInvite[]
 }
 
 model OrganizationTemplate {
@@ -494,6 +497,16 @@ model User {
 
   // Client Portal: TenantClient profiles linked to this user (can be client for multiple companies)
   tenantClientProfiles TenantClient[]
+
+  // Cross-Tenant Invites (inviter and invitee relationships)
+  crossTenantInvitesSent     CrossTenantInvite[] @relation("CrossTenantInviteInviter")
+  crossTenantInvitesReceived CrossTenantInvite[] @relation("CrossTenantInviteInvitee")
+
+  // Email Aliases (alternate login emails for the same person)
+  emailAliases UserEmailAlias[]
+
+  // Account Link Events (for duplicate detection/consolidation)
+  accountLinkEvents AccountLinkEvent[]
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -5823,4 +5836,115 @@ model BidResponseItem {
 
   @@unique([bidResponseId, bidRequestItemId], map: "BidResponseItem_response_item_key")
   @@index([bidResponseId], map: "BidResponseItem_response_idx")
+}
+
+// =============================================================================
+// Cross-Tenant Person Search & Invite System
+// =============================================================================
+
+/// Status of a cross-tenant invite
+enum CrossTenantInviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+/// Cross-tenant invite with full token relationship tracking.
+/// Enables tenants to invite people from the NEXUS System pool or other tenants
+/// while maintaining audit trail of inviter/invitee relationships.
+model CrossTenantInvite {
+  id              String @id @default(cuid())
+  targetCompanyId String // Tenant inviting the person
+  inviterUserId   String // User who initiated the invite
+  inviteeUserId   String? // Existing user being invited (null if new person)
+  inviteeEmail    String // Email for the invite
+  inviteePhone    String? // Phone used to find the person
+
+  token String @unique // Unique invite token for acceptance URL
+
+  // Token relationship tracking for audit/analytics
+  tenantToken        String? // Company.workerInviteToken snapshot at invite time
+  inviterPeopleToken String // User.peopleToken of inviter
+  inviteePeopleToken String? // User.peopleToken of invitee (if existing user)
+
+  role   Role                    @default(MEMBER)
+  status CrossTenantInviteStatus @default(PENDING)
+
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  targetCompany Company @relation(fields: [targetCompanyId], references: [id])
+  inviter       User    @relation("CrossTenantInviteInviter", fields: [inviterUserId], references: [id])
+  invitee       User?   @relation("CrossTenantInviteInvitee", fields: [inviteeUserId], references: [id])
+
+  // Link back to account link event if this invite triggered an account merge
+  accountLinkEvent AccountLinkEvent?
+
+  @@index([targetCompanyId, status], map: "CrossTenantInvite_company_status_idx")
+  @@index([inviterUserId], map: "CrossTenantInvite_inviter_idx")
+  @@index([inviteeUserId], map: "CrossTenantInvite_invitee_idx")
+  @@index([inviteeEmail], map: "CrossTenantInvite_email_idx")
+  @@index([inviteePhone], map: "CrossTenantInvite_phone_idx")
+}
+
+/// Alternate login email for a user (supports multi-email login).
+/// When a phone number matches an existing user during invite acceptance,
+/// the new email is added as an alias rather than creating a duplicate account.
+model UserEmailAlias {
+  id          String   @id @default(cuid())
+  userId      String // Canonical User account this email belongs to
+  email       String   @unique // Alternate email (can be used to login)
+  verified    Boolean  @default(false) // Has the user verified ownership via SMS
+  linkedAt    DateTime @default(now())
+  linkEventId String? // AccountLinkEvent that created this alias
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId], map: "UserEmailAlias_user_idx")
+}
+
+/// Status of an account link event
+enum AccountLinkStatus {
+  PENDING_VERIFICATION // Linked but awaiting SMS verification
+  VERIFIED // User confirmed via SMS
+  DISPUTED // User claims this is not their account
+  UNLINKED_BY_ADMIN // Admin manually unlinked
+}
+
+/// Tracks when email aliases are linked to canonical accounts.
+/// Used for duplicate detection, audit trail, and admin review.
+model AccountLinkEvent {
+  id            String @id @default(cuid())
+  primaryUserId String // Canonical account that absorbed the email
+  linkedEmail   String // Email being linked as alias
+  phone         String // Phone number that matched (identity anchor)
+
+  // SMS verification
+  verificationCode   String? // 6-digit code sent via SMS
+  verificationSentAt DateTime? // When code was sent
+  verifiedAt         DateTime? // When user verified (null = pending)
+
+  // Trigger context
+  triggeredByInviteId String?            @unique // CrossTenantInvite that caused this
+  triggeredByInvite   CrossTenantInvite? @relation(fields: [triggeredByInviteId], references: [id])
+
+  status AccountLinkStatus @default(PENDING_VERIFICATION)
+
+  // Admin review
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  reviewNotes      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  primaryUser User @relation(fields: [primaryUserId], references: [id])
+
+  @@index([primaryUserId], map: "AccountLinkEvent_primary_user_idx")
+  @@index([linkedEmail], map: "AccountLinkEvent_email_idx")
+  @@index([phone], map: "AccountLinkEvent_phone_idx")
+  @@index([status, createdAt], map: "AccountLinkEvent_status_created_idx")
 }
