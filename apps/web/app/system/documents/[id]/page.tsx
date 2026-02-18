@@ -915,35 +915,31 @@ function PrintView({
           margin: 0.75in;
         }
         @media print {
-          /* Hide everything except print container */
+          /* Reset html/body */
           html, body {
-            width: 100%;
-            height: 100%;
-            margin: 0;
-            padding: 0;
+            width: 100% !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
             background: white !important;
+            overflow: visible !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          body > *:not(.print-overlay) {
-            display: none !important;
+          /* Hide everything by default */
+          body * {
+            visibility: hidden !important;
           }
-          .print-overlay {
-            display: block !important;
-            position: static !important;
-            background: transparent !important;
-            padding: 0 !important;
-            overflow: visible !important;
+          /* Show only the print container and its contents */
+          .print-container,
+          .print-container * {
+            visibility: visible !important;
           }
-          .print-overlay > div {
-            background: transparent !important;
-            box-shadow: none !important;
-            border-radius: 0 !important;
-            max-width: none !important;
-            width: 100% !important;
-          }
+          /* Position print container at top of page */
           .print-container {
-            position: static !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
             width: 100% !important;
             max-width: none !important;
             padding: 0 !important;
@@ -953,23 +949,30 @@ function PrintView({
             border-radius: 0 !important;
             background: white !important;
           }
-          .no-print {
-            display: none !important;
-          }
-          .print-watermark {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%) rotate(-45deg);
-            font-size: 100px;
-            color: rgba(0, 0, 0, 0.03);
-            font-weight: bold;
-            pointer-events: none;
-            z-index: 9999;
-          }
-          /* Document content styling */
-          .print-document-content {
+          /* Hide the overlay background */
+          .print-overlay {
+            background: transparent !important;
             padding: 0 !important;
+            position: static !important;
+          }
+          /* Hide no-print elements */
+          .no-print,
+          .no-print * {
+            display: none !important;
+            visibility: hidden !important;
+          }
+          /* Watermark */
+          .print-watermark {
+            visibility: visible !important;
+            position: fixed !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) rotate(-45deg) !important;
+            font-size: 100px !important;
+            color: rgba(0, 0, 0, 0.03) !important;
+            font-weight: bold !important;
+            pointer-events: none !important;
+            z-index: 9999 !important;
           }
           /* Prevent images from being cut across pages */
           .print-document-content img {
@@ -977,8 +980,8 @@ function PrintView({
             break-inside: avoid !important;
             max-width: 100% !important;
             height: auto !important;
-            display: block;
-            margin: 16px auto;
+            display: block !important;
+            margin: 16px auto !important;
           }
           /* Prevent tables from being cut */
           .print-document-content table {
