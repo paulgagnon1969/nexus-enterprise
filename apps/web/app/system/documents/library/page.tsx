@@ -42,6 +42,69 @@ export default function SystemDocumentsLibraryPage() {
   const [newContent, setNewContent] = useState("");
   const [creating, setCreating] = useState(false);
 
+  // Import HTML modal
+  const [showImportHtml, setShowImportHtml] = useState(false);
+  const [importHtml, setImportHtml] = useState("");
+  const [showHtmlPreview, setShowHtmlPreview] = useState(false);
+  const [parsedMeta, setParsedMeta] = useState<{
+    code?: string;
+    title?: string;
+    description?: string;
+    category?: string;
+    // Manual placement
+    manualCode?: string;
+    manualTitle?: string;
+    manualIcon?: string;
+    chapterNumber?: string;
+    chapterTitle?: string;
+  } | null>(null);
+  const [importMode, setImportMode] = useState<"document" | "with-manual">("document");
+
+  // Parse NCC metadata from HTML
+  const parseHtmlMetadata = (html: string) => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+    
+    const getMeta = (name: string) => {
+      const el = doc.querySelector(`meta[name="ncc:${name}"]`);
+      return el?.getAttribute("content") || undefined;
+    };
+
+    const meta = {
+      code: getMeta("code"),
+      title: getMeta("title"),
+      description: getMeta("description"),
+      category: getMeta("category"),
+      // Manual placement
+      manualCode: getMeta("manual-code"),
+      manualTitle: getMeta("manual-title"),
+      manualIcon: getMeta("manual-icon"),
+      chapterNumber: getMeta("chapter-number"),
+      chapterTitle: getMeta("chapter-title"),
+    };
+
+    // Only set if at least one field was found
+    const hasDocMeta = meta.code || meta.title || meta.description || meta.category;
+    const hasManualMeta = meta.manualCode || meta.manualTitle;
+    
+    if (hasDocMeta || hasManualMeta) {
+      setParsedMeta(meta);
+      // Auto-select mode based on detected metadata
+      if (hasManualMeta) {
+        setImportMode("with-manual");
+      }
+    } else {
+      setParsedMeta(null);
+    }
+  };
+
+  // Extract body content only (strip head/html wrapper)
+  const extractBodyContent = (html: string): string => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+    return doc.body.innerHTML.trim();
+  };
+
   useEffect(() => {
     loadDocuments();
   }, [showInactive]);
@@ -128,6 +191,23 @@ export default function SystemDocumentsLibraryPage() {
             Show inactive
           </label>
           <button
+            onClick={() => setShowImportHtml(true)}
+            style={{
+              padding: "6px 12px",
+              borderRadius: 4,
+              border: "1px solid #7c3aed",
+              background: "#f5f3ff",
+              color: "#7c3aed",
+              fontSize: 13,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            📋 Import HTML
+          </button>
+          <button
             onClick={() => setShowCreateForm(true)}
             style={{
               padding: "6px 12px",
@@ -147,6 +227,270 @@ export default function SystemDocumentsLibraryPage() {
       {error && (
         <div style={{ padding: 12, background: "#fef2f2", color: "#b91c1c", borderRadius: 4, marginBottom: 16 }}>
           {error}
+        </div>
+      )}
+
+      {/* Import HTML Modal */}
+      {showImportHtml && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 1000,
+          }}
+          onClick={() => setShowImportHtml(false)}
+        >
+          <div
+            style={{
+              background: "white",
+              borderRadius: 8,
+              padding: 24,
+              width: "90%",
+              maxWidth: 900,
+              maxHeight: "90vh",
+              overflow: "auto",
+              display: "flex",
+              flexDirection: "column",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h2 style={{ margin: 0, fontSize: 18, display: "flex", alignItems: "center", gap: 8 }}>
+                <span>📋</span> Import HTML Content
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowHtmlPreview(!showHtmlPreview)}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 4,
+                  border: "1px solid #d1d5db",
+                  background: showHtmlPreview ? "#f3f4f6" : "white",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                {showHtmlPreview ? "Hide Preview" : "Show Preview"}
+              </button>
+            </div>
+            <p style={{ margin: "0 0 12px", fontSize: 13, color: "#6b7280" }}>
+              Paste your HTML content below. Use <code style={{ background: "#f3f4f6", padding: "2px 4px", borderRadius: 3 }}>ncc:</code> meta tags for auto-fill.
+            </p>
+            {parsedMeta && (parsedMeta.code || parsedMeta.title || parsedMeta.manualCode) && (
+              <div
+                style={{
+                  padding: 12,
+                  marginBottom: 12,
+                  backgroundColor: parsedMeta.manualCode ? "#eff6ff" : "#f0fdf4",
+                  border: `1px solid ${parsedMeta.manualCode ? "#93c5fd" : "#86efac"}`,
+                  borderRadius: 6,
+                  fontSize: 13,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 8, color: parsedMeta.manualCode ? "#1e40af" : "#166534" }}>
+                  ✓ Detected Metadata {parsedMeta.manualCode && "(with Manual Placement)"}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 4, color: "#374151" }}>
+                  {parsedMeta.code && <><span style={{ color: "#6b7280" }}>Code:</span><span style={{ fontFamily: "monospace" }}>{parsedMeta.code}</span></>}
+                  {parsedMeta.title && <><span style={{ color: "#6b7280" }}>Title:</span><span>{parsedMeta.title}</span></>}
+                  {parsedMeta.description && <><span style={{ color: "#6b7280" }}>Description:</span><span>{parsedMeta.description}</span></>}
+                  {parsedMeta.category && <><span style={{ color: "#6b7280" }}>Category:</span><span>{parsedMeta.category}</span></>}
+                </div>
+                {parsedMeta.manualCode && (
+                  <>
+                    <div style={{ borderTop: "1px solid #bfdbfe", margin: "8px 0", paddingTop: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "#1e40af" }}>📖 Manual Placement:</span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 4, color: "#374151" }}>
+                      <span style={{ color: "#6b7280" }}>Manual:</span>
+                      <span>{parsedMeta.manualIcon || "📘"} {parsedMeta.manualTitle || parsedMeta.manualCode}</span>
+                      <span style={{ color: "#6b7280" }}>Chapter:</span>
+                      <span>#{parsedMeta.chapterNumber || "?"} — {parsedMeta.chapterTitle || parsedMeta.title}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 16, flex: 1, minHeight: 400 }}>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                <label style={{ fontSize: 12, fontWeight: 500, marginBottom: 4 }}>HTML Source</label>
+                <textarea
+                  value={importHtml}
+                  onChange={(e) => {
+                    setImportHtml(e.target.value);
+                    parseHtmlMetadata(e.target.value);
+                  }}
+                  placeholder={`Paste your HTML here...
+
+Supports NCC metadata tags:
+<meta name="ncc:code" content="DOC-001" />
+<meta name="ncc:title" content="Document Title" />
+<meta name="ncc:description" content="..." />
+<meta name="ncc:category" content="Handbook" />`}
+                  style={{
+                    flex: 1,
+                    padding: 12,
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontFamily: "monospace",
+                    fontSize: 12,
+                    resize: "none",
+                    lineHeight: 1.5,
+                  }}
+                />
+              </div>
+              {showHtmlPreview && (
+                <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                  <label style={{ fontSize: 12, fontWeight: 500, marginBottom: 4 }}>Preview</label>
+                  <div
+                    style={{
+                      flex: 1,
+                      padding: 12,
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      backgroundColor: "#fafafa",
+                      overflow: "auto",
+                      fontSize: 14,
+                    }}
+                    dangerouslySetInnerHTML={{ __html: importHtml }}
+                  />
+                </div>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowImportHtml(false);
+                  setImportHtml("");
+                  setShowHtmlPreview(false);
+                }}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 4,
+                  border: "1px solid #d1d5db",
+                  background: "white",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              {parsedMeta?.manualCode ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!importHtml.trim()) {
+                      alert("Please paste some HTML content first.");
+                      return;
+                    }
+                    if (!parsedMeta?.code || !parsedMeta?.title) {
+                      alert("Missing required ncc:code or ncc:title metadata.");
+                      return;
+                    }
+
+                    const token = localStorage.getItem("accessToken");
+                    const bodyContent = extractBodyContent(importHtml);
+
+                    try {
+                      // Call unified import endpoint
+                      const res = await fetch(`${API_BASE}/system-documents/import-with-manual`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({
+                          // Document data
+                          code: parsedMeta.code,
+                          title: parsedMeta.title,
+                          description: parsedMeta.description,
+                          category: parsedMeta.category,
+                          htmlContent: bodyContent || importHtml,
+                          // Manual placement
+                          manualCode: parsedMeta.manualCode,
+                          manualTitle: parsedMeta.manualTitle,
+                          manualIcon: parsedMeta.manualIcon,
+                          chapterNumber: parsedMeta.chapterNumber ? parseInt(parsedMeta.chapterNumber, 10) : undefined,
+                          chapterTitle: parsedMeta.chapterTitle,
+                        }),
+                      });
+
+                      if (!res.ok) {
+                        const err = await res.json().catch(() => ({}));
+                        throw new Error(err.message || "Failed to import");
+                      }
+
+                      const result = await res.json();
+                      alert(`✓ Created document "${result.document.code}" and added to manual "${result.manual.code}" as Chapter ${result.chapter?.sortOrder ?? "?"}`);
+                      
+                      setShowImportHtml(false);
+                      setImportHtml("");
+                      setShowHtmlPreview(false);
+                      setParsedMeta(null);
+                      setImportMode("document");
+                      loadDocuments();
+                    } catch (err: any) {
+                      alert(err.message || "Failed to import");
+                    }
+                  }}
+                  disabled={!importHtml.trim() || !parsedMeta?.code}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 4,
+                    border: "none",
+                    background: importHtml.trim() && parsedMeta?.code ? "#7c3aed" : "#9ca3af",
+                    color: "white",
+                    cursor: importHtml.trim() && parsedMeta?.code ? "pointer" : "not-allowed",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  📖 Import & Link to Manual
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!importHtml.trim()) {
+                      alert("Please paste some HTML content first.");
+                      return;
+                    }
+                    // Extract body content and transfer to create form
+                    const bodyContent = extractBodyContent(importHtml);
+                    setNewContent(bodyContent || importHtml);
+                    // Auto-fill metadata if detected
+                    if (parsedMeta) {
+                      if (parsedMeta.code) setNewCode(parsedMeta.code);
+                      if (parsedMeta.title) setNewTitle(parsedMeta.title);
+                      if (parsedMeta.description) setNewDescription(parsedMeta.description);
+                      if (parsedMeta.category) setNewCategory(parsedMeta.category);
+                    }
+                    setShowImportHtml(false);
+                    setImportHtml("");
+                    setShowHtmlPreview(false);
+                    setParsedMeta(null);
+                    setShowCreateForm(true);
+                  }}
+                  disabled={!importHtml.trim()}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 4,
+                    border: "none",
+                    background: importHtml.trim() ? "#2563eb" : "#9ca3af",
+                    color: "white",
+                    cursor: importHtml.trim() ? "pointer" : "not-allowed",
+                  }}
+                >
+                  Continue to Create Document →
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

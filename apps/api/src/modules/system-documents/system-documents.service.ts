@@ -11,7 +11,9 @@ import {
   PublishSystemDocumentDto,
   CopyToOrgDto,
   UpdateTenantCopyDto,
+  ImportWithManualDto,
 } from "./dto/system-document.dto";
+import { ManualVersionChangeType } from "@prisma/client";
 
 // Paths to document sources relative to repo root
 const STAGING_DIR = path.resolve(__dirname, "../../../../../docs/sops-staging");
@@ -482,6 +484,221 @@ export class SystemDocumentsService {
         publishedBy: { select: { id: true, email: true, firstName: true, lastName: true } },
       },
       orderBy: { publishedAt: "desc" },
+    });
+  }
+
+  // =========================================================================
+  // Unified Import: Document + Manual Placement
+  // =========================================================================
+
+  async importWithManual(userId: string, dto: ImportWithManualDto) {
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Check if document already exists by code
+      let doc = await tx.systemDocument.findUnique({
+        where: { code: dto.code },
+        include: { currentVersion: true },
+      });
+
+      const contentHash = this.hashContent(dto.htmlContent);
+
+      if (doc) {
+        // Document exists - check if content changed
+        if (doc.currentVersion?.contentHash !== contentHash) {
+          // Create new version
+          const lastVersion = await tx.systemDocumentVersion.findFirst({
+            where: { systemDocumentId: doc.id },
+            orderBy: { versionNo: "desc" },
+          });
+          const nextVersionNo = (lastVersion?.versionNo ?? 0) + 1;
+
+          const version = await tx.systemDocumentVersion.create({
+            data: {
+              systemDocumentId: doc.id,
+              versionNo: nextVersionNo,
+              htmlContent: dto.htmlContent,
+              contentHash,
+              notes: `Updated via import`,
+              createdByUserId: userId,
+            },
+          });
+
+          await tx.systemDocument.update({
+            where: { id: doc.id },
+            data: {
+              currentVersionId: version.id,
+              title: dto.title,
+              description: dto.description,
+              category: dto.category,
+            },
+          });
+        }
+      } else {
+        // Create new document
+        doc = await tx.systemDocument.create({
+          data: {
+            code: dto.code,
+            title: dto.title,
+            description: dto.description,
+            category: dto.category,
+            createdByUserId: userId,
+          },
+        });
+
+        const version = await tx.systemDocumentVersion.create({
+          data: {
+            systemDocumentId: doc.id,
+            versionNo: 1,
+            htmlContent: dto.htmlContent,
+            contentHash,
+            notes: "Initial version via import",
+            createdByUserId: userId,
+          },
+        });
+
+        await tx.systemDocument.update({
+          where: { id: doc.id },
+          data: { currentVersionId: version.id },
+        });
+      }
+
+      // 2. Find or create the manual
+      let manual = await tx.manual.findUnique({
+        where: { code: dto.manualCode },
+      });
+
+      if (!manual) {
+        // Create the manual
+        manual = await tx.manual.create({
+          data: {
+            code: dto.manualCode,
+            title: dto.manualTitle || dto.manualCode,
+            iconEmoji: dto.manualIcon || "📘",
+            createdByUserId: userId,
+            currentVersion: 1,
+          },
+        });
+
+        // Create initial version record
+        await tx.manualVersion.create({
+          data: {
+            manualId: manual.id,
+            version: 1,
+            changeType: ManualVersionChangeType.INITIAL,
+            changeNotes: "Manual created via import",
+            createdByUserId: userId,
+            structureSnapshot: { chapters: [], documents: [] },
+          },
+        });
+      }
+
+      // 3. Check if document is already in manual
+      const existingManualDoc = await tx.manualDocument.findFirst({
+        where: {
+          manualId: manual.id,
+          systemDocumentId: doc.id,
+          active: true,
+        },
+      });
+
+      let chapter = null;
+
+      if (!existingManualDoc) {
+        // Check if we need to create a chapter or add to existing one
+        if (dto.chapterTitle || dto.chapterNumber) {
+          // Look for existing chapter with this title
+          const existingChapter = dto.chapterTitle
+            ? await tx.manualChapter.findFirst({
+                where: {
+                  manualId: manual.id,
+                  title: dto.chapterTitle,
+                  active: true,
+                },
+              })
+            : null;
+
+          if (existingChapter) {
+            chapter = existingChapter;
+          } else {
+            // Create new chapter
+            const maxChapterOrder = await tx.manualChapter.aggregate({
+              where: { manualId: manual.id, active: true },
+              _max: { sortOrder: true },
+            });
+
+            const chapterSortOrder = dto.chapterNumber
+              ? dto.chapterNumber - 1
+              : (maxChapterOrder._max.sortOrder ?? -1) + 1;
+
+            chapter = await tx.manualChapter.create({
+              data: {
+                manualId: manual.id,
+                title: dto.chapterTitle || `Chapter ${dto.chapterNumber || chapterSortOrder + 1}`,
+                sortOrder: chapterSortOrder,
+              },
+            });
+          }
+        }
+
+        // Get max sort order for documents in the target location
+        const maxDocOrder = await tx.manualDocument.aggregate({
+          where: {
+            manualId: manual.id,
+            chapterId: chapter?.id ?? null,
+            active: true,
+          },
+          _max: { sortOrder: true },
+        });
+
+        // Add document to manual
+        await tx.manualDocument.create({
+          data: {
+            manualId: manual.id,
+            chapterId: chapter?.id,
+            systemDocumentId: doc.id,
+            sortOrder: (maxDocOrder._max.sortOrder ?? -1) + 1,
+          },
+        });
+
+        // Increment manual version
+        const newVersion = manual.currentVersion + 1;
+        await tx.manual.update({
+          where: { id: manual.id },
+          data: { currentVersion: newVersion },
+        });
+
+        await tx.manualVersion.create({
+          data: {
+            manualId: manual.id,
+            version: newVersion,
+            changeType: ManualVersionChangeType.DOCUMENT_ADDED,
+            changeNotes: `Added document: ${dto.title}`,
+            createdByUserId: userId,
+            structureSnapshot: {},
+          },
+        });
+      }
+
+      // Return the result
+      return {
+        document: {
+          id: doc.id,
+          code: doc.code,
+          title: dto.title,
+        },
+        manual: {
+          id: manual.id,
+          code: manual.code,
+          title: manual.title,
+        },
+        chapter: chapter
+          ? {
+              id: chapter.id,
+              title: chapter.title,
+              sortOrder: chapter.sortOrder,
+            }
+          : null,
+        isNewDocument: !existingManualDoc,
+      };
     });
   }
 

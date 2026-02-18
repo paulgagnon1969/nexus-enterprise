@@ -67,6 +67,37 @@ export class ProjectController {
     private readonly taxJurisdictions: TaxJurisdictionService,
   ) {}
 
+  /**
+   * GET /projects/portal/my-projects
+   * 
+   * Client portal: List all projects the authenticated user has access to.
+   * Returns projects grouped by company (since a client can have projects
+   * across multiple companies using NEXUS).
+   * 
+   * Data is filtered based on each project's visibility level.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get("portal/my-projects")
+  listMyProjectsForPortal(@Req() req: any) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.listProjectsForClientPortal(user.userId);
+  }
+
+  /**
+   * GET /projects/portal/:id
+   * 
+   * Client portal: Get project details with visibility-based filtering.
+   * - FULL: All project data (same as internal users)
+   * - LIMITED: Basic info, messages, files, schedule; excludes financials/PETL
+   * - READ_ONLY: Same as LIMITED, emphasizes no edit capability
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get("portal/:id")
+  getProjectForPortal(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getProjectForClientPortal(projectId, user.userId);
+  }
+
   @UseGuards(CombinedAuthGuard)
   @Get()
   list(

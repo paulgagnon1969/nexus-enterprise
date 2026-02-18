@@ -1,9 +1,12 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { PageCard } from "../../ui-shell";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+// Roles that can inline-edit company settings without clicking Edit
+const TENANT_ADMIN_ROLES = ["ADMIN", "OWNER", "SUPER_ADMIN"];
 
 export default function CompanySettingsPage() {
   return (
@@ -176,6 +179,14 @@ function CompanyProfileCard() {
     localTaxAccountId: null,
   });
 
+  // User role for determining inline edit capability
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const isTenantAdmin = userRole ? TENANT_ADMIN_ROLES.includes(userRole) : false;
+
+  // Track pending inline saves to debounce
+  const inlineSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [inlineSaving, setInlineSaving] = useState(false);
+
   // Company contact info (used on invoices, letterheads, etc.)
   const [companyPhone, setCompanyPhone] = useState("");
   const [companyEmail, setCompanyEmail] = useState("");
@@ -229,6 +240,10 @@ function CompanyProfileCard() {
     if (typeof window === "undefined") return;
     const token = window.localStorage.getItem("accessToken");
     if (!token) return;
+
+    // Load user role from localStorage
+    const storedRole = window.localStorage.getItem("companyRole");
+    setUserRole(storedRole);
 
     // Load company-level profile (name) so we don't rely on a hard-coded label.
     const loadCompany = async () => {
@@ -347,6 +362,88 @@ function CompanyProfileCard() {
       }
   >(null);
 
+  // Inline save for tenant admins - debounced auto-save on field blur
+  const saveCompanyFieldsInline = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    setInlineSaving(true);
+    setProfileMessage(null);
+
+    try {
+      const body: Record<string, unknown> = {
+        name: companyName,
+        defaultTimeZone: defaultTimeZone || null,
+        defaultPayrollConfig: {
+          federalEin: orgPayrollConfig.federalEin ?? null,
+          stateWithholdingId: orgPayrollConfig.stateWithholdingId ?? null,
+          stateUnemploymentId: orgPayrollConfig.stateUnemploymentId ?? null,
+          localTaxJurisdiction: orgPayrollConfig.localTaxJurisdiction ?? null,
+          localTaxAccountId: orgPayrollConfig.localTaxAccountId ?? null,
+        },
+        phone: companyPhone || null,
+        email: companyEmail || null,
+        website: companyWebsite || null,
+        addressLine1: companyAddressLine1 || null,
+        addressLine2: companyAddressLine2 || null,
+        city: companyCity || null,
+        state: companyState || null,
+        postalCode: companyPostalCode || null,
+        tagline: companyTagline || null,
+      };
+
+      const res = await fetch(`${API_BASE}/companies/me`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.message || `Save failed (${res.status})`);
+      }
+
+      setProfileMessage("Saved");
+      // Clear message after a moment
+      setTimeout(() => setProfileMessage(null), 1500);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to save";
+      setProfileMessage(message);
+    } finally {
+      setInlineSaving(false);
+    }
+  }, [
+    companyName,
+    defaultTimeZone,
+    orgPayrollConfig,
+    companyPhone,
+    companyEmail,
+    companyWebsite,
+    companyAddressLine1,
+    companyAddressLine2,
+    companyCity,
+    companyState,
+    companyPostalCode,
+    companyTagline,
+  ]);
+
+  // Debounced inline save trigger
+  const triggerInlineSave = useCallback(() => {
+    if (inlineSaveTimeoutRef.current) {
+      clearTimeout(inlineSaveTimeoutRef.current);
+    }
+    inlineSaveTimeoutRef.current = setTimeout(() => {
+      void saveCompanyFieldsInline();
+    }, 300);
+  }, [saveCompanyFieldsInline]);
+
+  // Determine if fields should be editable (tenant admin OR in edit mode)
+  const canEdit = isTenantAdmin || editMode;
+
   const addOffice = async (seed?: { zip?: string; city?: string; state?: string }) => {
     if (typeof window === "undefined") return;
     const token = window.localStorage.getItem("accessToken");
@@ -422,7 +519,7 @@ function CompanyProfileCard() {
   };
 
   const beginAddOffice = () => {
-    if (!editMode) return;
+    if (!canEdit) return;
     setZipInput("");
     setZipError(null);
     setZipModalOpen(true);
@@ -648,8 +745,12 @@ function CompanyProfileCard() {
             Nexus for branding and mailing addresses.
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {!editMode && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {inlineSaving && (
+            <span style={{ fontSize: 11, color: "#6b7280" }}>Saving…</span>
+          )}
+          {/* Tenant admins get inline editing; show Edit button for others */}
+          {!isTenantAdmin && !editMode && (
             <button
               type="button"
               onClick={beginEdit}
@@ -666,7 +767,7 @@ function CompanyProfileCard() {
               Edit profile
             </button>
           )}
-          {editMode && (
+          {!isTenantAdmin && editMode && (
             <>
               <button
                 type="button"
@@ -703,10 +804,15 @@ function CompanyProfileCard() {
           )}
         </div>
       </div>
-      {!editMode && (
+      {!isTenantAdmin && !editMode && (
         <p style={{ margin: "0 0 12px", fontSize: 11, color: "#6b7280" }}>
           Fields are read-only until you click <strong>Edit profile</strong>. Changes are saved to
           your organization when you click Save.
+        </p>
+      )}
+      {isTenantAdmin && (
+        <p style={{ margin: "0 0 12px", fontSize: 11, color: "#6b7280" }}>
+          Fields are editable inline. Changes save automatically.
         </p>
       )}
       {profileMessage && (
@@ -752,7 +858,8 @@ function CompanyProfileCard() {
             <input
               value={defaultTimeZone}
               onChange={e => setDefaultTimeZone(e.target.value)}
-              readOnly={!editMode}
+              onBlur={() => isTenantAdmin && triggerInlineSave()}
+              readOnly={!canEdit}
               placeholder="e.g. America/Los_Angeles"
               style={{
                 width: "100%",
@@ -775,7 +882,8 @@ function CompanyProfileCard() {
                   federalEin: e.target.value || null,
                 }))
               }
-              readOnly={!editMode}
+              onBlur={() => isTenantAdmin && triggerInlineSave()}
+              readOnly={!canEdit}
               placeholder="12-3456789"
               style={{
                 width: "100%",
@@ -798,7 +906,8 @@ function CompanyProfileCard() {
                   stateWithholdingId: e.target.value || null,
                 }))
               }
-              readOnly={!editMode}
+              onBlur={() => isTenantAdmin && triggerInlineSave()}
+              readOnly={!canEdit}
               placeholder="State WH account"
               style={{
                 width: "100%",
@@ -821,7 +930,8 @@ function CompanyProfileCard() {
                   stateUnemploymentId: e.target.value || null,
                 }))
               }
-              readOnly={!editMode}
+              onBlur={() => isTenantAdmin && triggerInlineSave()}
+              readOnly={!canEdit}
               placeholder="SUI account"
               style={{
                 width: "100%",
@@ -851,7 +961,8 @@ function CompanyProfileCard() {
           <input
             value={companyName}
             onChange={e => setCompanyName(e.target.value)}
-            readOnly={!editMode}
+            onBlur={() => isTenantAdmin && triggerInlineSave()}
+            readOnly={!canEdit}
             style={{
               width: "100%",
               padding: "6px 8px",
@@ -872,7 +983,7 @@ function CompanyProfileCard() {
           <input
             type="file"
             accept="image/*"
-            disabled={!editMode}
+            disabled={!canEdit}
             onChange={async e => {
               const file = e.target.files?.[0] ?? null;
               setLogoFileName(file ? file.name : null);
@@ -933,7 +1044,7 @@ function CompanyProfileCard() {
           <input
             type="file"
             accept="image/*"
-            disabled={!editMode}
+            disabled={!canEdit}
             onChange={async e => {
               const file = e.target.files?.[0] ?? null;
               setIconFileName(file ? file.name : null);
@@ -1011,8 +1122,9 @@ function CompanyProfileCard() {
             <input
               value={companyPhone}
               onChange={e => setCompanyPhone(e.target.value)}
-              readOnly={!editMode}
-              placeholder="(555) 123-4567"
+              onBlur={() => isTenantAdmin && triggerInlineSave()}
+              readOnly={!canEdit}
+              placeholder="(***) ***-****"
               style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
             />
           </div>
@@ -1021,7 +1133,8 @@ function CompanyProfileCard() {
             <input
               value={companyEmail}
               onChange={e => setCompanyEmail(e.target.value)}
-              readOnly={!editMode}
+              onBlur={() => isTenantAdmin && triggerInlineSave()}
+              readOnly={!canEdit}
               placeholder="info@company.com"
               style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
             />
@@ -1031,7 +1144,8 @@ function CompanyProfileCard() {
             <input
               value={companyWebsite}
               onChange={e => setCompanyWebsite(e.target.value)}
-              readOnly={!editMode}
+              onBlur={() => isTenantAdmin && triggerInlineSave()}
+              readOnly={!canEdit}
               placeholder="https://www.company.com"
               style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
             />
@@ -1043,7 +1157,8 @@ function CompanyProfileCard() {
             <input
               value={companyAddressLine1}
               onChange={e => setCompanyAddressLine1(e.target.value)}
-              readOnly={!editMode}
+              onBlur={() => isTenantAdmin && triggerInlineSave()}
+              readOnly={!canEdit}
               placeholder="123 Main Street, Suite 100"
               style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
             />
@@ -1053,7 +1168,8 @@ function CompanyProfileCard() {
             <input
               value={companyAddressLine2}
               onChange={e => setCompanyAddressLine2(e.target.value)}
-              readOnly={!editMode}
+              onBlur={() => isTenantAdmin && triggerInlineSave()}
+              readOnly={!canEdit}
               placeholder="Building A (optional)"
               style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
             />
@@ -1065,7 +1181,8 @@ function CompanyProfileCard() {
             <input
               value={companyCity}
               onChange={e => setCompanyCity(e.target.value)}
-              readOnly={!editMode}
+              onBlur={() => isTenantAdmin && triggerInlineSave()}
+              readOnly={!canEdit}
               placeholder="Tampa"
               style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
             />
@@ -1075,7 +1192,8 @@ function CompanyProfileCard() {
             <input
               value={companyState}
               onChange={e => setCompanyState(e.target.value)}
-              readOnly={!editMode}
+              onBlur={() => isTenantAdmin && triggerInlineSave()}
+              readOnly={!canEdit}
               placeholder="FL"
               style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
             />
@@ -1085,7 +1203,8 @@ function CompanyProfileCard() {
             <input
               value={companyPostalCode}
               onChange={e => setCompanyPostalCode(e.target.value)}
-              readOnly={!editMode}
+              onBlur={() => isTenantAdmin && triggerInlineSave()}
+              readOnly={!canEdit}
               placeholder="33601"
               style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
             />
@@ -1096,7 +1215,8 @@ function CompanyProfileCard() {
           <input
             value={companyTagline}
             onChange={e => setCompanyTagline(e.target.value)}
-            readOnly={!editMode}
+            onBlur={() => isTenantAdmin && triggerInlineSave()}
+            readOnly={!canEdit}
             placeholder="Building Excellence, Fortifying Futures"
             style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
           />
@@ -1126,7 +1246,7 @@ function CompanyProfileCard() {
           <button
             type="button"
             onClick={beginAddOffice}
-            disabled={!editMode}
+            disabled={!canEdit}
             style={{
               padding: "2px 8px",
               borderRadius: 999,
@@ -1166,7 +1286,7 @@ function CompanyProfileCard() {
                 <button
                   type="button"
                   onClick={() => removeOffice(office.id)}
-                  disabled={!editMode}
+                  disabled={!canEdit}
                   style={{
                     padding: "2px 8px",
                     borderRadius: 999,
@@ -1175,7 +1295,7 @@ function CompanyProfileCard() {
                     color: "#b91c1c",
                     fontSize: 11,
                     cursor: "pointer",
-                    opacity: !editMode ? 0.6 : 1,
+                    opacity: !canEdit ? 0.6 : 1,
                   }}
                 >
                   Delete
@@ -1195,7 +1315,7 @@ function CompanyProfileCard() {
                   <input
                     value={office.label}
                     onChange={e => updateOffice(office.id, { label: e.target.value })}
-                    readOnly={!editMode}
+                    readOnly={!canEdit}
                     placeholder="Office label (e.g. Headquarters)"
                     style={{
                       width: "100%",
@@ -1210,7 +1330,7 @@ function CompanyProfileCard() {
                   <input
                     value={office.addressLine1}
                     onChange={e => updateOffice(office.id, { addressLine1: e.target.value })}
-                    readOnly={!editMode}
+                    readOnly={!canEdit}
                     placeholder="Address line 1"
                     style={{
                       width: "100%",
@@ -1225,7 +1345,7 @@ function CompanyProfileCard() {
                   <input
                     value={office.addressLine2}
                     onChange={e => updateOffice(office.id, { addressLine2: e.target.value })}
-                    readOnly={!editMode}
+                    readOnly={!canEdit}
                     placeholder="Address line 2 (optional)"
                     style={{
                       width: "100%",
@@ -1240,7 +1360,7 @@ function CompanyProfileCard() {
                   <input
                     value={office.city}
                     onChange={e => updateOffice(office.id, { city: e.target.value })}
-                    readOnly={!editMode}
+                    readOnly={!canEdit}
                     placeholder="City"
                     style={{
                       width: "100%",
@@ -1255,7 +1375,7 @@ function CompanyProfileCard() {
                   <input
                     value={office.state}
                     onChange={e => updateOffice(office.id, { state: e.target.value })}
-                    readOnly={!editMode}
+                    readOnly={!canEdit}
                     placeholder="State"
                     style={{
                       width: "100%",
@@ -1271,7 +1391,7 @@ function CompanyProfileCard() {
                     value={office.postalCode}
                     onChange={e => updateOffice(office.id, { postalCode: e.target.value })}
                     onBlur={async (e) => {
-                      if (!editMode) return;
+                      if (!canEdit) return;
                       const zip = e.target.value.trim();
                       if (!zip) return;
                       try {
@@ -1314,7 +1434,7 @@ function CompanyProfileCard() {
                   <input
                     value={office.country}
                     onChange={e => updateOffice(office.id, { country: e.target.value })}
-                    readOnly={!editMode}
+                    readOnly={!canEdit}
                     placeholder="Country"
                     style={{
                       width: "100%",
@@ -1345,7 +1465,7 @@ function CompanyProfileCard() {
                   <input
                     value={office.federalEin ?? ""}
                     onChange={e => updateOffice(office.id, { federalEin: e.target.value || null })}
-                    readOnly={!editMode}
+                    readOnly={!canEdit}
                     placeholder="12-3456789"
                     style={{
                       width: "100%",
@@ -1367,7 +1487,7 @@ function CompanyProfileCard() {
                         stateWithholdingId: e.target.value || null,
                       })
                     }
-                    readOnly={!editMode}
+                    readOnly={!canEdit}
                     placeholder="State WH account"
                     style={{
                       width: "100%",
@@ -1389,7 +1509,7 @@ function CompanyProfileCard() {
                         stateUnemploymentId: e.target.value || null,
                       })
                     }
-                    readOnly={!editMode}
+                    readOnly={!canEdit}
                     placeholder="SUI account"
                     style={{
                       width: "100%",
@@ -1411,7 +1531,7 @@ function CompanyProfileCard() {
                         localTaxJurisdiction: e.target.value || null,
                       })
                     }
-                    readOnly={!editMode}
+                    readOnly={!canEdit}
                     placeholder="City / county code"
                     style={{
                       width: "100%",
@@ -1433,7 +1553,7 @@ function CompanyProfileCard() {
                         localTaxAccountId: e.target.value || null,
                       })
                     }
-                    readOnly={!editMode}
+                    readOnly={!canEdit}
                     placeholder="Local WH account"
                     style={{
                       width: "100%",
