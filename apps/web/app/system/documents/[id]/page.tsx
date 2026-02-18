@@ -1022,10 +1022,10 @@ function PrintView({
       <style jsx global>{`
         @page {
           size: letter;
-          margin: 0.75in;
+          margin: 0.5in;
         }
         @media print {
-          /* Reset html/body */
+          /* Reset html/body for printing */
           html, body {
             width: 100% !important;
             height: auto !important;
@@ -1045,7 +1045,7 @@ function PrintView({
           .print-container * {
             visibility: visible !important;
           }
-          /* Position print container at top of page */
+          /* Position print container for proper flow */
           .print-container {
             position: absolute !important;
             left: 0 !important;
@@ -1058,12 +1058,15 @@ function PrintView({
             border: none !important;
             border-radius: 0 !important;
             background: white !important;
+            overflow: visible !important;
           }
           /* Hide the overlay background */
           .print-overlay {
             background: transparent !important;
             padding: 0 !important;
             position: static !important;
+            overflow: visible !important;
+            display: block !important;
           }
           /* Hide no-print elements */
           .no-print,
@@ -1084,6 +1087,18 @@ function PrintView({
             pointer-events: none !important;
             z-index: 9999 !important;
           }
+          /* Document content should flow naturally */
+          .print-document-content {
+            overflow: visible !important;
+          }
+          /* Mermaid SVG diagrams - scale to fit and allow page breaks */
+          .print-document-content .mermaid,
+          .print-document-content .mermaid svg {
+            max-width: 100% !important;
+            height: auto !important;
+            overflow: visible !important;
+            page-break-inside: avoid !important;
+          }
           /* Prevent images from being cut across pages */
           .print-document-content img {
             page-break-inside: avoid !important;
@@ -1093,15 +1108,11 @@ function PrintView({
             display: block !important;
             margin: 16px auto !important;
           }
-          /* Prevent tables from being cut */
+          /* Tables - allow page breaks for large tables */
           .print-document-content table {
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
             width: 100% !important;
           }
-          .print-document-content tr, 
-          .print-document-content td, 
-          .print-document-content th {
+          .print-document-content tr {
             page-break-inside: avoid !important;
           }
           /* Prevent headings from being orphaned */
@@ -1113,16 +1124,14 @@ function PrintView({
           .print-document-content h6 {
             page-break-after: avoid !important;
             break-after: avoid !important;
-            page-break-inside: avoid !important;
           }
           /* Keep paragraphs together when possible */
           .print-document-content p {
             orphans: 3;
             widows: 3;
           }
-          /* Callouts and divs should not break */
-          .print-document-content .callout,
-          .print-document-content > div {
+          /* Callouts should not break */
+          .print-document-content .callout {
             page-break-inside: avoid !important;
             break-inside: avoid !important;
           }
