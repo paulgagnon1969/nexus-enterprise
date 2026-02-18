@@ -6,15 +6,34 @@ import Link from "next/link";
 import DOMPurify from "dompurify";
 import { TenantPublishModal } from "../components/TenantPublishModal";
 
+// Extract body content from full HTML documents
+function extractBodyContent(html: string): string {
+  // If it's a full HTML document, extract just the body content
+  if (html.includes('<!DOCTYPE') || html.includes('<html') || html.includes('<body')) {
+    const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    if (bodyMatch && bodyMatch[1]) {
+      return bodyMatch[1].trim();
+    }
+  }
+  return html;
+}
+
 // Sanitize HTML content while preserving mermaid blocks
 function sanitizeHtml(html: string): string {
   if (typeof window === "undefined") return html; // SSR fallback
   
-  return DOMPurify.sanitize(html, {
-    ADD_TAGS: ["div", "pre", "code"], // Allow mermaid containers
-    ADD_ATTR: ["class", "style"], // Allow class="mermaid" and inline styles
-    FORBID_TAGS: ["script", "iframe", "object", "embed", "form"], // Block dangerous tags
-    FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover"], // Block event handlers
+  // First extract body content if it's a full HTML document
+  const content = extractBodyContent(html);
+  
+  // Configure DOMPurify to preserve mermaid blocks
+  return DOMPurify.sanitize(content, {
+    ADD_TAGS: ["div", "pre", "code", "br", "span"], // Allow mermaid containers
+    ADD_ATTR: ["class", "style", "id"], // Allow class="mermaid" and inline styles
+    FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "meta", "link", "html", "head", "body"], // Block dangerous/structural tags
+    FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onmouseout", "onfocus", "onblur"], // Block event handlers
+    WHOLE_DOCUMENT: false,
+    RETURN_DOM: false,
+    RETURN_DOM_FRAGMENT: false,
   });
 }
 
