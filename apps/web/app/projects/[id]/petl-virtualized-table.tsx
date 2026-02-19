@@ -5,6 +5,12 @@ import { memo, useCallback, useMemo } from "react";
 import { List, type RowComponentProps } from "react-window";
 import { RoleVisible } from "../../role-audit";
 
+// Format number as USD currency: $xxx,xxx.00
+const formatUSD = (value: number | null | undefined): string => {
+  const num = value ?? 0;
+  return num.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
 interface PetlItem {
   id: string;
   lineNo: number;
@@ -284,7 +290,7 @@ const PetlRow = memo(function PetlRow({
         </td>
         <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", whiteSpace: "nowrap" }}>
           <RoleVisible minRole="SUPER">
-            {(item.itemAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            {formatUSD(item.itemAmount)}
           </RoleVisible>
         </td>
         <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", whiteSpace: "nowrap" }}>
@@ -317,7 +323,7 @@ const PetlRow = memo(function PetlRow({
                   fontSize: 12,
                 }}
               >
-                {(item.rcvAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                {formatUSD(item.rcvAmount)}
               </button>
             )}
           </RoleVisible>
@@ -508,10 +514,10 @@ const PetlRow = memo(function PetlRow({
                 {e?.unit ?? ""}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
-                {e?.itemAmount != null ? e.itemAmount.toLocaleString(undefined, { maximumFractionDigits: 2 }) : ""}
+                {e?.itemAmount != null ? formatUSD(e.itemAmount) : ""}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
-                {rcvAmt != null ? rcvAmt.toLocaleString(undefined, { maximumFractionDigits: 2 }) : ""}
+                {rcvAmt != null ? formatUSD(rcvAmt) : ""}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
                 {pct}%
@@ -722,10 +728,10 @@ function VirtualizedRow({
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>{isNoteOnly ? "" : (e?.qty ?? "")}</td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>{isNoteOnly ? "" : (e?.unit ?? "")}</td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }}>
-                {isNoteOnly ? "" : (e?.itemAmount != null ? e.itemAmount.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "")}
+                {isNoteOnly ? "" : (e?.itemAmount != null ? formatUSD(e.itemAmount) : "")}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right", color: isNoteOnly ? "#9ca3af" : undefined }}>
-                {isNoteOnly ? "$0" : (rcvAmt != null ? rcvAmt.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "")}
+                {isNoteOnly ? "$0.00" : (rcvAmt != null ? formatUSD(rcvAmt) : "")}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>
                 {isNoteOnly ? (
@@ -1018,14 +1024,14 @@ function VirtualizedRow({
               )}
             </td>
             <td data-sec-key="petl.itemAmount" style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }}>
-              {(item.itemAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              {formatUSD(item.itemAmount)}
             </td>
             <td data-sec-key="petl.rcvAmount" style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }}>
               {isPmOrAbove && isEditingRcv ? (
                 <input type="number" value={editDraft} autoFocus onChange={(e) => onEditDraftChange(e.target.value)} onBlur={onSaveEdit} onKeyDown={handleKeyDown} disabled={editSaving} style={{ width: 70, padding: "2px 4px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 11 }} />
               ) : (
                 <button type="button" disabled={!isPmOrAbove} onClick={() => onOpenCellEditor(item.id, "rcvAmount", item.rcvAmount)} style={{ border: "none", background: "transparent", padding: 0, cursor: isPmOrAbove ? "pointer" : "default", textAlign: "right", fontSize: 12 }}>
-                  {(item.rcvAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  {formatUSD(item.rcvAmount)}
                 </button>
               )}
             </td>
