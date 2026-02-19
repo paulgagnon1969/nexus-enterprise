@@ -30491,6 +30491,27 @@ ${htmlBody}
                 </button>
               </div>
               
+              {/* Always show note at top if present */}
+              {itemNote && (
+                <div
+                  style={{
+                    margin: "0 20px",
+                    marginTop: 16,
+                    padding: 12,
+                    borderRadius: 8,
+                    background: "#fef3c7",
+                    border: "1px solid #fbbf24",
+                  }}
+                >
+                  <div style={{ fontSize: 10, fontWeight: 600, color: "#92400e", marginBottom: 4, textTransform: "uppercase" }}>
+                    📝 V0 Note
+                  </div>
+                  <div style={{ fontSize: 12, color: "#78350f", whiteSpace: "pre-wrap" }}>
+                    {itemNote}
+                  </div>
+                </div>
+              )}
+              
               <div style={{ padding: 20 }}>
                 {step === 'selectSource' && (
                   <>
