@@ -1013,6 +1013,48 @@ async function generateAndDownloadPdf(
   
   try {
     const html2pdf = (await import('html2pdf.js')).default;
+    const mermaid = (await import('mermaid')).default;
+    
+    // Initialize mermaid for rendering
+    mermaid.initialize({ 
+      startOnLoad: false,
+      theme: 'default',
+      securityLevel: 'strict',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+    });
+    
+    // Process the HTML content to render Mermaid diagrams
+    let bodyContent = document.currentVersion?.htmlContent || '<em>No content</em>';
+    
+    // Find and render all mermaid blocks
+    const mermaidRegex = /<div class="mermaid">([\s\S]*?)<\/div>/gi;
+    const mermaidMatches = bodyContent.match(mermaidRegex) || [];
+    
+    for (const match of mermaidMatches) {
+      // Extract the mermaid code
+      const codeMatch = match.match(/<div class="mermaid">([\s\S]*?)<\/div>/i);
+      if (codeMatch && codeMatch[1]) {
+        let code = codeMatch[1]
+          .replace(/<br\s*\/?>/gi, '\n')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&amp;/g, '&')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/<[^>]+>/g, '')
+          .trim();
+        
+        try {
+          const id = 'mermaid-pdf-' + Math.random().toString(36).substring(2, 11);
+          const { svg } = await mermaid.render(id, code);
+          // Replace the mermaid div with the rendered SVG
+          bodyContent = bodyContent.replace(match, `<div style="margin: 16px 0;">${svg}</div>`);
+        } catch (err) {
+          console.error('Mermaid render error in PDF:', err);
+          // Keep original on error
+        }
+      }
+    }
     
     // Build the HTML content for the PDF
     const htmlContent = `
@@ -1042,7 +1084,7 @@ async function generateAndDownloadPdf(
         
         <!-- Body -->
         <div style="font-size: 11px; line-height: 1.6; color: #1f2937;">
-          ${document.currentVersion?.htmlContent || '<em>No content</em>'}
+          ${bodyContent}
         </div>
         
         <!-- Footer -->
