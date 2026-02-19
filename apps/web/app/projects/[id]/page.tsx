@@ -30288,7 +30288,7 @@ ${htmlBody}
         // When editing an existing entry, show the entry's data in the header
         // Otherwise show the parent line item's data
         const itemNote = String(item?.itemNote ?? "");
-        const lineNo = item?.lineNo ?? "?";
+        const lineNo = item?.sourceLineNo ?? item?.lineNo ?? "?";
         // Always keep parent line item description available for context
         const parentDesc = String(item?.description ?? "");
         const desc = isEditing 
@@ -30353,8 +30353,9 @@ ${htmlBody}
                 // Wait a bit for state to update, then reload reconciliation data
                 await new Promise(resolve => setTimeout(resolve, 100));
                 
-                if (petlReconPanel.sowItemId) {
-                  await loadPetlReconciliation(petlReconPanel.sowItemId);
+                // Load reconciliation panel data so Edit panel has sowItem context
+                if (reconWorkflowModal.sowItemId) {
+                  await loadPetlReconciliation(reconWorkflowModal.sowItemId);
                 }
                 
                 // Fetch the updated entry and open edit panel
@@ -30421,6 +30422,11 @@ ${htmlBody}
                 
                 // Refresh PETL
                 setPetlReloadTick(t => t + 1);
+                
+                // Load reconciliation panel data so Edit panel has sowItem context
+                if (reconWorkflowModal.sowItemId) {
+                  await loadPetlReconciliation(reconWorkflowModal.sowItemId);
+                }
                 
                 // Open entry in edit mode (API returns { entry, reconciliationCase })
                 openReconEntryEdit(result.entry ?? result);

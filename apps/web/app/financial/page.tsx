@@ -181,6 +181,19 @@ export default function FinancialPage() {
   const [goldenHistoryError, setGoldenHistoryError] = useState<string | null>(null);
   const [loadingGoldenHistory, setLoadingGoldenHistory] = useState(false);
 
+  // Golden PETL search and Cost Book comparison
+  const [goldenSearchTerm, setGoldenSearchTerm] = useState<string>("");
+  type CostBookMatch = {
+    cat: string | null;
+    sel: string | null;
+    activity: string | null;
+    unitPrice: number | null;
+    lastKnownUnitPrice: number | null;
+    description: string | null;
+  };
+  const [costBookMatches, setCostBookMatches] = useState<CostBookMatch[]>([]);
+  const [loadingCostBook, setLoadingCostBook] = useState(false);
+
   const [componentsItems, setComponentsItems] = useState<GoldenItemWithComponents[]>([]);
   const [componentsError, setComponentsError] = useState<string | null>(null);
   const [loadingComponents, setLoadingComponents] = useState(false);
@@ -471,6 +484,62 @@ export default function FinancialPage() {
       setLoadingComponents(false);
     }
   }
+
+  // Search tenant Cost Book for matching entries (compare with Golden PETL)
+  async function searchCostBook() {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+    if (!goldenSearchTerm.trim()) {
+      setCostBookMatches([]);
+      return;
+    }
+
+    setLoadingCostBook(true);
+    try {
+      const res = await fetch(`${API_BASE}/pricing/company-price-list/search`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          query: goldenSearchTerm,
+          limit: 500,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(
+          `Failed to search Cost Book (${res.status}) ${text}`,
+        );
+      }
+      const json = (await res.json()) as {
+        items?: Array<{
+          cat: string | null;
+          sel: string | null;
+          activity: string | null;
+          unitPrice: number | null;
+          lastKnownUnitPrice: number | null;
+          description: string | null;
+        }>;
+      };
+      setCostBookMatches(json.items ?? []);
+    } catch (err: any) {
+      console.error("[financial] searchCostBook error:", err);
+      setCostBookMatches([]);
+    } finally {
+      setLoadingCostBook(false);
+    }
+  }
+
+  // Clear cost book matches when search term changes
+  const handleGoldenSearchChange = (term: string) => {
+    setGoldenSearchTerm(term);
+    if (!term.trim()) {
+      setCostBookMatches([]);
+    }
+  };
 
   // Lazy-load Asset Logistics tree when that tab is first opened.
   useEffect(() => {
@@ -1726,6 +1795,11 @@ export default function FinancialPage() {
               goldenRows={goldenRows}
               loadingGoldenTable={loadingGoldenTable}
               goldenTableError={goldenTableError}
+              searchTerm={goldenSearchTerm}
+              onSearchChange={handleGoldenSearchChange}
+              costBookMatches={costBookMatches}
+              loadingCostBook={loadingCostBook}
+              onSearchCostBook={searchCostBook}
             />
           {/* Golden price list revision log */}
           <GoldenPriceListHistory

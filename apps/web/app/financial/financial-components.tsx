@@ -187,24 +187,70 @@ export const GoldenComponentsCoverageCard = memo(function GoldenComponentsCovera
   );
 });
 
+type CostBookMatch = {
+  cat: string | null;
+  sel: string | null;
+  activity: string | null;
+  unitPrice: number | null;
+  lastKnownUnitPrice: number | null;
+  description: string | null;
+};
+
 export type GoldenPriceListTableProps = {
   goldenRows: GoldenPriceListRow[];
   loadingGoldenTable: boolean;
   goldenTableError: string | null;
+  searchTerm: string;
+  onSearchChange: (term: string) => void;
+  costBookMatches: CostBookMatch[];
+  loadingCostBook: boolean;
+  onSearchCostBook: () => void;
 };
 
 export const GoldenPriceListTable = memo(function GoldenPriceListTable({
   goldenRows,
   loadingGoldenTable,
   goldenTableError,
+  searchTerm,
+  onSearchChange,
+  costBookMatches,
+  loadingCostBook,
+  onSearchCostBook,
 }: GoldenPriceListTableProps) {
   const listRef = useRef<any>(null);
   
+  // Filter rows based on search term
+  const filteredRows = useMemo(() => {
+    if (!searchTerm.trim()) return goldenRows;
+    const q = searchTerm.toLowerCase();
+    return goldenRows.filter(row => {
+      const cat = (row.cat ?? "").toLowerCase();
+      const sel = (row.sel ?? "").toLowerCase();
+      const desc = (row.description ?? "").toLowerCase();
+      const div = (row.divisionCode ?? "").toLowerCase();
+      const divName = (row.divisionName ?? "").toLowerCase();
+      return cat.includes(q) || sel.includes(q) || desc.includes(q) || div.includes(q) || divName.includes(q);
+    });
+  }, [goldenRows, searchTerm]);
+
+  // Build a lookup map for cost book matches by cat+sel+activity key
+  const costBookMap = useMemo(() => {
+    const map = new Map<string, CostBookMatch>();
+    for (const m of costBookMatches) {
+      const key = `${(m.cat ?? "").toLowerCase()}|${(m.sel ?? "").toLowerCase()}|${(m.activity ?? "").toLowerCase()}`;
+      map.set(key, m);
+    }
+    return map;
+  }, [costBookMatches]);
+  
   const handleJumpToEnd = () => {
-    if (listRef.current && goldenRows.length > 0) {
-      listRef.current.scrollToRow(goldenRows.length - 1);
+    if (listRef.current && filteredRows.length > 0) {
+      listRef.current.scrollToRow(filteredRows.length - 1);
     }
   };
+
+  const isFiltered = !!searchTerm.trim();
+  const showCostBookColumn = isFiltered && costBookMatches.length > 0;
   
   return (
     <div
@@ -237,10 +283,12 @@ export const GoldenPriceListTable = memo(function GoldenPriceListTable({
         <div style={{ fontSize: 11, color: "#6b7280", display: "flex", gap: 8, alignItems: "center" }}>
           {loadingGoldenTable
             ? "Loading rows…"
+            : isFiltered
+            ? `${filteredRows.length.toLocaleString()} of ${goldenRows.length.toLocaleString()} items`
             : goldenRows.length
             ? `${goldenRows.length.toLocaleString()} items`
             : "No rows loaded"}
-          {goldenRows.length > 0 && (
+          {filteredRows.length > 0 && (
             <button
               onClick={handleJumpToEnd}
               style={{
@@ -257,6 +305,100 @@ export const GoldenPriceListTable = memo(function GoldenPriceListTable({
           )}
         </div>
       </div>
+
+      {/* Search bar */}
+      <div
+        style={{
+          padding: "8px 8px 0 8px",
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+        }}
+      >
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder="Search by Cat, Sel, Description, Division..."
+          style={{
+            flex: 1,
+            padding: "6px 10px",
+            fontSize: 12,
+            borderRadius: 6,
+            border: "1px solid #d1d5db",
+            outline: "none",
+          }}
+        />
+        {isFiltered && (
+          <button
+            type="button"
+            onClick={onSearchCostBook}
+            disabled={loadingCostBook}
+            style={{
+              padding: "6px 12px",
+              fontSize: 11,
+              fontWeight: 500,
+              borderRadius: 6,
+              border: "1px solid #2563eb",
+              background: loadingCostBook ? "#e5e7eb" : "#2563eb",
+              color: loadingCostBook ? "#6b7280" : "#ffffff",
+              cursor: loadingCostBook ? "default" : "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {loadingCostBook ? "Loading…" : "Compare Cost Book"}
+          </button>
+        )}
+        {isFiltered && (
+          <button
+            type="button"
+            onClick={() => onSearchChange("")}
+            style={{
+              padding: "6px 10px",
+              fontSize: 11,
+              borderRadius: 6,
+              border: "1px solid #d1d5db",
+              background: "#f9fafb",
+              cursor: "pointer",
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {/* Cost book comparison summary */}
+      {isFiltered && costBookMatches.length > 0 && (
+        <div
+          style={{
+            margin: "8px 8px 0 8px",
+            padding: 8,
+            borderRadius: 6,
+            background: "#ecfdf5",
+            border: "1px solid #6ee7b7",
+            fontSize: 11,
+            color: "#065f46",
+          }}
+        >
+          <strong>Cost Book:</strong> Found {costBookMatches.length} matching entries in your tenant Cost Book.
+          {" "}The "CB Price" column shows your Cost Book unit price (if different from Golden).
+        </div>
+      )}
+      {isFiltered && !loadingCostBook && costBookMatches.length === 0 && searchTerm.trim() && (
+        <div
+          style={{
+            margin: "8px 8px 0 8px",
+            padding: 8,
+            borderRadius: 6,
+            background: "#fef3c7",
+            border: "1px solid #fbbf24",
+            fontSize: 11,
+            color: "#92400e",
+          }}
+        >
+          Click <strong>Compare Cost Book</strong> to see if matching entries exist in your tenant Cost Book.
+        </div>
+      )}
 
       {goldenTableError && (
         <div
@@ -284,6 +426,7 @@ export const GoldenPriceListTable = memo(function GoldenPriceListTable({
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
+            marginTop: 8,
           }}
         >
           {/* Fixed header */}
@@ -291,12 +434,16 @@ export const GoldenPriceListTable = memo(function GoldenPriceListTable({
             <div style={{ width: 60, padding: "0 6px", fontWeight: 600 }}>Line</div>
             <div style={{ width: 70, padding: "0 6px", fontWeight: 600 }}>Cat</div>
             <div style={{ width: 70, padding: "0 6px", fontWeight: 600 }}>Sel</div>
-            <div style={{ flex: 1, padding: "0 6px", fontWeight: 600 }}>Description</div>
+            <div style={{ width: 120, padding: "0 6px", fontWeight: 600 }}>ACT</div>
+            <div style={{ flex: 1, minWidth: 100, padding: "0 6px", fontWeight: 600 }}>Description</div>
             <div style={{ width: 60, padding: "0 6px", fontWeight: 600 }}>Unit</div>
             <div style={{ width: 90, padding: "0 6px", fontWeight: 600, textAlign: "right" }}>Last known</div>
             <div style={{ width: 90, padding: "0 6px", fontWeight: 600, textAlign: "right" }}>Unit price</div>
+            {showCostBookColumn && (
+              <div style={{ width: 90, padding: "0 6px", fontWeight: 600, textAlign: "right", color: "#059669" }}>CB Price</div>
+            )}
             <div style={{ width: 80, padding: "0 6px", fontWeight: 600 }}>Division</div>
-            <div style={{ width: 180, padding: "0 6px", fontWeight: 600 }}>Div name</div>
+            <div style={{ width: showCostBookColumn ? 100 : 180, padding: "0 6px", fontWeight: 600 }}>Div name</div>
           </div>
 
           {/* Virtualized rows */}
@@ -307,11 +454,15 @@ export const GoldenPriceListTable = memo(function GoldenPriceListTable({
                   ref={listRef}
                   width={width}
                   height={height}
-                  rowCount={goldenRows.length}
+                  rowCount={filteredRows.length}
                   rowHeight={24}
                   style={{ outline: "none" }}
               rowRenderer={({ index, key, style }) => {
-                const row = goldenRows[index];
+                const row = filteredRows[index];
+                // Look up cost book match
+                const cbKey = `${(row.cat ?? "").toLowerCase()}|${(row.sel ?? "").toLowerCase()}|${(row.activity ?? "").toLowerCase()}`;
+                const cbMatch = costBookMap.get(cbKey);
+                const hasCbDiff = cbMatch && cbMatch.unitPrice != null && row.unitPrice != null && cbMatch.unitPrice !== row.unitPrice;
                 return (
                   <div
                     key={key}
@@ -320,6 +471,7 @@ export const GoldenPriceListTable = memo(function GoldenPriceListTable({
                       display: "flex",
                       fontSize: 11,
                       borderTop: "1px solid #f3f4f6",
+                      background: hasCbDiff ? "#fef3c7" : undefined,
                     }}
                   >
                     <div style={{ width: 60, padding: "0 6px", whiteSpace: "nowrap", color: "#6b7280", overflow: "hidden" }}>
@@ -331,7 +483,10 @@ export const GoldenPriceListTable = memo(function GoldenPriceListTable({
                     <div style={{ width: 70, padding: "0 6px", overflow: "hidden" }}>
                       {row.sel ?? ""}
                     </div>
-                    <div style={{ flex: 1, padding: "0 6px", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <div style={{ width: 120, padding: "0 6px", overflow: "hidden", whiteSpace: "nowrap" }}>
+                      {row.activity ?? ""}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 100, padding: "0 6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {row.description ?? ""}
                     </div>
                     <div style={{ width: 60, padding: "0 6px", overflow: "hidden" }}>
@@ -347,10 +502,27 @@ export const GoldenPriceListTable = memo(function GoldenPriceListTable({
                         ? `$${row.unitPrice.toFixed(2)}`
                         : ""}
                     </div>
+                    {showCostBookColumn && (
+                      <div
+                        style={{
+                          width: 90,
+                          padding: "0 6px",
+                          textAlign: "right",
+                          overflow: "hidden",
+                          color: hasCbDiff ? "#b45309" : cbMatch ? "#059669" : "#9ca3af",
+                          fontWeight: hasCbDiff ? 600 : 400,
+                        }}
+                        title={hasCbDiff ? `Δ $${((cbMatch?.unitPrice ?? 0) - (row.unitPrice ?? 0)).toFixed(2)}` : undefined}
+                      >
+                        {cbMatch?.unitPrice != null
+                          ? `$${cbMatch.unitPrice.toFixed(2)}`
+                          : "—"}
+                      </div>
+                    )}
                     <div style={{ width: 80, padding: "0 6px", whiteSpace: "nowrap", overflow: "hidden" }}>
                       {row.divisionCode ?? ""}
                     </div>
-                    <div style={{ width: 180, padding: "0 6px", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <div style={{ width: showCostBookColumn ? 100 : 180, padding: "0 6px", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {row.divisionName ?? ""}
                     </div>
                   </div>
