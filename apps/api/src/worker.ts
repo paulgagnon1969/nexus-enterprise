@@ -19,6 +19,7 @@ import type { AuthenticatedUser } from "./modules/auth/jwt.strategy";
 import { GlobalRole as AuthGlobalRole, Role as AuthRole } from "./modules/auth/auth.guards";
 import { ProjectService } from "./modules/project/project.service";
 import { importPriceListFromFile, importCompanyPriceListFromFile, type PriceListImportMode } from "./modules/pricing/pricing.service";
+import { RedisService, CACHE_KEY } from "./infra/redis/redis.service";
 import { Storage } from "@google-cloud/storage";
 import { parse } from "csv-parse/sync";
 import argon2 from "argon2";
@@ -584,6 +585,7 @@ async function runXactComponentsAllocationJob(prisma: PrismaService, job: any) {
 async function processImportJob(
   prisma: PrismaService,
   projectService: ProjectService,
+  redis: RedisService,
   importJobId: string,
 ) {
   const job = await prisma.importJob.findUnique({ where: { id: importJobId } });
@@ -839,6 +841,14 @@ async function processImportJob(
       });
     }
 
+    // Invalidate Golden cache after successful import
+    try {
+      await redis.invalidateGoldenCache();
+      console.log("[worker] PRICE_LIST cache invalidated");
+    } catch (cacheErr) {
+      console.warn("[worker] PRICE_LIST cache invalidation failed", cacheErr);
+    }
+
     return;
   }
 
@@ -880,6 +890,14 @@ async function processImportJob(
       durationMs: tenantDurationMs,
       resultSummary: tenantResult,
     });
+
+    // Invalidate company cache after successful import
+    try {
+      await redis.invalidateCompanyCache(job.companyId);
+      console.log("[worker] COMPANY_PRICE_LIST cache invalidated for company=%s", job.companyId);
+    } catch (cacheErr) {
+      console.warn("[worker] COMPANY_PRICE_LIST cache invalidation failed", cacheErr);
+    }
 
     return;
   }
@@ -1778,6 +1796,7 @@ export async function startWorker() {
 
   const prisma = app.get(PrismaService);
   const projectService = app.get(ProjectService);
+  const redis = app.get(RedisService);
 
   const worker = new Worker<ImportJobPayload>(
     IMPORT_QUEUE_NAME,
@@ -1786,7 +1805,7 @@ export async function startWorker() {
       if ((data as ChunkJobPayload).kind === "chunk") {
         await processImportChunk(prisma, data as ChunkJobPayload);
       } else {
-        await processImportJob(prisma, projectService, (data as ParentJobPayload).importJobId);
+        await processImportJob(prisma, projectService, redis, (data as ParentJobPayload).importJobId);
       }
     },
     {

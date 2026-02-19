@@ -24,12 +24,14 @@ import { importGoldenComponentsFromFile } from "@repo/database";
 import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
 import { getImportQueue, isRedisAvailable } from "../../infra/queue/import-queue";
 import { GcsService } from "../../infra/storage/gcs.service";
+import { RedisService, CACHE_KEY, CACHE_TTL } from "../../infra/redis/redis.service";
 
 @Controller("pricing")
 export class PricingController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly gcs: GcsService,
+    private readonly redis: RedisService,
   ) {}
 
   // SUPER_ADMINs can always upload. Within a company, OWNER/ADMIN can upload.
@@ -355,6 +357,9 @@ export class PricingController {
         itemCount: result.itemCount,
       });
 
+      // Invalidate Golden cache after successful import
+      await this.redis.invalidateGoldenCache();
+
       // Cleanup temp file
       try {
         fs.unlinkSync(tmpPath);
@@ -385,7 +390,18 @@ export class PricingController {
     const anyReq: any = req as any;
     const user = anyReq.user as AuthenticatedUser | undefined;
 
-    const current = await getCurrentGoldenPriceList();
+    // Try cache first
+    const cached = await this.redis.getJson<any>(CACHE_KEY.GOLDEN_CURRENT);
+    let current: any;
+    if (cached) {
+      current = cached;
+    } else {
+      current = await getCurrentGoldenPriceList();
+      if (current) {
+        await this.redis.setJson(CACHE_KEY.GOLDEN_CURRENT, current, CACHE_TTL.GOLDEN_PRICE_LIST);
+      }
+    }
+
     if (!current || !user?.companyId) {
       return current;
     }
@@ -426,7 +442,16 @@ export class PricingController {
   @UseGuards(JwtAuthGuard)
   @Post("price-list/table")
   async goldenTable() {
+    // Try cache first (this is a large payload ~5MB)
+    const cached = await this.redis.getJson<any>(CACHE_KEY.GOLDEN_TABLE);
+    if (cached) {
+      return cached;
+    }
+
     const table = await getCurrentGoldenPriceListTable();
+    if (table) {
+      await this.redis.setJson(CACHE_KEY.GOLDEN_TABLE, table, CACHE_TTL.GOLDEN_PRICE_LIST);
+    }
     return table;
   }
 
@@ -435,7 +460,16 @@ export class PricingController {
   @UseGuards(JwtAuthGuard)
   @Post("price-list/uploads")
   async goldenUploads() {
+    // Try cache first
+    const cached = await this.redis.getJson<any>(CACHE_KEY.GOLDEN_UPLOADS);
+    if (cached) {
+      return cached;
+    }
+
     const uploads = await getGoldenPriceListUploads(10);
+    if (uploads) {
+      await this.redis.setJson(CACHE_KEY.GOLDEN_UPLOADS, uploads, CACHE_TTL.GOLDEN_PRICE_LIST);
+    }
     return uploads;
   }
 
