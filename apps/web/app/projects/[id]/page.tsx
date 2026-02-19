@@ -4348,6 +4348,8 @@ ${htmlBody}
           laborOverhead: string;
           materialCost: string;
           equipmentCost: string;
+          // Status (PM+ can change)
+          status: string;
         };
         rcvManuallyEdited: boolean;
         saving: boolean;
@@ -10154,6 +10156,8 @@ ${htmlBody}
         laborOverhead: getCostComponent(entry?.laborOverhead, parentXact?.laborOverhead),
         materialCost: getCostComponent(entry?.materialCost, parentXact?.material),
         equipmentCost: getCostComponent(entry?.equipmentCost, parentXact?.equipment),
+        // Status - PM+ can change
+        status: String(entry?.status ?? "PENDING"),
       },
       rcvManuallyEdited: false,
       saving: false,
@@ -10498,6 +10502,11 @@ ${htmlBody}
     }
     const prevPct = typeof entry?.percentComplete === "number" ? entry.percentComplete : 0;
     if (pctVal !== prevPct) patch.percentComplete = pctVal;
+
+    // Status (PM+ can change)
+    const nextStatus = d.status || null;
+    const prevStatus = entry?.status ?? null;
+    if (nextStatus && nextStatus !== prevStatus) patch.status = nextStatus;
 
     // Activity and cost component fields
     const nextActivity = d.activity || null;
@@ -28790,38 +28799,74 @@ ${htmlBody}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Status</div>
-                  {(() => {
-                    const rawStatus = String(reconEntryEdit.entry?.status ?? "")
-                      .trim()
-                      .toUpperCase();
-                    const statusLabel =
-                      rawStatus === "APPROVED"
-                        ? "Approved"
-                        : rawStatus === "REJECTED"
-                          ? "Rejected"
-                          : "Needs approval";
-                    const statusColor =
-                      rawStatus === "APPROVED"
-                        ? "#059669"
-                        : rawStatus === "REJECTED"
-                          ? "#dc2626"
-                          : "#d97706";
-                    return (
-                      <div
-                        style={{
-                          padding: "6px 8px",
-                          borderRadius: 8,
-                          border: "1px solid #d1d5db",
-                          fontSize: 12,
-                          background: "#f9fafb",
-                          color: statusColor,
-                          fontWeight: 600,
-                        }}
-                      >
-                        {statusLabel}
-                      </div>
-                    );
-                  })()}
+                  {isPmOrAbove ? (
+                    <select
+                      value={reconEntryEdit.draft.status || reconEntryEdit.entry?.status || "PENDING"}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setReconEntryEdit((prev) =>
+                          prev ? { ...prev, draft: { ...prev.draft, status: v } } : prev,
+                        );
+                      }}
+                      style={{
+                        padding: "6px 8px",
+                        borderRadius: 8,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                        width: "100%",
+                        fontWeight: 600,
+                        color:
+                          (reconEntryEdit.draft.status || reconEntryEdit.entry?.status) === "APPROVED"
+                            ? "#059669"
+                            : (reconEntryEdit.draft.status || reconEntryEdit.entry?.status) === "REJECTED"
+                              ? "#dc2626"
+                              : "#d97706",
+                        backgroundColor:
+                          (reconEntryEdit.draft.status || reconEntryEdit.entry?.status) === "APPROVED"
+                            ? "#ecfdf5"
+                            : (reconEntryEdit.draft.status || reconEntryEdit.entry?.status) === "REJECTED"
+                              ? "#fef2f2"
+                              : "#fffbeb",
+                      }}
+                    >
+                      <option value="PENDING">⏳ Pending Approval</option>
+                      <option value="APPROVED">✓ Approved</option>
+                      <option value="REJECTED">✕ Rejected</option>
+                    </select>
+                  ) : (
+                    (() => {
+                      const rawStatus = String(reconEntryEdit.entry?.status ?? "")
+                        .trim()
+                        .toUpperCase();
+                      const statusLabel =
+                        rawStatus === "APPROVED"
+                          ? "Approved"
+                          : rawStatus === "REJECTED"
+                            ? "Rejected"
+                            : "Needs approval";
+                      const statusColor =
+                        rawStatus === "APPROVED"
+                          ? "#059669"
+                          : rawStatus === "REJECTED"
+                            ? "#dc2626"
+                            : "#d97706";
+                      return (
+                        <div
+                          style={{
+                            padding: "6px 8px",
+                            borderRadius: 8,
+                            border: "1px solid #d1d5db",
+                            fontSize: 12,
+                            background: "#f9fafb",
+                            color: statusColor,
+                            fontWeight: 600,
+                          }}
+                        >
+                          {statusLabel}
+                        </div>
+                      );
+                    })()
+                  )}
                 </div>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>% Complete</div>
@@ -29428,46 +29473,75 @@ ${htmlBody}
               </div>
 
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>
-                  RCV
-                  {!reconEntryEdit.rcvManuallyEdited && reconEntryEdit.draft.rcvAmount && (
-                    <span style={{ fontWeight: 400, marginLeft: 6, color: "#6b7280", fontStyle: "italic" }}>
-                      (calculated)
-                    </span>
-                  )}
-                </div>
-                <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 4 }}>Item amount + Tax + O&P/Other</div>
-                <input
-                  value={reconEntryEdit.draft.rcvAmount}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    // If user clears RCV, re-enable auto-calc; otherwise mark as manually edited
-                    const nowManual = v.trim() !== "";
-                    setReconEntryEdit((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            draft: { ...prev.draft, rcvAmount: v },
-                            rcvManuallyEdited: nowManual,
-                          }
-                        : prev,
-                    );
-                  }}
-                  placeholder="(blank for note-only)"
-                  style={{
-                    padding: "6px 8px",
-                    borderRadius: 8,
-                    border: reconEntryEdit.rcvManuallyEdited ? "1px solid #d1d5db" : "1px solid #93c5fd",
-                    fontSize: 12,
-                    width: "100%",
-                    backgroundColor: reconEntryEdit.rcvManuallyEdited ? "#ffffff" : "#eff6ff",
-                  }}
-                />
-                <div style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
-                  {reconEntryEdit.rcvManuallyEdited
-                    ? "For CREDIT entries, keep this negative; for ADD entries, keep it positive."
-                    : "Auto-calculated from Item + Tax + O\u0026P. Type a value to override."}
-                </div>
+                {(() => {
+                  const isCredit = reconEntryEdit.draft.kind === "CREDIT";
+                  const rcvNum = parseFloat(reconEntryEdit.draft.rcvAmount.replace(/,/g, "")) || 0;
+                  const showNegativeWarning = isCredit && rcvNum > 0;
+                  return (
+                    <>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2, color: isCredit ? "#b91c1c" : undefined }}>
+                        {isCredit ? "RCV (Credit)" : "RCV"}
+                        {!reconEntryEdit.rcvManuallyEdited && reconEntryEdit.draft.rcvAmount && (
+                          <span style={{ fontWeight: 400, marginLeft: 6, color: "#6b7280", fontStyle: "italic" }}>
+                            (calculated)
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 10, color: isCredit ? "#dc2626" : "#6b7280", marginBottom: 4 }}>
+                        {isCredit ? "Credits should be negative to reduce the invoice total" : "Item amount + Tax + O&P/Other"}
+                      </div>
+                      <input
+                        value={reconEntryEdit.draft.rcvAmount}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          // If user clears RCV, re-enable auto-calc; otherwise mark as manually edited
+                          const nowManual = v.trim() !== "";
+                          setReconEntryEdit((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  draft: { ...prev.draft, rcvAmount: v },
+                                  rcvManuallyEdited: nowManual,
+                                }
+                              : prev,
+                          );
+                        }}
+                        placeholder={isCredit ? "Enter negative amount" : "(blank for note-only)"}
+                        style={{
+                          padding: "6px 8px",
+                          borderRadius: 8,
+                          border: isCredit ? "2px solid #dc2626" : (reconEntryEdit.rcvManuallyEdited ? "1px solid #d1d5db" : "1px solid #93c5fd"),
+                          fontSize: 12,
+                          width: "100%",
+                          fontWeight: isCredit ? 600 : undefined,
+                          color: isCredit ? "#b91c1c" : undefined,
+                          backgroundColor: isCredit ? "#fef2f2" : (reconEntryEdit.rcvManuallyEdited ? "#ffffff" : "#eff6ff"),
+                        }}
+                      />
+                      {showNegativeWarning && (
+                        <div
+                          style={{
+                            marginTop: 6,
+                            padding: "6px 10px",
+                            borderRadius: 6,
+                            backgroundColor: "#fef2f2",
+                            border: "1px solid #dc2626",
+                            fontSize: 11,
+                            color: "#991b1b",
+                          }}
+                        >
+                          <strong>⚠️ Positive value</strong> — Credits should have negative RCV to reduce the client's invoice.
+                          Add a minus sign (-) before the amount.
+                        </div>
+                      )}
+                      <div style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
+                        {reconEntryEdit.rcvManuallyEdited
+                          ? "For CREDIT entries, keep this negative; for ADD entries, keep it positive."
+                          : "Auto-calculated from Item + Tax + O\u0026P. Type a value to override."}
+                      </div>
+                    </>
+                  );
+                })()}
                 {!reconEntryEdit.draft.rcvAmount.trim() && (
                   <div
                     style={{
