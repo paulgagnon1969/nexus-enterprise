@@ -252,72 +252,108 @@ export class ProjectService {
   async createProject(dto: CreateProjectDto, actor: AuthenticatedUser) {
     const { userId, companyId } = actor;
 
-    const project = await this.prisma.project.create({
-      data: {
-        companyId,
-        name: dto.name,
-        externalId: dto.externalId || undefined,
-        addressLine1: dto.addressLine1,
-        addressLine2: dto.addressLine2 || undefined,
-        city: dto.city,
-        state: dto.state,
-        postalCode: dto.postalCode || undefined,
-        country: dto.country || undefined,
-        latitude: dto.latitude,
-        longitude: dto.longitude,
-        primaryContactName: dto.primaryContactName || undefined,
-        primaryContactPhone: dto.primaryContactPhone || undefined,
-        primaryContactEmail: dto.primaryContactEmail || undefined,
-        tenantClientId: dto.tenantClientId || undefined,
-        createdByUserId: userId
-      }
-    });
+    this.logger.log(`Creating project for company=${companyId}, user=${userId}, name=${dto.name}`);
+
+    let project;
+    try {
+      project = await this.prisma.project.create({
+        data: {
+          companyId,
+          name: dto.name,
+          externalId: dto.externalId || undefined,
+          addressLine1: dto.addressLine1,
+          addressLine2: dto.addressLine2 || undefined,
+          city: dto.city,
+          state: dto.state,
+          postalCode: dto.postalCode || undefined,
+          country: dto.country || undefined,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          primaryContactName: dto.primaryContactName || undefined,
+          primaryContactPhone: dto.primaryContactPhone || undefined,
+          primaryContactEmail: dto.primaryContactEmail || undefined,
+          tenantClientId: dto.tenantClientId || undefined,
+          createdByUserId: userId
+        }
+      });
+      this.logger.log(`Project created: id=${project.id}`);
+    } catch (err: any) {
+      this.logger.error(`Failed to create project record: ${err.message}`, err.stack);
+      throw err;
+    }
 
     // Seed or reuse a TaxJurisdiction for this project's location so that
     // Certified Payroll and project dashboards have something to work with.
-    const jurisdiction = await this.taxJurisdictions.resolveOrCreateForProject(
-      companyId,
-      project,
-    );
+    try {
+      const jurisdiction = await this.taxJurisdictions.resolveOrCreateForProject(
+        companyId,
+        project,
+      );
 
-    if (jurisdiction && !project.taxJurisdictionId) {
-      await this.prisma.project.update({
-        where: { id: project.id },
-        data: { taxJurisdictionId: jurisdiction.id },
-      });
+      if (jurisdiction && !project.taxJurisdictionId) {
+        await this.prisma.project.update({
+          where: { id: project.id },
+          data: { taxJurisdictionId: jurisdiction.id },
+        });
+      }
+    } catch (err: any) {
+      this.logger.warn(`Tax jurisdiction resolution failed (non-fatal): ${err.message}`);
     }
 
     // For convenience, create a default Unit and a top-level ProjectParticle
-    const unit = await this.prisma.projectUnit.create({
-      data: {
-        companyId,
-        projectId: project.id,
-        label: "Unit 1"
-      }
-    });
+    let unit;
+    try {
+      unit = await this.prisma.projectUnit.create({
+        data: {
+          companyId,
+          projectId: project.id,
+          label: "Unit 1"
+        }
+      });
+      this.logger.log(`ProjectUnit created: id=${unit.id}`);
+    } catch (err: any) {
+      this.logger.error(`Failed to create ProjectUnit: ${err.message}`, err.stack);
+      throw err;
+    }
 
-    await this.prisma.projectParticle.create({
-      data: {
-        companyId,
-        projectId: project.id,
-        unitId: unit.id,
-        type: ProjectParticleType.ROOM,
-        name: "Whole Unit",
-        fullLabel: `${unit.label} - Whole Unit`
-      }
-    });
+    try {
+      await this.prisma.projectParticle.create({
+        data: {
+          companyId,
+          projectId: project.id,
+          unitId: unit.id,
+          type: ProjectParticleType.ROOM,
+          name: "Whole Unit",
+          fullLabel: `${unit.label} - Whole Unit`
+        }
+      });
+      this.logger.log(`ProjectParticle created for project=${project.id}`);
+    } catch (err: any) {
+      this.logger.error(`Failed to create ProjectParticle: ${err.message}`, err.stack);
+      throw err;
+    }
 
-    await this.prisma.projectMembership.create({
-      data: {
-        userId,
-        projectId: project.id,
-        companyId,
-        role: ProjectRole.OWNER
-      }
-    });
+    try {
+      await this.prisma.projectMembership.create({
+        data: {
+          userId,
+          projectId: project.id,
+          companyId,
+          role: ProjectRole.OWNER
+        }
+      });
+      this.logger.log(`ProjectMembership created for user=${userId}`);
+    } catch (err: any) {
+      this.logger.error(`Failed to create ProjectMembership: ${err.message}`, err.stack);
+      throw err;
+    }
 
     // Auto-sync client portal membership if project is linked to a TenantClient
-    await this.syncClientMembershipForProject(project.id, companyId, dto.tenantClientId);
+    try {
+      await this.syncClientMembershipForProject(project.id, companyId, dto.tenantClientId);
+    } catch (err: any) {
+      this.logger.warn(`Client membership sync failed (non-fatal): ${err.message}`);
+    }
 
     await this.audit.log(actor, "PROJECT_CREATED", {
       companyId,
