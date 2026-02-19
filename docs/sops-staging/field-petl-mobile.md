@@ -1,11 +1,11 @@
 ---
 title: "Field PETL Mobile App SOP"
 module: field-petl-mobile
-revision: "1.0"
+revision: "1.1"
 tags: [sop, field-petl, mobile, daily-logs, operations, all-users]
 status: draft
 created: 2026-02-11
-updated: 2026-02-11
+updated: 2026-02-19
 author: Warp
 ---
 
@@ -117,6 +117,7 @@ flowchart TD
 - **Bulk updates** – Update multiple items at once for efficiency
 - **Audit trail** – All changes are logged with timestamps and user attribution
 - **Daily log integration** – PETL updates automatically documented in notes
+- **Cost book updates** – PETL imports automatically update tenant cost book pricing (see [Local Price Extrapolation SOP](./local-price-extrapolation-sop.md))
 
 ## Tips for Field Use
 - Use filters to focus on one room or category at a time
@@ -129,8 +130,10 @@ flowchart TD
 - [Daily Logs](./daily-logs.md)
 - [Projects](./projects.md)
 - [PETL Web (NCC)](./petl-ncc.md)
+- [Local Price Extrapolation](./local-price-extrapolation-sop.md) - Cost book auto-updates from PETL
 
 ## Revision History
-| Rev | Date | Changes |
-|-----|------|---------|
-| 1.0 | 2026-02-11 | Initial release |
+|| Rev | Date | Changes |
+||-----|------|---------|
+|| 1.0 | 2026-02-11 | Initial release |
+|| 1.1 | 2026-02-19 | Added cost book auto-update feature reference |

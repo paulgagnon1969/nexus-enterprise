@@ -48,7 +48,29 @@ function buildCanonicalKeyHash(cat: string | null, sel: string | null, activity:
   return crypto.createHash("sha256").update(canonicalKeyString, "utf8").digest("hex");
 }
 
-export async function importPriceListFromFile(csvPath: string) {
+/**
+ * Check if a CSV record is marked for deletion.
+ * Recognizes Delete column with values: Yes, Y, 1, true (case-insensitive)
+ */
+function isDeleteMarked(record: any): boolean {
+  const deleteValue = record["Delete"] ?? record["delete"] ?? record["DELETE"];
+  if (!deleteValue) return false;
+  const normalized = String(deleteValue).trim().toLowerCase();
+  return normalized === "yes" || normalized === "y" || normalized === "1" || normalized === "true";
+}
+
+export type PriceListImportMode = "merge" | "replace";
+
+export interface PriceListImportOptions {
+  /** Import mode: 'merge' (default) keeps existing items, 'replace' starts fresh */
+  mode?: PriceListImportMode;
+}
+
+export async function importPriceListFromFile(
+  csvPath: string,
+  options?: PriceListImportOptions,
+) {
+  const mode = options?.mode ?? "merge";
   if (!fs.existsSync(csvPath)) {
     throw new Error(`CSV not found at ${csvPath}`);
   }
@@ -113,7 +135,58 @@ export async function importPriceListFromFile(csvPath: string) {
     }
   }
 
-  const { priceListId, itemCount } = await prisma.$transaction(async (tx: any) => {
+  // In merge mode, load all existing items from the previous active Golden price list
+  // so we can carry them forward and merge with CSV updates.
+  type ExistingItem = {
+    groupCode: string | null;
+    groupDescription: string | null;
+    description: string | null;
+    cat: string | null;
+    sel: string | null;
+    unit: string | null;
+    unitPrice: number | null;
+    lastKnownUnitPrice: number | null;
+    coverage: string | null;
+    activity: string | null;
+    owner: string | null;
+    sourceVendor: string | null;
+    sourceDate: Date | null;
+    rawJson: any;
+    canonicalKeyHash: string | null;
+    divisionCode: string | null;
+  };
+
+  const existingItemsByHash = new Map<string, ExistingItem>();
+  if (mode === "merge" && latest) {
+    const existingItems = await prisma.priceListItem.findMany({
+      where: { priceListId: latest.id },
+      select: {
+        groupCode: true,
+        groupDescription: true,
+        description: true,
+        cat: true,
+        sel: true,
+        unit: true,
+        unitPrice: true,
+        lastKnownUnitPrice: true,
+        coverage: true,
+        activity: true,
+        owner: true,
+        sourceVendor: true,
+        sourceDate: true,
+        rawJson: true,
+        canonicalKeyHash: true,
+        divisionCode: true,
+      },
+    });
+    for (const item of existingItems) {
+      if (item.canonicalKeyHash) {
+        existingItemsByHash.set(item.canonicalKeyHash, item);
+      }
+    }
+  }
+
+  const { priceListId, itemCount, mergeStats } = await prisma.$transaction(async (tx: any) => {
     await tx.priceList.updateMany({
       where: { kind: "GOLDEN", isActive: true },
       data: { isActive: false },
@@ -131,21 +204,49 @@ export async function importPriceListFromFile(csvPath: string) {
       },
     });
 
-    // Parse records and extract data (ignore original line numbers)
-    const parsedItems = records.map((record) => {
+    // Track merge statistics
+    let updatedCount = 0;
+    let addedCount = 0;
+    let deletedCount = 0;
+    let unchangedCount = 0;
+
+    // Track which existing items have been processed (updated or deleted)
+    const processedHashes = new Set<string>();
+
+    // Parse CSV records and build items
+    const csvItems: Array<ExistingItem & { priceListId: string }> = [];
+
+    for (const record of records) {
       const cat = cleanText(record["Cat"]);
       const sel = cleanText(record["Sel"]);
       const activity = cleanText(record["Activity"]);
       const description = cleanText(record["Desc"]);
+      const canonicalKeyHash = buildCanonicalKeyHash(cat, sel, activity, description);
+
+      // Check if this item is marked for deletion (only meaningful in merge mode)
+      if (mode === "merge" && isDeleteMarked(record)) {
+        if (existingItemsByHash.has(canonicalKeyHash)) {
+          processedHashes.add(canonicalKeyHash);
+          deletedCount++;
+        }
+        continue; // Skip adding this item
+      }
 
       const divisionCode = cat
         ? divisionByCat.get(cat.trim().toUpperCase()) ?? null
         : null;
 
-      const canonicalKeyHash = buildCanonicalKeyHash(cat, sel, activity, description);
       const previousUnitPrice = prevPriceByCanonicalHash.get(canonicalKeyHash) ?? null;
+      const existingItem = existingItemsByHash.get(canonicalKeyHash);
 
-      return {
+      if (existingItem) {
+        processedHashes.add(canonicalKeyHash);
+        updatedCount++;
+      } else {
+        addedCount++;
+      }
+
+      csvItems.push({
         priceListId: priceList.id,
         groupCode: cleanText(record["Group Code"]),
         groupDescription: cleanText(record["Group Description"]),
@@ -163,11 +264,27 @@ export async function importPriceListFromFile(csvPath: string) {
         rawJson: record as any,
         canonicalKeyHash,
         divisionCode,
-      };
-    });
+      });
+    }
+
+    // In merge mode, add existing items that weren't in the CSV (and weren't deleted)
+    const finalItems: Array<ExistingItem & { priceListId: string }> = [...csvItems];
+
+    if (mode === "merge") {
+      for (const [hash, existingItem] of existingItemsByHash.entries()) {
+        if (!processedHashes.has(hash)) {
+          // This existing item wasn't in the CSV, carry it forward
+          unchangedCount++;
+          finalItems.push({
+            priceListId: priceList.id,
+            ...existingItem,
+          });
+        }
+      }
+    }
 
     // Sort by Cat → Sel → Activity → Description for logical ordering
-    parsedItems.sort((a, b) => {
+    finalItems.sort((a, b) => {
       const catA = (a.cat ?? "").toUpperCase();
       const catB = (b.cat ?? "").toUpperCase();
       if (catA !== catB) return catA.localeCompare(catB);
@@ -186,7 +303,7 @@ export async function importPriceListFromFile(csvPath: string) {
     });
 
     // Assign sequential line numbers 1, 2, 3...
-    const itemsData = parsedItems.map((item, index) => ({
+    const itemsData = finalItems.map((item, index) => ({
       ...item,
       lineNo: index + 1,
     }));
@@ -197,10 +314,14 @@ export async function importPriceListFromFile(csvPath: string) {
       await tx.priceListItem.createMany({ data: chunk });
     }
 
-    return { priceListId: priceList.id, itemCount: itemsData.length };
+    return {
+      priceListId: priceList.id,
+      itemCount: itemsData.length,
+      mergeStats: mode === "merge" ? { updatedCount, addedCount, deletedCount, unchangedCount } : null,
+    };
   }, { timeout: 600000 });
 
-  return { priceListId, revision, itemCount };
+  return { priceListId, revision, itemCount, mode, mergeStats };
 }
 
 // Ensure a CompanyPriceList exists for the given company, seeding from the
