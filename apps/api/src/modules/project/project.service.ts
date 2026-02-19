@@ -5416,10 +5416,6 @@ export class ProjectService {
     const salesTaxAmount = body.salesTaxAmount ?? null;
     const opAmount = body.opAmount ?? null;
 
-    const rcvAmount =
-      body.rcvAmount ??
-      ((itemAmount ?? 0) + (salesTaxAmount ?? 0) + (opAmount ?? 0));
-
     const tag = (() => {
       if (body.tag == null || String(body.tag).trim() === "") return null;
       const raw = String(body.tag).trim();
@@ -5436,6 +5432,16 @@ export class ProjectService {
       kind = PetlReconciliationEntryKind.CREDIT;
     } else if (kindRaw === 'ADD') {
       kind = PetlReconciliationEntryKind.ADD;
+    }
+
+    // Calculate rcvAmount - for CREDIT kind, ensure it's negative
+    let rcvAmount =
+      body.rcvAmount ??
+      ((itemAmount ?? 0) + (salesTaxAmount ?? 0) + (opAmount ?? 0));
+    
+    // CREDITs must be negative (reduce invoice total)
+    if (kind === PetlReconciliationEntryKind.CREDIT && rcvAmount > 0) {
+      rcvAmount = -1 * rcvAmount;
     }
 
     const isStandaloneChangeOrder = body.isStandaloneChangeOrder ?? false;
