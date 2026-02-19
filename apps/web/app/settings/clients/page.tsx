@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useTransition } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -78,6 +78,7 @@ export default function ClientsPage() {
   const [loadingPerson, setLoadingPerson] = useState(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [isPending, startTransition] = useTransition();
 
   const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
 
@@ -277,11 +278,16 @@ export default function ClientsPage() {
     try {
       const details = await Promise.all(detailPromises);
       
-      // Single state update with all details
-      setSearchResults(prev => prev.map(r => {
-        const detail = details.find(d => d.id === r.id);
-        return detail ? { ...r, ...detail } : r;
-      }));
+      // Build a Map for O(1) lookup instead of O(n) find
+      const detailMap = new Map(details.map(d => [d.id, d]));
+      
+      // Use startTransition to mark this as non-urgent update
+      startTransition(() => {
+        setSearchResults(prev => prev.map(r => {
+          const detail = detailMap.get(r.id);
+          return detail ? { ...r, ...detail } : r;
+        }));
+      });
     } catch (err: any) {
       // Silently ignore abort errors
       if (err.name !== "AbortError") throw err;
