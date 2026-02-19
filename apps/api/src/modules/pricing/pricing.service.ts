@@ -36,6 +36,56 @@ function normalizeKeyPart(value: string | null | undefined): string {
     .toUpperCase();
 }
 
+/**
+ * Normalize activity values from full words to Xactimate codes.
+ * Maps: Remove -> -, Replace -> +, R&R -> &, Install Only -> I, Materials -> M, etc.
+ */
+function normalizeActivity(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  
+  const upper = raw.toUpperCase();
+  
+  // Already a valid Xactimate code? Return as-is
+  if (["-", "+", "&", "R", "M", "F", "I"].includes(raw)) {
+    return raw;
+  }
+  
+  // Map full words to Xactimate activity codes
+  // Remove (demo only)
+  if (upper === "REMOVE" || upper === "DEMO" || upper === "DEMOLITION") {
+    return "-";
+  }
+  // Replace (install new)
+  if (upper === "REPLACE" || upper === "INSTALL NEW") {
+    return "+";
+  }
+  // Remove & Replace (R&R)
+  if (upper === "REMOVE AND REPLACE" || upper === "REMOVE & REPLACE" || upper === "R&R" || upper === "RNR") {
+    return "&";
+  }
+  // Detach & Reset (D&R)
+  if (upper === "DETACH AND RESET" || upper === "DETACH & RESET" || upper === "D&R" || upper === "DNR" || upper === "RESET") {
+    return "R";
+  }
+  // Materials only
+  if (upper === "MATERIALS" || upper === "MATERIAL ONLY" || upper === "MATERIALS ONLY" || upper === "MAT" || upper === "MATERIAL") {
+    return "M";
+  }
+  // Repair
+  if (upper === "REPAIR" || upper === "FIX") {
+    return "F";
+  }
+  // Install only (labor only, no material)
+  if (upper === "INSTALL ONLY" || upper === "INSTALL" || upper === "LABOR ONLY" || upper === "LABOR") {
+    return "I";
+  }
+  
+  // Return original if no match (might be a valid code we don't recognize)
+  return raw;
+}
+
 function buildCanonicalKeyHash(cat: string | null, sel: string | null, activity: string | null, description: string | null): string {
   const crypto = require("node:crypto");
   const canonicalKeyString = [
@@ -209,17 +259,20 @@ export async function importPriceListFromFile(
     let addedCount = 0;
     let deletedCount = 0;
     let unchangedCount = 0;
+    let duplicateCount = 0;
 
     // Track which existing items have been processed (updated or deleted)
     const processedHashes = new Set<string>();
 
-    // Parse CSV records and build items
-    const csvItems: Array<ExistingItem & { priceListId: string }> = [];
+    // Parse CSV records and build items, deduplicating by canonicalKeyHash.
+    // If the CSV contains duplicate rows, keep the last occurrence (most recent pricing).
+    const csvItemsByHash = new Map<string, ExistingItem & { priceListId: string }>();
 
     for (const record of records) {
       const cat = cleanText(record["Cat"]);
       const sel = cleanText(record["Sel"]);
-      const activity = cleanText(record["Activity"]);
+      // Normalize activity: "Remove" -> "-", "Install Only" -> "I", etc.
+      const activity = normalizeActivity(record["Activity"]);
       const description = cleanText(record["Desc"]);
       const canonicalKeyHash = buildCanonicalKeyHash(cat, sel, activity, description);
 
@@ -239,14 +292,19 @@ export async function importPriceListFromFile(
       const previousUnitPrice = prevPriceByCanonicalHash.get(canonicalKeyHash) ?? null;
       const existingItem = existingItemsByHash.get(canonicalKeyHash);
 
-      if (existingItem) {
+      // Track if this is a duplicate within the CSV itself
+      const isDuplicateInCsv = csvItemsByHash.has(canonicalKeyHash);
+      if (isDuplicateInCsv) {
+        duplicateCount++;
+      } else if (existingItem) {
         processedHashes.add(canonicalKeyHash);
         updatedCount++;
       } else {
         addedCount++;
       }
 
-      csvItems.push({
+      // Always overwrite with the latest occurrence (last row wins)
+      csvItemsByHash.set(canonicalKeyHash, {
         priceListId: priceList.id,
         groupCode: cleanText(record["Group Code"]),
         groupDescription: cleanText(record["Group Description"]),
@@ -266,6 +324,9 @@ export async function importPriceListFromFile(
         divisionCode,
       });
     }
+
+    // Convert deduplicated map to array
+    const csvItems = Array.from(csvItemsByHash.values());
 
     // In merge mode, add existing items that weren't in the CSV (and weren't deleted)
     const finalItems: Array<ExistingItem & { priceListId: string }> = [...csvItems];
@@ -317,7 +378,8 @@ export async function importPriceListFromFile(
     return {
       priceListId: priceList.id,
       itemCount: itemsData.length,
-      mergeStats: mode === "merge" ? { updatedCount, addedCount, deletedCount, unchangedCount } : null,
+      mergeStats: mode === "merge" ? { updatedCount, addedCount, deletedCount, unchangedCount, duplicateCount } : null,
+      duplicateCount, // Always report duplicates found in CSV (regardless of mode)
     };
   }, { timeout: 600000 });
 
