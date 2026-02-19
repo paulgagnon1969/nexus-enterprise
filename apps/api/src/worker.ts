@@ -18,7 +18,7 @@ import { ImportJobStatus, ImportJobType, Role as DbRole } from "@prisma/client";
 import type { AuthenticatedUser } from "./modules/auth/jwt.strategy";
 import { GlobalRole as AuthGlobalRole, Role as AuthRole } from "./modules/auth/auth.guards";
 import { ProjectService } from "./modules/project/project.service";
-import { importPriceListFromFile, importCompanyPriceListFromFile } from "./modules/pricing/pricing.service";
+import { importPriceListFromFile, importCompanyPriceListFromFile, type PriceListImportMode } from "./modules/pricing/pricing.service";
 import { Storage } from "@google-cloud/storage";
 import { parse } from "csv-parse/sync";
 import argon2 from "argon2";
@@ -795,8 +795,12 @@ async function processImportJob(
       );
     }
 
+    // Read import mode from metaJson if present, default to 'merge'
+    const metaJson = job.metaJson as Record<string, any> | null;
+    const importMode: PriceListImportMode = metaJson?.mode === "replace" ? "replace" : "merge";
+
     const startedAt = Date.now();
-    const result = await importPriceListFromFile(effectiveCsvPath);
+    const result = await importPriceListFromFile(effectiveCsvPath, { mode: importMode });
     const durationMs = Date.now() - startedAt;
 
     await prisma.importJob.update({

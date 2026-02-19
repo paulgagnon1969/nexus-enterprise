@@ -32,8 +32,11 @@
   "type": "commonjs",
   "packageManager": "npm@10.0.0",
   "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
     "@types/passport-jwt": "^4.0.1",
     "eslint": "^9.39.1",
+    "gray-matter": "^4.0.3",
+    "markdown-it": "^14.1.1",
     "prettier": "^3.7.4",
     "turbo": "^2.7.2",
     "typescript": "^5.9.3"

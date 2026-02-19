@@ -16,6 +16,7 @@ import {
   getCurrentGoldenPriceListTable,
   getGoldenPriceListUploads,
   ensureCompanyPriceListForCompany,
+  type PriceListImportMode,
 } from "./pricing.service";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
@@ -147,6 +148,12 @@ export class PricingController {
         throw new BadRequestException("Missing company context for price list import");
       }
 
+      // Parse mode from multipart fields if provided, default to 'merge'
+      const anyFastReq = req as any;
+      const formFields = anyFastReq.body || {};
+      const rawMode = formFields.mode ?? "merge";
+      const importMode: PriceListImportMode = rawMode === "replace" ? "replace" : "merge";
+
       // Create an async ImportJob that the background worker will process,
       // rather than importing the PETL synchronously in this request.
       const job = await this.prisma.importJob.create({
@@ -157,12 +164,14 @@ export class PricingController {
           type: "PRICE_LIST",
           status: "QUEUED",
           progress: 0,
-          message: "Queued Golden PETL (Price List) import",
+          message: `Queued Golden PETL (Price List) import (mode: ${importMode})`,
           csvPath: destPath,
           // If we successfully uploaded to GCS, also record the URI so the
           // worker can download the CSV even when csvPath is not visible in
           // its container.
           fileUri: fileUri,
+          // Store import mode in metaJson so worker knows which mode to use
+          metaJson: { mode: importMode },
         },
       });
 
@@ -236,6 +245,10 @@ export class PricingController {
       throw new BadRequestException("Missing company context for price list import");
     }
 
+    // Parse mode from body if provided, default to 'merge'
+    const rawMode = body.mode ?? "merge";
+    const importMode: PriceListImportMode = rawMode === "replace" ? "replace" : "merge";
+
     const job = await this.prisma.importJob.create({
       data: {
         companyId,
@@ -244,9 +257,11 @@ export class PricingController {
         type: "PRICE_LIST",
         status: "QUEUED",
         progress: 0,
-        message: "Queued Golden PETL (Price List) import from URI",
+        message: `Queued Golden PETL (Price List) import from URI (mode: ${importMode})`,
         csvPath: null,
         fileUri,
+        // Store import mode in metaJson so worker knows which mode to use
+        metaJson: { mode: importMode },
       },
     });
 

@@ -1,11 +1,11 @@
 ---
 title: "Local Price Extrapolation SOP"
 module: local-price-extrapolation
-revision: "1.0"
+revision: "1.1"
 tags: [sop, cost-book, pricing, petl, admin-only, estimating]
 status: draft
 created: 2026-02-08
-updated: 2026-02-08
+updated: 2026-02-19
 author: Warp
 featureId: local-price-extrapolation
 ---
@@ -24,7 +24,7 @@ The Local Price Extrapolation system automatically learns regional pricing facto
 
 ### Step-by-Step Process
 
-#### 1. Import PETL Estimate (Automatic Learning)
+#### 1. Import PETL Estimate (Automatic Learning + Cost Book Update)
 
 **What Happens:**
 When a Project Manager imports an Xactimate estimate (PETL):
@@ -36,12 +36,14 @@ When a Project Manager imports an Xactimate estimate (PETL):
 3. Matches PETL line items to cost book by CAT/SEL codes
 4. Calculates price variances by category and activity
 5. Stores learned factors in database
+6. **Automatically updates the tenant Cost Book** with latest pricing (see below)
 
 **Result:**
 - Project now has regional pricing intelligence
 - Tax rate reflects actual project location
 - O&P rate reflects actual contractor markup
 - Category adjustments show local price variations
+- **Tenant Cost Book baseline prices are updated to reflect current market pricing**
 
 **Example:**
 - Mary Lewis project (Dallas, TX)
@@ -95,7 +97,38 @@ When adding cost book items BEFORE any PETL import:
 - Set company default O&P rate in Company settings
 - Or manually override tax/O&P rates per project
 
-#### 4. View Learned Factors (Admin)
+### 4. Automatic Cost Book Updates (Source of Truth)
+
+**What Happens:**
+Every PETL import automatically updates the tenant's Cost Book (`CompanyPriceListItem`) with the latest pricing from the estimate. This ensures your cost book reflects real-world, current market pricing.
+
+**Update Logic:**
+1. **Matches by Cat/Sel** – Each PETL line item is matched to cost book items by Category and Selection codes
+2. **Averages unit costs** – When multiple PETL lines share the same Cat/Sel, unit costs are averaged
+3. **Preserves history** – Previous price is saved in `lastKnownUnitPrice` for audit trail
+4. **Creates new items** – If a Cat/Sel combination doesn't exist in the cost book, a new item is created
+5. **Enriches with cost components** – Workers wage, labor burden, labor overhead, material, and equipment costs are stored
+
+**Data Captured:**
+- Unit price (averaged from PETL lines)
+- Description, unit, activity
+- Cost breakdown: Workers Wage, Labor Burden, Labor Overhead, Material, Equipment
+- Source tracking: Project ID, Estimate Version, Import Date
+
+**Audit Trail:**
+All cost book updates are logged in `TenantPriceUpdateLog` with:
+- Old price → New price
+- Source (e.g., `PROJECT_PETL_IMPORT`)
+- User who triggered the import
+- Timestamp
+
+**Why This Matters:**
+- PETL data is your **source of truth** for real-world pricing
+- Each import refines your cost book with actual project data
+- No manual price updates needed – the system learns from every estimate
+- Intelligent extrapolation (tax, O&P, category adjustments) layers on top of this updated baseline
+
+### 5. View Learned Factors (Admin)
 
 **Location:** Project Settings → Regional Pricing Intelligence
 
@@ -168,10 +201,11 @@ flowchart TD
 - Works offline
 
 ## Related Modules
-- [Cost Book Management] - Base cost book system
-- [PETL Import] - Xactimate estimate import
+- [Cost Book Management] - Base cost book system (updated automatically by PETL imports)
+- [PETL Import] - Xactimate estimate import (source of truth for pricing)
 - [Project Estimates] - Estimate creation and management
 - [Invoice Generation] - Uses extrapolated pricing for invoices
+- [Tenant Price Update Log] - Audit trail for all cost book price changes
 
 ## Admin Configuration
 
@@ -299,4 +333,5 @@ flowchart TD
 
 | Rev | Date | Changes |
 |-----|------|---------|
-| 1.0 | 2026-02-08 | Initial release - automatic learning from PETL, category-level intelligence, bootstrap mode |
+|| 1.0 | 2026-02-08 | Initial release - automatic learning from PETL, category-level intelligence, bootstrap mode |
+|| 1.1 | 2026-02-19 | Added documentation for automatic Cost Book updates from PETL imports (source of truth) |
