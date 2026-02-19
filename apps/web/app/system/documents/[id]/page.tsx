@@ -1036,52 +1036,49 @@ function PrintView({
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          /* Hide everything except print content */
-          body * {
+          
+          /* Hide no-print elements first */
+          .no-print {
+            display: none !important;
             visibility: hidden !important;
           }
-          /* Show the print overlay and all its contents */
-          .print-overlay,
-          .print-overlay *,
-          .print-container,
-          .print-container * {
-            visibility: visible !important;
-          }
-          /* Print overlay must break out of fixed positioning */
+          
+          /* Print overlay - reset all positioning */
           .print-overlay {
-            position: static !important;
-            inset: auto !important;
-            top: auto !important;
-            left: auto !important;
-            right: auto !important;
-            bottom: auto !important;
-            background: transparent !important;
-            padding: 0 !important;
-            margin: 0 !important;
-            overflow: visible !important;
-            height: auto !important;
-            width: 100% !important;
+            all: unset !important;
             display: block !important;
-            z-index: auto !important;
+            position: static !important;
+            width: 100% !important;
+            height: auto !important;
+            background: white !important;
+            overflow: visible !important;
           }
-          /* Print container flows naturally for multi-page */
+          
+          /* Print container - reset and flow naturally */
           .print-container {
+            all: unset !important;
+            display: block !important;
             position: static !important;
             width: 100% !important;
             max-width: none !important;
-            padding: 20px !important;
-            margin: 0 !important;
-            box-shadow: none !important;
-            border: none !important;
-            border-radius: 0 !important;
-            background: white !important;
-            overflow: visible !important;
             height: auto !important;
             min-height: auto !important;
+            padding: 20px !important;
+            margin: 0 !important;
+            background: white !important;
+            overflow: visible !important;
           }
-          /* Hide no-print elements */
-          .no-print {
-            display: none !important;
+          
+          /* Ensure all content inside print container is visible */
+          .print-container * {
+            visibility: visible !important;
+          }
+          
+          /* Document content wrapper */
+          .print-document-content {
+            display: block !important;
+            visibility: visible !important;
+            overflow: visible !important;
           }
           /* Watermark */
           .print-watermark {
