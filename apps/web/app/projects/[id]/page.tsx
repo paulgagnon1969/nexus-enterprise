@@ -25768,13 +25768,15 @@ ${htmlBody}
           </div>
 
           <div>
-            <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Notes</div>
+            <div style={{ fontSize: 11, color: petlHideNotes ? "#b45309" : "#4b5563", marginBottom: 2, fontWeight: petlHideNotes ? 600 : 400 }}>
+              {petlHideNotes ? "⚠️ Toggle ON to reveal Notes" : "Notes"}
+            </div>
             <div
               role="group"
               aria-label="Notes visibility"
               style={{
                 display: "inline-flex",
-                border: "1px solid #d1d5db",
+                border: petlHideNotes ? "2px solid #f59e0b" : "1px solid #d1d5db",
                 borderRadius: 999,
                 overflow: "hidden",
               }}
