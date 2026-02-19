@@ -6,6 +6,14 @@ export const IMPORT_QUEUE_NAME = "import-jobs";
 let redisConnection: IORedis | null = null;
 let importQueue: Queue | null = null;
 
+/**
+ * Check if Redis is configured and available for queueing.
+ * Returns false if REDIS_URL is not set.
+ */
+export function isRedisAvailable(): boolean {
+  return !!process.env.REDIS_URL;
+}
+
 export function getBullRedisConnection(): IORedis {
   if (redisConnection) return redisConnection;
 
