@@ -132,7 +132,7 @@ const PetlRow = memo(function PetlRow({
       <tr style={{ backgroundColor: bg }}>
         <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", whiteSpace: "nowrap" }}>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            {reconFinancial.length > 0 ? (
+            {(reconFinancial.length > 0 || item.itemNote) ? (
               <button
                 type="button"
                 onClick={() => onToggleExpand(item.id)}
@@ -148,7 +148,7 @@ const PetlRow = memo(function PetlRow({
                 }}
                 aria-label={isExpanded ? "Collapse" : "Expand"}
               >
-                {showSublines ? "▾" : "▸"}
+                {isExpanded ? "▾" : "▸"}
               </button>
             ) : (
               <span style={{ width: 14 }} />
@@ -568,7 +568,7 @@ const PetlRow = memo(function PetlRow({
 
 // Flatten items into a render list that includes both items and their expanded sub-rows
 interface FlatRow {
-  type: "item" | "recon";
+  type: "item" | "recon" | "itemNote";
   item: PetlItem;
   reconEntry?: ReconEntry;
   reconSeq?: number | null; // null for note-only entries
@@ -865,6 +865,66 @@ function VirtualizedRow({
     );
   }
 
+  // Render itemNote sub-row (V0 note from the original PETL)
+  if (row.type === "itemNote") {
+    const parentItem = row.item;
+    const noteText = String(parentItem.itemNote ?? "");
+
+    // Fast path: render nothing if hideNotes is active
+    if (hideNotes) {
+      return <div style={{ ...style, height: 0, overflow: "hidden" }} />;
+    }
+
+    return (
+      <div style={{ ...style, display: "flex", alignItems: "stretch" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
+          <tbody>
+            <tr style={{ backgroundColor: "#fefce8" }}>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 120, fontFamily: "monospace" }}>
+                <span style={{ paddingLeft: 18, color: "#ca8a04" }}>↳ 📝 V0</span>
+              </td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 220 }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100 }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <span style={{ color: "#92400e", fontStyle: "italic" }} title={noteText}>
+                  {noteText}
+                </span>
+              </td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right", color: "#9ca3af" }}>—</td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>
+                <span style={{ fontSize: 11, color: "#9ca3af" }}>—</span>
+              </td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80 }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80 }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 180 }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => onOpenReconciliation(parentItem.id)}
+                    style={{
+                      padding: "2px 6px",
+                      borderRadius: 999,
+                      border: "1px solid #ca8a04",
+                      background: "#fef3c7",
+                      fontSize: 11,
+                      cursor: "pointer",
+                      color: "#92400e",
+                    }}
+                  >
+                    Reconcile Note
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   const { item } = row;
   const reconEntries = reconEntriesBySowItemId.get(item.id) ?? [];
   const isFlagged = flaggedIds.has(item.id);
@@ -893,7 +953,7 @@ function VirtualizedRow({
           <tr style={{ backgroundColor: bg }}>
             <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 120, whiteSpace: "nowrap" }}>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                {reconFinancial.length > 0 ? (
+                {(reconFinancial.length > 0 || item.itemNote) ? (
                   <button
                     type="button"
                     onClick={() => onToggleExpand(item.id)}
@@ -1073,6 +1133,11 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
       rows.push({ type: "item", item, displayLineNo });
 
       if (expandedIds.has(item.id)) {
+        // If item has an itemNote, show it as a sub-line first
+        if (item.itemNote) {
+          rows.push({ type: "itemNote", item, displayLineNo });
+        }
+
         const reconEntries = reconEntriesBySowItemId.get(item.id) ?? [];
         // Single pass split to avoid repeated filters per item
         const financial: ReconEntry[] = [];
@@ -1115,6 +1180,11 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
     (index: number, rowProps: VirtualizedRowProps) => {
       const row = rowProps.flatRows[index];
       if (!row) return ROW_HEIGHT;
+      if (row.type === "itemNote") {
+        // Hide itemNote rows when hideNotes is active
+        if (rowProps.hideNotes) return 0;
+        return RECON_ROW_HEIGHT;
+      }
       if (row.type === "recon") {
         // Hide note-only rows by returning 0 height when hideNotes is active.
         if (row.isNoteOnly && rowProps.hideNotes) return 0;
