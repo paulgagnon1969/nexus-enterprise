@@ -1019,9 +1019,14 @@ async function generateAndDownloadPdf(
     mermaid.initialize({ 
       startOnLoad: false,
       theme: 'default',
-      securityLevel: 'strict',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
+      securityLevel: 'loose', // Need loose for proper text rendering
+      fontFamily: 'Arial, sans-serif',
     });
+    
+    // Create a temporary hidden container for mermaid rendering
+    const tempContainer = window.document.createElement('div');
+    tempContainer.style.cssText = 'position: absolute; left: -9999px; top: 0;';
+    window.document.body.appendChild(tempContainer);
     
     // Process the HTML content to render Mermaid diagrams
     let bodyContent = document.currentVersion?.htmlContent || '<em>No content</em>';
@@ -1046,15 +1051,27 @@ async function generateAndDownloadPdf(
         
         try {
           const id = 'mermaid-pdf-' + Math.random().toString(36).substring(2, 11);
+          
+          // Create a container element for this diagram
+          const diagramContainer = window.document.createElement('div');
+          diagramContainer.id = id;
+          tempContainer.appendChild(diagramContainer);
+          
           const { svg } = await mermaid.render(id, code);
+          
           // Replace the mermaid div with the rendered SVG
-          bodyContent = bodyContent.replace(match, `<div style="margin: 16px 0;">${svg}</div>`);
+          // Add inline styles to ensure text is visible
+          const styledSvg = svg.replace(/<text /g, '<text style="fill: #000; font-family: Arial, sans-serif;" ');
+          bodyContent = bodyContent.replace(match, `<div style="margin: 16px 0;">${styledSvg}</div>`);
         } catch (err) {
           console.error('Mermaid render error in PDF:', err);
           // Keep original on error
         }
       }
     }
+    
+    // Clean up temp container
+    window.document.body.removeChild(tempContainer);
     
     // Build the HTML content for the PDF
     const htmlContent = `
