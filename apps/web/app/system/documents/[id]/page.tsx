@@ -1036,33 +1036,40 @@ function PrintView({
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          /* Hide everything by default */
-          body > *:not(.print-overlay),
-          body > *:not(.print-overlay) * {
-            display: none !important;
+          /* Hide everything except print content */
+          body * {
+            visibility: hidden !important;
           }
           /* Show the print overlay and all its contents */
           .print-overlay,
-          .print-overlay * {
-            display: block !important;
+          .print-overlay *,
+          .print-container,
+          .print-container * {
             visibility: visible !important;
           }
-          /* Print overlay should be static and flow naturally */
+          /* Print overlay must break out of fixed positioning */
           .print-overlay {
             position: static !important;
+            inset: auto !important;
+            top: auto !important;
+            left: auto !important;
+            right: auto !important;
+            bottom: auto !important;
             background: transparent !important;
             padding: 0 !important;
             margin: 0 !important;
             overflow: visible !important;
             height: auto !important;
             width: 100% !important;
+            display: block !important;
+            z-index: auto !important;
           }
           /* Print container flows naturally for multi-page */
           .print-container {
             position: static !important;
             width: 100% !important;
             max-width: none !important;
-            padding: 0 !important;
+            padding: 20px !important;
             margin: 0 !important;
             box-shadow: none !important;
             border: none !important;
@@ -1073,10 +1080,8 @@ function PrintView({
             min-height: auto !important;
           }
           /* Hide no-print elements */
-          .no-print,
-          .no-print * {
+          .no-print {
             display: none !important;
-            visibility: hidden !important;
           }
           /* Watermark */
           .print-watermark {
