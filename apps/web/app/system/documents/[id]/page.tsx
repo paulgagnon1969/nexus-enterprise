@@ -1019,63 +1019,17 @@ async function generateAndDownloadPdf(
     mermaid.initialize({ 
       startOnLoad: false,
       theme: 'default',
-      securityLevel: 'loose', // Need loose for proper text rendering
+      securityLevel: 'loose',
       fontFamily: 'Arial, sans-serif',
     });
     
-    // Create a temporary hidden container for mermaid rendering
-    const tempContainer = window.document.createElement('div');
-    tempContainer.style.cssText = 'position: absolute; left: -9999px; top: 0;';
-    window.document.body.appendChild(tempContainer);
+    const bodyContent = document.currentVersion?.htmlContent || '<em>No content</em>';
     
-    // Process the HTML content to render Mermaid diagrams
-    let bodyContent = document.currentVersion?.htmlContent || '<em>No content</em>';
-    
-    // Find and render all mermaid blocks
-    const mermaidRegex = /<div class="mermaid">([\s\S]*?)<\/div>/gi;
-    const mermaidMatches = bodyContent.match(mermaidRegex) || [];
-    
-    for (const match of mermaidMatches) {
-      // Extract the mermaid code
-      const codeMatch = match.match(/<div class="mermaid">([\s\S]*?)<\/div>/i);
-      if (codeMatch && codeMatch[1]) {
-        let code = codeMatch[1]
-          .replace(/<br\s*\/?>/gi, '\n')
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&amp;/g, '&')
-          .replace(/&quot;/g, '"')
-          .replace(/&#39;/g, "'")
-          .replace(/<[^>]+>/g, '')
-          .trim();
-        
-        try {
-          const id = 'mermaid-pdf-' + Math.random().toString(36).substring(2, 11);
-          
-          // Create a container element for this diagram
-          const diagramContainer = window.document.createElement('div');
-          diagramContainer.id = id;
-          tempContainer.appendChild(diagramContainer);
-          
-          const { svg } = await mermaid.render(id, code);
-          
-          // Replace the mermaid div with the rendered SVG
-          // Add inline styles to ensure text is visible
-          const styledSvg = svg.replace(/<text /g, '<text style="fill: #000; font-family: Arial, sans-serif;" ');
-          bodyContent = bodyContent.replace(match, `<div style="margin: 16px 0;">${styledSvg}</div>`);
-        } catch (err) {
-          console.error('Mermaid render error in PDF:', err);
-          // Keep original on error
-        }
-      }
-    }
-    
-    // Clean up temp container
-    window.document.body.removeChild(tempContainer);
-    
-    // Build the HTML content for the PDF
-    const htmlContent = `
-      <div style="font-family: system-ui, -apple-system, sans-serif; padding: 0.5in; background: white;">
+    // Create a real DOM container for PDF generation (visible but off-screen)
+    const pdfContainer = window.document.createElement('div');
+    pdfContainer.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 8in; background: white; font-family: Arial, sans-serif;';
+    pdfContainer.innerHTML = `
+      <div style="padding: 0.5in; background: white;">
         <!-- Header -->
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 2px solid #0f172a;">
           <div>
@@ -1100,7 +1054,7 @@ async function generateAndDownloadPdf(
         </div>
         
         <!-- Body -->
-        <div style="font-size: 11px; line-height: 1.6; color: #1f2937;">
+        <div class="pdf-body" style="font-size: 11px; line-height: 1.6; color: #1f2937;">
           ${bodyContent}
         </div>
         
@@ -1112,18 +1066,57 @@ async function generateAndDownloadPdf(
       </div>
     `;
     
+    window.document.body.appendChild(pdfContainer);
+    
+    // Now render all mermaid blocks in the actual DOM
+    const mermaidBlocks = pdfContainer.querySelectorAll('.mermaid');
+    for (const block of Array.from(mermaidBlocks)) {
+      let code = block.innerHTML
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/<[^>]+>/g, '')
+        .trim();
+      
+      if (!code) continue;
+      
+      try {
+        const id = 'mermaid-pdf-' + Math.random().toString(36).substring(2, 11);
+        const { svg } = await mermaid.render(id, code);
+        block.innerHTML = svg;
+        (block as HTMLElement).style.margin = '16px 0';
+      } catch (err) {
+        console.error('Mermaid render error:', err);
+      }
+    }
+    
+    // Wait a moment for rendering to complete
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     const filename = `${document.code}-${document.title.replace(/[^a-zA-Z0-9]/g, '-')}.pdf`;
     
+    // Generate PDF from the actual DOM element
     await html2pdf()
       .set({
         margin: [0.25, 0.25, 0.25, 0.25] as [number, number, number, number],
         filename,
         image: { type: 'jpeg' as const, quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false },
+        html2canvas: { 
+          scale: 2, 
+          useCORS: true, 
+          logging: false,
+          foreignObjectRendering: true, // Important for SVG foreignObject text
+        },
         jsPDF: { unit: 'in' as const, format: 'letter' as const, orientation: 'portrait' as const },
       })
-      .from(htmlContent)
+      .from(pdfContainer)
       .save();
+    
+    // Clean up
+    window.document.body.removeChild(pdfContainer);
     
     onComplete();
   } catch (err: any) {
