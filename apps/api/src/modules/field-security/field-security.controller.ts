@@ -19,6 +19,7 @@ import {
   BatchCheckRequest,
   FIELD_SECURITY_ROLE_HIERARCHY,
 } from "./field-security.service";
+import { RedisService, CACHE_KEY, CACHE_TTL } from "../../infra/redis/redis.service";
 
 interface UpdatePolicyDto {
   description?: string;
@@ -37,7 +38,10 @@ interface BatchCheckDto {
 
 @Controller("field-security")
 export class FieldSecurityController {
-  constructor(private readonly fieldSecurity: FieldSecurityService) {}
+  constructor(
+    private readonly fieldSecurity: FieldSecurityService,
+    private readonly redis: RedisService,
+  ) {}
 
   /**
    * List all field security policies for the current company.
@@ -47,7 +51,17 @@ export class FieldSecurityController {
   @Get("policies")
   async listPolicies(@Req() req: any) {
     const user = req.user as AuthenticatedUser;
-    return this.fieldSecurity.listPolicies(user.companyId);
+    const cacheKey = CACHE_KEY.FIELD_SECURITY(user.companyId);
+
+    // Try cache first
+    const cached = await this.redis.getJson<any>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const policies = await this.fieldSecurity.listPolicies(user.companyId);
+    await this.redis.setJson(cacheKey, policies, CACHE_TTL.FIELD_SECURITY);
+    return policies;
   }
 
   /**
@@ -116,6 +130,9 @@ export class FieldSecurityController {
       input,
       user
     );
+
+    // Invalidate field security cache for this company
+    await this.redis.del(CACHE_KEY.FIELD_SECURITY(user.companyId));
 
     return policy;
   }
