@@ -28514,21 +28514,25 @@ ${htmlBody}
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
                   Source Item Reference
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 12px", fontSize: 12 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto 1fr", gap: "6px 12px", fontSize: 12 }}>
                   <div style={{ fontWeight: 600, color: "#374151" }}>Line:</div>
                   <div style={{ color: "#111827" }}>
                     {reconEntryEdit.entry?.isStandaloneChangeOrder && reconEntryEdit.entry?.originLineNo != null && reconEntryEdit.entry?.coSequenceNo != null
                       ? `${reconEntryEdit.entry.originLineNo}-CO${reconEntryEdit.entry.coSequenceNo}`
                       : petlReconPanel.data?.sowItem?.sourceLineNo || petlReconPanel.data?.sowItem?.lineNo || "—"}
                   </div>
-                  <div style={{ fontWeight: 600, color: "#374151" }}>Location:</div>
+                  <div style={{ fontWeight: 600, color: "#374151" }}>Activity:</div>
                   <div style={{ color: "#111827" }}>
+                    {petlReconPanel.data?.sowItem?.activity || "—"}
+                  </div>
+                  <div style={{ fontWeight: 600, color: "#374151" }}>Location:</div>
+                  <div style={{ color: "#111827", gridColumn: "2 / -1" }}>
                     {petlReconPanel.data?.sowItem?.projectParticle?.fullLabel ||
                      petlReconPanel.data?.sowItem?.projectParticle?.name ||
                      "—"}
                   </div>
                   <div style={{ fontWeight: 600, color: "#374151" }}>Description:</div>
-                  <div style={{ color: "#111827", lineHeight: 1.4 }}>
+                  <div style={{ color: "#111827", lineHeight: 1.4, gridColumn: "2 / -1" }}>
                     {petlReconPanel.data?.sowItem?.description || "—"}
                   </div>
                   {(petlReconPanel.data?.sowItem?.categoryCode || petlReconPanel.data?.sowItem?.selectionCode) && (
@@ -28539,6 +28543,26 @@ ${htmlBody}
                       </div>
                     </>
                   )}
+                  <div style={{ fontWeight: 600, color: "#374151" }}>Qty:</div>
+                  <div style={{ color: "#111827" }}>
+                    {petlReconPanel.data?.sowItem?.qty != null ? petlReconPanel.data.sowItem.qty : "—"}
+                  </div>
+                  <div style={{ fontWeight: 600, color: "#374151" }}>Unit:</div>
+                  <div style={{ color: "#111827" }}>
+                    {petlReconPanel.data?.sowItem?.unit || "—"}
+                  </div>
+                  <div style={{ fontWeight: 600, color: "#374151" }}>Unit Price:</div>
+                  <div style={{ color: "#111827" }}>
+                    {petlReconPanel.data?.sowItem?.unitCost != null
+                      ? `$${petlReconPanel.data.sowItem.unitCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : "—"}
+                  </div>
+                  <div style={{ fontWeight: 600, color: "#374151" }}>Total (RCV):</div>
+                  <div style={{ color: "#111827", fontWeight: 600 }}>
+                    {petlReconPanel.data?.sowItem?.rcvAmount != null
+                      ? `$${petlReconPanel.data.sowItem.rcvAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : "—"}
+                  </div>
                 </div>
               </div>
 
