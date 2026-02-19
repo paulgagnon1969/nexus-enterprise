@@ -77,11 +77,25 @@ export default function ClientsPage() {
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const [loadingPerson, setLoadingPerson] = useState(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
 
+  // Helper to cancel in-flight searches
+  function cancelPendingSearches() {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+      searchTimeoutRef.current = null;
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  }
+
   useEffect(() => {
     loadClients();
+    return () => cancelPendingSearches();
   }, []);
 
   async function loadClients() {
@@ -181,6 +195,13 @@ export default function ClientsPage() {
   async function searchMarketplace(query: string) {
     if (!token) return;
     
+    // Cancel any in-flight requests
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+    
     const cleaned = query.replace(/\D/g, ""); // Extract digits for phone search
     if (cleaned.length < 7 && !query.includes("@")) {
       setSearchResults([]);
@@ -203,6 +224,7 @@ export default function ClientsPage() {
 
       const res = await fetch(`${API_BASE}/onboarding/cross-tenant/search?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
 
       if (res.ok) {
@@ -210,41 +232,59 @@ export default function ClientsPage() {
         const results = data.results || [];
         setSearchResults(results);
         
-        // Auto-load full details for each result to get emails
-        for (const result of results) {
-          loadPersonDetailsIntoResults(result.id, cleaned || query);
+        // Load person details in parallel, then batch update state once
+        // Limit to first 10 results to avoid too many concurrent requests
+        if (results.length > 0) {
+          loadAllPersonDetails(results.slice(0, 10), cleaned || query, signal);
         }
       } else {
         setSearchResults([]);
       }
-    } catch {
-      setSearchResults([]);
+    } catch (err: any) {
+      if (err.name !== "AbortError") {
+        setSearchResults([]);
+      }
     } finally {
       setSearching(false);
     }
   }
 
-  // Load full details for a person and update the search results
-  async function loadPersonDetailsIntoResults(personId: string, phone: string) {
+  // Load full details for all persons in parallel, then batch update state
+  async function loadAllPersonDetails(
+    results: typeof searchResults, 
+    phone: string,
+    signal: AbortSignal
+  ) {
     if (!token) return;
 
-    try {
-      const res = await fetch(
-        `${API_BASE}/onboarding/cross-tenant/person/${personId}?phone=${encodeURIComponent(phone)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      if (res.ok) {
-        const data = await res.json();
-        // Update the search results with the full email data
-        setSearchResults(prev => prev.map(r => 
-          r.id === personId 
-            ? { ...r, emails: data.emails, loaded: true }
-            : r
-        ));
+    const detailPromises = results.map(async (result) => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/onboarding/cross-tenant/person/${result.id}?phone=${encodeURIComponent(phone)}`,
+          { headers: { Authorization: `Bearer ${token}` }, signal }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          return { id: result.id, emails: data.emails, loaded: true };
+        }
+      } catch (err: any) {
+        if (err.name === "AbortError") throw err; // Re-throw abort to stop Promise.all
+        // Ignore other errors
       }
-    } catch {
-      // Ignore errors
+      return { id: result.id, loaded: true }; // Mark loaded even on error
+    });
+
+    try {
+      const details = await Promise.all(detailPromises);
+      
+      // Single state update with all details
+      setSearchResults(prev => prev.map(r => {
+        const detail = details.find(d => d.id === r.id);
+        return detail ? { ...r, ...detail } : r;
+      }));
+    } catch (err: any) {
+      // Silently ignore abort errors
+      if (err.name !== "AbortError") throw err;
     }
   }
 
@@ -284,14 +324,33 @@ export default function ClientsPage() {
         isError: false 
       });
       
-      // Reset search state
+      // Cancel pending searches and reset state
+      cancelPendingSearches();
       setSearchQuery("");
       setSearchResults([]);
       setSearchPerformed(false);
       setSelectedPersonId(null);
       setShowNewClientForm(false);
       
-      await loadClients();
+      // Add new client to list without full reload (optimization)
+      if (!result.alreadyExisted) {
+        setClients(prev => [{
+          id: result.id,
+          firstName: result.firstName || "",
+          lastName: result.lastName || "",
+          displayName: result.displayName || `${result.firstName || ""} ${result.lastName || ""}`.trim() || result.email,
+          email: result.email,
+          phone: result.phone,
+          company: null,
+          active: true,
+          projectCount: 0,
+          hasPortalAccess: result.hasPortalAccess,
+          portalUserId: result.hasPortalAccess ? result.id : null,
+        }, ...prev]);
+      } else {
+        // If already existed, do a background refresh
+        loadClients();
+      }
     } catch (err: any) {
       setCreateMessage({ message: err.message || "Failed to link client.", isError: true });
     } finally {
@@ -411,6 +470,7 @@ export default function ClientsPage() {
         {!showNewClientForm ? (
           <button
             onClick={() => {
+              cancelPendingSearches();
               setShowNewClientForm(true);
               setCreateMessage(null);
               setSearchQuery("");
@@ -444,6 +504,7 @@ export default function ClientsPage() {
               <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Add New Client</h3>
               <button
                 onClick={() => {
+                  cancelPendingSearches();
                   setShowNewClientForm(false);
                   setCreateMessage(null);
                   setSearchQuery("");
@@ -809,6 +870,7 @@ export default function ClientsPage() {
                   </button>
                   <button
                     onClick={() => {
+                      cancelPendingSearches();
                       setShowNewClientForm(false);
                       setCreateMessage(null);
                       setSearchQuery("");

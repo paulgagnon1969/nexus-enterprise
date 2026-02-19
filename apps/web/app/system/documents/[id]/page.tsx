@@ -167,8 +167,8 @@ export default function SystemDocumentDetailPage() {
   // Share modal
   const [showShareModal, setShowShareModal] = useState(false);
 
-  // Print modal
-  const [showPrintView, setShowPrintView] = useState(false);
+  // PDF generation state
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   // Reader mode (full-width document view)
   const [readerMode, setReaderMode] = useState(false);
@@ -357,20 +357,30 @@ export default function SystemDocumentDetailPage() {
                 📖 {readerMode ? "Exit Reader" : "Reader Mode"}
               </button>
               <button
-                onClick={() => setShowPrintView(true)}
+                onClick={() => {
+                  if (!document) return;
+                  generateAndDownloadPdf(
+                    document,
+                    () => setGeneratingPdf(true),
+                    () => setGeneratingPdf(false),
+                    (msg) => { setGeneratingPdf(false); alert(msg); }
+                  );
+                }}
+                disabled={generatingPdf}
                 style={{
                   padding: "6px 12px",
                   borderRadius: 4,
                   border: "1px solid #d1d5db",
-                  background: "white",
+                  background: generatingPdf ? "#f3f4f6" : "white",
                   fontSize: 13,
-                  cursor: "pointer",
+                  cursor: generatingPdf ? "wait" : "pointer",
                   display: "flex",
                   alignItems: "center",
                   gap: 4,
+                  opacity: generatingPdf ? 0.7 : 1,
                 }}
               >
-                🖨️ Print
+                {generatingPdf ? "⏳ Generating..." : "📄 Download PDF"}
               </button>
               <button
                 onClick={() => setShowShareModal(true)}
@@ -759,13 +769,6 @@ export default function SystemDocumentDetailPage() {
         />
       )}
 
-      {/* Print View */}
-      {showPrintView && document && (
-        <PrintView
-          document={document}
-          onClose={() => setShowPrintView(false)}
-        />
-      )}
     </div>
   );
 }
@@ -998,352 +1001,74 @@ function ShareModal({
   );
 }
 
-// --- Print View Component ---
+// --- PDF Download Function ---
 
-function PrintView({
-  document,
-  onClose,
-}: {
-  document: SystemDocument;
-  onClose: () => void;
-}) {
-  const printContentRef = useRef<HTMLDivElement>(null);
+async function generateAndDownloadPdf(
+  document: SystemDocument,
+  onStart: () => void,
+  onComplete: () => void,
+  onError: (msg: string) => void
+) {
+  onStart();
   
-  // Render Mermaid diagrams in print view
-  useMermaidRender(document?.currentVersion?.htmlContent, printContentRef);
-  
-  const handlePrint = () => {
-    window.print();
-  };
-
-  return (
-    <>
-      {/* Print-specific styles */}
-      <style jsx global>{`
-        @page {
-          size: letter;
-          margin: 0.5in;
-        }
-        @media print {
-          /* Reset html/body for printing */
-          html, body {
-            width: 100% !important;
-            height: auto !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: white !important;
-            overflow: visible !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          
-          /* Hide no-print elements first */
-          .no-print {
-            display: none !important;
-            visibility: hidden !important;
-          }
-          
-          /* Print overlay - reset all positioning */
-          .print-overlay {
-            all: unset !important;
-            display: block !important;
-            position: static !important;
-            width: 100% !important;
-            height: auto !important;
-            background: white !important;
-            overflow: visible !important;
-          }
-          
-          /* Print container - reset and flow naturally */
-          .print-container {
-            all: unset !important;
-            display: block !important;
-            position: static !important;
-            width: 100% !important;
-            max-width: none !important;
-            height: auto !important;
-            min-height: auto !important;
-            padding: 20px !important;
-            margin: 0 !important;
-            background: white !important;
-            overflow: visible !important;
-          }
-          
-          /* Ensure all content inside print container is visible */
-          .print-container * {
-            visibility: visible !important;
-          }
-          
-          /* Document content wrapper */
-          .print-document-content {
-            display: block !important;
-            visibility: visible !important;
-            overflow: visible !important;
-          }
-          /* Watermark */
-          .print-watermark {
-            visibility: visible !important;
-            position: fixed !important;
-            top: 50% !important;
-            left: 50% !important;
-            transform: translate(-50%, -50%) rotate(-45deg) !important;
-            font-size: 100px !important;
-            color: rgba(0, 0, 0, 0.03) !important;
-            font-weight: bold !important;
-            pointer-events: none !important;
-            z-index: 9999 !important;
-          }
-          /* Document content should flow naturally */
-          .print-document-content {
-            overflow: visible !important;
-          }
-          /* Mermaid SVG diagrams - scale to fit and allow page breaks */
-          .print-document-content .mermaid,
-          .print-document-content .mermaid svg {
-            max-width: 100% !important;
-            height: auto !important;
-            overflow: visible !important;
-            page-break-inside: avoid !important;
-          }
-          /* Prevent images from being cut across pages */
-          .print-document-content img {
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-            max-width: 100% !important;
-            height: auto !important;
-            display: block !important;
-            margin: 16px auto !important;
-          }
-          /* Tables - allow page breaks for large tables */
-          .print-document-content table {
-            width: 100% !important;
-          }
-          .print-document-content tr {
-            page-break-inside: avoid !important;
-          }
-          /* Prevent headings from being orphaned */
-          .print-document-content h1,
-          .print-document-content h2,
-          .print-document-content h3,
-          .print-document-content h4,
-          .print-document-content h5,
-          .print-document-content h6 {
-            page-break-after: avoid !important;
-            break-after: avoid !important;
-          }
-          /* Keep paragraphs together when possible */
-          .print-document-content p {
-            orphans: 3;
-            widows: 3;
-          }
-          /* Callouts should not break */
-          .print-document-content .callout {
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-          }
-          /* Links should be visible */
-          .print-document-content a {
-            color: #2563eb !important;
-            text-decoration: underline !important;
-          }
-        }
-        @media screen {
-          .print-watermark {
-            display: none;
-          }
-        }
-      `}</style>
-
-      <div
-        className="print-overlay"
-        style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(0,0,0,0.5)",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "flex-start",
-          zIndex: 1000,
-          overflow: "auto",
-          padding: "40px 20px",
-        }}
-        onClick={onClose}
-      >
-        <div
-          className="print-container"
-          style={{
-            background: "white",
-            borderRadius: 8,
-            width: "100%",
-            maxWidth: 900,
-            minHeight: "100%",
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Watermark (visible only in print) */}
-          <div className="print-watermark">NEXUS</div>
-
-          {/* Toolbar - hidden in print */}
-          <div
-            className="no-print"
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              padding: "16px 24px",
-              borderBottom: "1px solid #e5e7eb",
-              background: "#f9fafb",
-              borderTopLeftRadius: 8,
-              borderTopRightRadius: 8,
-            }}
-          >
-            <div style={{ fontSize: 14, color: "#6b7280" }}>Print Preview</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={onClose}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: 6,
-                  border: "1px solid #d1d5db",
-                  background: "white",
-                  fontSize: 13,
-                  cursor: "pointer",
-                }}
-              >
-                Close
-              </button>
-              <button
-                onClick={handlePrint}
-                style={{
-                  padding: "8px 16px",
-                  borderRadius: 6,
-                  border: "none",
-                  background: "#2563eb",
-                  color: "white",
-                  fontSize: 13,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                🖨️ Print / Save PDF
-              </button>
-            </div>
+  try {
+    const html2pdf = (await import('html2pdf.js')).default;
+    
+    // Build the HTML content for the PDF
+    const htmlContent = `
+      <div style="font-family: system-ui, -apple-system, sans-serif; padding: 0.5in; background: white;">
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 2px solid #0f172a;">
+          <div>
+            <div style="font-size: 18px; font-weight: 700; color: #0f172a;">NEXUS</div>
+            <div style="font-size: 10px; color: #6b7280;">Contractor Connect</div>
           </div>
-
-          {/* Document Content */}
-          <div style={{ padding: "40px 48px" }}>
-            {/* Header with Logo */}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "flex-start",
-                marginBottom: 32,
-                paddingBottom: 24,
-                borderBottom: "2px solid #0f172a",
-              }}
-            >
-              <div>
-                <img
-                  src="/nexconnect-logo.png"
-                  alt="Nexus Contractor Connect"
-                  style={{ height: 48, marginBottom: 8 }}
-                />
-                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                  ncc-nexus-contractor-connect.com
-                </div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>Document Code</div>
-                <div style={{ fontSize: 18, fontWeight: 600 }}>{document.code}</div>
-                <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>
-                  Version {document.currentVersion?.versionNo || 1}
-                </div>
-              </div>
-            </div>
-
-            {/* Document Title */}
-            <h1
-              style={{
-                fontSize: 28,
-                fontWeight: 700,
-                margin: "0 0 8px",
-                color: "#0f172a",
-              }}
-            >
-              {document.title}
-            </h1>
-            {document.description && (
-              <p style={{ fontSize: 14, color: "#6b7280", margin: "0 0 24px" }}>
-                {document.description}
-              </p>
-            )}
-
-            {/* Meta Info */}
-            <div
-              style={{
-                display: "flex",
-                gap: 24,
-                fontSize: 12,
-                color: "#6b7280",
-                marginBottom: 32,
-                paddingBottom: 16,
-                borderBottom: "1px solid #e5e7eb",
-              }}
-            >
-              {document.category && (
-                <div>
-                  <span style={{ color: "#9ca3af" }}>Category:</span> {document.category}
-                </div>
-              )}
-              <div>
-                <span style={{ color: "#9ca3af" }}>Last Updated:</span>{" "}
-                {document.currentVersion?.createdAt
-                  ? new Date(document.currentVersion.createdAt).toLocaleDateString()
-                  : "—"}
-              </div>
-            </div>
-
-            {/* Document Body */}
-            <div
-              ref={printContentRef}
-              className="print-document-content"
-              style={{
-                fontSize: 14,
-                lineHeight: 1.8,
-                color: "#1f2937",
-              }}
-              dangerouslySetInnerHTML={{
-                __html: sanitizeHtml(document.currentVersion?.htmlContent || "<em>No content</em>"),
-              }}
-            />
-
-            {/* Footer */}
-            <div
-              style={{
-                marginTop: 48,
-                paddingTop: 24,
-                borderTop: "1px solid #e5e7eb",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                fontSize: 11,
-                color: "#9ca3af",
-              }}
-            >
-              <div>
-                © {new Date().getFullYear()} NFS Group / Nexus Contractor Connect
-              </div>
-              <div>
-                {document.code} v{document.currentVersion?.versionNo || 1} •{" "}
-                Printed {new Date().toLocaleDateString()}
-              </div>
-            </div>
+          <div style="text-align: right;">
+            <div style="font-size: 10px; color: #6b7280;">Document Code</div>
+            <div style="font-size: 14px; font-weight: 600;">${document.code}</div>
+            <div style="font-size: 9px; color: #9ca3af; margin-top: 2px;">Version ${document.currentVersion?.versionNo || 1}</div>
           </div>
         </div>
+        
+        <!-- Title -->
+        <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 8px; color: #0f172a;">${document.title}</h1>
+        ${document.description ? `<p style="font-size: 12px; color: #6b7280; margin: 0 0 16px;">${document.description}</p>` : ''}
+        
+        <!-- Meta -->
+        <div style="display: flex; gap: 16px; font-size: 10px; color: #6b7280; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid #e5e7eb;">
+          ${document.category ? `<div><span style="color: #9ca3af;">Category:</span> ${document.category}</div>` : ''}
+          <div><span style="color: #9ca3af;">Last Updated:</span> ${document.currentVersion?.createdAt ? new Date(document.currentVersion.createdAt).toLocaleDateString() : '—'}</div>
+        </div>
+        
+        <!-- Body -->
+        <div style="font-size: 11px; line-height: 1.6; color: #1f2937;">
+          ${document.currentVersion?.htmlContent || '<em>No content</em>'}
+        </div>
+        
+        <!-- Footer -->
+        <div style="margin-top: 48px; padding-top: 24px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; font-size: 11px; color: #9ca3af;">
+          <div>© ${new Date().getFullYear()} NFS Group / Nexus Contractor Connect</div>
+          <div>${document.code} v${document.currentVersion?.versionNo || 1} • Generated ${new Date().toLocaleDateString()}</div>
+        </div>
       </div>
-    </>
-  );
+    `;
+    
+    const filename = `${document.code}-${document.title.replace(/[^a-zA-Z0-9]/g, '-')}.pdf`;
+    
+    await html2pdf()
+      .set({
+        margin: [0.25, 0.25, 0.25, 0.25] as [number, number, number, number],
+        filename,
+        image: { type: 'jpeg' as const, quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: 'in' as const, format: 'letter' as const, orientation: 'portrait' as const },
+      })
+      .from(htmlContent)
+      .save();
+    
+    onComplete();
+  } catch (err: any) {
+    console.error('PDF generation error:', err);
+    onError(err?.message || 'Failed to generate PDF');
+  }
 }
