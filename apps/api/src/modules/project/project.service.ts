@@ -254,25 +254,28 @@ export class ProjectService {
 
     this.logger.log(`Creating project for company=${companyId}, user=${userId}, name=${dto.name}`);
 
+    // Normalize optional fields - treat empty strings as undefined
+    const tenantClientId = dto.tenantClientId?.trim() || undefined;
+    
     let project;
     try {
       project = await this.prisma.project.create({
         data: {
           companyId,
           name: dto.name,
-          externalId: dto.externalId || undefined,
+          externalId: dto.externalId?.trim() || undefined,
           addressLine1: dto.addressLine1,
-          addressLine2: dto.addressLine2 || undefined,
+          addressLine2: dto.addressLine2?.trim() || undefined,
           city: dto.city,
           state: dto.state,
-          postalCode: dto.postalCode || undefined,
-          country: dto.country || undefined,
+          postalCode: dto.postalCode?.trim() || undefined,
+          country: dto.country?.trim() || undefined,
           latitude: dto.latitude,
           longitude: dto.longitude,
-          primaryContactName: dto.primaryContactName || undefined,
-          primaryContactPhone: dto.primaryContactPhone || undefined,
-          primaryContactEmail: dto.primaryContactEmail || undefined,
-          tenantClientId: dto.tenantClientId || undefined,
+          primaryContactName: dto.primaryContactName?.trim() || undefined,
+          primaryContactPhone: dto.primaryContactPhone?.trim() || undefined,
+          primaryContactEmail: dto.primaryContactEmail?.trim() || undefined,
+          tenantClientId,
           createdByUserId: userId
         }
       });
