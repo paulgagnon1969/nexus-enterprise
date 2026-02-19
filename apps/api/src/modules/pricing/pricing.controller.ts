@@ -22,7 +22,7 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { importGoldenComponentsFromFile } from "@repo/database";
 import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
-import { getImportQueue } from "../../infra/queue/import-queue";
+import { getImportQueue, isRedisAvailable } from "../../infra/queue/import-queue";
 import { GcsService } from "../../infra/storage/gcs.service";
 
 @Controller("pricing")
@@ -249,34 +249,133 @@ export class PricingController {
     const rawMode = body.mode ?? "merge";
     const importMode: PriceListImportMode = rawMode === "replace" ? "replace" : "merge";
 
-    const job = await this.prisma.importJob.create({
-      data: {
-        companyId,
-        projectId: null,
-        createdByUserId,
-        type: "PRICE_LIST",
-        status: "QUEUED",
-        progress: 0,
-        message: `Queued Golden PETL (Price List) import from URI (mode: ${importMode})`,
-        csvPath: null,
-        fileUri,
-        // Store import mode in metaJson so worker knows which mode to use
-        metaJson: { mode: importMode },
-      },
+    let job: any;
+    try {
+      job = await this.prisma.importJob.create({
+        data: {
+          companyId,
+          projectId: null,
+          createdByUserId,
+          type: "PRICE_LIST",
+          status: "QUEUED",
+          progress: 0,
+          message: `Queued Golden PETL (Price List) import from URI (mode: ${importMode})`,
+          csvPath: null,
+          fileUri,
+          // Store import mode in metaJson so worker knows which mode to use
+          metaJson: { mode: importMode },
+        },
+      });
+    } catch (dbErr) {
+      // eslint-disable-next-line no-console
+      console.error("[pricing] import-from-uri: DB error creating ImportJob", dbErr);
+      throw new BadRequestException(
+        `Failed to create import job: ${dbErr instanceof Error ? dbErr.message : String(dbErr)}`,
+      );
+    }
+
+    // If Redis is available, enqueue for background processing.
+    // Otherwise, process synchronously (Golden PETL imports are fast).
+    if (isRedisAvailable()) {
+      try {
+        const queue = getImportQueue();
+        await queue.add(
+          "process",
+          { importJobId: job.id },
+          {
+            attempts: 1,
+            removeOnComplete: 1000,
+            removeOnFail: 1000,
+          },
+        );
+        return { jobId: job.id };
+      } catch (queueErr) {
+        // eslint-disable-next-line no-console
+        console.error("[pricing] import-from-uri: Redis/BullMQ error, falling back to sync", queueErr);
+        // Fall through to synchronous processing
+      }
+    }
+
+    // Synchronous fallback: process inline when Redis is unavailable.
+    // eslint-disable-next-line no-console
+    console.log("[pricing] import-from-uri: processing synchronously (no Redis)", {
+      importJobId: job.id,
+      fileUri,
     });
 
-    const queue = getImportQueue();
-    await queue.add(
-      "process",
-      { importJobId: job.id },
-      {
-        attempts: 1,
-        removeOnComplete: 1000,
-        removeOnFail: 1000,
-      },
-    );
+    try {
+      await this.prisma.importJob.update({
+        where: { id: job.id },
+        data: {
+          status: "RUNNING",
+          startedAt: new Date(),
+          progress: 10,
+          message: "Importing Golden price list (synchronous)...",
+        },
+      });
 
-    return { jobId: job.id };
+      // Download file from GCS to a temp path
+      const tmpPath = await this.gcs.downloadToTmp(fileUri);
+
+      const startedAt = Date.now();
+      const result = await importPriceListFromFile(tmpPath, { mode: importMode });
+      const durationMs = Date.now() - startedAt;
+
+      await this.prisma.importJob.update({
+        where: { id: job.id },
+        data: {
+          status: "SUCCEEDED",
+          finishedAt: new Date(),
+          progress: 100,
+          message: "Golden price list import complete",
+          resultJson: result as any,
+        },
+      });
+
+      // Record the Golden price list revision event
+      if (companyId && createdByUserId) {
+        await this.prisma.goldenPriceUpdateLog.create({
+          data: {
+            companyId,
+            projectId: null,
+            estimateVersionId: null,
+            userId: createdByUserId,
+            updatedCount: result.itemCount ?? 0,
+            avgDelta: 0,
+            avgPercentDelta: 0,
+            source: "GOLDEN_PETL",
+          },
+        });
+      }
+
+      // eslint-disable-next-line no-console
+      console.log("[pricing] import-from-uri: sync import complete", {
+        importJobId: job.id,
+        durationMs,
+        itemCount: result.itemCount,
+      });
+
+      // Cleanup temp file
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch {}
+
+      return { jobId: job.id, sync: true };
+    } catch (syncErr) {
+      // eslint-disable-next-line no-console
+      console.error("[pricing] import-from-uri: sync processing failed", syncErr);
+      await this.prisma.importJob.update({
+        where: { id: job.id },
+        data: {
+          status: "FAILED",
+          finishedAt: new Date(),
+          message: `Import failed: ${syncErr instanceof Error ? syncErr.message : String(syncErr)}`,
+        },
+      }).catch(() => {});
+      throw new BadRequestException(
+        `Golden PETL import failed: ${syncErr instanceof Error ? syncErr.message : String(syncErr)}`,
+      );
+    }
   }
 
   // Anyone authenticated can see which Golden price list is active; RBAC is enforced on upload.
