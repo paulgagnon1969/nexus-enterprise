@@ -42,4 +42,16 @@ export async function initDb(): Promise<void> {
 
   await d.execAsync(`CREATE INDEX IF NOT EXISTS outbox_status_idx ON outbox(status);`);
   await d.execAsync(`CREATE INDEX IF NOT EXISTS outbox_createdAt_idx ON outbox(createdAt);`);
+
+  // Usage tracking for smart-browse / frequent projects.
+  await d.execAsync(`
+    CREATE TABLE IF NOT EXISTS usage_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      projectId TEXT NOT NULL,
+      action TEXT NOT NULL,
+      ts INTEGER NOT NULL
+    );
+  `);
+  await d.execAsync(`CREATE INDEX IF NOT EXISTS usage_project_idx ON usage_events(projectId);`);
+  await d.execAsync(`CREATE INDEX IF NOT EXISTS usage_ts_idx ON usage_events(ts);`);
 }

@@ -21,6 +21,7 @@ import { enqueueOutbox } from "../offline/outbox";
 import { triggerSync } from "../offline/autoSync";
 import { copyToAppStorage, type StoredFile } from "../storage/files";
 import { compressImage } from "../utils/image";
+import { recordUsage } from "../storage/usageTracker";
 import { colors } from "../theme/colors";
 import type { DailyLogCreateRequest, DailyLogType, ProjectListItem } from "../types/api";
 
@@ -305,6 +306,8 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
       } else {
         setStatus("Daily log created!");
       }
+      // fasTRACK: record usage for this project
+      void recordUsage(selectedProjectId, "create_daily_log");
       setTimeout(() => onCreated(), 800);
     } catch (e) {
       // Queue offline

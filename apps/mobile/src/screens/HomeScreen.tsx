@@ -25,6 +25,7 @@ import {
   updateDailyLog,
   reassignDailyLog,
 } from "../api/dailyLog";
+import { recordUsage } from "../storage/usageTracker";
 import { DirectionsDialog } from "../components/DirectionsDialog";
 import type {
   DailyLogListItem,
@@ -298,7 +299,8 @@ export function HomeScreen({
   }, [loadProjectFeed]);
 
   // Open daily log detail
-  const openLogDetail = async (logId: string) => {
+  const openLogDetail = async (logId: string, projectId?: string) => {
+    if (projectId) void recordUsage(projectId, "view_daily_log");
     setExpandedLogLoading(true);
     setShowLogDetail(true);
     try {
@@ -589,7 +591,10 @@ export function HomeScreen({
               <Pressable
                 key={item.project.id}
                 style={styles.projectRow}
-                onPress={() => setSelectedProject(item.project)}
+                onPress={() => {
+                  void recordUsage(item.project.id, "open_project");
+                  setSelectedProject(item.project);
+                }}
               >
                 <View style={styles.projectInfo}>
                   <Text style={styles.projectName} numberOfLines={1}>
