@@ -38,6 +38,7 @@
     "gray-matter": "^4.0.3",
     "markdown-it": "^14.1.1",
     "prettier": "^3.7.4",
+    "puppeteer": "^24.37.5",
     "turbo": "^2.7.2",
     "typescript": "^5.9.3"
   },
