@@ -698,21 +698,13 @@ export class ManualRenderService {
       display: none;
     }
     
+    /* Hide HTML header/footer in print - Puppeteer uses its own templates */
     .page-header {
-      position: running(header);
+      display: none;
     }
     
     .confidentiality-footer {
-      position: running(footer);
-    }
-    
-    @page {
-      @top-center {
-        content: element(header);
-      }
-      @bottom-center {
-        content: element(footer);
-      }
+      display: none;
     }
   }
   
