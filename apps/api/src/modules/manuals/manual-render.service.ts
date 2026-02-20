@@ -142,25 +142,12 @@ export class ManualRenderService {
 
   /**
    * Build table of contents structure
+   * Chapters come first, then root-level documents (appendices) at the end
    */
   private buildToc(manual: any): ManualTocEntry[] {
     const entries: ManualTocEntry[] = [];
-    let sectionIndex = 1;
 
-    // Root-level documents first
-    for (const doc of manual.documents) {
-      entries.push({
-        id: doc.id,
-        type: "document",
-        title: doc.displayTitleOverride || doc.systemDocument.title,
-        level: 1,
-        anchor: `doc-${doc.id}`,
-        revisionNo: doc.systemDocument.currentVersion?.versionNo,
-        includeInPrint: doc.includeInPrint ?? true,
-      });
-    }
-
-    // Chapters with their documents
+    // Chapters with their documents FIRST
     for (const chapter of manual.chapters) {
       const chapterEntry: ManualTocEntry = {
         id: chapter.id,
@@ -184,7 +171,19 @@ export class ManualRenderService {
       }
 
       entries.push(chapterEntry);
-      sectionIndex++;
+    }
+
+    // Root-level documents (appendices) AFTER chapters
+    for (const doc of manual.documents) {
+      entries.push({
+        id: doc.id,
+        type: "document",
+        title: doc.displayTitleOverride || doc.systemDocument.title,
+        level: 1,
+        anchor: `doc-${doc.id}`,
+        revisionNo: doc.systemDocument.currentVersion?.versionNo,
+        includeInPrint: doc.includeInPrint ?? true,
+      });
     }
 
     return entries;
@@ -281,11 +280,11 @@ export class ManualRenderService {
 
   @media print {
     .cover-page {
-      min-height: 100vh;
+      min-height: 90vh; /* Slightly less than full page to avoid blank page after */
       page-break-after: always;
       border-bottom: none;
       margin-bottom: 0;
-      padding: 0;
+      padding: 2rem 0;
     }
     .cover-page .icon-emoji {
       font-size: 4rem;
@@ -332,8 +331,8 @@ export class ManualRenderService {
 
   @media print {
     .toc-section {
-      page-break-after: always;
       border-bottom: none;
+      margin-bottom: 2rem;
     }
   }
 
@@ -393,10 +392,14 @@ export class ManualRenderService {
 
   @media print {
     .chapter {
-      page-break-before: always;
-      margin-top: 0;
+      margin-top: 2rem;
       padding-top: 0;
       border-top: none;
+    }
+    
+    /* Only start new chapters on fresh pages if there's content before */
+    .chapter:not(:first-of-type) {
+      page-break-before: always;
     }
   }
 
@@ -430,14 +433,14 @@ export class ManualRenderService {
 
   /* Documents */
   .document-section {
-    margin-bottom: 2rem;
-    page-break-inside: avoid;
+    margin-bottom: 1.5rem;
   }
 
   .document-header {
     border-bottom: 2px solid #ccc;
     padding-bottom: 0.5rem;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
+    page-break-after: avoid; /* Keep header with content */
   }
 
   .document-header h3 {
@@ -472,7 +475,14 @@ export class ManualRenderService {
   .revision-marker.end {
     border-left: 3px solid #0066cc;
     padding-left: 0.75rem;
-    margin-top: 1rem;
+    margin-top: 0.75rem;
+  }
+
+  /* Hide revision markers in print - they cause orphaned pages */
+  @media print {
+    .revision-marker {
+      display: none;
+    }
   }
 
   .document-content {
@@ -498,10 +508,8 @@ export class ManualRenderService {
 
   @media print {
     .document-content.intentionally-blank {
-      min-height: 2in;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      min-height: 1in;
+      padding: 1rem;
     }
   }
 
@@ -843,6 +851,7 @@ export class ManualRenderService {
 
   /**
    * Render all chapters and documents
+   * Chapters come first, then root-level documents (appendices) at the end
    */
   private renderContent(
     manual: any,
@@ -851,19 +860,12 @@ export class ManualRenderService {
   ): string {
     const parts: string[] = [];
 
-    // Root-level documents
-    for (const doc of manual.documents) {
-      parts.push(
-        this.renderDocument(doc, includeRevisionMarkers)
-      );
-    }
-
-    // Chapters with documents
+    // Chapters with documents FIRST
     for (let i = 0; i < manual.chapters.length; i++) {
       const chapter = manual.chapters[i];
       
-      // Add page break indicator before each chapter (except first if no root docs)
-      if (i > 0 || manual.documents.length > 0) {
+      // Add page break indicator before each chapter (except first)
+      if (i > 0) {
         parts.push('<div class="page-break-indicator">Page Break</div>');
       }
       
@@ -884,6 +886,29 @@ export class ManualRenderService {
 </div>`);
     }
 
+    // Root-level documents (appendices) AFTER chapters
+    if (manual.documents.length > 0) {
+      // Add page break before appendices section if there were chapters
+      if (manual.chapters.length > 0) {
+        parts.push('<div class="page-break-indicator">Page Break</div>');
+      }
+      
+      parts.push(`
+<div class="chapter appendices-section" id="appendices">
+  <div class="chapter-header">
+    <h2>Appendices</h2>
+  </div>
+  <div class="chapter-content">`);
+      
+      for (const doc of manual.documents) {
+        parts.push(this.renderDocument(doc, includeRevisionMarkers));
+      }
+      
+      parts.push(`
+  </div>
+</div>`);
+    }
+
     return parts.join("\n");
   }
 
@@ -898,7 +923,7 @@ export class ManualRenderService {
     // If section is excluded from print, show placeholder message
     if (!includeInPrint) {
       return `
-<div class="document-section avoid-break" id="doc-${doc.id}">
+<div class="document-section" id="doc-${doc.id}">
   <div class="document-header">
     <h3>
       ${this.escapeHtml(title)}
@@ -922,7 +947,7 @@ export class ManualRenderService {
       : "";
 
     return `
-<div class="document-section avoid-break" id="doc-${doc.id}">
+<div class="document-section" id="doc-${doc.id}">
   <div class="document-header">
     <h3>
       ${this.escapeHtml(title)}
@@ -952,7 +977,7 @@ export class ManualRenderService {
   }
 
   /**
-   * Wrap content in full HTML document
+   * Wrap content in full HTML document with Mermaid support
    */
   private wrapInHtmlDocument(title: string, content: string): string {
     return `<!DOCTYPE html>
@@ -961,10 +986,53 @@ export class ManualRenderService {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${this.escapeHtml(title)}</title>
+  <!-- Mermaid.js for diagram rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    /* Mermaid diagram styling */
+    .mermaid {
+      text-align: center;
+      margin: 1rem 0;
+      page-break-inside: avoid;
+    }
+    .mermaid svg {
+      max-width: 100%;
+      height: auto;
+    }
+    @media print {
+      .mermaid {
+        page-break-inside: avoid;
+      }
+    }
+  </style>
 </head>
 <body>
 <img src="${NCC_LOGO_BASE64}" alt="" class="watermark" />
 ${content}
+<script>
+  // Initialize Mermaid with secure settings
+  mermaid.initialize({
+    startOnLoad: true,
+    securityLevel: 'strict',
+    theme: 'default',
+    flowchart: {
+      useMaxWidth: true,
+      htmlLabels: true,
+      curve: 'basis'
+    }
+  });
+  
+  // Signal that Mermaid has finished rendering (for PDF generation)
+  mermaid.run().then(() => {
+    window.mermaidRendered = true;
+    // Dispatch custom event for Puppeteer to detect
+    document.dispatchEvent(new CustomEvent('mermaidRendered'));
+  }).catch((err) => {
+    console.error('Mermaid rendering error:', err);
+    window.mermaidRendered = true;
+    document.dispatchEvent(new CustomEvent('mermaidRendered'));
+  });
+</script>
 </body>
 </html>`;
   }
