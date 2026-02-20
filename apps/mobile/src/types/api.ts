@@ -76,11 +76,14 @@ export interface Contact {
   category: ContactCategory;
 }
 
+export type DailyLogType = "PUDL" | "RECEIPT_EXPENSE" | "JSA" | "INCIDENT" | "QUALITY";
+
 export interface DailyLogCreateRequest {
   logDate: string; // ISO date
+  type?: DailyLogType;
   title?: string | null;
 
-  // Common “PUDL” style fields
+  // Common "PUDL" style fields
   weatherSummary?: string | null;
   crewOnSite?: string | null;
   workPerformed?: string | null;
@@ -89,6 +92,11 @@ export interface DailyLogCreateRequest {
   manpowerOnsite?: string | null;
   personOnsite?: string | null;
   confidentialNotes?: string | null;
+
+  // Receipt/expense fields (used when type = RECEIPT_EXPENSE)
+  expenseVendor?: string | null;
+  expenseAmount?: number | null;
+  expenseDate?: string | null;
 
   // Sharing flags (optional)
   shareInternal?: boolean;
@@ -123,6 +131,7 @@ export interface DailyLogListItem {
   projectId: string;
   projectName: string;
   logDate: string;
+  type?: DailyLogType;
   title: string | null;
   workPerformed: string | null;
   issues: string | null;
@@ -161,6 +170,10 @@ export interface DailyLogDetail extends DailyLogListItem {
   manpowerOnsite: string | null;
   personOnsite: string | null;
   confidentialNotes: string | null;
+  // Receipt/expense fields
+  expenseVendor: string | null;
+  expenseAmount: number | null;
+  expenseDate: string | null;
   shareInternal: boolean;
   shareSubs: boolean;
   shareClient: boolean;

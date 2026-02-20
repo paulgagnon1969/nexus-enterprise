@@ -124,6 +124,33 @@ export async function uploadAttachment(
 }
 
 /**
+ * Trigger OCR on the most recent attachment for a daily log.
+ * Returns extracted receipt data (vendor, amount, date, confidence).
+ */
+export async function triggerLogOcr(
+  logId: string,
+): Promise<{ vendor?: string; amount?: number; date?: string; confidence?: number; success: boolean; error?: string }> {
+  return apiJson(`/daily-logs/${encodeURIComponent(logId)}/attachments/ocr`, {
+    method: "POST",
+  });
+}
+
+/**
+ * Trigger immediate OCR on a specific project file (before saving).
+ * Used for preview-before-save flow.
+ */
+export async function triggerProjectFileOcr(
+  projectId: string,
+  projectFileId: string,
+): Promise<{ vendor?: string; amount?: number; date?: string; confidence?: number; success: boolean; error?: string }> {
+  return apiJson(`/projects/${encodeURIComponent(projectId)}/daily-logs/ocr`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectFileId }),
+  });
+}
+
+/**
  * Delete an attachment from a daily log.
  */
 export async function deleteAttachment(

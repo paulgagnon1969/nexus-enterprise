@@ -13,7 +13,7 @@ import {
 import { fetchDailyLogDetail, delayPublishLog, publishLog, fetchRevisions } from "../api/dailyLog";
 import { getCache, setCache } from "../offline/cache";
 import { colors } from "../theme/colors";
-import type { DailyLogDetail, DailyLogListItem, DailyLogRevision } from "../types/api";
+import type { DailyLogDetail, DailyLogType, DailyLogListItem, DailyLogRevision } from "../types/api";
 
 interface Props {
   log: DailyLogListItem;
@@ -271,7 +271,14 @@ export function DailyLogDetailScreen({
 
         {/* Header section */}
         <View style={styles.headerSection}>
-          <Text style={styles.projectName}>{data.projectName}</Text>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <Text style={styles.projectName}>{data.projectName}</Text>
+            {data.type && data.type !== "PUDL" && (
+              <View style={[styles.typeBadge, getTypeBadgeStyle(data.type)]}>
+                <Text style={styles.typeBadgeText}>{getTypeLabel(data.type)}</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.date}>{formatDate(data.logDate)}</Text>
           <Text style={styles.title}>{data.title || "(No title)"}</Text>
           <View style={styles.metaRow}>
@@ -281,6 +288,16 @@ export function DailyLogDetailScreen({
             </View>
           </View>
         </View>
+
+        {/* Receipt/Expense details */}
+        {fullDetail?.expenseVendor && (
+          <View style={styles.receiptSection}>
+            <Text style={styles.receiptTitle}>Receipt Details</Text>
+            {renderField("Vendor", fullDetail.expenseVendor)}
+            {fullDetail.expenseAmount != null && renderField("Amount", `$${fullDetail.expenseAmount.toFixed(2)}`)}
+            {fullDetail.expenseDate && renderField("Receipt Date", fullDetail.expenseDate.slice(0, 10))}
+          </View>
+        )}
 
         {/* Content fields */}
         <View style={styles.section}>
@@ -691,4 +708,48 @@ const styles = StyleSheet.create({
     height: 100,
     backgroundColor: colors.borderMuted,
   },
+  typeBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  typeBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#374151",
+  },
+  receiptSection: {
+    backgroundColor: "#fef3c7",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#fcd34d",
+  },
+  receiptTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#92400e",
+    marginBottom: 8,
+  },
 });
+
+function getTypeLabel(type?: DailyLogType): string {
+  switch (type) {
+    case "RECEIPT_EXPENSE": return "Receipt";
+    case "JSA": return "JSA";
+    case "INCIDENT": return "Incident";
+    case "QUALITY": return "Quality";
+    default: return "";
+  }
+}
+
+function getTypeBadgeStyle(type?: DailyLogType) {
+  switch (type) {
+    case "RECEIPT_EXPENSE": return { backgroundColor: "#fef3c7" } as const;
+    case "JSA": return { backgroundColor: "#dbeafe" } as const;
+    case "INCIDENT": return { backgroundColor: "#fee2e2" } as const;
+    case "QUALITY": return { backgroundColor: "#d1fae5" } as const;
+    default: return { backgroundColor: "#e5e7eb" } as const;
+  }
+}

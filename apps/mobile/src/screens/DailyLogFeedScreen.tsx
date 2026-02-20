@@ -12,7 +12,7 @@ import {
 import { fetchDailyLogFeed, fetchUserProjects } from "../api/dailyLog";
 import { getCache, setCache } from "../offline/cache";
 import { colors } from "../theme/colors";
-import type { DailyLogListItem, ProjectListItem } from "../types/api";
+import type { DailyLogListItem, DailyLogType, ProjectListItem } from "../types/api";
 
 interface Props {
   onSelectLog: (log: DailyLogListItem) => void;
@@ -138,7 +138,14 @@ export function DailyLogFeedScreen({ onSelectLog, onCreateLog }: Props) {
     return (
       <Pressable style={styles.card} onPress={() => onSelectLog(item)}>
         <View style={styles.cardHeader}>
-          <Text style={styles.cardDate}>{formatDate(item.logDate)}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Text style={styles.cardDate}>{formatDate(item.logDate)}</Text>
+            {item.type && item.type !== "PUDL" && (
+              <View style={[styles.typeBadge, getTypeBadgeStyle(item.type)]}>
+                <Text style={styles.typeBadgeText}>{getTypeLabel(item.type)}</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.cardProject}>{item.projectName}</Text>
         </View>
         <Text style={styles.cardTitle} numberOfLines={1}>
@@ -413,6 +420,15 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 14,
   },
+  typeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  typeBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+  },
   // Thumbnail styles
   thumbnailRow: {
     marginTop: 10,
@@ -441,3 +457,23 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
 });
+
+function getTypeLabel(type?: DailyLogType): string {
+  switch (type) {
+    case "RECEIPT_EXPENSE": return "Receipt";
+    case "JSA": return "JSA";
+    case "INCIDENT": return "Incident";
+    case "QUALITY": return "Quality";
+    default: return "";
+  }
+}
+
+function getTypeBadgeStyle(type?: DailyLogType) {
+  switch (type) {
+    case "RECEIPT_EXPENSE": return { backgroundColor: "#fef3c7" } as const;
+    case "JSA": return { backgroundColor: "#dbeafe" } as const;
+    case "INCIDENT": return { backgroundColor: "#fee2e2" } as const;
+    case "QUALITY": return { backgroundColor: "#d1fae5" } as const;
+    default: return { backgroundColor: "#e5e7eb" } as const;
+  }
+}

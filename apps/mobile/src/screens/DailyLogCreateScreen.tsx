@@ -14,13 +14,15 @@ import {
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import { apiFetch, apiJson } from "../api/client";
-import { fetchUserProjects } from "../api/dailyLog";
+import { fetchUserProjects, triggerLogOcr } from "../api/dailyLog";
 import { enqueueOutbox } from "../offline/outbox";
 import { triggerSync } from "../offline/autoSync";
 import { copyToAppStorage, type StoredFile } from "../storage/files";
+import { compressImage } from "../utils/image";
 import { colors } from "../theme/colors";
-import type { DailyLogCreateRequest, ProjectListItem } from "../types/api";
+import type { DailyLogCreateRequest, DailyLogType, ProjectListItem } from "../types/api";
 
 interface Props {
   onBack: () => void;
@@ -41,9 +43,15 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
   const [saving, setSaving] = useState(false);
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const [logType, setLogType] = useState<DailyLogType>("PUDL");
   const [logDate, setLogDate] = useState(today);
   const [title, setTitle] = useState("");
   const [weatherSummary, setWeatherSummary] = useState("");
+
+  // Receipt/expense fields
+  const [expenseVendor, setExpenseVendor] = useState("");
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseDate, setExpenseDate] = useState(today);
   const [crewOnSite, setCrewOnSite] = useState("");
   const [workPerformed, setWorkPerformed] = useState("");
   const [issues, setIssues] = useState("");
@@ -91,10 +99,12 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
     for (const asset of res.assets) {
       if (!asset.uri) continue;
       try {
+        // Compress before storing to reduce upload size
+        const compressed = await compressImage(asset.uri, "medium");
         const stored = await copyToAppStorage({
-          uri: asset.uri,
+          uri: compressed.uri,
           name: (asset as any).fileName ?? null,
-          mimeType: (asset as any).mimeType ?? "image/jpeg",
+          mimeType: "image/jpeg",
         });
         newAttachments.push(stored);
       } catch (err) {
@@ -129,10 +139,12 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
       if (!a?.uri) return;
 
       try {
+        // Compress before storing to reduce upload size
+        const compressed = await compressImage(a.uri, "medium");
         const stored = await copyToAppStorage({
-          uri: a.uri,
+          uri: compressed.uri,
           name: (a as any).fileName ?? null,
-          mimeType: (a as any).mimeType ?? "image/jpeg",
+          mimeType: "image/jpeg",
         });
         setAttachments((prev) => [...prev, stored]);
       } catch (err) {
@@ -183,8 +195,11 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
 
     const localLogId = makeLocalId();
 
+    const isReceipt = logType === "RECEIPT_EXPENSE";
+
     const dto: DailyLogCreateRequest = {
       logDate,
+      type: logType,
       title: title || null,
       weatherSummary: weatherSummary || null,
       crewOnSite: crewOnSite || null,
@@ -194,10 +209,17 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
       manpowerOnsite: manpowerOnsite || null,
       personOnsite: personOnsite || null,
       confidentialNotes: confidentialNotes || null,
-      shareInternal: true,
+      // Receipt/expense fields
+      ...(isReceipt ? {
+        expenseVendor: expenseVendor || null,
+        expenseAmount: expenseAmount ? parseFloat(expenseAmount) : null,
+        expenseDate: expenseDate || null,
+      } : {}),
+      // Receipts are private by default
+      shareInternal: isReceipt ? false : true,
       shareSubs: false,
       shareClient: false,
-      sharePrivate: false,
+      sharePrivate: isReceipt ? true : false,
     };
 
     try {
@@ -216,6 +238,15 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
       for (const a of attachments) {
         try {
           console.log(`[DailyLogCreate] Uploading attachment: ${a.name} (${a.uri})`);
+
+          // Verify file exists before attempting upload
+          const fileInfo = await FileSystem.getInfoAsync(a.uri);
+          if (!fileInfo.exists) {
+            console.error(`[DailyLogCreate] File does not exist at URI: ${a.uri}`);
+            throw new Error(`File not found: ${a.name}`);
+          }
+          console.log(`[DailyLogCreate] File verified: ${fileInfo.size ?? "?"} bytes`);
+
           const formData = new FormData();
           formData.append("file", {
             uri: a.uri,
@@ -227,6 +258,8 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
           const uploadRes = await apiFetch(`/daily-logs/${result.id}/attachments`, {
             method: "POST",
             body: formData,
+            // @ts-ignore - signal to apiFetch to skip retry on 401 for multipart
+            _skipRetry: true,
           });
 
           if (!uploadRes.ok) {
@@ -248,14 +281,31 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
         }
       }
 
-      if (attachmentsFailed > 0) {
+      // Trigger OCR for receipt/expense logs with successful image uploads
+      if (isReceipt && attachments.length > 0 && attachmentsFailed < attachments.length) {
+        try {
+          setStatus("Running OCR on receipt...");
+          const ocrResult = await triggerLogOcr(result.id);
+          if (ocrResult.success) {
+            const vendorStr = ocrResult.vendor || "Unknown";
+            const amountStr = ocrResult.amount != null ? `$${ocrResult.amount.toFixed(2)}` : "$?";
+            const confStr = ocrResult.confidence ? ` (${Math.round(ocrResult.confidence * 100)}%)` : "";
+            setStatus(`Daily log created! OCR: ${vendorStr} - ${amountStr}${confStr}`);
+          } else {
+            setStatus(`Daily log created! OCR: ${ocrResult.error || "Could not extract data"}`);
+          }
+        } catch (ocrErr) {
+          console.error(`[DailyLogCreate] OCR error:`, ocrErr);
+          setStatus("Daily log created! (OCR unavailable)");
+        }
+      } else if (attachmentsFailed > 0) {
         setStatus(`Daily log created! ${attachmentsFailed} photo(s) queued for sync.`);
         // Trigger immediate sync for queued attachments
         triggerSync("attachment upload queued");
       } else {
         setStatus("Daily log created!");
       }
-      setTimeout(() => onCreated(), 500);
+      setTimeout(() => onCreated(), 800);
     } catch (e) {
       // Queue offline
       await enqueueOutbox("dailyLog.create", {
@@ -365,6 +415,41 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
           ))}
         </ScrollView>
 
+        {/* Log type selector */}
+        <Text style={styles.label}>Type</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.projectScroll}
+        >
+          {([
+            { key: "PUDL" as const, label: "Daily Log" },
+            { key: "RECEIPT_EXPENSE" as const, label: "Receipt / Expense" },
+            { key: "JSA" as const, label: "JSA" },
+            { key: "INCIDENT" as const, label: "Incident" },
+            { key: "QUALITY" as const, label: "Quality" },
+          ]).map((t) => (
+            <Pressable
+              key={t.key}
+              style={[
+                styles.chip,
+                logType === t.key && styles.chipSelected,
+              ]}
+              onPress={() => setLogType(t.key)}
+            >
+              <Text
+                style={
+                  logType === t.key
+                    ? styles.chipTextSelected
+                    : styles.chipText
+                }
+              >
+                {t.label}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
         {/* Date */}
         <Text style={styles.label}>Date</Text>
         <TextInput
@@ -373,6 +458,44 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
           onChangeText={setLogDate}
           placeholder="YYYY-MM-DD"
         />
+
+        {/* Receipt/Expense fields — shown when type is RECEIPT_EXPENSE */}
+        {logType === "RECEIPT_EXPENSE" && (
+          <View style={styles.receiptSection}>
+            <Text style={styles.receiptSectionTitle}>Receipt Details</Text>
+            <Text style={styles.receiptHint}>
+              Attach a receipt photo below — OCR will auto-extract vendor and amount.
+            </Text>
+            <Text style={styles.label}>Vendor</Text>
+            <TextInput
+              style={styles.input}
+              value={expenseVendor}
+              onChangeText={setExpenseVendor}
+              placeholder="Home Depot, Lowe's, etc."
+            />
+            <View style={styles.receiptRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.label}>Amount</Text>
+                <TextInput
+                  style={styles.input}
+                  value={expenseAmount}
+                  onChangeText={setExpenseAmount}
+                  placeholder="0.00"
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.label}>Receipt Date</Text>
+                <TextInput
+                  style={styles.input}
+                  value={expenseDate}
+                  onChangeText={setExpenseDate}
+                  placeholder="YYYY-MM-DD"
+                />
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* Daily Log Title */}
         <Text style={styles.label}>Daily Log Title</Text>
@@ -665,5 +788,27 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 12,
     fontWeight: "700",
+  },
+  receiptSection: {
+    backgroundColor: "#fef3c7",
+    borderRadius: 10,
+    padding: 14,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: "#fcd34d",
+  },
+  receiptSectionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#92400e",
+    marginBottom: 4,
+  },
+  receiptHint: {
+    fontSize: 12,
+    color: "#92400e",
+    marginBottom: 8,
+  },
+  receiptRow: {
+    flexDirection: "row",
   },
 });
