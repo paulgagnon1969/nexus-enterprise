@@ -23,6 +23,7 @@ import {
   UpdateTenantCopyDto,
   RollbackTenantCopyDto,
   ImportWithManualDto,
+  ImportFromHtmlDto,
 } from "./dto/system-document.dto";
 
 function getUser(req: FastifyRequest): AuthenticatedUser {
@@ -146,6 +147,20 @@ export class SystemDocumentsController {
     const user = getUser(req);
     assertSuperAdmin(user);
     return this.service.importWithManual(user.userId, dto);
+  }
+
+  /**
+   * Import a manual from raw HTML with embedded ncc: meta tags.
+   * All metadata is parsed from the HTML itself - no need to specify fields manually.
+   */
+  @Post("import-from-html")
+  async importFromHtml(
+    @Req() req: FastifyRequest,
+    @Body() dto: ImportFromHtmlDto,
+  ) {
+    const user = getUser(req);
+    assertSuperAdmin(user);
+    return this.service.importFromHtml(user.userId, dto);
   }
 }
 
