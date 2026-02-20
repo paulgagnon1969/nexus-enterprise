@@ -163,11 +163,13 @@ async function main() {
 
     let docAction: "created" | "updated" | "unchanged" = "unchanged";
 
+    let createdDocId: string | null = null;
+
     if (!systemDoc) {
       // Create new document and version
       console.log(`Creating new SystemDocument: ${meta.code}`);
 
-      systemDoc = await tx.systemDocument.create({
+      const newDoc = await tx.systemDocument.create({
         data: {
           code: meta.code,
           title: meta.title,
@@ -179,10 +181,11 @@ async function main() {
           createdByUserId: adminUser.id,
         },
       });
+      createdDocId = newDoc.id;
 
       const version = await tx.systemDocumentVersion.create({
         data: {
-          systemDocumentId: systemDoc.id,
+          systemDocumentId: newDoc.id,
           versionNo: 1,
           htmlContent: bodyContent,
           contentHash,
@@ -192,7 +195,7 @@ async function main() {
       });
 
       await tx.systemDocument.update({
-        where: { id: systemDoc.id },
+        where: { id: newDoc.id },
         data: { currentVersionId: version.id },
       });
 
@@ -234,10 +237,15 @@ async function main() {
     }
 
     // 3. Link document to manual (if not already linked)
+    const docIdToLink = createdDocId || systemDoc?.id;
+    if (!docIdToLink) {
+      throw new Error("No document ID to link");
+    }
+
     const existingLink = await tx.manualDocument.findFirst({
       where: {
         manualId: manual.id,
-        systemDocumentId: systemDoc.id,
+        systemDocumentId: docIdToLink,
         active: true,
       },
     });
@@ -253,7 +261,7 @@ async function main() {
       await tx.manualDocument.create({
         data: {
           manualId: manual.id,
-          systemDocumentId: systemDoc.id,
+          systemDocumentId: docIdToLink,
           sortOrder: (maxOrder._max.sortOrder ?? 0) + 1,
           addedInManualVersion: manual.currentVersion,
         },
@@ -264,7 +272,7 @@ async function main() {
 
     return {
       manual,
-      systemDocId: systemDoc.id,
+      systemDocId: docIdToLink,
       docAction,
     };
   });
