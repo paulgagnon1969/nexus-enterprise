@@ -85,12 +85,45 @@ export class ManualPdfService implements OnModuleInit, OnModuleDestroy {
     const page = await browser.newPage();
 
     try {
-      // Set content and wait for load (including base64 images)
+      // Set content and wait for load (including base64 images and external scripts like Mermaid)
       await page.setContent(html, {
         waitUntil: ["load", "networkidle0"],
       });
 
-      // Additional wait to ensure base64 images are rendered
+      // Wait for Mermaid diagrams to render (if any exist)
+      const hasMermaid = await page.evaluate(`
+        document.querySelectorAll('.mermaid').length > 0
+      `);
+      
+      if (hasMermaid) {
+        // Wait for Mermaid to signal it's done rendering (max 10 seconds)
+        await page.evaluate(`
+          new Promise((resolve) => {
+            // Check if already rendered
+            if (window.mermaidRendered) {
+              resolve();
+              return;
+            }
+            
+            // Listen for the custom event
+            const handler = () => {
+              resolve();
+            };
+            document.addEventListener('mermaidRendered', handler, { once: true });
+            
+            // Timeout fallback
+            setTimeout(() => {
+              document.removeEventListener('mermaidRendered', handler);
+              resolve();
+            }, 10000);
+          })
+        `);
+        
+        // Additional small delay to ensure SVGs are fully painted
+        await new Promise(r => setTimeout(r, 500));
+      }
+
+      // Wait for all images to load
       await page.evaluate(`
         Promise.all(
           Array.from(document.images)
