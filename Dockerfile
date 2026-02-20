@@ -4,8 +4,22 @@
 
 FROM node:20-alpine
 
+# Install Chromium and fonts for Puppeteer PDF generation
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    font-noto-emoji
+
 # Create app directory
 WORKDIR /app
+
+# Ensure Puppeteer does not download Chromium during install (we use system chromium)
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Install root dependencies (workspace-aware)
 # Copy only manifest files first for better Docker layer caching
@@ -17,7 +31,7 @@ COPY packages/database/package.json ./packages/database/package.json
 # Prisma schema needed for postinstall prisma:generate
 COPY packages/database/prisma ./packages/database/prisma
 
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 # Copy the rest of the repository
 COPY . .
