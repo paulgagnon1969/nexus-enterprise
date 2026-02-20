@@ -485,9 +485,16 @@ export default function ManualEditorPage({ params }: { params: Promise<{ id: str
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    {chapter.documents.map((doc) => (
-                      <DocumentRow key={doc.id} doc={doc} onRemove={() => handleRemoveDocument(doc.id)} />
-                    ))}
+                    {chapter.documents.map((doc, idx) => {
+                      // Calculate global page number: count docs in previous chapters + current index
+                      const prevChaptersDocs = manual.chapters
+                        .slice(0, manual.chapters.indexOf(chapter))
+                        .reduce((sum, ch) => sum + ch.documents.length, 0);
+                      const pageNum = prevChaptersDocs + idx + 1;
+                      return (
+                        <DocumentRow key={doc.id} doc={doc} pageNumber={pageNum} onRemove={() => handleRemoveDocument(doc.id)} />
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -515,9 +522,14 @@ export default function ManualEditorPage({ params }: { params: Promise<{ id: str
                 </h3>
               </div>
               <div style={{ padding: 8 }}>
-                {manual.documents.map((doc) => (
-                  <DocumentRow key={doc.id} doc={doc} onRemove={() => handleRemoveDocument(doc.id)} />
-                ))}
+                {manual.documents.map((doc, idx) => {
+                  // Uncategorized docs come after all chapter docs
+                  const allChapterDocs = manual.chapters.reduce((sum, ch) => sum + ch.documents.length, 0);
+                  const pageNum = allChapterDocs + idx + 1;
+                  return (
+                    <DocumentRow key={doc.id} doc={doc} pageNumber={pageNum} onRemove={() => handleRemoveDocument(doc.id)} />
+                  );
+                })}
               </div>
             </div>
           )}
@@ -572,7 +584,10 @@ export default function ManualEditorPage({ params }: { params: Promise<{ id: str
 
 // --- Document Row ---
 
-function DocumentRow({ doc, onRemove }: { doc: ManualDocument; onRemove: () => void }) {
+function DocumentRow({ doc, pageNumber, onRemove }: { doc: ManualDocument; pageNumber: number; onRemove: () => void }) {
+  // Generate NCC page reference (e.g., NCC-0001)
+  const pageRef = `NCC-${String(pageNumber).padStart(4, "0")}`;
+  
   return (
     <div
       style={{
@@ -585,6 +600,23 @@ function DocumentRow({ doc, onRemove }: { doc: ManualDocument; onRemove: () => v
         borderRadius: 6,
       }}
     >
+      {/* Page Reference Badge */}
+      <span
+        style={{
+          padding: "2px 6px",
+          fontSize: 10,
+          fontFamily: "monospace",
+          backgroundColor: "#f3f4f6",
+          color: "#6b7280",
+          borderRadius: 4,
+          marginRight: 8,
+          flexShrink: 0,
+        }}
+        title="Page reference for support tickets"
+      >
+        {pageRef}
+      </span>
+      
       <a
         href={`/system/documents/${doc.systemDocumentId}`}
         style={{
@@ -611,24 +643,41 @@ function DocumentRow({ doc, onRemove }: { doc: ManualDocument; onRemove: () => v
           </div>
         </div>
       </a>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault();
-          onRemove();
-        }}
-        style={{
-          padding: "2px 6px",
-          fontSize: 11,
-          backgroundColor: "transparent",
-          color: "#9ca3af",
-          border: "none",
-          cursor: "pointer",
-        }}
-        title="Remove from manual"
-      >
-        ✕
-      </button>
+      
+      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+        <a
+          href={`/system/documents/${doc.systemDocumentId}?edit=1`}
+          style={{
+            padding: "4px 8px",
+            fontSize: 11,
+            backgroundColor: "#dbeafe",
+            color: "#1d4ed8",
+            borderRadius: 4,
+            textDecoration: "none",
+          }}
+          title="Edit document content"
+        >
+          ✏️ Edit
+        </a>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            onRemove();
+          }}
+          style={{
+            padding: "2px 6px",
+            fontSize: 11,
+            backgroundColor: "transparent",
+            color: "#9ca3af",
+            border: "none",
+            cursor: "pointer",
+          }}
+          title="Remove from manual"
+        >
+          ✕
+        </button>
+      </div>
     </div>
   );
 }

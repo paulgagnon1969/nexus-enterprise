@@ -173,7 +173,7 @@ export default function SystemDocumentsPage() {
                 e.currentTarget.style.backgroundColor = "#dbeafe";
               }}
             >
-              📥 Import HTML
+              📥 Structured Manual Import
             </button>
             <QuickActionButton href="/system/documents/sops-staging" label="Review Staged SOPs" />
             <QuickActionButton href="/system/documents/publish" label="Publish to Tenants" />
