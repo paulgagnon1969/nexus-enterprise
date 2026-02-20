@@ -60,7 +60,11 @@ async function tryDeviceSync(
   return res;
 }
 
-export type ApiRequestInit = RequestInit & { skipAuth?: boolean };
+export type ApiRequestInit = RequestInit & {
+  skipAuth?: boolean;
+  /** Skip automatic 401 retry (use for FormData/multipart uploads) */
+  _skipRetry?: boolean;
+};
 
 export async function apiFetch(
   path: string,
@@ -85,6 +89,13 @@ export async function apiFetch(
   console.log(`[apiFetch] Response status: ${first.status}`);
 
   if (first.status !== 401 || init?.skipAuth) {
+    return first;
+  }
+
+  // Skip retry for multipart/FormData uploads — the body may not be re-readable.
+  // Callers should queue to outbox for retry instead.
+  if (init?._skipRetry || init?.body instanceof FormData) {
+    console.log(`[apiFetch] Got 401 on FormData upload, skipping retry (use outbox)`);
     return first;
   }
 

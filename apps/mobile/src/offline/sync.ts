@@ -1,5 +1,5 @@
 import NetInfo from "@react-native-community/netinfo";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { apiFetch, apiJson } from "../api/client";
 import type { DailyLogCreateRequest } from "../types/api";
 import { getWifiOnlySync } from "../storage/settings";
