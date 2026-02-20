@@ -1238,7 +1238,46 @@ export class SystemDocumentsService {
           });
         }
 
-        // 3. Add document to manual if not already there
+        // 3. Find or create ManualChapter for this document
+        // Chapter ID pattern: ch1, ch2, appA, etc. -> Create chapter titled from doc title
+        let chapterId: string | null = null;
+        
+        // Only create chapters for regular chapters (ch1, ch2, etc.), not appendices at root
+        const isAppendix = ch.id.toLowerCase().startsWith("app");
+        
+        if (!isAppendix) {
+          // Look for existing chapter by sortOrder (chapter index)
+          const existingChapter = await tx.manualChapter.findFirst({
+            where: {
+              manualId: manual.id,
+              sortOrder: i,
+              active: true,
+            },
+          });
+
+          if (existingChapter) {
+            chapterId = existingChapter.id;
+            // Update title if changed
+            if (existingChapter.title !== ch.title) {
+              await tx.manualChapter.update({
+                where: { id: existingChapter.id },
+                data: { title: ch.title },
+              });
+            }
+          } else {
+            // Create new chapter
+            const newChapter = await tx.manualChapter.create({
+              data: {
+                manualId: manual.id,
+                title: ch.title,
+                sortOrder: i,
+              },
+            });
+            chapterId = newChapter.id;
+          }
+        }
+
+        // 4. Add document to manual (in chapter if applicable)
         const existingManualDoc = await tx.manualDocument.findFirst({
           where: {
             manualId: manual.id,
@@ -1249,17 +1288,28 @@ export class SystemDocumentsService {
 
         if (!existingManualDoc) {
           const maxDocOrder = await tx.manualDocument.aggregate({
-            where: { manualId: manual.id, active: true },
+            where: { 
+              manualId: manual.id, 
+              chapterId: chapterId,
+              active: true 
+            },
             _max: { sortOrder: true },
           });
 
           await tx.manualDocument.create({
             data: {
               manualId: manual.id,
+              chapterId: chapterId,
               systemDocumentId: docId,
               sortOrder: (maxDocOrder._max.sortOrder ?? -1) + 1,
               addedInManualVersion: manualVersion + 1,
             },
+          });
+        } else if (existingManualDoc.chapterId !== chapterId) {
+          // Move document to correct chapter if it changed
+          await tx.manualDocument.update({
+            where: { id: existingManualDoc.id },
+            data: { chapterId: chapterId },
           });
         }
 
