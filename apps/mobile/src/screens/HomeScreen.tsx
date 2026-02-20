@@ -110,12 +110,13 @@ export function HomeScreen({
   // Daily Log type selector
   const [showDailyLogPicker, setShowDailyLogPicker] = useState(false);
 
-  // Daily log type options
+  // Daily log type options — must match DailyLogType enum + production web
   const dailyLogTypes = [
-    { id: "general", label: "General Daily Log", icon: "📝", description: "Standard daily log entry" },
-    { id: "petl", label: "PETL Updates", icon: "📊", description: "Update project element tracking" },
-    { id: "safety", label: "Safety Report", icon: "⚠️", description: "Safety observations and incidents" },
-    { id: "inspection", label: "Inspection", icon: "🔍", description: "Site or quality inspection" },
+    { id: "PUDL", label: "Daily Log (PUDL)", icon: "📝", description: "Standard daily log entry" },
+    { id: "RECEIPT_EXPENSE", label: "Receipt / Expense", icon: "🧾", description: "Attach receipt, auto-OCR vendor & amount" },
+    { id: "JSA", label: "Job Safety Assessment", icon: "⚠️", description: "Job safety assessment report" },
+    { id: "INCIDENT", label: "Incident Report", icon: "🚨", description: "Report a safety or site incident" },
+    { id: "QUALITY", label: "Quality Inspection", icon: "🔍", description: "Quality inspection report" },
   ];
 
   const refresh = async () => {
@@ -918,13 +919,7 @@ export function HomeScreen({
                   onPress={() => {
                     setShowDailyLogPicker(false);
                     if (!selectedProject) return;
-                    
-                    // Handle navigation based on type
-                    if (type.id === "petl") {
-                      onOpenPetl?.(selectedProject);
-                    } else {
-                      onOpenDailyLogCreate?.(selectedProject, type.id);
-                    }
+                    onOpenDailyLogCreate?.(selectedProject, type.id);
                   }}
                 >
                   <Text style={styles.dailyLogTypeIcon}>{type.icon}</Text>

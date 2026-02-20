@@ -57,10 +57,14 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
 function ProjectsListWrapper() {
   const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
   const company = useCurrentCompany();
+  const setCompany = React.useContext(SetCompanyContext);
   return (
     <ProjectsScreen
       onOpenProject={(project) => navigation.navigate("DailyLogs", { project, companyName: company.name ?? undefined })}
       refreshKey={company.refreshKey}
+      currentCompanyId={company.id}
+      currentCompanyName={company.name}
+      onCompanyChange={setCompany}
     />
   );
 }

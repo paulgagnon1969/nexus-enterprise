@@ -423,11 +423,11 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
           style={styles.projectScroll}
         >
           {([
-            { key: "PUDL" as const, label: "Daily Log" },
+            { key: "PUDL" as const, label: "Daily Log (PUDL)" },
             { key: "RECEIPT_EXPENSE" as const, label: "Receipt / Expense" },
-            { key: "JSA" as const, label: "JSA" },
-            { key: "INCIDENT" as const, label: "Incident" },
-            { key: "QUALITY" as const, label: "Quality" },
+            { key: "JSA" as const, label: "Job Safety Assessment" },
+            { key: "INCIDENT" as const, label: "Incident Report" },
+            { key: "QUALITY" as const, label: "Quality Inspection" },
           ]).map((t) => (
             <Pressable
               key={t.key}

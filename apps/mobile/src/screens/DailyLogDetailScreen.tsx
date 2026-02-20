@@ -736,10 +736,10 @@ const styles = StyleSheet.create({
 
 function getTypeLabel(type?: DailyLogType): string {
   switch (type) {
-    case "RECEIPT_EXPENSE": return "Receipt";
-    case "JSA": return "JSA";
-    case "INCIDENT": return "Incident";
-    case "QUALITY": return "Quality";
+    case "RECEIPT_EXPENSE": return "Receipt / Expense";
+    case "JSA": return "Job Safety Assessment";
+    case "INCIDENT": return "Incident Report";
+    case "QUALITY": return "Quality Inspection";
     default: return "";
   }
 }
