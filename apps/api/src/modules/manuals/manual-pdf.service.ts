@@ -47,8 +47,12 @@ export class ManualPdfService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (!this.browser) {
+      // Use system Chromium if PUPPETEER_EXECUTABLE_PATH is set (Docker/production)
+      const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      
       this.browser = await puppeteer.launch({
         headless: true,
+        ...(executablePath && { executablePath }),
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",

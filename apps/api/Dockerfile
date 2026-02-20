@@ -38,6 +38,20 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+# Install Chromium and dependencies for Puppeteer PDF generation
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    font-noto-emoji
+
+# Tell Puppeteer to use system Chromium instead of downloading its own
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
 # Copy root package.json for reference
 COPY package.json ./
 
