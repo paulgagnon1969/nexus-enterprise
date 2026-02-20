@@ -1,7 +1,7 @@
 ---
 title: "Redis Infrastructure SOP"
 module: redis-infrastructure
-revision: "1.0"
+revision: "1.1"
 tags: [sop, redis, infrastructure, devops, admin-only]
 status: draft
 created: 2026-02-20
@@ -109,6 +109,97 @@ Queue name: `import-jobs`
 | `company:{id}:pricelist` | 30 min | Company cost book metadata |
 | `company:{id}:fieldsec` | 15 min | Field security policies |
 
+## Fresh Setup / Recreation
+
+If you need to recreate the Redis VM from scratch, follow these steps exactly.
+
+### Step 1: Create the VM
+
+```bash
+gcloud compute instances create redis-prod \
+  --project=nexus-enterprise-480610 \
+  --zone=us-central1-a \
+  --machine-type=e2-small \
+  --image-family=ubuntu-2204-lts \
+  --image-project=ubuntu-os-cloud \
+  --boot-disk-size=10GB \
+  --tags=redis-server
+```
+
+### Step 2: Install and Configure Redis
+
+Generate a strong password first:
+```bash
+REDIS_PASSWORD=$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)
+echo "Save this password: $REDIS_PASSWORD"
+```
+
+Then SSH in and configure:
+```bash
+gcloud compute ssh redis-prod --zone=us-central1-a --project=nexus-enterprise-480610 --command="
+# Install Redis
+sudo apt update && sudo apt install -y redis-server
+
+# Configure for remote access - IMPORTANT: use 0.0.0.0, not 127.0.0.1
+sudo sed -i 's/^bind 127.0.0.1.*/bind 0.0.0.0/' /etc/redis/redis.conf
+
+# Set password (replace YOUR_PASSWORD)
+sudo sed -i 's/^# requirepass foobared/requirepass YOUR_PASSWORD/' /etc/redis/redis.conf
+
+# Restart and enable
+sudo systemctl restart redis-server
+sudo systemctl enable redis-server
+
+# Verify
+sudo systemctl status redis-server --no-pager
+"
+```
+
+**⚠️ IMPORTANT**: The bind address MUST be `0.0.0.0` for Cloud Run to connect. Do NOT use `127.0.0.1`.
+
+### Step 3: Create Firewall Rule
+
+```bash
+gcloud compute firewall-rules create allow-redis-cloudrun \
+  --project=nexus-enterprise-480610 \
+  --direction=INGRESS \
+  --action=ALLOW \
+  --rules=tcp:6379 \
+  --target-tags=redis-server \
+  --source-ranges=0.0.0.0/0 \
+  --description="Allow Redis access from Cloud Run"
+```
+
+### Step 4: Get External IP and Update Cloud Run
+
+```bash
+# Get the VM's external IP
+REDIS_IP=$(gcloud compute instances describe redis-prod \
+  --zone=us-central1-a \
+  --project=nexus-enterprise-480610 \
+  --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
+
+echo "Redis IP: $REDIS_IP"
+
+# Update Cloud Run with the Redis URL
+gcloud run services update nexus-api \
+  --region=us-central1 \
+  --project=nexus-enterprise-480610 \
+  --update-env-vars="REDIS_URL=redis://:YOUR_PASSWORD@$REDIS_IP:6379"
+```
+
+### Step 5: Verify Connection
+
+```bash
+# Test from the VM
+gcloud compute ssh redis-prod --zone=us-central1-a --command="redis-cli -a YOUR_PASSWORD ping"
+# Expected: PONG
+
+# Check Cloud Run logs for Redis errors
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=nexus-api AND textPayload=~'redis'" \
+  --project=nexus-enterprise-480610 --limit=10
+```
+
 ## Maintenance Procedures
 
 ### Check Redis Status
@@ -189,24 +280,47 @@ gcloud compute ssh redis-prod --zone=us-central1-a --project=nexus-enterprise-48
      --command="sudo systemctl status redis-server"
    ```
 
-### Connection Refused from Cloud Run
+### Connection Refused from Cloud Run (ECONNREFUSED)
 
-1. Verify firewall rule exists:
-   ```bash
-   gcloud compute firewall-rules describe allow-redis-cloudrun
-   ```
+This is the most common issue. Check these in order:
 
-2. Check VM external IP hasn't changed:
-   ```bash
-   gcloud compute instances describe redis-prod --zone=us-central1-a \
-     --format="get(networkInterfaces[0].accessConfigs[0].natIP)"
-   ```
+**1. Verify Redis is bound to 0.0.0.0 (not 127.0.0.1)**
 
-3. If IP changed, update Cloud Run:
-   ```bash
-   gcloud run services update nexus-api --region=us-central1 \
-     --update-env-vars="REDIS_URL=redis://:PASSWORD@NEW_IP:6379"
-   ```
+This is the #1 cause of connection failures:
+```bash
+gcloud compute ssh redis-prod --zone=us-central1-a --command="sudo grep '^bind' /etc/redis/redis.conf"
+```
+
+If it shows `bind 127.0.0.1` or `bind 127.0.0.1 ::1`, fix it:
+```bash
+gcloud compute ssh redis-prod --zone=us-central1-a --command="
+sudo sed -i 's/^bind 127.0.0.1.*/bind 0.0.0.0/' /etc/redis/redis.conf
+sudo systemctl restart redis-server
+"
+```
+
+**2. Verify firewall rule exists:**
+```bash
+gcloud compute firewall-rules describe allow-redis-cloudrun
+```
+
+**3. Check VM external IP hasn't changed:**
+```bash
+gcloud compute instances describe redis-prod --zone=us-central1-a \
+  --format="get(networkInterfaces[0].accessConfigs[0].natIP)"
+```
+
+**4. If IP changed, update Cloud Run:**
+```bash
+gcloud run services update nexus-api --region=us-central1 \
+  --update-env-vars="REDIS_URL=redis://:PASSWORD@NEW_IP:6379"
+```
+
+**5. Check Cloud Run logs for Redis errors:**
+```bash
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=nexus-api AND textPayload=~'redis'" \
+  --project=nexus-enterprise-480610 --limit=20 --format="table(timestamp,textPayload)"
+```
 
 ### High Memory Usage
 
@@ -267,6 +381,27 @@ If the VM is lost, recreate it using the setup commands in this document, then r
 
 **Note**: For NCC's current use case (caching + job queues), data loss is acceptable - caches rebuild automatically and failed jobs can be re-triggered.
 
+## Lessons Learned
+
+### 2026-02-20: Bind Address Issue
+
+**Problem**: After initial Redis setup, Cloud Run couldn't connect (ECONNREFUSED errors).
+
+**Root Cause**: The `sed` command to change the bind address didn't match the actual format in Ubuntu's redis.conf:
+- Expected: `bind 127.0.0.1 -::1`
+- Actual: `bind 127.0.0.1 ::1` (no hyphen)
+
+**Solution**: Use a more robust sed pattern:
+```bash
+sudo sed -i 's/^bind 127.0.0.1.*/bind 0.0.0.0/' /etc/redis/redis.conf
+```
+
+**Lesson**: Always verify Redis is listening on the correct interface after setup:
+```bash
+sudo ss -tlnp | grep 6379
+# Should show: *:6379 (all interfaces), NOT 127.0.0.1:6379
+```
+
 ## Related Documents
 
 - [API Database Deploy SOP](../onboarding/api-db-deploy-sop.md)
@@ -276,4 +411,5 @@ If the VM is lost, recreate it using the setup commands in this document, then r
 
 | Rev | Date | Changes |
 |-----|------|---------|
+| 1.1 | 2026-02-20 | Added Fresh Setup section, bind address troubleshooting, lessons learned |
 | 1.0 | 2026-02-20 | Initial release - Redis VM setup and maintenance procedures |
