@@ -62,5 +62,12 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
       
-      - name: Build and deploy API
-        run: ./scripts/deploy-prod.sh
+      - name: Configure Docker auth for Artifact Registry
+        run: gcloud auth configure-docker us-docker.pkg.dev --quiet
+
+      - name: Build and deploy API to Cloud Run
+        run: |
+          cd scripts
+          bash ./deploy-api.sh
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ env.GOOGLE_CLOUD_PROJECT }}
