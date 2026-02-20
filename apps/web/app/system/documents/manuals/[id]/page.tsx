@@ -4,6 +4,7 @@ import * as React from "react";
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { PageCard } from "../../../../ui-shell";
+import { ImportHtmlModal } from "../../components/ImportHtmlModal";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -68,6 +69,7 @@ export default function ManualEditorPage({ params }: { params: Promise<{ id: str
   const [showAddChapter, setShowAddChapter] = useState(false);
   const [showAddDocument, setShowAddDocument] = useState<{ chapterId?: string } | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showReplaceModal, setShowReplaceModal] = useState(false);
   const [availableDocs, setAvailableDocs] = useState<AvailableDoc[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
 
@@ -280,6 +282,26 @@ export default function ManualEditorPage({ params }: { params: Promise<{ id: str
           </div>
 
           <div style={{ display: "flex", gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setShowReplaceModal(true)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "8px 16px",
+                fontSize: 14,
+                fontWeight: 500,
+                backgroundColor: "#f59e0b",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: 6,
+                cursor: "pointer",
+              }}
+              title="Replace all content by pasting updated HTML from Grok"
+            >
+              <span style={{ fontSize: 16 }}>🔄</span> Replace Content
+            </button>
             <button
               type="button"
               onClick={() => setShowShareModal(true)}
@@ -578,6 +600,16 @@ export default function ManualEditorPage({ params }: { params: Promise<{ id: str
           onUpdate={loadManual}
         />
       )}
+
+      {/* Replace Content Modal - reuses ImportHtmlModal */}
+      <ImportHtmlModal
+        isOpen={showReplaceModal}
+        onClose={() => setShowReplaceModal(false)}
+        onSuccess={() => {
+          setShowReplaceModal(false);
+          loadManual(); // Refresh the manual data
+        }}
+      />
     </PageCard>
   );
 }
