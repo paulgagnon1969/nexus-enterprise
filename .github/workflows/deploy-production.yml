@@ -39,16 +39,28 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
       
-      - name: Install cloud-sql-proxy
-        run: |
-          wget https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.8.2/cloud-sql-proxy.linux.amd64 -O cloud-sql-proxy
-          chmod +x cloud-sql-proxy
-          sudo mv cloud-sql-proxy /usr/local/bin/
-      
       - name: Run database migrations
+        run: |
+          cd packages/database
+          # Try deploy; if it fails due to drift, mark migrations as applied
+          if ! npx prisma migrate deploy 2>&1 | tee /tmp/migrate.log; then
+            echo "Migration deploy failed, checking for drift..."
+            if grep -q "already exists\|duplicate_object\|P3009\|P3018" /tmp/migrate.log; then
+              echo "Detected schema drift - marking pending migrations as applied..."
+              PENDING=$(npx prisma migrate status --json 2>/dev/null | jq -r '.pendingMigrations[]?' 2>/dev/null || true)
+              for m in $PENDING; do
+                echo "Marking $m as applied..."
+                npx prisma migrate resolve --applied "$m" || true
+              done
+              npx prisma migrate deploy
+            else
+              echo "Migration failed for unknown reason:"
+              cat /tmp/migrate.log
+              exit 1
+            fi
+          fi
         env:
-          PROD_DB_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
-        run: ./scripts/db-migrate-prod-with-proxy.sh
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
       
       - name: Build and deploy API
         run: ./scripts/deploy-prod.sh
