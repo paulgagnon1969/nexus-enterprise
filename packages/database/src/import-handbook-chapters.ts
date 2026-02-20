@@ -162,7 +162,7 @@ async function cleanExistingHandbook(dryRun: boolean) {
   }
 
   // Delete in transaction
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     for (const doc of existingDocs) {
       // Delete manual document links
       await tx.manualDocument.deleteMany({
@@ -308,7 +308,7 @@ async function main() {
 
       if (!systemDoc) {
         // Create new document
-        systemDoc = await tx.systemDocument.create({
+        const newDoc = await tx.systemDocument.create({
           data: {
             code: ch.code,
             title: ch.title,
@@ -324,7 +324,7 @@ async function main() {
 
         const version = await tx.systemDocumentVersion.create({
           data: {
-            systemDocumentId: systemDoc.id,
+            systemDocumentId: newDoc.id,
             versionNo: 1,
             htmlContent: ch.htmlContent,
             contentHash: ch.contentHash,
@@ -334,8 +334,19 @@ async function main() {
         });
 
         await tx.systemDocument.update({
-          where: { id: systemDoc.id },
+          where: { id: newDoc.id },
           data: { currentVersionId: version.id },
+        });
+
+        // Link to Manual
+        await tx.manualDocument.create({
+          data: {
+            manualId: manual.id,
+            chapterId: chapterId,
+            systemDocumentId: newDoc.id,
+            sortOrder: i + 1,
+            addedInManualVersion: manual.currentVersion,
+          },
         });
 
         stats.docsCreated++;
@@ -376,25 +387,27 @@ async function main() {
         console.log(`  - Unchanged: ${ch.code}`);
       }
 
-      // 4. Link to Manual (if not already linked)
-      const existingLink = await tx.manualDocument.findFirst({
-        where: {
-          manualId: manual.id,
-          systemDocumentId: systemDoc.id,
-          active: true,
-        },
-      });
-
-      if (!existingLink) {
-        await tx.manualDocument.create({
-          data: {
+      // 4. Link to Manual (if not already linked) - only for existing docs
+      if (systemDoc) {
+        const existingLink = await tx.manualDocument.findFirst({
+          where: {
             manualId: manual.id,
-            chapterId: chapterId,
             systemDocumentId: systemDoc.id,
-            sortOrder: i + 1,
-            addedInManualVersion: manual.currentVersion,
+            active: true,
           },
         });
+
+        if (!existingLink) {
+          await tx.manualDocument.create({
+            data: {
+              manualId: manual.id,
+              chapterId: chapterId,
+              systemDocumentId: systemDoc.id,
+              sortOrder: i + 1,
+              addedInManualVersion: manual.currentVersion,
+            },
+          });
+        }
       }
     }
 
