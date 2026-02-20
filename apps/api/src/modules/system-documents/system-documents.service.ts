@@ -12,6 +12,7 @@ import {
   CopyToOrgDto,
   UpdateTenantCopyDto,
   ImportWithManualDto,
+  ImportFromHtmlDto,
 } from "./dto/system-document.dto";
 import { ManualVersionChangeType } from "@prisma/client";
 
@@ -1020,5 +1021,287 @@ export class SystemDocumentsService {
     });
 
     return result;
+  }
+
+  // =========================================================================
+  // Import from Raw HTML (parses ncc: meta tags)
+  // =========================================================================
+
+  private extractMetaTag(html: string, name: string): string | null {
+    // Match both formats: content="..." and content='...'
+    const regex = new RegExp(
+      `<meta\\s+name=["']ncc:${name}["']\\s+content=["']([^"']*)["']`,
+      "i"
+    );
+    const match = html.match(regex);
+    return match?.[1] || null;
+  }
+
+  private extractStyles(html: string): string {
+    const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+    return styleMatch ? `<style>${styleMatch[1]}</style>` : "";
+  }
+
+  private parseChaptersFromHtml(
+    html: string,
+    manualCode: string
+  ): Array<{ id: string; code: string; title: string; htmlContent: string }> {
+    const chapters: Array<{ id: string; code: string; title: string; htmlContent: string }> = [];
+    const styles = this.extractStyles(html);
+
+    // Match chapter divs: <div id="ch1" class="chapter"> or <div class="chapter" id="ch1">
+    const chapterRegex =
+      /<div\s+(?:id="([^"]+)"\s+class="chapter"|class="chapter"\s+id="([^"]+)")>([\s\S]*?)(?=<div\s+(?:id="[^"]+"\s+class="chapter"|class="chapter"\s+id="[^"]+")>|<\/body>)/gi;
+
+    let match;
+    let index = 0;
+    while ((match = chapterRegex.exec(html)) !== null) {
+      const id = match[1] || match[2];
+      const content = match[3].trim();
+
+      // Extract title from first <h1>
+      const titleMatch = content.match(/<h1>([^<]+)<\/h1>/i);
+      const title = titleMatch?.[1]?.trim() || `Section ${index + 1}`;
+
+      // Generate document code based on manual code
+      const codePrefix = manualCode.replace(/-/g, "");
+      const code = `${codePrefix}-${id.toUpperCase()}`;
+
+      // Wrap content with styles for standalone viewing
+      const htmlContent = `${styles}\n<div class="chapter">\n${content}\n</div>`;
+
+      chapters.push({ id, code, title, htmlContent });
+      index++;
+    }
+
+    return chapters;
+  }
+
+  /**
+   * Import a document/manual from raw HTML with embedded ncc: meta tags.
+   * Parses all metadata from the HTML itself.
+   */
+  async importFromHtml(userId: string, dto: ImportFromHtmlDto) {
+    const html = dto.htmlContent;
+
+    // Extract required meta tags
+    const manualCode = this.extractMetaTag(html, "manual-code");
+    const manualTitle = this.extractMetaTag(html, "manual-title");
+
+    if (!manualCode) {
+      throw new BadRequestException("Missing required meta tag: ncc:manual-code");
+    }
+    if (!manualTitle) {
+      throw new BadRequestException("Missing required meta tag: ncc:manual-title");
+    }
+
+    // Extract optional meta tags
+    const meta = {
+      manualIcon: this.extractMetaTag(html, "manual-icon") || "📘",
+      library: this.extractMetaTag(html, "library") || "General",
+      category: this.extractMetaTag(html, "category") || "Uncategorized",
+      description: this.extractMetaTag(html, "description") || "",
+      version: this.extractMetaTag(html, "version") || "1.0",
+      isPublic: dto.setPublic === "true" || this.extractMetaTag(html, "public")?.toLowerCase() === "true",
+      publicSlug: dto.publicSlug || this.extractMetaTag(html, "public-slug"),
+    };
+
+    // Parse chapters from HTML
+    const chapters = this.parseChaptersFromHtml(html, manualCode);
+
+    if (chapters.length === 0) {
+      throw new BadRequestException(
+        "No chapters found. Ensure HTML has <div id=\"ch1\" class=\"chapter\"> structure."
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Find or create the manual
+      let manual = await tx.manual.findUnique({ where: { code: manualCode } });
+      let manualVersion = 1;
+
+      if (!manual) {
+        manual = await tx.manual.create({
+          data: {
+            code: manualCode,
+            title: manualTitle,
+            iconEmoji: meta.manualIcon,
+            description: meta.description,
+            isPublic: meta.isPublic,
+            publicSlug: meta.isPublic ? meta.publicSlug : null,
+            isNexusInternal: true,
+            createdByUserId: userId,
+            currentVersion: 1,
+          },
+        });
+
+        await tx.manualVersion.create({
+          data: {
+            manualId: manual.id,
+            version: 1,
+            changeType: ManualVersionChangeType.INITIAL,
+            changeNotes: `Manual created via HTML import`,
+            createdByUserId: userId,
+            structureSnapshot: { chapters: [], documents: [] },
+          },
+        });
+      } else {
+        manualVersion = manual.currentVersion;
+        // Update manual metadata if changed
+        await tx.manual.update({
+          where: { id: manual.id },
+          data: {
+            title: manualTitle,
+            iconEmoji: meta.manualIcon,
+            description: meta.description,
+            isPublic: meta.isPublic,
+            publicSlug: meta.isPublic ? meta.publicSlug : null,
+          },
+        });
+      }
+
+      const importedDocs: Array<{ code: string; title: string; isNew: boolean }> = [];
+
+      // 2. Import each chapter as a system document
+      for (let i = 0; i < chapters.length; i++) {
+        const ch = chapters[i];
+        const contentHash = this.hashContent(ch.htmlContent);
+
+        // Check if document already exists
+        const existingDoc = await tx.systemDocument.findUnique({
+          where: { code: ch.code },
+          include: { currentVersion: true },
+        });
+
+        let docId: string;
+        let isNew = false;
+
+        if (existingDoc) {
+          docId = existingDoc.id;
+          // Update if content changed
+          if (existingDoc.currentVersion?.contentHash !== contentHash) {
+            const lastVersion = await tx.systemDocumentVersion.findFirst({
+              where: { systemDocumentId: existingDoc.id },
+              orderBy: { versionNo: "desc" },
+            });
+            const nextVersionNo = (lastVersion?.versionNo ?? 0) + 1;
+
+            const version = await tx.systemDocumentVersion.create({
+              data: {
+                systemDocumentId: existingDoc.id,
+                versionNo: nextVersionNo,
+                htmlContent: ch.htmlContent,
+                contentHash,
+                notes: `Updated via HTML import`,
+                createdByUserId: userId,
+              },
+            });
+
+            await tx.systemDocument.update({
+              where: { id: existingDoc.id },
+              data: {
+                currentVersionId: version.id,
+                title: ch.title,
+                category: meta.library,
+                subcategory: meta.category,
+              },
+            });
+          }
+        } else {
+          // Create new document
+          isNew = true;
+          const newDoc = await tx.systemDocument.create({
+            data: {
+              code: ch.code,
+              title: ch.title,
+              category: meta.library,
+              subcategory: meta.category,
+              createdByUserId: userId,
+            },
+          });
+          docId = newDoc.id;
+
+          const version = await tx.systemDocumentVersion.create({
+            data: {
+              systemDocumentId: newDoc.id,
+              versionNo: 1,
+              htmlContent: ch.htmlContent,
+              contentHash,
+              notes: "Initial version via HTML import",
+              createdByUserId: userId,
+            },
+          });
+
+          await tx.systemDocument.update({
+            where: { id: newDoc.id },
+            data: { currentVersionId: version.id },
+          });
+        }
+
+        // 3. Add document to manual if not already there
+        const existingManualDoc = await tx.manualDocument.findFirst({
+          where: {
+            manualId: manual.id,
+            systemDocumentId: docId,
+            active: true,
+          },
+        });
+
+        if (!existingManualDoc) {
+          const maxDocOrder = await tx.manualDocument.aggregate({
+            where: { manualId: manual.id, active: true },
+            _max: { sortOrder: true },
+          });
+
+          await tx.manualDocument.create({
+            data: {
+              manualId: manual.id,
+              systemDocumentId: docId,
+              sortOrder: (maxDocOrder._max.sortOrder ?? -1) + 1,
+              addedInManualVersion: manualVersion + 1,
+            },
+          });
+        }
+
+        importedDocs.push({ code: ch.code, title: ch.title, isNew });
+      }
+
+      // 4. Increment manual version if we added documents
+      const newDocsCount = importedDocs.filter((d) => d.isNew).length;
+      if (newDocsCount > 0) {
+        const newManualVersion = manualVersion + 1;
+        await tx.manual.update({
+          where: { id: manual.id },
+          data: { currentVersion: newManualVersion },
+        });
+
+        await tx.manualVersion.create({
+          data: {
+            manualId: manual.id,
+            version: newManualVersion,
+            changeType: ManualVersionChangeType.DOCUMENT_ADDED,
+            changeNotes: `Imported ${newDocsCount} document(s) via HTML import`,
+            createdByUserId: userId,
+            structureSnapshot: {},
+          },
+        });
+      }
+
+      return {
+        manual: {
+          id: manual.id,
+          code: manual.code,
+          title: manual.title,
+          isPublic: meta.isPublic,
+          publicSlug: meta.publicSlug,
+        },
+        documents: importedDocs,
+        summary: {
+          totalChapters: chapters.length,
+          newDocuments: newDocsCount,
+          updatedDocuments: chapters.length - newDocsCount,
+        },
+      };
+    });
   }
 }

@@ -155,3 +155,20 @@ export class ImportWithManualDto {
   @IsString()
   chapterTitle?: string;
 }
+
+/**
+ * Import a document from raw HTML with embedded ncc: meta tags.
+ * All metadata is parsed from the HTML itself.
+ */
+export class ImportFromHtmlDto {
+  @IsString()
+  htmlContent!: string;
+
+  @IsOptional()
+  @IsString()
+  setPublic?: 'true' | 'false';
+
+  @IsOptional()
+  @IsString()
+  publicSlug?: string;
+}
