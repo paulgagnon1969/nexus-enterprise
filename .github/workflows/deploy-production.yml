@@ -10,6 +10,14 @@ jobs:
   migrate-and-deploy:
     runs-on: ubuntu-latest
     
+    # Required for Workload Identity Federation
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      GOOGLE_CLOUD_PROJECT: nexus-enterprise-480610
+    
     steps:
       - uses: actions/checkout@v4
       
@@ -25,7 +33,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: projects/979156454944/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider
+          service_account: nexus-api-deployer@nexus-enterprise-480610.iam.gserviceaccount.com
       
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
