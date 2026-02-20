@@ -119,7 +119,7 @@ export function ImportHtmlModal({ isOpen, onClose, onSuccess }: ImportHtmlModalP
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <h2 style={{ margin: 0, fontSize: 18, display: "flex", alignItems: "center", gap: 8 }}>
-            <span>📥</span> Import HTML Manual
+            <span>📥</span> Structured Manual Import
           </h2>
           <button
             onClick={handleClose}
