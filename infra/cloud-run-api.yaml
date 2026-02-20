@@ -1,8 +1,18 @@
 # Cloud Run service definition for the Nexus API.
 #
-# This is a template/example. Replace PROJECT_ID, REGION, SERVICE_NAME, and IMAGE
-# with your actual values before deploying:
-#   gcloud run services replace infra/cloud-run-api.yaml --project=PROJECT_ID --region=REGION
+# ⚠️  THIS FILE IS A REFERENCE TEMPLATE ONLY.
+#
+# The actual production configuration is managed via `gcloud run services update`
+# commands in the deployment workflow (.github/workflows/prod-api-deploy.yml).
+# Environment variables (DATABASE_URL, REDIS_URL, etc.) are set directly on
+# Cloud Run, NOT from this file.
+#
+# To view actual production config:
+#   gcloud run services describe nexus-api --region=us-central1 --format=yaml
+#
+# To update an env var:
+#   gcloud run services update nexus-api --region=us-central1 --update-env-vars="KEY=value"
+#
 ---
 apiVersion: serving.knative.dev/v1
 kind: Service
@@ -16,16 +26,28 @@ spec:
         autoscaling.knative.dev/minScale: "1"
     spec:
       containers:
-        - image: us-central1-docker.pkg.dev/fgcp-platform-378921/ncc-registry/backend:latest
+        - image: us-docker.pkg.dev/nexus-enterprise-480610/nexus-api/nexus-api:latest
           env:
+            # Actual values are set via gcloud CLI, not this file.
+            # These are placeholders for documentation purposes.
             - name: NODE_ENV
               value: "production"
             - name: DATABASE_URL
-              value: "postgresql://user:pass@host:5432/db?schema=public"  # TODO: replace
+              value: "${DATABASE_URL}"  # Set via: gcloud run services update --update-env-vars
             - name: REDIS_URL
-              value: "redis://:pass@host:6379/0"                          # TODO: replace or remove
+              value: "${REDIS_URL}"     # Redis VM: redis-prod (us-central1-a), port 6379, password auth
+            - name: JWT_ACCESS_SECRET
+              value: "${JWT_ACCESS_SECRET}"
+            - name: JWT_REFRESH_SECRET
+              value: "${JWT_REFRESH_SECRET}"
+            - name: GCS_UPLOADS_BUCKET
+              value: "${GCS_UPLOADS_BUCKET}"
           ports:
             - containerPort: 8080
+          resources:
+            limits:
+              cpu: "2"
+              memory: "2Gi"
           livenessProbe:
             httpGet:
               path: /health

@@ -43,7 +43,7 @@ const REPO_ROOT = findRepoRoot();
 const HANDBOOK_PATH = path.join(REPO_ROOT, "docs/manuals/ncc-handbook-full.html");
 
 // Manual metadata
-const MANUAL_CODE = "NCC-HANDBOOK";
+const MANUAL_CODE = "NCC-CONTRACTOR-HANDBOOK";
 const MANUAL_TITLE = "NCC Contractor Handbook";
 const MANUAL_ICON = "📘";
 const MANUAL_DESCRIPTION = "Progressive guide from first login to full enterprise mastery";
