@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { PageCard } from "../../ui-shell";
+import { ImportHtmlModal } from "./components/ImportHtmlModal";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -18,6 +19,7 @@ interface DashboardStats {
 export default function SystemDocumentsPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [importModalOpen, setImportModalOpen] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("accessToken");
@@ -151,11 +153,51 @@ export default function SystemDocumentsPage() {
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             <QuickActionButton href="/system/documents/library/new" label="+ New System Document" />
             <QuickActionButton href="/system/documents/manuals/new" label="+ New Manual" />
+            <button
+              onClick={() => setImportModalOpen(true)}
+              style={{
+                padding: "8px 14px",
+                fontSize: 13,
+                fontWeight: 500,
+                backgroundColor: "#dbeafe",
+                color: "#1d4ed8",
+                border: "1px solid #93c5fd",
+                borderRadius: 6,
+                cursor: "pointer",
+                transition: "background-color 0.1s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = "#bfdbfe";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = "#dbeafe";
+              }}
+            >
+              📥 Import HTML
+            </button>
             <QuickActionButton href="/system/documents/sops-staging" label="Review Staged SOPs" />
             <QuickActionButton href="/system/documents/publish" label="Publish to Tenants" />
           </div>
         </section>
       </div>
+
+      {/* Import HTML Modal */}
+      <ImportHtmlModal
+        isOpen={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
+        onSuccess={() => {
+          // Refresh stats after successful import
+          const token = localStorage.getItem("accessToken");
+          if (token) {
+            fetch(`${API_BASE}/system-documents/dashboard-stats`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+              .then((res) => res.json())
+              .then(setStats)
+              .catch(() => {});
+          }
+        }}
+      />
     </PageCard>
   );
 }
