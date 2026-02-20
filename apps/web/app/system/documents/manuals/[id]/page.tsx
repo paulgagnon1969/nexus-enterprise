@@ -147,6 +147,33 @@ export default function ManualEditorPage({ params }: { params: Promise<{ id: str
     }
   };
 
+  const handleMoveChapter = async (chapterId: string, direction: "up" | "down") => {
+    if (!manual) return;
+    const chapters = [...manual.chapters];
+    const currentIndex = chapters.findIndex((ch) => ch.id === chapterId);
+    if (currentIndex === -1) return;
+    
+    const newIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (newIndex < 0 || newIndex >= chapters.length) return;
+    
+    // Swap positions
+    [chapters[currentIndex], chapters[newIndex]] = [chapters[newIndex], chapters[currentIndex]];
+    const chapterIds = chapters.map((ch) => ch.id);
+    
+    try {
+      const res = await fetch(`${API_BASE}/system/manuals/${manualId}/chapters/reorder`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ chapterIds }),
+      });
+      if (!res.ok) throw new Error("Failed to reorder chapters");
+      const updated = await res.json();
+      setManual(updated);
+    } catch (err: any) {
+      alert(err?.message || "Failed to reorder chapters");
+    }
+  };
+
   // --- Document Operations ---
 
   const handleAddDocument = async (systemDocumentId: string, chapterId?: string) => {
@@ -438,7 +465,7 @@ export default function ManualEditorPage({ params }: { params: Promise<{ id: str
 
         {/* Chapters */}
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {manual.chapters.map((chapter) => (
+          {manual.chapters.map((chapter, chapterIndex) => (
             <div
               key={chapter.id}
               style={{
@@ -457,11 +484,63 @@ export default function ManualEditorPage({ params }: { params: Promise<{ id: str
                   alignItems: "center",
                 }}
               >
-                <div>
-                  <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{chapter.title}</h3>
-                  {chapter.description && (
-                    <p style={{ margin: "4px 0 0", fontSize: 12, color: "#6b7280" }}>{chapter.description}</p>
-                  )}
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  {/* Reorder arrows */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <button
+                      type="button"
+                      onClick={() => handleMoveChapter(chapter.id, "up")}
+                      disabled={chapterIndex === 0}
+                      style={{
+                        padding: "2px 6px",
+                        fontSize: 10,
+                        backgroundColor: chapterIndex === 0 ? "#f3f4f6" : "#ffffff",
+                        color: chapterIndex === 0 ? "#d1d5db" : "#374151",
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 3,
+                        cursor: chapterIndex === 0 ? "default" : "pointer",
+                      }}
+                      title="Move chapter up"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleMoveChapter(chapter.id, "down")}
+                      disabled={chapterIndex === manual.chapters.length - 1}
+                      style={{
+                        padding: "2px 6px",
+                        fontSize: 10,
+                        backgroundColor: chapterIndex === manual.chapters.length - 1 ? "#f3f4f6" : "#ffffff",
+                        color: chapterIndex === manual.chapters.length - 1 ? "#d1d5db" : "#374151",
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 3,
+                        cursor: chapterIndex === manual.chapters.length - 1 ? "default" : "pointer",
+                      }}
+                      title="Move chapter down"
+                    >
+                      ▼
+                    </button>
+                  </div>
+                  {/* Chapter number badge */}
+                  <span
+                    style={{
+                      padding: "2px 8px",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      backgroundColor: "#dbeafe",
+                      color: "#1d4ed8",
+                      borderRadius: 4,
+                    }}
+                  >
+                    Ch {chapterIndex + 1}
+                  </span>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{chapter.title}</h3>
+                    {chapter.description && (
+                      <p style={{ margin: "4px 0 0", fontSize: 12, color: "#6b7280" }}>{chapter.description}</p>
+                    )}
+                  </div>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
