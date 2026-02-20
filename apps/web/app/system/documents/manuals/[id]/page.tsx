@@ -298,9 +298,9 @@ export default function ManualEditorPage({ params }: { params: Promise<{ id: str
                 borderRadius: 6,
                 cursor: "pointer",
               }}
-              title="Replace all content by pasting updated HTML from Grok"
+              title="Update manual by pasting revised HTML from Grok"
             >
-              <span style={{ fontSize: 16 }}>🔄</span> Replace Content
+              <span style={{ fontSize: 16 }}>🔄</span> Update Structured Manual
             </button>
             <button
               type="button"
