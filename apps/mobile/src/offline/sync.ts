@@ -45,57 +45,107 @@ async function reconcileDailyLogCache(params: {
   await setCache(key, next);
 }
 
+/**
+ * Resolve a file URI that may have a stale iOS container UUID.
+ * iOS reassigns the app container path between launches, so absolute URIs
+ * stored in the outbox can become invalid.  We detect this and reconstruct
+ * the path using the current documentDirectory.
+ */
+async function resolveFileUri(storedUri: string): Promise<string> {
+  // Fast path — file exists at the stored URI
+  const info = await FileSystem.getInfoAsync(storedUri);
+  if (info.exists) return storedUri;
+
+  // Try to recover: extract the relative portion after "Documents/"
+  const marker = "Documents/";
+  const idx = storedUri.indexOf(marker);
+  if (idx === -1) {
+    throw new Error(`File does not exist and cannot resolve path: ${storedUri}`);
+  }
+
+  const relativePath = storedUri.substring(idx + marker.length);
+  const docDir = FileSystem.documentDirectory;
+  if (!docDir) {
+    throw new Error("FileSystem.documentDirectory is not available");
+  }
+
+  const resolved = `${docDir}${relativePath}`;
+  console.log(`[Sync] Resolved stale URI:\n  old: ${storedUri}\n  new: ${resolved}`);
+
+  const resolvedInfo = await FileSystem.getInfoAsync(resolved);
+  if (!resolvedInfo.exists) {
+    throw new Error(`File not found at original or resolved path: ${resolved}`);
+  }
+
+  return resolved;
+}
+
 async function uploadDailyLogAttachment(params: {
   logId: string;
   fileUri: string;
   fileName: string;
   mimeType: string;
 }): Promise<void> {
-  const { logId, fileUri, fileName, mimeType } = params;
+  const { logId, fileName, mimeType } = params;
 
   console.log(`[Sync] Uploading attachment: ${fileName} to log ${logId}`);
-  console.log(`[Sync] File URI: ${fileUri}`);
+  console.log(`[Sync] Stored file URI: ${params.fileUri}`);
 
-  // Check if the file exists before attempting upload
-  try {
-    const fileInfo = await FileSystem.getInfoAsync(fileUri);
-    console.log(`[Sync] File info:`, JSON.stringify(fileInfo));
-    if (!fileInfo.exists) {
-      throw new Error(`File does not exist at URI: ${fileUri}`);
-    }
-  } catch (err) {
-    console.error(`[Sync] Error checking file:`, err);
-    throw new Error(`File check failed for ${fileUri}: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  // Resolve the file URI (handles iOS container UUID drift)
+  const resolvedUri = await resolveFileUri(params.fileUri);
 
-  const form = new FormData();
-  form.append(
-    "file",
-    {
-      uri: fileUri,
-      name: fileName,
-      type: mimeType,
-    } as any,
-  );
+  // Get file size for metadata
+  const fileInfo = await FileSystem.getInfoAsync(resolvedUri, { size: true });
+  const sizeBytes = (fileInfo as any).size ?? undefined;
 
-  console.log(`[Sync] Sending POST to /daily-logs/${logId}/attachments`);
-
-  const res = await apiFetch(`/daily-logs/${encodeURIComponent(logId)}/attachments`, {
+  // ── Step 1: Request a signed GCS upload URL from the API ──
+  console.log(`[Sync] Requesting signed upload URL...`);
+  const { uploadUrl, publicUrl } = await apiJson<{
+    uploadUrl: string;
+    publicUrl: string;
+    gcsKey: string;
+  }>(`/daily-logs/${encodeURIComponent(logId)}/attachments/upload-url`, {
     method: "POST",
-    // Let fetch set the multipart boundary.
-    // RN/Expo requires leaving Content-Type unset for FormData.
-    body: form as any,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fileName: fileName || "attachment.bin",
+      mimeType: mimeType || "application/octet-stream",
+      sizeBytes,
+    }),
   });
 
-  console.log(`[Sync] Upload response status: ${res.status}`);
+  console.log(`[Sync] Got signed URL, uploading directly to GCS...`);
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    console.error(`[Sync] Upload failed: ${res.status} ${text}`);
-    throw new Error(`Attachment upload failed: ${res.status} ${text || res.statusText}`);
+  // ── Step 2: Upload file directly to GCS (bypasses API server) ──
+  const uploadResult = await FileSystem.uploadAsync(uploadUrl, resolvedUri, {
+    httpMethod: "PUT",
+    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+    headers: {
+      "Content-Type": mimeType || "application/octet-stream",
+    },
+  });
+
+  console.log(`[Sync] GCS upload response: ${uploadResult.status}`);
+
+  if (uploadResult.status < 200 || uploadResult.status >= 300) {
+    console.error(`[Sync] GCS upload failed: ${uploadResult.status} ${uploadResult.body?.slice(0, 500)}`);
+    throw new Error(`GCS upload failed: ${uploadResult.status}`);
   }
 
-  console.log(`[Sync] Attachment uploaded successfully`);
+  // ── Step 3: Record the attachment metadata via /link endpoint ──
+  console.log(`[Sync] Recording attachment metadata...`);
+  await apiJson(`/daily-logs/${encodeURIComponent(logId)}/attachments/link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fileUrl: publicUrl,
+      fileName: fileName || "attachment.bin",
+      mimeType: mimeType || null,
+      sizeBytes: sizeBytes ?? null,
+    }),
+  });
+
+  console.log(`[Sync] Attachment uploaded and recorded successfully`);
 }
 
 async function processOutboxItem(type: string, payloadStr: string): Promise<void> {

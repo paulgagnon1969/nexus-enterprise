@@ -15,6 +15,22 @@ export class DailyLogAttachmentsController {
     return this.dailyLogs.listAttachments(logId, user.companyId, user);
   }
 
+  /**
+   * Generate a signed GCS upload URL so mobile clients can upload
+   * directly to cloud storage without proxying through this server.
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Post("upload-url")
+  async getUploadUrl(
+    @Req() req: any,
+    @Param("logId") logId: string,
+    @Body() body: { fileName: string; mimeType: string; sizeBytes?: number },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.getSignedUploadUrl(logId, user.companyId, user, body);
+  }
+
   @UseGuards(CombinedAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
   @Post()
