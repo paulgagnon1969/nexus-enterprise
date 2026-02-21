@@ -1489,27 +1489,27 @@ export class ProjectService {
     });
     if (!project) throw new NotFoundException("Project not found in this company");
 
-    // Load role profiles for hierarchy validation
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      select: { templateVersionId: true },
+    // Load role profiles for hierarchy validation (RoleProfile table)
+    const companyRoles = await this.prisma.roleProfile.findMany({
+      where: { companyId, active: true },
+      select: { code: true },
     });
 
-    let profiles: { code: string; sortOrder: number }[] = [];
-    if (company?.templateVersionId) {
-      profiles = await this.prisma.organizationTemplateRoleProfile.findMany({
-        where: { templateVersionId: company.templateVersionId, active: true },
-        select: { code: true, sortOrder: true },
+    let profileCodes: string[];
+    if (companyRoles.length) {
+      profileCodes = companyRoles.map((p) => p.code);
+    } else {
+      const globalRoles = await this.prisma.roleProfile.findMany({
+        where: { companyId: null, active: true },
+        select: { code: true },
       });
+      profileCodes = globalRoles.length
+        ? globalRoles.map((p) => p.code)
+        : ["OWNER", "MANAGER", "COLLABORATOR", "VIEWER"];
     }
-    if (!profiles.length) {
-      profiles = [
-        { code: "OWNER", sortOrder: 0 },
-        { code: "MANAGER", sortOrder: 10 },
-        { code: "COLLABORATOR", sortOrder: 20 },
-        { code: "VIEWER", sortOrder: 30 },
-      ];
-    }
+
+    // Build sortOrder map: index-based ordering from the profiles list
+    const profiles = profileCodes.map((code, i) => ({ code, sortOrder: i * 10 }));
 
     const profileMap = new Map(profiles.map((p) => [p.code, p.sortOrder]));
 
