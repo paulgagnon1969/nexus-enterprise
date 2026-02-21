@@ -44,7 +44,7 @@ export default function OshaSyncPage() {
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem("accessToken");
-    return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+    return { Authorization: `Bearer ${token}` };
   };
 
   const loadStatus = useCallback(async () => {
