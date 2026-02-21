@@ -249,6 +249,51 @@ The same pattern can be extended for:
 - **KaTeX** — math equations (`<div class="katex">` or `$$ ... $$`)
 - **Syntax highlighting** — code blocks with Prism.js
 
+## Mobile Build & Deploy Contract
+
+Whenever mobile changes are ready for production (user says "build", "deploy", "push to prod", or similar for mobile), Warp MUST follow this process:
+
+### Android APK — Local Build (Default)
+**Always build Android APKs locally** using the local build script. Do NOT use EAS cloud builds for Android.
+
+```bash
+# From apps/mobile:
+bash scripts/build-android-local.sh release
+```
+
+- Builds a release APK locally using Gradle
+- Automatically copies the APK to Google Drive: `~/Library/CloudStorage/GoogleDrive-paul.gagnon@keystone-restoration.com/My Drive/nexus-builds/`
+- File naming: `nexus-mobile-release-YYYYMMDD-HHMMSS.apk`
+- Also creates a `nexus-mobile-release-latest.apk` symlink
+- Opens the Google Drive folder when complete
+
+### iOS IPA — EAS Cloud Build + TestFlight
+iOS builds use EAS Build (cloud) because Apple code signing requires it.
+
+```bash
+# From apps/mobile:
+eas build --platform ios --profile production --non-interactive --no-wait
+
+# After build completes, submit to TestFlight:
+eas submit --platform ios --latest
+```
+
+- Uses the `production` profile in `eas.json`
+- `autoIncrement: true` handles build numbers automatically
+- After submission, the build appears in TestFlight for internal testing
+
+### Version Bumping
+Before building, bump the version in `apps/mobile/app.json`:
+- Update both `version` and `runtimeVersion` fields
+- Use semantic versioning: patch for fixes, minor for features, major for breaking changes
+
+### Build Order
+1. Bump version in `app.json`
+2. Commit and push all changes to `main`
+3. Build Android APK locally (save to Google Drive)
+4. Start iOS EAS build (runs in background)
+5. Submit iOS to TestFlight when build completes
+
 ## How future agents should work here
 
 - Prefer running tasks via root `npm` scripts when touching multiple apps; drop into app/package directories only when you need fine-grained control.
