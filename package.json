@@ -5,7 +5,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "postinstall": "npm -w @repo/database run prisma:generate",
+    "postinstall": "if [ -z \"$EAS_BUILD_RUNNER\" ]; then npm -w @repo/database run prisma:generate; fi",
     "dev": "turbo dev",
     "dev:api": "turbo dev --filter=api",
     "dev:web": "turbo dev --filter=web",
@@ -20,7 +20,9 @@
     "db:migrate:dev": "bash ./scripts/db-migrate-cloud.sh",
     "db:migrate:prod": "bash ./scripts/db-migrate-prod.sh",
     "deploy:prod:api": "bash ./deploy-api-prod.sh",
-    "deploy:prod:api:env": "bash ./scripts/deploy-api-prod-env.sh"
+    "deploy:prod:api:env": "bash ./scripts/deploy-api-prod-env.sh",
+    "sops:sync": "ts-node scripts/import-sops.ts --all",
+    "sops:sync:dry": "ts-node scripts/import-sops.ts --all --dry-run"
   },
   "workspaces": [
     "apps/*",
@@ -39,9 +41,10 @@
     "markdown-it": "^14.1.1",
     "prettier": "^3.7.4",
     "puppeteer": "^24.37.5",
+    "ts-node": "^10.9.2",
     "turbo": "^2.7.2",
     "typescript": "^5.9.3"
-  },
+  }
   "dependencies": {
     "@nestjs/common": "^11.1.9",
     "@nestjs/core": "^11.1.9",
