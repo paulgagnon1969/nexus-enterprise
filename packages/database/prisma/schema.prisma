@@ -5421,6 +5421,28 @@ model ManualTargetTag {
 }
 
 // =============================================================================
+// OSHA / CFR Sync State
+// =============================================================================
+
+/// Tracks the synchronization state for imported CFR parts (e.g., 29 CFR 1926)
+model OshaSyncState {
+  id              String    @id @default(cuid())
+  cfrTitle        Int // e.g., 29
+  cfrPart         Int // e.g., 1926
+  lastSyncedAt    DateTime?
+  lastAmendedDate String? // ISO date from eCFR (e.g., "2024-07-01")
+  lastContentHash String? // Hash of entire part XML for quick diff
+  manualId        String? // The Manual record this sync populates
+  sectionCount    Int       @default(0)
+  syncStatus      String    @default("NEVER") // NEVER | SYNCING | SUCCESS | ERROR
+  lastError       String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([cfrTitle, cfrPart], map: "OshaSyncState_title_part_key")
+}
+
+// =============================================================================
 // Publication Groups (for multi-tenant publishing)
 // =============================================================================
 

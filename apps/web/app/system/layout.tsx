@@ -570,6 +570,22 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
                 Documents
               </Link>
               <Link
+                href="/system/osha-sync"
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  border: "1px solid #e5e7eb",
+                  background: pathname?.startsWith("/system/osha-sync")
+                    ? "#f9fafb"
+                    : "transparent",
+                  color: pathname?.startsWith("/system/osha-sync") ? "#0f172a" : "#f9fafb",
+                  fontSize: 11,
+                  textDecoration: "none",
+                }}
+              >
+                🛡️ OSHA Sync
+              </Link>
+              <Link
                 href="/system/templates"
                 style={{
                   padding: "2px 8px",

@@ -16,8 +16,18 @@ interface DashboardStats {
   tenantCopies: number;
 }
 
+interface OshaSyncStatus {
+  syncStatus: string;
+  lastSyncedAt: string | null;
+  lastAmendedDate: string | null;
+  sectionCount: number;
+  manualId: string | null;
+  lastError: string | null;
+}
+
 export default function SystemDocumentsPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [oshaStatus, setOshaStatus] = useState<OshaSyncStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [importModalOpen, setImportModalOpen] = useState(false);
 
@@ -27,16 +37,16 @@ export default function SystemDocumentsPage() {
       setLoading(false);
       return;
     }
+    const headers = { Authorization: `Bearer ${token}` };
 
-    const fetchStats = async () => {
+    const fetchAll = async () => {
       try {
-        const res = await fetch(`${API_BASE}/system-documents/dashboard-stats`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setStats(data);
-        }
+        const [statsRes, oshaRes] = await Promise.all([
+          fetch(`${API_BASE}/system-documents/dashboard-stats`, { headers }),
+          fetch(`${API_BASE}/system/osha/status`, { headers }).catch(() => null),
+        ]);
+        if (statsRes.ok) setStats(await statsRes.json());
+        if (oshaRes?.ok) setOshaStatus(await oshaRes.json());
       } catch {
         // Stats are optional
       } finally {
@@ -44,7 +54,7 @@ export default function SystemDocumentsPage() {
       }
     };
 
-    fetchStats();
+    fetchAll();
   }, []);
 
   return (
@@ -98,6 +108,35 @@ export default function SystemDocumentsPage() {
                 adminCard
               />
             </div>
+        </section>
+
+        {/* Safety & Compliance Collection */}
+        <section>
+          <div
+            style={{
+              borderTop: "1px solid #e5e7eb",
+              paddingTop: 20,
+              marginTop: 8,
+            }}
+          >
+            <h2 style={{ margin: "0 0 16px", fontSize: 16, color: "#374151", display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 18 }}>🛡️</span>
+              Safety & Compliance
+            </h2>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+              {/* OSHA Manual Card */}
+              <OshaManualCard status={oshaStatus} />
+
+              {/* Sync Admin */}
+              <DashboardCard
+                href="/system/osha-sync"
+                icon="🔄"
+                title="OSHA eCFR Sync"
+                description="Manage auto-sync of 29 CFR 1926 from the Electronic Code of Federal Regulations."
+                adminCard
+              />
+            </div>
+          </div>
         </section>
 
         {/* Publishing & Distribution Tools */}
@@ -176,6 +215,7 @@ export default function SystemDocumentsPage() {
               📥 Structured Manual Import
             </button>
             <QuickActionButton href="/system/documents/sops-staging" label="Review Staged SOPs" />
+            <QuickActionButton href="/system/osha-sync" label="🛡️ OSHA Sync" />
             <QuickActionButton href="/system/documents/publish" label="Publish to Tenants" />
           </div>
         </section>
@@ -266,6 +306,110 @@ function DashboardCard({ href, icon, title, description, stat, statLabel, highli
           <span style={{ fontSize: 12, color: "#9ca3af" }}>{statLabel}</span>
         </div>
       )}
+    </Link>
+  );
+}
+
+// --- OSHA Manual Card ---
+
+function OshaManualCard({ status }: { status: OshaSyncStatus | null }) {
+  const synced = status?.syncStatus === "SUCCESS";
+  const manualHref = status?.manualId
+    ? `/system/documents/manuals/${status.manualId}`
+    : "/system/osha-sync";
+  const lastSync = status?.lastSyncedAt
+    ? new Date(status.lastSyncedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : null;
+
+  return (
+    <Link
+      href={manualHref}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        padding: 16,
+        backgroundColor: synced ? "#ecfdf5" : "#fffbeb",
+        border: `1px solid ${synced ? "#86efac" : "#fcd34d"}`,
+        borderRadius: 10,
+        textDecoration: "none",
+        color: "#111827",
+        transition: "box-shadow 0.15s, transform 0.15s",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.08)";
+        e.currentTarget.style.transform = "translateY(-2px)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.boxShadow = "none";
+        e.currentTarget.style.transform = "none";
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: 8,
+            backgroundColor: "#fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 22,
+            border: "1px solid #e5e7eb",
+          }}
+        >
+          🛡️
+        </div>
+        <div style={{ flex: 1 }}>
+          <span style={{ fontSize: 15, fontWeight: 600 }}>OSHA Construction Standards</span>
+          <div style={{ fontSize: 12, color: "#6b7280", fontFamily: "monospace" }}>29 CFR 1926</div>
+        </div>
+        {synced && (
+          <span
+            style={{
+              padding: "2px 8px",
+              fontSize: 10,
+              fontWeight: 600,
+              borderRadius: 999,
+              backgroundColor: "#d1fae5",
+              color: "#065f46",
+              border: "1px solid #6ee7b7",
+            }}
+          >
+            LIVE
+          </span>
+        )}
+      </div>
+      <p style={{ margin: 0, fontSize: 13, color: "#4b5563", lineHeight: 1.4, flex: 1 }}>
+        Complete OSHA Safety and Health Regulations for Construction, auto-synced from the eCFR.
+      </p>
+      <div
+        style={{
+          marginTop: 12,
+          paddingTop: 10,
+          borderTop: "1px solid rgba(0,0,0,0.05)",
+          display: "flex",
+          alignItems: "baseline",
+          gap: 12,
+          fontSize: 12,
+          color: "#6b7280",
+        }}
+      >
+        {synced ? (
+          <>
+            <span style={{ fontSize: 18, fontWeight: 600, color: "#065f46" }}>{status?.sectionCount || 0}</span>
+            <span>sections</span>
+            {status?.lastAmendedDate && (
+              <span>• eCFR {status.lastAmendedDate}</span>
+            )}
+            {lastSync && <span style={{ marginLeft: "auto" }}>synced {lastSync}</span>}
+          </>
+        ) : (
+          <span style={{ color: "#92400e", fontWeight: 500 }}>
+            {status?.syncStatus === "ERROR" ? "⚠️ Sync error — click to manage" : "Not yet synced — click to import"}
+          </span>
+        )}
+      </div>
     </Link>
   );
 }
