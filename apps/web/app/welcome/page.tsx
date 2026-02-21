@@ -87,7 +87,7 @@ export default function WelcomePage() {
       >
         <div style={{ marginBottom: 32 }}>
           <img
-            src="/ncc-login.png"
+            src="/ncc-login.webp"
             alt="Nexus Contractor Connect"
             style={{ maxWidth: 280, width: "100%", height: "auto" }}
           />
