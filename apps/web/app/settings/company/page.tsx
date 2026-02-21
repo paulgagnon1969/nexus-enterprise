@@ -855,20 +855,42 @@ function CompanyProfileCard() {
             <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>
               Default time zone
             </label>
-            <input
+            <select
               value={defaultTimeZone}
-              onChange={e => setDefaultTimeZone(e.target.value)}
-              onBlur={() => isTenantAdmin && triggerInlineSave()}
-              readOnly={!canEdit}
-              placeholder="e.g. America/Los_Angeles"
+              onChange={e => {
+                setDefaultTimeZone(e.target.value);
+                if (isTenantAdmin) triggerInlineSave();
+              }}
+              disabled={!canEdit}
               style={{
                 width: "100%",
                 padding: "4px 6px",
                 borderRadius: 4,
                 border: "1px solid #d1d5db",
                 fontSize: 12,
+                backgroundColor: canEdit ? "#fff" : "#f9fafb",
               }}
-            />
+            >
+              <option value="">— Select time zone —</option>
+              <optgroup label="United States">
+                <option value="America/New_York">Eastern (America/New_York)</option>
+                <option value="America/Chicago">Central (America/Chicago)</option>
+                <option value="America/Denver">Mountain (America/Denver)</option>
+                <option value="America/Phoenix">Arizona (America/Phoenix) — no DST</option>
+                <option value="America/Los_Angeles">Pacific (America/Los_Angeles)</option>
+                <option value="America/Anchorage">Alaska (America/Anchorage)</option>
+                <option value="Pacific/Honolulu">Hawaii (Pacific/Honolulu) — no DST</option>
+              </optgroup>
+              <optgroup label="Other">
+                <option value="America/Toronto">Eastern Canada (America/Toronto)</option>
+                <option value="America/Vancouver">Pacific Canada (America/Vancouver)</option>
+                <option value="America/Mexico_City">Mexico City (America/Mexico_City)</option>
+                <option value="UTC">UTC</option>
+              </optgroup>
+            </select>
+            <p style={{ margin: "2px 0 0", fontSize: 10, color: "#9ca3af" }}>
+              Used for daily logs, timecards, and scheduling displays.
+            </p>
           </div>
           <div style={{ flex: "1 1 200px", minWidth: 180 }}>
             <label style={{ display: "block", fontSize: 11, fontWeight: 600 }}>

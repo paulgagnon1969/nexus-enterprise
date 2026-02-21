@@ -478,6 +478,43 @@ export class DailyLogService {
     return attachments;
   }
 
+  /**
+   * Generate a GCS signed upload URL so the mobile client can upload
+   * directly to cloud storage without proxying through this server.
+   */
+  async getSignedUploadUrl(
+    dailyLogId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    opts: { fileName: string; mimeType: string; sizeBytes?: number },
+  ): Promise<{ uploadUrl: string; publicUrl: string; gcsKey: string }> {
+    const log = await this.prisma.dailyLog.findFirst({
+      where: { id: dailyLogId, project: { companyId } },
+      include: { project: true },
+    });
+
+    if (!log) {
+      throw new NotFoundException("Daily log not found in this company");
+    }
+
+    await this.assertProjectAccess(log.projectId, companyId, actor, null);
+
+    const ext = path.extname(opts.fileName || "") || ".bin";
+    const gcsKey = `daily-logs/${dailyLogId}-${Date.now()}${ext}`;
+
+    const { uploadUrl, fileUri } = await this.gcs.createSignedUploadUrl({
+      key: gcsKey,
+      contentType: opts.mimeType || "application/octet-stream",
+      expiresInSeconds: 30 * 60, // 30 minutes for large videos
+    });
+
+    const publicUrl = this.gcs.getPublicUrlFromUri(fileUri);
+
+    this.logger.log(`Generated signed upload URL for log ${dailyLogId}: ${gcsKey}`);
+
+    return { uploadUrl, publicUrl, gcsKey };
+  }
+
   async addAttachment(
     dailyLogId: string,
     companyId: string,

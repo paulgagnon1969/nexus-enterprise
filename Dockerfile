@@ -47,6 +47,7 @@ WORKDIR /app/apps/api
 
 # Runtime configuration
 ENV NODE_ENV=production
+ENV TZ=America/Chicago
 # Cloud Run will inject PORT; default to 8080 for local runs
 ENV PORT=8080
 
