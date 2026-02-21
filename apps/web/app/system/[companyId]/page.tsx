@@ -708,6 +708,187 @@ export default function SystemOrganizationPage({
         )}
       </div>
 
+      {/* ── Org Performance Dashboard Tiles ── */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", marginBottom: 10 }}>
+          Performance Dashboard
+          <span
+            style={{
+              marginLeft: 8,
+              fontSize: 11,
+              fontWeight: 500,
+              color: "#6b7280",
+              background: "#f3f4f6",
+              padding: "2px 8px",
+              borderRadius: 999,
+            }}
+          >
+            {company?.name ?? "Organization"}
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+          {/* Work Activity */}
+          <div
+            style={{
+              flex: "1 1 220px",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ height: 4, background: "#3b82f6" }} />
+            <div style={{ padding: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", marginBottom: 10 }}>
+                Work Activity
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                <div>
+                  <div style={{ fontSize: 10, color: "#6b7280" }}>Active Jobs</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>
+                    {sortedProjects.length}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "#6b7280" }}>Daily Logs Today</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>—</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "#6b7280" }}>Open Tasks</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>—</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "#6b7280" }}>Completed This Week</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>—</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Financial Analysis */}
+          <div
+            style={{
+              flex: "1 1 220px",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ height: 4, background: "#10b981" }} />
+            <div style={{ padding: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", marginBottom: 10 }}>
+                Financial Analysis
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                <div>
+                  <div style={{ fontSize: 10, color: "#6b7280" }}>Total Billed</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>—</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "#6b7280" }}>Outstanding</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>—</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "#6b7280" }}>Budget Variance</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>—</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "#6b7280" }}>Avg Margin</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>—</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Project Efficiency */}
+          <div
+            style={{
+              flex: "1 1 220px",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ height: 4, background: "#f59e0b" }} />
+            <div style={{ padding: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", marginBottom: 10 }}>
+                Project Efficiency
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                <div>
+                  <div style={{ fontSize: 10, color: "#6b7280" }}>On Schedule</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>—</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "#6b7280" }}>Behind Schedule</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>—</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "#6b7280" }}>Ahead of Schedule</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>—</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: "#6b7280" }}>Avg Completion</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>—</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          {/* Most Productive */}
+          <div
+            style={{
+              flex: "1 1 280px",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ height: 4, background: "#22c55e" }} />
+            <div style={{ padding: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", marginBottom: 10 }}>
+                Most Productive
+              </div>
+              <div style={{ fontSize: 11, color: "#9ca3af", fontStyle: "italic" }}>
+                Awaiting KPI module — will show top individuals by output metrics.
+              </div>
+            </div>
+          </div>
+
+          {/* Least Productive */}
+          <div
+            style={{
+              flex: "1 1 280px",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ height: 4, background: "#ef4444" }} />
+            <div style={{ padding: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", marginBottom: 10 }}>
+                Least Productive
+              </div>
+              <div style={{ fontSize: 11, color: "#9ca3af", fontStyle: "italic" }}>
+                Awaiting KPI module — will show individuals needing attention.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 8, fontSize: 10, color: "#9ca3af", fontStyle: "italic" }}>
+          Tiles will populate with live data once the KPI module is connected.
+        </div>
+      </div>
+
+      <hr style={{ margin: "0 0 16px", borderColor: "#e5e7eb" }} />
+
       {selectedProject && (
         <div
           style={{
