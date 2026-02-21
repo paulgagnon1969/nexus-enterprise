@@ -267,20 +267,22 @@ bash scripts/build-android-local.sh release
 - Also creates a `nexus-mobile-release-latest.apk` symlink
 - Opens the Google Drive folder when complete
 
-### iOS IPA — EAS Cloud Build + TestFlight
+### iOS IPA — EAS Cloud Build + Auto-Submit to TestFlight
 iOS builds use EAS Build (cloud) because Apple code signing requires it.
+**Warp MUST always submit to TestFlight immediately after the build finishes.** Do NOT use `--no-wait` — wait for the build to complete, then submit in the same flow.
 
 ```bash
-# From apps/mobile:
-eas build --platform ios --profile production --non-interactive --no-wait
+# From apps/mobile — build and wait for completion:
+eas build --platform ios --profile production --non-interactive
 
-# After build completes, submit to TestFlight:
-eas submit --platform ios --latest
+# Immediately after build succeeds, submit to TestFlight:
+eas submit --platform ios --latest --non-interactive
 ```
 
 - Uses the `production` profile in `eas.json`
 - `autoIncrement: true` handles build numbers automatically
-- After submission, the build appears in TestFlight for internal testing
+- **Submission is NOT optional** — every iOS build MUST be submitted to TestFlight
+- After submission, the build appears in TestFlight for internal testing (usually within 5-15 minutes)
 
 ### Version Bumping
 Before building, bump the version in `apps/mobile/app.json`:
@@ -291,8 +293,10 @@ Before building, bump the version in `apps/mobile/app.json`:
 1. Bump version in `app.json`
 2. Commit and push all changes to `main`
 3. Build Android APK locally (save to Google Drive)
-4. Start iOS EAS build (runs in background)
-5. Submit iOS to TestFlight when build completes
+4. Start iOS EAS build (wait for completion)
+5. Submit iOS to TestFlight immediately after build succeeds
+
+**CRITICAL:** Never skip step 5. Every iOS build must land in TestFlight.
 
 ## How future agents should work here
 
