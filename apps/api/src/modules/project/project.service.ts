@@ -7,7 +7,6 @@ import { parse } from "csv-parse/sync";
 import {
   GlobalRole,
   Role,
-  ProjectRole,
   ProjectParticleType,
   ProjectParticipantScope,
   ProjectVisibilityLevel,
@@ -237,7 +236,7 @@ export class ProjectService {
         userId: tenantClient.userId,
         projectId,
         companyId,
-        role: ProjectRole.VIEWER,
+        role: "VIEWER",
         scope: ProjectParticipantScope.EXTERNAL_CONTACT,
         visibility: ProjectVisibilityLevel.LIMITED,
       },
@@ -342,7 +341,7 @@ export class ProjectService {
           userId,
           projectId: project.id,
           companyId,
-          role: ProjectRole.OWNER
+          role: "OWNER"
         }
       });
       this.logger.log(`ProjectMembership created for user=${userId}`);
@@ -1407,7 +1406,7 @@ export class ProjectService {
   async addMember(
     projectId: string,
     targetUserId: string,
-    role: ProjectRole,
+    role: string,
     currentUserRole: Role,
     companyId: string,
     actor: AuthenticatedUser
@@ -1468,6 +1467,85 @@ export class ProjectService {
       userId: targetUserId,
       projectId,
       metadata: { role, targetUserId }
+    });
+
+    return membership;
+  }
+
+  /**
+   * Update a project member's role. Enforces hierarchy: actor's role sortOrder
+   * must be <= the target role's sortOrder (can't escalate above your own level).
+   */
+  async updateMemberRole(
+    projectId: string,
+    targetUserId: string,
+    newRole: string,
+    actor: AuthenticatedUser,
+  ) {
+    const { companyId } = actor;
+
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, companyId },
+    });
+    if (!project) throw new NotFoundException("Project not found in this company");
+
+    // Load role profiles for hierarchy validation
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { templateVersionId: true },
+    });
+
+    let profiles: { code: string; sortOrder: number }[] = [];
+    if (company?.templateVersionId) {
+      profiles = await this.prisma.organizationTemplateRoleProfile.findMany({
+        where: { templateVersionId: company.templateVersionId, active: true },
+        select: { code: true, sortOrder: true },
+      });
+    }
+    if (!profiles.length) {
+      profiles = [
+        { code: "OWNER", sortOrder: 0 },
+        { code: "MANAGER", sortOrder: 10 },
+        { code: "COLLABORATOR", sortOrder: 20 },
+        { code: "VIEWER", sortOrder: 30 },
+      ];
+    }
+
+    const profileMap = new Map(profiles.map((p) => [p.code, p.sortOrder]));
+
+    // Validate the new role exists in the profiles
+    if (!profileMap.has(newRole)) {
+      throw new BadRequestException(`Invalid role: ${newRole}`);
+    }
+
+    // Company OWNER/ADMIN bypass hierarchy check
+    if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+      // Get actor's project membership to determine their role
+      const actorMembership = await this.prisma.projectMembership.findUnique({
+        where: { userId_projectId: { userId: actor.userId, projectId } },
+      });
+      if (!actorMembership) {
+        throw new ForbiddenException("You are not a member of this project");
+      }
+
+      const actorSortOrder = profileMap.get(actorMembership.role) ?? 999;
+      const targetSortOrder = profileMap.get(newRole) ?? 0;
+
+      if (targetSortOrder < actorSortOrder) {
+        throw new ForbiddenException("Cannot assign a role above your own level");
+      }
+    }
+
+    const membership = await this.prisma.projectMembership.update({
+      where: { userId_projectId: { userId: targetUserId, projectId } },
+      data: { role: newRole },
+    });
+
+    await this.audit.log(actor, "PROJECT_MEMBER_ROLE_CHANGED", {
+      companyId,
+      projectId,
+      userId: targetUserId,
+      metadata: { newRole },
     });
 
     return membership;
@@ -2090,7 +2168,7 @@ export class ProjectService {
       },
     });
 
-    return membership?.role === ProjectRole.OWNER || membership?.role === ProjectRole.MANAGER;
+    return membership?.role === "OWNER" || membership?.role === "MANAGER";
   }
 
   private async getLatestEstimateVersionForPetl(projectId: string) {
@@ -8006,7 +8084,7 @@ export class ProjectService {
       const pmMemberships = await this.prisma.projectMembership.findMany({
         where: {
           projectId,
-          role: { in: [ProjectRole.MANAGER, ProjectRole.OWNER] },
+          role: { in: ["MANAGER", "OWNER"] },
         },
         select: { userId: true },
       });

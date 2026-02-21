@@ -486,6 +486,9 @@ model User {
   // Document Share Links
   shareLinksCreated DocumentShareLink[] @relation("ShareLinkCreatedBy")
 
+  // Reader Groups (secure document sharing)
+  readerGroupsCreated ReaderGroup[] @relation("ReaderGroupCreatedBy")
+
   // Publication Groups (for multi-tenant publishing)
   publicationGroupsCreated PublicationGroup[] @relation("PublicationGroupCreatedBy")
 
@@ -1331,7 +1334,7 @@ model ProjectMembership {
   userId     String
   projectId  String
   companyId  String
-  role       ProjectRole
+  role       String                  @default("VIEWER")
   createdAt  DateTime                @default(now())
   scope      ProjectParticipantScope @default(OWNER_MEMBER)
   visibility ProjectVisibilityLevel  @default(FULL)
@@ -5448,6 +5451,8 @@ model DocumentShareLink {
   accessToken      String        @unique // Random token for private links
   expiresAt        DateTime? // Optional expiration
   passcode         String? // Optional passcode (hashed)
+  recipientEmail   String? // When set, access requires matching this email (secure share)
+  recipientName    String? // Optional display name for the recipient
   accessCount      Int           @default(0) // Track number of views
   lastAccessedAt   DateTime? // When last accessed
   isActive         Boolean       @default(true) // Can be revoked
@@ -5461,6 +5466,40 @@ model DocumentShareLink {
   @@index([accessToken], map: "DocShareLink_token_idx")
   @@index([systemDocumentId], map: "DocShareLink_doc_idx")
   @@index([manualId], map: "DocShareLink_manual_idx")
+  @@index([recipientEmail], map: "DocShareLink_recipient_email_idx")
+}
+
+// =============================================================================
+// Reader Groups (Secure Document Sharing)
+// =============================================================================
+
+/// Named group of email recipients for bulk secure document sharing
+model ReaderGroup {
+  id              String   @id @default(cuid())
+  name            String // e.g., "West Coast Owners", "Board Members"
+  description     String?  @db.Text
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  createdBy User                @relation("ReaderGroupCreatedBy", fields: [createdByUserId], references: [id])
+  members   ReaderGroupMember[]
+
+  @@index([name], map: "ReaderGroup_name_idx")
+}
+
+/// Individual email member within a reader group
+model ReaderGroupMember {
+  id          String   @id @default(cuid())
+  groupId     String
+  email       String // Recipient email address
+  displayName String? // Optional friendly name
+  addedAt     DateTime @default(now())
+
+  group ReaderGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, email], map: "ReaderGroupMember_group_email_key")
+  @@index([groupId], map: "ReaderGroupMember_group_idx")
 }
 
 // =============================================================================

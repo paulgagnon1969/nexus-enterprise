@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from "@nes
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { RedisService } from "../../infra/redis/redis.service";
 import { EmailService } from "../../common/email.service";
-import { UserType, ProjectRole, ProjectParticipantScope, ProjectVisibilityLevel } from "@prisma/client";
+import { UserType, ProjectParticipantScope, ProjectVisibilityLevel } from "@prisma/client";
 import * as argon2 from "argon2";
 import { randomUUID } from "crypto";
 
@@ -515,7 +515,7 @@ export class TenantClientService {
               userId: user!.id,
               projectId: project.id,
               companyId,
-              role: ProjectRole.VIEWER,
+              role: "VIEWER",
               scope: ProjectParticipantScope.EXTERNAL_CONTACT,
               visibility,
             },

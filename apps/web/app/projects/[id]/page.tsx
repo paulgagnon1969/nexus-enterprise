@@ -1165,14 +1165,14 @@ export default function ProjectDetailPage({
   const [availableMembers, setAvailableMembers] = useState<
     { userId: string; email: string; firstName: string; lastName: string; role: string }[]
   >([]);
-  const [newMemberRole, setNewMemberRole] = useState<"MANAGER" | "VIEWER">("MANAGER");
+  const [newMemberRole, setNewMemberRole] = useState<string>("MANAGER");
   const [bulkInternalSelection, setBulkInternalSelection] = useState<string[]>([]);
   const [bulkInternalSaving, setBulkInternalSaving] = useState(false);
   const [bulkInternalMessage, setBulkInternalMessage] = useState<string | null>(null);
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [invitePassword, setInvitePassword] = useState("");
-  const [inviteProjectRole, setInviteProjectRole] = useState<"MANAGER" | "VIEWER">("MANAGER");
+  const [inviteProjectRole, setInviteProjectRole] = useState<string>("MANAGER");
   const [inviteSaving, setInviteSaving] = useState(false);
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
 
@@ -1195,6 +1195,20 @@ export default function ProjectDetailPage({
     "lastName" | "firstName" | "email"
   >("lastName");
   const [participantSortDir, setParticipantSortDir] = useState<"asc" | "desc">("asc");
+
+  // SORM role profiles (fetched from company template)
+  const [roleProfiles, setRoleProfiles] = useState<
+    { id: string | null; code: string; label: string; description: string | null; sortOrder: number }[]
+  >([]);
+
+  // Build a code -> { label, sortOrder } lookup for role profiles
+  const roleProfileMap = useMemo(() => {
+    const map = new Map<string, { label: string; sortOrder: number }>();
+    for (const p of roleProfiles) {
+      map.set(p.code, { label: p.label, sortOrder: p.sortOrder });
+    }
+    return map;
+  }, [roleProfiles]);
 
   const [availableTags, setAvailableTags] = useState<SimpleTag[]>([]);
   const [projectTags, setProjectTags] = useState<TagAssignmentDto[]>([]);
@@ -4108,6 +4122,14 @@ ${htmlBody}
   const [actorDisplayName, setActorDisplayName] = useState<string | null>(null);
   const [actorProjectRoles, setActorProjectRoles] = useState<string[] | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // Determine the current actor's role sortOrder (for hierarchy filtering in role dropdowns)
+  const actorRoleSortOrder = useMemo(() => {
+    if (actorCompanyRole === "OWNER" || actorCompanyRole === "ADMIN" || actorGlobalRole === "SUPER_ADMIN") return -1; // can assign any role
+    const myMembership = participants?.myOrganization?.find(p => p.userId === currentUserId);
+    if (!myMembership) return 999;
+    return roleProfileMap.get(myMembership.role)?.sortOrder ?? 999;
+  }, [actorCompanyRole, actorGlobalRole, participants, currentUserId, roleProfileMap]);
 
   const isPmOrAbove = useMemo(() => {
     const projectRoleOk =
@@ -7484,7 +7506,7 @@ ${htmlBody}
 
     const loadMeta = async () => {
       try {
-        const [companyRes, meRes, tagRes, projTagsRes, partsRes] = await Promise.all([
+        const [companyRes, meRes, tagRes, projTagsRes, partsRes, roleProfilesRes] = await Promise.all([
           fetch(`${API_BASE}/companies/me`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
@@ -7498,6 +7520,9 @@ ${htmlBody}
             headers: { Authorization: `Bearer ${token}` },
           }),
           fetch(`${API_BASE}/projects/${project.id}/participants`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API_BASE}/companies/me/role-profiles`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);
@@ -7596,6 +7621,11 @@ ${htmlBody}
             const roles = Array.from(new Set(mine.map(p => p.role).filter(Boolean)));
             setActorProjectRoles(roles.length ? roles : null);
           }
+        }
+
+        if (!cancelled && roleProfilesRes.ok) {
+          const rpJson: any[] = await roleProfilesRes.json();
+          setRoleProfiles(Array.isArray(rpJson) ? rpJson : []);
         }
       } catch {
         // optional; safe to ignore for now
@@ -13155,15 +13185,15 @@ ${htmlBody}
       >
       {(
           [
-            { key: "SUMMARY", label: "Job parameters" },
             { key: "DAILY_LOGS", label: "Daily Logs" },
             { key: "SCHEDULE", label: "Schedule" },
             { key: "PETL", label: "PETL" },
             ...(isPmOrAbove ? [{ key: "BOM" as TabKey, label: "BOM" }] : []),
             { key: "STRUCTURE", label: "Project Organization" },
+            { key: "FILES", label: "Files" },
             ...(isAdminOrAbove ? [{ key: "JOURNAL" as TabKey, label: "Journal" }] : []),
             { key: "FINANCIAL", label: "Financial" },
-            { key: "FILES", label: "Files" },
+            { key: "SUMMARY", label: "Job Parameters" },
           ] as { key: TabKey; label: string }[]
         ).map(tab => (
           <button
@@ -14032,7 +14062,71 @@ ${htmlBody}
                             <td style={{ padding: "4px 8px", color: "#4b5563" }}>
                               {m.user?.email || "—"}
                             </td>
-                            <td style={{ padding: "4px 8px", color: "#6b7280" }}>{m.role || "—"}</td>
+                            <td style={{ padding: "4px 8px", color: "#6b7280" }}>
+                              {(() => {
+                                const canEdit = actorRoleSortOrder <= (roleProfileMap.get(m.role)?.sortOrder ?? 999);
+                                const filteredRoles = roleProfiles.filter(rp => actorRoleSortOrder <= rp.sortOrder);
+                                if (!canEdit || filteredRoles.length === 0) {
+                                  return roleProfileMap.get(m.role)?.label ?? m.role ?? "—";
+                                }
+                                return (
+                                  <select
+                                    value={m.role}
+                                    onChange={async (e) => {
+                                      const newRole = e.target.value;
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) return;
+                                      try {
+                                        const res = await fetch(
+                                          `${API_BASE}/projects/${id}/members/${m.userId}`,
+                                          {
+                                            method: "PATCH",
+                                            headers: {
+                                              "Content-Type": "application/json",
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                            body: JSON.stringify({ role: newRole }),
+                                          },
+                                        );
+                                        if (res.ok) {
+                                          // Refresh participants
+                                          const partsRes = await fetch(
+                                            `${API_BASE}/projects/${id}/participants`,
+                                            { headers: { Authorization: `Bearer ${token}` } },
+                                          );
+                                          if (partsRes.ok) {
+                                            const json: any = await partsRes.json();
+                                            setParticipants({
+                                              myOrganization: json.myOrganization ?? [],
+                                              collaborators: json.collaborators ?? [],
+                                            });
+                                          }
+                                        }
+                                      } catch {
+                                        // silent
+                                      }
+                                    }}
+                                    style={{
+                                      padding: "1px 4px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      fontSize: 12,
+                                      background: "transparent",
+                                      color: "#6b7280",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    {/* Include current role even if not in filtered set */}
+                                    {!filteredRoles.some(rp => rp.code === m.role) && (
+                                      <option value={m.role}>{roleProfileMap.get(m.role)?.label ?? m.role}</option>
+                                    )}
+                                    {filteredRoles.map(rp => (
+                                      <option key={rp.code} value={rp.code}>{rp.label}</option>
+                                    ))}
+                                  </select>
+                                );
+                              })()}
+                            </td>
                             <td style={{ padding: "4px 8px", textAlign: "center" }}>
                               <a
                                 href={`/company/users/${m.userId}`}
@@ -14176,9 +14270,7 @@ ${htmlBody}
                       <span style={{ fontSize: 11, color: "#4b5563" }}>Project role</span>
                       <select
                         value={newMemberRole}
-                        onChange={e =>
-                          setNewMemberRole(e.target.value as "MANAGER" | "VIEWER")
-                        }
+                        onChange={e => setNewMemberRole(e.target.value)}
                         style={{
                           padding: "2px 6px",
                           borderRadius: 4,
@@ -14186,8 +14278,16 @@ ${htmlBody}
                           fontSize: 12,
                         }}
                       >
-                        <option value="MANAGER">Manager</option>
-                        <option value="VIEWER">Viewer</option>
+                        {roleProfiles.length > 0
+                          ? roleProfiles.map(rp => (
+                              <option key={rp.code} value={rp.code}>{rp.label}</option>
+                            ))
+                          : (
+                            <>
+                              <option value="MANAGER">Manager</option>
+                              <option value="VIEWER">Viewer</option>
+                            </>
+                          )}
                       </select>
                     </div>
                     <div
@@ -14503,11 +14603,7 @@ ${htmlBody}
                           </span>
                           <select
                             value={inviteProjectRole}
-                            onChange={e =>
-                              setInviteProjectRole(
-                                e.target.value as "MANAGER" | "VIEWER",
-                              )
-                            }
+                            onChange={e => setInviteProjectRole(e.target.value)}
                             style={{
                               width: "100%",
                               padding: "6px 8px",
@@ -14516,8 +14612,16 @@ ${htmlBody}
                               fontSize: 12,
                             }}
                           >
-                            <option value="MANAGER">Manager</option>
-                            <option value="VIEWER">Viewer</option>
+                            {roleProfiles.length > 0
+                              ? roleProfiles.map(rp => (
+                                  <option key={rp.code} value={rp.code}>{rp.label}</option>
+                                ))
+                              : (
+                                <>
+                                  <option value="MANAGER">Manager</option>
+                                  <option value="VIEWER">Viewer</option>
+                                </>
+                              )}
                           </select>
                         </label>
                         <button

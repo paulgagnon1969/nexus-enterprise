@@ -1,6 +1,0 @@
--- AlterTable
-ALTER TABLE "ProjectInvoice" ADD COLUMN IF NOT EXISTS "billToPhone" TEXT;
-ALTER TABLE "ProjectInvoice" ADD COLUMN IF NOT EXISTS "billToAddress" TEXT;
-ALTER TABLE "ProjectInvoice" ADD COLUMN IF NOT EXISTS "billToCity" TEXT;
-ALTER TABLE "ProjectInvoice" ADD COLUMN IF NOT EXISTS "billToState" TEXT;
-ALTER TABLE "ProjectInvoice" ADD COLUMN IF NOT EXISTS "billToZip" TEXT;

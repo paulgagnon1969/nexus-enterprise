@@ -60,6 +60,8 @@ export class CompanyService {
               select: {
                 id: true,
                 email: true,
+                firstName: true,
+                lastName: true,
                 globalRole: true,
                 userType: true,
               },
@@ -200,6 +202,44 @@ export class CompanyService {
     }
 
     return invite;
+  }
+
+  /**
+   * Return the active SORM role profiles for the company's current template version.
+   * Falls back to a default set if no template is assigned.
+   */
+  async getRoleProfiles(companyId: string) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { templateVersionId: true },
+    });
+
+    if (company?.templateVersionId) {
+      const profiles = await this.prisma.organizationTemplateRoleProfile.findMany({
+        where: {
+          templateVersionId: company.templateVersionId,
+          active: true,
+        },
+        orderBy: { sortOrder: "asc" },
+        select: {
+          id: true,
+          code: true,
+          label: true,
+          description: true,
+          sortOrder: true,
+        },
+      });
+
+      if (profiles.length) return profiles;
+    }
+
+    // Fallback defaults when no SORM template is assigned
+    return [
+      { id: null, code: "OWNER", label: "Owner", description: null, sortOrder: 0 },
+      { id: null, code: "MANAGER", label: "Manager", description: null, sortOrder: 10 },
+      { id: null, code: "COLLABORATOR", label: "Collaborator", description: null, sortOrder: 20 },
+      { id: null, code: "VIEWER", label: "Viewer", description: null, sortOrder: 30 },
+    ];
   }
 
   async listMembers(companyId: string, actor: AuthenticatedUser) {

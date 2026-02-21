@@ -1,2 +1,0 @@
--- AlterEnum
-ALTER TYPE "ImportJobType" ADD VALUE 'FORTIFIED_PAYROLL_ADMIN';
