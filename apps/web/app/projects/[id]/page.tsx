@@ -590,6 +590,8 @@ interface Participant {
   user: {
     id: string;
     email: string;
+    firstName?: string | null;
+    lastName?: string | null;
   };
   company: {
     id: string;
@@ -1161,7 +1163,7 @@ export default function ProjectDetailPage({
   } | null>(null);
 
   const [availableMembers, setAvailableMembers] = useState<
-    { userId: string; email: string; role: string }[]
+    { userId: string; email: string; firstName: string; lastName: string; role: string }[]
   >([]);
   const [newMemberRole, setNewMemberRole] = useState<"MANAGER" | "VIEWER">("MANAGER");
   const [bulkInternalSelection, setBulkInternalSelection] = useState<string[]>([]);
@@ -1178,6 +1180,21 @@ export default function ProjectDetailPage({
   const [participantAdminMode, setParticipantAdminMode] = useState<
     "none" | "internal" | "invite"
   >("none");
+
+  // Soft search for participant picker + displayed participant lists
+  const [participantSearch, setParticipantSearch] = useState("");
+
+  // Sort state for the displayed participant lists (separate from the bulk-add picker)
+  const [participantListSortField, setParticipantListSortField] = useState<
+    "lastName" | "firstName"
+  >("lastName");
+  const [participantListSortDir, setParticipantListSortDir] = useState<"asc" | "desc">("asc");
+
+  // Sortable columns for the participant picker table
+  const [participantSortField, setParticipantSortField] = useState<
+    "lastName" | "firstName" | "email"
+  >("lastName");
+  const [participantSortDir, setParticipantSortDir] = useState<"asc" | "desc">("asc");
 
   const [availableTags, setAvailableTags] = useState<SimpleTag[]>([]);
   const [projectTags, setProjectTags] = useState<TagAssignmentDto[]>([]);
@@ -7528,6 +7545,8 @@ ${htmlBody}
             members.map((m) => ({
               userId: m.userId,
               email: m.user?.email ?? "(user)",
+              firstName: m.user?.firstName ?? "",
+              lastName: m.user?.lastName ?? "",
               role: m.role,
             })),
           );
@@ -13893,151 +13912,217 @@ ${htmlBody}
               }}
             >
               <span>Participants</span>
+              <input
+                type="text"
+                placeholder="Search by name or email…"
+                value={participantSearch}
+                onChange={e => setParticipantSearch(e.target.value)}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 4,
+                  border: "1px solid #d1d5db",
+                  fontSize: 12,
+                  background: "#ffffff",
+                  width: 220,
+                  marginLeft: 4,
+                }}
+              />
               {(actorGlobalRole === "SUPER_ADMIN" ||
                 actorCompanyRole === "OWNER" ||
                 actorCompanyRole === "ADMIN" ||
                 actorCompanyRole === "MEMBER") && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <select
-                    value={participantAdminMode}
-                    onChange={e => {
-                      const value = e.target.value as
-                        | "none"
-                        | "internal"
-                        | "invite";
-                      setParticipantAdminMode(value);
-                    }}
-                    style={{
-                      marginLeft: 8,
-                      padding: "4px 8px",
-                      borderRadius: 4,
-                      border: "1px solid #d1d5db",
-                      fontSize: 12,
-                      background: "#ffffff",
-                    }}
-                  >
-                    <option value="none">Add participants…</option>
-                    <option value="internal">Add Nexus user(s) from my company</option>
-                    {actorGlobalRole === "SUPER_ADMIN" && (
-                      <option value="invite">
-                        Add new user with temp password
-                      </option>
-                    )}
-                  </select>
-                </div>
+                <select
+                  value={participantAdminMode}
+                  onChange={e => {
+                    const value = e.target.value as
+                      | "none"
+                      | "internal"
+                      | "invite";
+                    setParticipantAdminMode(value);
+                  }}
+                  style={{
+                    marginLeft: "auto",
+                    padding: "4px 8px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                    background: "#ffffff",
+                  }}
+                >
+                  <option value="none">Add participants…</option>
+                  <option value="internal">Add Nexus user(s) from my company</option>
+                  {actorGlobalRole === "SUPER_ADMIN" && (
+                    <option value="invite">
+                      Add new user with temp password
+                    </option>
+                  )}
+                </select>
               )}
             </div>
-            <div
-              style={{
-                padding: 10,
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 16,
-                fontSize: 13,
-              }}
-            >
-              {/* My Organization */}
-              <div>
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>My Organization</div>
-                {!participants || participants.myOrganization.length === 0 ? (
-                  <div style={{ color: "#6b7280" }}>No internal users yet.</div>
-                ) : (
-                  <ul style={{ margin: 0, paddingLeft: 16 }}>
-                    {participants.myOrganization.map((m, index) => (
-                      <li key={`${m.id ?? m.userId ?? "member"}-${index}`}>
-                        {m.user?.email ? (
-                          <a
-                            href={`mailto:${m.user.email}`}
-                            style={{ color: "#2563eb", textDecoration: "none" }}
+            {(() => {
+              const q = participantSearch.trim().toLowerCase();
+              const filterParticipant = (m: Participant) => {
+                if (!q) return true;
+                const ln = (m.user?.lastName ?? "").toLowerCase();
+                const fn = (m.user?.firstName ?? "").toLowerCase();
+                const em = (m.user?.email ?? "").toLowerCase();
+                return ln.includes(q) || fn.includes(q) || em.includes(q);
+              };
+              const sortParticipants = (arr: Participant[]) => {
+                return [...arr].sort((a, b) => {
+                  const aVal = (participantListSortField === "lastName"
+                    ? a.user?.lastName
+                    : a.user?.firstName) ?? "";
+                  const bVal = (participantListSortField === "lastName"
+                    ? b.user?.lastName
+                    : b.user?.firstName) ?? "";
+                  const cmp = aVal.toLowerCase().localeCompare(bVal.toLowerCase());
+                  return participantListSortDir === "asc" ? cmp : -cmp;
+                });
+              };
+              const handleListSort = (field: "lastName" | "firstName") => {
+                if (participantListSortField === field) {
+                  setParticipantListSortDir(prev => (prev === "asc" ? "desc" : "asc"));
+                } else {
+                  setParticipantListSortField(field);
+                  setParticipantListSortDir("asc");
+                }
+              };
+              const ListSortArrow = ({ field }: { field: "lastName" | "firstName" }) => {
+                if (participantListSortField !== field) return <span style={{ color: "#d1d5db", marginLeft: 2 }}>▲</span>;
+                return <span style={{ marginLeft: 2 }}>{participantListSortDir === "asc" ? "▲" : "▼"}</span>;
+              };
+
+              const filteredMyOrg = sortParticipants(
+                (participants?.myOrganization ?? []).filter(filterParticipant),
+              );
+              const filteredCollabs = (participants?.collaborators ?? []).filter(filterParticipant);
+
+              const ParticipantTable = ({ rows, emptyMsg }: { rows: Participant[]; emptyMsg: string }) => {
+                if (rows.length === 0) {
+                  return <div style={{ fontSize: 12, color: "#6b7280", padding: "6px 0" }}>{emptyMsg}</div>;
+                }
+                return (
+                  <div style={{ border: "1px solid #e5e7eb", borderRadius: 4, overflow: "hidden" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                          <th
+                            onClick={() => handleListSort("lastName")}
+                            style={{ padding: "4px 8px", textAlign: "left", cursor: "pointer", userSelect: "none", fontWeight: 600, color: "#374151", whiteSpace: "nowrap" }}
                           >
-                            {m.user.email}
-                          </a>
-                        ) : (
-                          "(user)"
-                        )}
-                        {m.role && (
-                          <span style={{ color: "#6b7280" }}> — {m.role}</span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {/* Inline add-internal-user control has been removed in favor of the bulk selector
-                    below. Use the Participants header dropdown to open the multi-select panel.
-                */}
-              </div>
+                            Last Name<ListSortArrow field="lastName" />
+                          </th>
+                          <th
+                            onClick={() => handleListSort("firstName")}
+                            style={{ padding: "4px 8px", textAlign: "left", cursor: "pointer", userSelect: "none", fontWeight: 600, color: "#374151", whiteSpace: "nowrap" }}
+                          >
+                            First Name<ListSortArrow field="firstName" />
+                          </th>
+                          <th style={{ padding: "4px 8px", textAlign: "left", fontWeight: 600, color: "#374151" }}>Email</th>
+                          <th style={{ padding: "4px 8px", textAlign: "left", fontWeight: 600, color: "#374151" }}>Role</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((m, i) => (
+                          <tr key={`${m.id ?? m.userId}-${i}`} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                            <td style={{ padding: "4px 8px", color: "#111827" }}>{m.user?.lastName || "—"}</td>
+                            <td style={{ padding: "4px 8px", color: "#111827" }}>{m.user?.firstName || "—"}</td>
+                            <td style={{ padding: "4px 8px" }}>
+                              {m.user?.email ? (
+                                <a href={`mailto:${m.user.email}`} style={{ color: "#2563eb", textDecoration: "none" }}>
+                                  {m.user.email}
+                                </a>
+                              ) : "—"}
+                            </td>
+                            <td style={{ padding: "4px 8px", color: "#6b7280" }}>{m.role || "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              };
 
-              {/* Collaborators */}
-              <div>
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>Collaborators</div>
-                {!participants || participants.collaborators.length === 0 ? (
-                  <div style={{ color: "#6b7280" }}>No collaborators yet.</div>
-                ) : (
+              return (
+                <div
+                  style={{
+                    padding: 10,
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 16,
+                    fontSize: 13,
+                  }}
+                >
+                  {/* My Organization */}
                   <div>
-                    {Object.entries(
-                      participants.collaborators.reduce<Record<string, Participant[]>>(
-                        (acc, m) => {
-                          const key = m.company?.name ?? "Unknown organization";
-                          if (!acc[key]) acc[key] = [];
-                          acc[key].push(m);
-                          return acc;
-                        },
-                      {}),
-                    ).map(([companyName, members]) => (
-                      <div key={companyName} style={{ marginBottom: 6 }}>
-                        <div style={{ fontWeight: 600 }}>{companyName}</div>
-                        <ul style={{ margin: 0, paddingLeft: 16 }}>
-                            {members.map((m, index) => (
-                              <li key={`${m.id ?? m.userId ?? "collab"}-${index}`}>
-                                {m.user?.email ? (
-                                  <a
-                                    href={`mailto:${m.user.email}`}
-                                    style={{ color: "#2563eb", textDecoration: "none" }}
-                                  >
-                                    {m.user.email}
-                                  </a>
-                                ) : (
-                                  "(user)"
-                                )}
-                                {m.role && (
-                                  <span style={{ color: "#6b7280" }}> — {m.role}</span>
-                                )}
-                              </li>
-                            ))}
-                        </ul>
-                      </div>
-                    ))}
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>My Organization</div>
+                    <ParticipantTable
+                      rows={filteredMyOrg}
+                      emptyMsg={q ? "No matching internal users." : "No internal users yet."}
+                    />
                   </div>
-                )}
 
-                {/* Placeholder: collaborator management UI (to be implemented) */}
-                {(actorGlobalRole === "SUPER_ADMIN" ||
-                  actorCompanyRole === "OWNER" ||
-                  actorCompanyRole === "ADMIN") && (
-                  <div style={{ marginTop: 8 }}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        // Placeholder only for now; real collaborator flows will be wired later.
-                        alert(
-                          "Collaborator management is coming soon. This will let you connect external organizations and users to this project.",
-                        );
-                      }}
-                      style={{
-                        padding: "4px 8px",
-                        borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        backgroundColor: "#f9fafb",
-                        fontSize: 12,
-                        cursor: "pointer",
-                      }}
-                    >
-                      + Add collaborator (coming soon)
-                    </button>
+                  {/* Collaborators */}
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Collaborators</div>
+                    {filteredCollabs.length === 0 ? (
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>
+                        {q ? "No matching collaborators." : "No collaborators yet."}
+                      </div>
+                    ) : (
+                      Object.entries(
+                        filteredCollabs.reduce<Record<string, Participant[]>>(
+                          (acc, m) => {
+                            const key = m.company?.name ?? "Unknown organization";
+                            if (!acc[key]) acc[key] = [];
+                            acc[key].push(m);
+                            return acc;
+                          },
+                          {},
+                        ),
+                      ).map(([companyName, members]) => (
+                        <div key={companyName} style={{ marginBottom: 8 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4 }}>
+                            {companyName}
+                          </div>
+                          <ParticipantTable
+                            rows={sortParticipants(members)}
+                            emptyMsg="No members."
+                          />
+                        </div>
+                      ))
+                    )}
+
+                    {/* Placeholder: collaborator management UI */}
+                    {(actorGlobalRole === "SUPER_ADMIN" ||
+                      actorCompanyRole === "OWNER" ||
+                      actorCompanyRole === "ADMIN") && (
+                      <div style={{ marginTop: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            alert(
+                              "Collaborator management is coming soon. This will let you connect external organizations and users to this project.",
+                            );
+                          }}
+                          style={{
+                            padding: "4px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #d1d5db",
+                            backgroundColor: "#f9fafb",
+                            fontSize: 12,
+                            cursor: "pointer",
+                          }}
+                        >
+                          + Add collaborator (coming soon)
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </div>
+                </div>
+              );
+            })()}
 
             {/* Admin / foreman bulk add + invite panel, driven by dropdown mode */}
             {(actorGlobalRole === "SUPER_ADMIN" ||
@@ -14098,111 +14183,137 @@ ${htmlBody}
                     </div>
                     <div
                       style={{
-                        maxHeight: 160,
+                        maxHeight: 220,
                         overflow: "auto",
                         border: "1px solid #e5e7eb",
                         borderRadius: 4,
                         background: "#ffffff",
-                        padding: 6,
                       }}
                     >
                       {(() => {
-                        const addableMembers = availableMembers.filter(m =>
-                          !participants?.myOrganization.some(p => p.userId === m.userId),
-                        );
+                        const searchLower = participantSearch.toLowerCase();
+                        const addableMembers = availableMembers
+                          .filter(m =>
+                            !participants?.myOrganization.some(p => p.userId === m.userId),
+                          )
+                          .filter(m => {
+                            if (!searchLower) return true;
+                            return (
+                              m.lastName.toLowerCase().includes(searchLower) ||
+                              m.firstName.toLowerCase().includes(searchLower) ||
+                              m.email.toLowerCase().includes(searchLower)
+                            );
+                          });
                         if (addableMembers.length === 0) {
                           return (
-                            <div style={{ fontSize: 12, color: "#6b7280" }}>
-                              All company members are already on this project.
+                            <div style={{ fontSize: 12, color: "#6b7280", padding: 8 }}>
+                              {participantSearch
+                                ? "No matching members found."
+                                : "All company members are already on this project."}
                             </div>
                           );
                         }
+
+                        const sorted = [...addableMembers].sort((a, b) => {
+                          const aVal = (a[participantSortField] || "").toLowerCase();
+                          const bVal = (b[participantSortField] || "").toLowerCase();
+                          const cmp = aVal.localeCompare(bVal);
+                          return participantSortDir === "asc" ? cmp : -cmp;
+                        });
+
                         const allSelected =
-                          addableMembers.length > 0 &&
-                          addableMembers.every(m =>
+                          sorted.length > 0 &&
+                          sorted.every(m =>
                             bulkInternalSelection.includes(m.userId),
                           );
+
+                        const SortArrow = ({ field }: { field: "lastName" | "firstName" | "email" }) => {
+                          if (participantSortField !== field) return <span style={{ color: "#d1d5db", marginLeft: 2 }}>▲</span>;
+                          return <span style={{ marginLeft: 2 }}>{participantSortDir === "asc" ? "▲" : "▼"}</span>;
+                        };
+
+                        const handleSort = (field: "lastName" | "firstName" | "email") => {
+                          if (participantSortField === field) {
+                            setParticipantSortDir(prev => (prev === "asc" ? "desc" : "asc"));
+                          } else {
+                            setParticipantSortField(field);
+                            setParticipantSortDir("asc");
+                          }
+                        };
+
                         return (
-                          <>
-                            <div
-                              style={{
-                                marginBottom: 4,
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 6,
-                              }}
-                            >
-                              <label
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 6,
-                                  fontSize: 12,
-                                  color: "#4b5563",
-                                }}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={allSelected}
-                                  onChange={e => {
-                                    const checked = e.target.checked;
-                                    setBulkInternalSelection(
-                                      checked
-                                        ? addableMembers.map(m => m.userId)
-                                        : [],
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                            <thead>
+                              <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                                <th style={{ padding: "4px 6px", width: 28, textAlign: "center" }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={allSelected}
+                                    onChange={e => {
+                                      setBulkInternalSelection(
+                                        e.target.checked ? sorted.map(m => m.userId) : [],
+                                      );
+                                    }}
+                                  />
+                                </th>
+                                <th
+                                  onClick={() => handleSort("lastName")}
+                                  style={{ padding: "4px 6px", textAlign: "left", cursor: "pointer", userSelect: "none", fontWeight: 600, color: "#374151" }}
+                                >
+                                  Last Name<SortArrow field="lastName" />
+                                </th>
+                                <th
+                                  onClick={() => handleSort("firstName")}
+                                  style={{ padding: "4px 6px", textAlign: "left", cursor: "pointer", userSelect: "none", fontWeight: 600, color: "#374151" }}
+                                >
+                                  First Name<SortArrow field="firstName" />
+                                </th>
+                                <th
+                                  onClick={() => handleSort("email")}
+                                  style={{ padding: "4px 6px", textAlign: "left", cursor: "pointer", userSelect: "none", fontWeight: 600, color: "#374151" }}
+                                >
+                                  Email<SortArrow field="email" />
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {sorted.map(m => (
+                                <tr
+                                  key={m.userId}
+                                  onClick={() => {
+                                    setBulkInternalSelection(prev =>
+                                      prev.includes(m.userId)
+                                        ? prev.filter(id => id !== m.userId)
+                                        : [...prev, m.userId],
                                     );
                                   }}
-                                />
-                                <span>Select all</span>
-                              </label>
-                            </div>
-                            <ul
-                              style={{
-                                listStyle: "none",
-                                padding: 0,
-                                margin: 0,
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 4,
-                              }}
-                            >
-                              {addableMembers.map(m => (
-                                <li key={m.userId}>
-                                  <label
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      gap: 6,
-                                    }}
-                                  >
+                                  style={{
+                                    borderBottom: "1px solid #f3f4f6",
+                                    cursor: "pointer",
+                                    background: bulkInternalSelection.includes(m.userId) ? "#eff6ff" : "transparent",
+                                  }}
+                                >
+                                  <td style={{ padding: "3px 6px", textAlign: "center" }}>
                                     <input
                                       type="checkbox"
                                       checked={bulkInternalSelection.includes(m.userId)}
-                                      onChange={e => {
-                                        setBulkInternalSelection(prev => {
-                                          if (e.target.checked) {
-                                            return [...prev, m.userId];
-                                          }
-                                          return prev.filter(id => id !== m.userId);
-                                        });
+                                      onChange={() => {
+                                        setBulkInternalSelection(prev =>
+                                          prev.includes(m.userId)
+                                            ? prev.filter(id => id !== m.userId)
+                                            : [...prev, m.userId],
+                                        );
                                       }}
+                                      onClick={e => e.stopPropagation()}
                                     />
-                                    <span>{m.email}</span>
-                                    {m.role && (
-                                      <span
-                                        style={{
-                                          fontSize: 11,
-                                          color: "#6b7280",
-                                        }}
-                                      >
-                                        ({m.role})
-                                      </span>
-                                    )}
-                                  </label>
-                                </li>
+                                  </td>
+                                  <td style={{ padding: "3px 6px", color: "#111827" }}>{m.lastName || "—"}</td>
+                                  <td style={{ padding: "3px 6px", color: "#111827" }}>{m.firstName || "—"}</td>
+                                  <td style={{ padding: "3px 6px", color: "#4b5563" }}>{m.email}</td>
+                                </tr>
                               ))}
-                            </ul>
-                          </>
+                            </tbody>
+                          </table>
                         );
                       })()}
                     </div>
@@ -14224,23 +14335,26 @@ ${htmlBody}
                           }
                           try {
                             setBulkInternalSaving(true);
+                            // Yield so React can paint the "Adding…" state before network I/O
+                            await new Promise(r => setTimeout(r, 0));
                             const uniqueIds = Array.from(
                               new Set(bulkInternalSelection),
                             );
-                            for (const userId of uniqueIds) {
-                              // eslint-disable-next-line no-await-in-loop
-                              await fetch(`${API_BASE}/projects/${id}/members`, {
-                                method: "POST",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                  Authorization: `Bearer ${token}`,
-                                },
-                                body: JSON.stringify({
-                                  userId,
-                                  role: newMemberRole,
+                            await Promise.all(
+                              uniqueIds.map(userId =>
+                                fetch(`${API_BASE}/projects/${id}/members`, {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                  body: JSON.stringify({
+                                    userId,
+                                    role: newMemberRole,
+                                  }),
                                 }),
-                              });
-                            }
+                              ),
+                            );
                             // Refresh participants
                             const partsRes = await fetch(
                               `${API_BASE}/projects/${id}/participants`,
@@ -24988,15 +25102,18 @@ ${htmlBody}
                   )}
                 </div>
               </div>
+            </div>
+          </div>
 
-              {/* Field PETL scope (read-only for now, with Incorrect Qty entrypoint) */}
-              <div
-                style={{
-                  borderRadius: 8,
-                  border: "1px solid #e5e7eb",
-                  background: "#ffffff",
-                }}
-              >
+          {/* Field PETL scope (full-width, below the two-column grid) */}
+          <div
+            style={{
+              marginTop: 12,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+            }}
+          >
                 <div
                   style={{
                     padding: "6px 10px",
@@ -25064,7 +25181,7 @@ ${htmlBody}
                     </div>
                   )}
                   {!fieldPetlLoading && !fieldPetlError && fieldPetlItems.length > 0 && (
-                    <div style={{ maxHeight: 260, overflowY: "auto" }}>
+                    <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
                       <table
                         style={{
                           width: "100%",
@@ -25202,8 +25319,6 @@ ${htmlBody}
                       </table>
                     </div>
                   )}
-                </div>
-              </div>
             </div>
           </div>
         </div>
