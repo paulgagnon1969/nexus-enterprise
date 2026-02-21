@@ -205,35 +205,47 @@ export class CompanyService {
   }
 
   /**
-   * Return the active SORM role profiles for the company's current template version.
-   * Falls back to a default set if no template is assigned.
+   * Return the active role profiles for a company.
+   * Priority: company-specific RoleProfiles → global (companyId=null) RoleProfiles
+   * → SORM template profiles → hardcoded defaults.
    */
   async getRoleProfiles(companyId: string) {
+    // 1. Company-specific RoleProfiles
+    const companyProfiles = await this.prisma.roleProfile.findMany({
+      where: { companyId, active: true },
+      select: { id: true, code: true, label: true, description: true },
+    });
+
+    if (companyProfiles.length) {
+      return companyProfiles.map((p, i) => ({ ...p, sortOrder: i * 10 }));
+    }
+
+    // 2. Global RoleProfiles (companyId = null, standard)
+    const globalProfiles = await this.prisma.roleProfile.findMany({
+      where: { companyId: null, active: true },
+      select: { id: true, code: true, label: true, description: true },
+    });
+
+    if (globalProfiles.length) {
+      return globalProfiles.map((p, i) => ({ ...p, sortOrder: i * 10 }));
+    }
+
+    // 3. SORM template profiles (if company has one assigned)
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
       select: { templateVersionId: true },
     });
 
     if (company?.templateVersionId) {
-      const profiles = await this.prisma.organizationTemplateRoleProfile.findMany({
-        where: {
-          templateVersionId: company.templateVersionId,
-          active: true,
-        },
+      const sormProfiles = await this.prisma.organizationTemplateRoleProfile.findMany({
+        where: { templateVersionId: company.templateVersionId, active: true },
         orderBy: { sortOrder: "asc" },
-        select: {
-          id: true,
-          code: true,
-          label: true,
-          description: true,
-          sortOrder: true,
-        },
+        select: { id: true, code: true, label: true, description: true, sortOrder: true },
       });
-
-      if (profiles.length) return profiles;
+      if (sormProfiles.length) return sormProfiles;
     }
 
-    // Fallback defaults when no SORM template is assigned
+    // 4. Hardcoded fallback
     return [
       { id: null, code: "OWNER", label: "Owner", description: null, sortOrder: 0 },
       { id: null, code: "MANAGER", label: "Manager", description: null, sortOrder: 10 },
