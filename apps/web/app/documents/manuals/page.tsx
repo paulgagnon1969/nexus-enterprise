@@ -23,11 +23,17 @@ interface Manual {
   };
 }
 
+interface ManualDefaultView {
+  manualId: string;
+  viewName: string;
+}
+
 export default function TenantManualsPage() {
   const [manuals, setManuals] = useState<Manual[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [defaultViews, setDefaultViews] = useState<Record<string, string>>({});
 
   // Create manual form
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -42,6 +48,33 @@ export default function TenantManualsPage() {
     setUserRole(storedRole);
     loadManuals();
   }, []);
+
+  // After manuals load, fetch default views for each
+  useEffect(() => {
+    if (manuals.length === 0) return;
+    const token = localStorage.getItem("accessToken");
+    Promise.all(
+      manuals.map(async (m) => {
+        try {
+          const res = await fetch(`${API_BASE}/manuals/${m.id}/views`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) return null;
+          const views = await res.json();
+          const def = views.find((v: any) => v.isDefault);
+          return def ? { manualId: m.id, viewName: def.name as string } : null;
+        } catch {
+          return null;
+        }
+      })
+    ).then((results) => {
+      const map: Record<string, string> = {};
+      for (const r of results) {
+        if (r) map[r.manualId] = r.viewName;
+      }
+      setDefaultViews(map);
+    });
+  }, [manuals]);
 
   async function loadManuals() {
     setLoading(true);
@@ -249,10 +282,27 @@ export default function TenantManualsPage() {
                     {manual.description}
                   </p>
                 )}
-                <div style={{ fontSize: 11, color: "#9ca3af", display: "flex", gap: 12, marginTop: "auto" }}>
+                <div style={{ fontSize: 11, color: "#9ca3af", display: "flex", gap: 12, marginTop: "auto", alignItems: "center" }}>
                   <span>{manual._count.chapters} chapters</span>
                   <span>{manual._count.documents} documents</span>
                   <span>v{manual.currentVersion}</span>
+                  {defaultViews[manual.id] && (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 3,
+                        padding: "2px 6px",
+                        fontSize: 10,
+                        backgroundColor: "#fef3c7",
+                        color: "#92400e",
+                        borderRadius: 4,
+                        fontWeight: 500,
+                      }}
+                    >
+                      <span>★</span> {defaultViews[manual.id]}
+                    </span>
+                  )}
                 </div>
               </Link>
             ))}
