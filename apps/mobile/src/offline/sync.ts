@@ -95,8 +95,8 @@ async function uploadDailyLogAttachment(params: {
   const resolvedUri = await resolveFileUri(params.fileUri);
 
   // Get file size for metadata
-  const fileInfo = await FileSystem.getInfoAsync(resolvedUri, { size: true });
-  const sizeBytes = (fileInfo as any).size ?? undefined;
+  const fileInfo = await FileSystem.getInfoAsync(resolvedUri);
+  const sizeBytes: number | undefined = fileInfo.exists ? (fileInfo as any).size ?? undefined : undefined;
 
   // ── Step 1: Request a signed GCS upload URL from the API ──
   console.log(`[Sync] Requesting signed upload URL...`);
