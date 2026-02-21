@@ -138,10 +138,24 @@ export class AuthController {
     return this.auth.changePassword(user.userId, dto);
   }
 
-  @UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard)
   @Post("switch-company")
   switchCompany(@Req() req: any, @Body("companyId") companyId: string) {
     const user = req.user as AuthenticatedUser;
     return this.auth.switchCompany(user.userId, companyId);
+  }
+
+  // SUPER_ADMIN only: generate a long-lived service token for automation
+  // (SOP sync, CAM sync, CI/CD pipelines, etc.)
+  @UseGuards(JwtAuthGuard, GlobalRolesGuard)
+  @GlobalRoles(GlobalRole.SUPER_ADMIN)
+  @Post("service-token")
+  createServiceToken(
+    @Req() req: any,
+    @Body("label") label?: string,
+    @Body("expiresInDays") expiresInDays?: number,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.auth.createServiceToken(actor, label, expiresInDays);
   }
 }

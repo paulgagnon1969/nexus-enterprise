@@ -27,7 +27,16 @@ import { createHash } from "crypto";
 
 // --- Configuration -----------------------------------------------------------
 
-const STAGING_DIR = path.resolve(__dirname, "../docs/sops-staging");
+function getStagingDir(): string {
+  const args = process.argv.slice(2);
+  const dirIndex = args.indexOf("--dir");
+  if (dirIndex !== -1 && args[dirIndex + 1]) {
+    return path.resolve(__dirname, "..", args[dirIndex + 1]);
+  }
+  return path.resolve(__dirname, "../docs/sops-staging");
+}
+
+const STAGING_DIR = getStagingDir();
 const API_URL = process.env.NEXUS_API_URL || "http://localhost:3100";
 const API_TOKEN = process.env.NEXUS_API_TOKEN;
 

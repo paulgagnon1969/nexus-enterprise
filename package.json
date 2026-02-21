@@ -22,7 +22,10 @@
     "deploy:prod:api": "bash ./deploy-api-prod.sh",
     "deploy:prod:api:env": "bash ./scripts/deploy-api-prod-env.sh",
     "sops:sync": "ts-node scripts/import-sops.ts --all",
-    "sops:sync:dry": "ts-node scripts/import-sops.ts --all --dry-run"
+    "sops:sync:dry": "ts-node scripts/import-sops.ts --all --dry-run",
+    "cams:sync": "ts-node scripts/import-sops.ts --all --dir docs/cams",
+    "docs:sync": "npm run sops:sync && npm run cams:sync",
+    "api-token:generate": "ts-node scripts/generate-api-token.ts"
   },
   "workspaces": [
     "apps/*",

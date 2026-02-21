@@ -425,9 +425,41 @@ CAMs are organized by **Mode** and **Category**:
 - CAMs: `docs/cams/` → syncs to Nexus Documents "CAM Library"
 - CAMs with `website: true` in frontmatter feed into website content pipeline
 
-### 5. Session Closeout Prompt
+### 5. Automatic Document Sync
+
+Warp SHOULD automatically sync documents to production after creating them:
+
+```bash
+# Sync all SOPs and CAMs to Nexus Documents
+npm run docs:sync
+
+# Or sync individually
+npm run sops:sync    # SOPs only
+npm run cams:sync    # CAMs only
+```
+
+**Requirements:**
+- `NEXUS_API_TOKEN` must be set in `.env`
+- Generate a service token (90-day expiry): `npm run api-token:generate`
+- Token requires SUPER_ADMIN credentials
+
+### 6. Session Closeout Prompt
 
 After significant sessions, prompt user:
-> "Session complete. Created [N] doc(s) and [M] CAM(s). Ready to push?"
+> "Session complete. Created [N] doc(s) and [M] CAM(s). Ready to sync to production?"
+
+If user confirms, run `npm run docs:sync` to push to Nexus Documents.
+
+### 7. Service Token Setup (One-Time)
+
+To enable automatic sync:
+
+```bash
+# Generate a 90-day service token
+SUPER_ADMIN_EMAIL=your@email.com SUPER_ADMIN_PASSWORD=yourpass npm run api-token:generate
+
+# Add the output to .env
+echo "NEXUS_API_TOKEN=eyJ..." >> .env
+```
 
 See full CAM system documentation: `docs/sops-staging/cam-competitive-advantage-system-sop.md`
