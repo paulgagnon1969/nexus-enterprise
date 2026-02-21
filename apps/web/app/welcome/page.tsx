@@ -87,9 +87,9 @@ export default function WelcomePage() {
       >
         <div style={{ marginBottom: 32 }}>
           <img
-            src="/ncc-login.gif"
+            src="/ncc-login.png"
             alt="Nexus Contractor Connect"
-            style={{ maxWidth: 280, width: "100%", height: "auto", mixBlendMode: "multiply" }}
+            style={{ maxWidth: 280, width: "100%", height: "auto" }}
           />
         </div>
         <div
