@@ -11,10 +11,12 @@ import {
   TextInput,
   useWindowDimensions,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { logout } from "../auth/auth";
-import { Platform } from "react-native";
+import { Platform, Linking } from "react-native";
 import appJson from "../../app.json";
+import { getApiBaseUrl } from "../api/config";
 import { countPendingOutbox } from "../offline/outbox";
 import { syncOnce } from "../offline/sync";
 import { getWifiOnlySync, setWifiOnlySync } from "../storage/settings";
@@ -894,6 +896,56 @@ export function HomeScreen({
                     </>
                   )}
 
+                  {/* Attachments */}
+                  {expandedLog.attachments && expandedLog.attachments.length > 0 && (
+                    <>
+                      <Text style={styles.fieldLabel}>
+                        Attachments ({expandedLog.attachments.length})
+                      </Text>
+                      <View style={styles.attachmentGrid}>
+                        {expandedLog.attachments.map((att: any) => {
+                          const isImage = att.mimeType?.startsWith("image/") ||
+                            att.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/);
+                          const isVideo = att.mimeType?.startsWith("video/") ||
+                            att.fileName?.toLowerCase().match(/\.(mp4|mov|avi|m4v)$/);
+                          const fullUrl = att.fileUrl?.startsWith("http")
+                            ? att.fileUrl
+                            : `${getApiBaseUrl()}${att.fileUrl}`;
+
+                          if (isImage) {
+                            return (
+                              <Pressable
+                                key={att.id}
+                                style={styles.attachmentThumb}
+                                onPress={() => fullUrl && Linking.openURL(fullUrl)}
+                              >
+                                <Image
+                                  source={{ uri: fullUrl }}
+                                  style={styles.attachmentThumbImg}
+                                  resizeMode="cover"
+                                />
+                              </Pressable>
+                            );
+                          }
+                          return (
+                            <Pressable
+                              key={att.id}
+                              style={styles.attachmentFileRow}
+                              onPress={() => fullUrl && Linking.openURL(fullUrl)}
+                            >
+                              <Text style={{ fontSize: 20, marginRight: 8 }}>
+                                {isVideo ? "🎬" : "📎"}
+                              </Text>
+                              <Text style={styles.attachmentFileName} numberOfLines={1}>
+                                {att.fileName || (isVideo ? "Video" : "File")}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </>
+                  )}
+
                   <Pressable style={styles.editBtn} onPress={() => setEditingLog(true)}>
                     <Text style={styles.editBtnText}>Edit Log</Text>
                   </Pressable>
@@ -1241,6 +1293,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   logoutText: { color: "#991b1b", fontWeight: "700" },
+  attachmentGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 12,
+  },
+  attachmentThumb: {
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  attachmentThumbImg: {
+    width: 90,
+    height: 90,
+    backgroundColor: "#e5e7eb",
+  },
+  attachmentFileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f3f4f6",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 4,
+    width: "100%",
+  },
+  attachmentFileName: {
+    fontSize: 13,
+    color: "#1e3a8a",
+    flex: 1,
+  },
   versionText: {
     textAlign: "center",
     fontSize: 11,

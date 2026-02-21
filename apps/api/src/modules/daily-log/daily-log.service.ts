@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuditService } from "../../common/audit.service";
+import { GcsService } from "../../infra/storage/gcs.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateDailyLogDto, DailyLogTypeDto } from "./dto/create-daily-log.dto";
 import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
@@ -27,6 +28,7 @@ export class DailyLogService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly gcs: GcsService,
     private readonly notifications: NotificationsService,
     private readonly tasks: TaskService,
     private readonly receiptOcr: ReceiptOcrService,
@@ -502,19 +504,30 @@ export class DailyLogService {
       throw new NotFoundException("No file uploaded");
     }
 
-    // For now, continue storing files on local disk under an uploads directory.
-    const uploadsRoot = path.resolve(process.cwd(), "uploads/daily-logs");
-    if (!fs.existsSync(uploadsRoot)) {
-      fs.mkdirSync(uploadsRoot, { recursive: true });
-    }
-
     const ext = path.extname(file.originalname || "");
-    const fileName = `${dailyLogId}-${Date.now()}${ext}`;
-    const destPath = path.join(uploadsRoot, fileName);
+    const gcsKey = `daily-logs/${dailyLogId}-${Date.now()}${ext}`;
 
-    fs.writeFileSync(destPath, file.buffer);
-
-    const publicUrl = `/uploads/daily-logs/${fileName}`;
+    let publicUrl: string;
+    try {
+      const gsUri = await this.gcs.uploadBuffer({
+        key: gcsKey,
+        buffer: file.buffer,
+        contentType: file.mimetype || "application/octet-stream",
+      });
+      publicUrl = this.gcs.getPublicUrlFromUri(gsUri);
+      this.logger.log(`Uploaded attachment to GCS: ${publicUrl}`);
+    } catch (gcsErr: any) {
+      // Fallback to local disk if GCS is not configured (local dev)
+      this.logger.warn(`GCS upload failed, falling back to local disk: ${gcsErr?.message}`);
+      const uploadsRoot = path.resolve(process.cwd(), "uploads/daily-logs");
+      if (!fs.existsSync(uploadsRoot)) {
+        fs.mkdirSync(uploadsRoot, { recursive: true });
+      }
+      const fileName = `${dailyLogId}-${Date.now()}${ext}`;
+      const destPath = path.join(uploadsRoot, fileName);
+      fs.writeFileSync(destPath, file.buffer);
+      publicUrl = `/uploads/daily-logs/${fileName}`;
+    }
 
     // Create a ProjectFile record so this attachment is visible in the project Files container.
     const projectFile = await this.prisma.projectFile.create({
@@ -522,7 +535,7 @@ export class DailyLogService {
         companyId,
         projectId: log.projectId,
         storageUrl: publicUrl,
-        fileName: file.originalname || fileName,
+        fileName: file.originalname || path.basename(gcsKey),
         mimeType: file.mimetype || null,
         sizeBytes: typeof file.size === "number" ? file.size : null,
         createdById: actor.userId,
@@ -535,7 +548,7 @@ export class DailyLogService {
         dailyLogId,
         projectFileId: projectFile.id,
         fileUrl: publicUrl,
-        fileName: file.originalname || fileName,
+        fileName: file.originalname || path.basename(gcsKey),
         mimeType: file.mimetype,
         sizeBytes: file.size,
       },

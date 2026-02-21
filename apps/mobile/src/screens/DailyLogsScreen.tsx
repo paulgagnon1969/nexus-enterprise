@@ -19,6 +19,7 @@ import { enqueueOutbox } from "../offline/outbox";
 import { addLocalDailyLog } from "../offline/sync";
 import { triggerSync } from "../offline/autoSync";
 import { copyToAppStorage, type StoredFile } from "../storage/files";
+import { compressForNetwork, getNetworkTier } from "../utils/mediaCompressor";
 import { colors } from "../theme/colors";
 import type { DailyLogCreateRequest, DailyLogType, ProjectListItem } from "../types/api";
 import type { PetlSessionChanges } from "./FieldPetlScreen";
@@ -171,24 +172,42 @@ export function DailyLogsScreen({
       return;
     }
 
+    const tier = await getNetworkTier();
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images", "videos"],
       quality: 0.8,
+      videoQuality: tier === "wifi" ? 1 : 0,
       allowsMultipleSelection: true,
       selectionLimit: 10,
     });
     if (res.canceled || !res.assets?.length) return;
 
-    // Process all selected media
+    // Process all selected media with network-aware compression
     const newPhotos: StoredFile[] = [];
     for (const asset of res.assets) {
       if (!asset.uri) continue;
-      const stored = await copyToAppStorage({
-        uri: asset.uri,
-        name: (asset as any).fileName ?? null,
-        mimeType: (asset as any).mimeType ?? (asset.type === "video" ? "video/mp4" : "image/jpeg"),
-      });
-      newPhotos.push(stored);
+      try {
+        const isVideo = asset.type === "video";
+        if (isVideo) {
+          const stored = await copyToAppStorage({
+            uri: asset.uri,
+            name: (asset as any).fileName ?? null,
+            mimeType: (asset as any).mimeType ?? "video/mp4",
+          });
+          newPhotos.push(stored);
+        } else {
+          const compressed = await compressForNetwork(asset.uri);
+          const stored = await copyToAppStorage({
+            uri: compressed.uri,
+            name: (asset as any).fileName ?? null,
+            mimeType: "image/jpeg",
+          });
+          newPhotos.push(stored);
+        }
+      } catch (err) {
+        console.error(`[DailyLogs] Failed to save media:`, err);
+        setStatus(`Failed to save media: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
 
     setAttachments((prev) => [...prev, ...newPhotos]);
@@ -209,27 +228,72 @@ export function DailyLogsScreen({
       return;
     }
 
-    const res = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images", "videos"],
-      quality: 0.8,
-    });
-    if (res.canceled) return;
+    const captureAndAsk = async (): Promise<void> => {
+      const tier = await getNetworkTier();
+      const res = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images", "videos"],
+        quality: 0.8,
+        videoQuality: tier === "wifi" ? 1 : 0,
+      });
+      if (res.canceled) return;
 
-    const a = res.assets?.[0];
-    if (!a?.uri) return;
+      const a = res.assets?.[0];
+      if (!a?.uri) return;
 
-    const stored = await copyToAppStorage({
-      uri: a.uri,
-      name: (a as any).fileName ?? null,
-      mimeType: (a as any).mimeType ?? (a.type === "video" ? "video/mp4" : "image/jpeg"),
-    });
+      try {
+        const isVideo = a.type === "video";
+        let stored: StoredFile;
+        if (isVideo) {
+          stored = await copyToAppStorage({
+            uri: a.uri,
+            name: (a as any).fileName ?? null,
+            mimeType: (a as any).mimeType ?? "video/mp4",
+          });
+        } else {
+          const compressed = await compressForNetwork(a.uri);
+          stored = await copyToAppStorage({
+            uri: compressed.uri,
+            name: (a as any).fileName ?? null,
+            mimeType: "image/jpeg",
+          });
+        }
+        setAttachments((prev) => [...prev, stored]);
 
-    setAttachments((prev) => [...prev, stored]);
+        // Auto-scan if receipt type (images only)
+        if (!isVideo && logType === "RECEIPT_EXPENSE") {
+          void runReceiptScan(stored);
+        }
+      } catch (err) {
+        console.error(`[DailyLogs] Failed to save media:`, err);
+        setStatus(`Failed to save: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
 
-    // Auto-scan if receipt type
-    if (logType === "RECEIPT_EXPENSE") {
-      void runReceiptScan(stored);
-    }
+      // Ask if they want to capture another
+      return new Promise((resolve) => {
+        Alert.alert(
+          "Media Added",
+          "Saved. Capture another?",
+          [
+            {
+              text: "Done",
+              style: "cancel",
+              onPress: () => resolve(),
+            },
+            {
+              text: "Add Another",
+              onPress: async () => {
+                await captureAndAsk();
+                resolve();
+              },
+            },
+          ],
+          { cancelable: false }
+        );
+      });
+    };
+
+    await captureAndAsk();
   };
 
   // Inline receipt OCR — scan photo and pre-fill vendor/amount/date

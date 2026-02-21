@@ -265,7 +265,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: Platform.OS === "android" ? 72 : 40,
   },
   header: {
     flexDirection: "row",
