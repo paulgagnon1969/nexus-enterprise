@@ -1,464 +1,358 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <!-- Document Metadata -->
-  <meta name="ncc:code" content="NCC-ADVANTEDGE-2026" />
-  <meta name="ncc:title" content="NCC advantEDGE™ — Competitive Advantage Manual" />
-  <meta name="ncc:description" content="The definitive guide to NCC's competitive advantages — fasTRACK, eDocs, Collaborator Technology, and more. Each chapter is a self-contained advantEDGE brief." />
-  <meta name="ncc:category" content="NCC advantEDGE" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NCC advantEDGE Handbook</title>
 
-  <!-- Manual Placement -->
-  <meta name="ncc:manual-code" content="NCC-ADVANTEDGE" />
-  <meta name="ncc:manual-title" content="NCC advantEDGE™ Manual" />
-  <meta name="ncc:manual-icon" content="⚡" />
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- NCC IMPORT META TAGS — DO NOT REMOVE                       -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
 
-  <!-- Styling -->
+  <!-- REQUIRED -->
+  <meta name="ncc:manual-code"  content="NCC-ADVANTEDGE" />
+  <meta name="ncc:manual-title" content="NCC advantEDGE Handbook" />
+
+  <!-- OPTIONAL -->
+  <meta name="ncc:manual-icon"  content="⚡" />
+  <meta name="ncc:library"      content="Nexus Connect Core" />
+  <meta name="ncc:category"     content="advantEDGE" />
+  <meta name="ncc:description"  content="Living handbook of branded competitive advantages in Nexus Connect." />
+  <meta name="ncc:public"       content="false" />
+
   <style>
-    :root {
-      --edge-primary: #1a1a2e;
-      --edge-accent: #e94560;
-      --edge-accent-light: #fff0f3;
-      --edge-blue: #0f3460;
-      --edge-gold: #f5a623;
-      --edge-bg: #fafafa;
-      --edge-card-bg: #ffffff;
-    }
-
     body {
-      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-      line-height: 1.7;
-      color: #333;
-      max-width: 960px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.6;
+      max-width: 900px;
       margin: 0 auto;
-      padding: 20px 15px;
-      background: var(--edge-bg);
+      padding: 40px 20px;
+      color: #333;
+      background: #fff;
     }
-
-    /* Header / Branding */
-    .manual-header {
-      background: linear-gradient(135deg, var(--edge-primary) 0%, var(--edge-blue) 100%);
-      color: white;
-      padding: 40px 32px;
-      border-radius: 12px;
-      margin-bottom: 32px;
-    }
-    .manual-header h1 {
-      color: white;
-      border: none;
-      margin: 0;
-      padding: 0;
-      font-size: 2em;
-    }
-    .manual-header .brand-mark {
-      font-weight: 300;
-      letter-spacing: 0.5px;
-    }
-    .manual-header .brand-mark strong {
-      font-weight: 800;
-      letter-spacing: 2px;
-    }
-    .manual-header .subtitle {
-      opacity: 0.85;
-      margin-top: 8px;
-      font-size: 1.05em;
-    }
-    .manual-header .meta {
-      margin-top: 16px;
-      font-size: 0.85em;
-      opacity: 0.7;
-    }
-
-    /* Typography */
-    h1, h2, h3 { color: var(--edge-primary); }
-    h1 { border-bottom: 3px solid var(--edge-accent); padding-bottom: 12px; margin-bottom: 32px; }
-    h2 { margin-top: 48px; }
-
-    /* Callouts */
-    .callout {
-      background: var(--edge-accent-light);
-      border-left: 6px solid var(--edge-accent);
-      padding: 24px;
-      margin: 32px 0;
-      border-radius: 6px;
-      font-size: 1.05em;
-    }
-    .callout.blue {
-      background: #e8f0fe;
-      border-left-color: var(--edge-blue);
-    }
-    .callout.gold {
-      background: #fff8e1;
-      border-left-color: var(--edge-gold);
-    }
-
-    /* Tagline block */
-    .tagline {
-      font-size: 1.3em;
-      font-weight: 600;
-      color: var(--edge-primary);
-      border-left: 4px solid var(--edge-accent);
-      padding: 16px 20px;
-      margin: 24px 0 32px;
-      background: var(--edge-accent-light);
-      border-radius: 0 8px 8px 0;
-    }
-
-    /* Tables */
-    table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 0.95em; }
-    th, td { border: 1px solid #ddd; padding: 14px; text-align: left; }
-    th { background: var(--edge-primary); color: white; }
-
-    /* Comparison tables (competitor vs NCC) */
-    table.compare th:first-child { background: #666; }
-    table.compare th:last-child { background: var(--edge-accent); }
-
-    /* Mermaid diagrams */
-    .mermaid {
-      background: white;
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-      margin: 30px 0;
-      overflow-x: auto;
-    }
-    .caption {
-      font-style: italic;
-      color: #555;
-      text-align: center;
-      font-size: 0.9em;
-      margin-top: 8px;
-    }
-
-    /* TOC */
-    .toc {
-      background: var(--edge-card-bg);
-      padding: 24px 32px;
-      border-radius: 12px;
-      margin: 0 0 48px;
-      border: 2px solid #eee;
-    }
-    .toc h2 { margin-top: 0; color: var(--edge-primary); }
-    .toc ul { list-style: none; padding-left: 0; }
-    .toc li { margin: 10px 0; }
-    .toc li a { text-decoration: none; color: var(--edge-blue); font-weight: 500; }
-    .toc li a:hover { color: var(--edge-accent); }
-    .toc .chapter-num { color: var(--edge-accent); font-weight: 700; margin-right: 8px; }
-
-    /* Navigation */
-    .nav { display: flex; justify-content: space-between; margin: 48px 0 32px; font-weight: bold; font-size: 1.1em; }
-    .nav a { color: var(--edge-accent); text-decoration: none; }
-    .nav a:hover { text-decoration: underline; }
-
-    /* Chapters */
-    .chapter { margin-bottom: 80px; padding-bottom: 40px; border-bottom: 1px solid #ddd; }
-    .chapter:last-child { border-bottom: none; }
-
-    /* Sales talking points */
-    .talking-points blockquote {
-      border-left: 4px solid var(--edge-gold);
-      background: #fff8e1;
-      padding: 16px 20px;
-      margin: 16px 0;
-      border-radius: 0 8px 8px 0;
-      font-style: italic;
-      color: #5d4037;
-    }
-
-    /* Technical notes */
-    .tech-notes {
-      background: #f5f5f5;
-      border: 1px solid #e0e0e0;
-      border-radius: 8px;
-      padding: 20px;
-      margin: 24px 0;
-      font-size: 0.9em;
-    }
-    .tech-notes code {
-      background: #e8e8e8;
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-size: 0.9em;
-    }
-
-    /* Badge for advantage type */
-    .edge-badge {
+    h1, h2, h3 { color: #1a1a1a; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+    h1 { font-size: 2.4em; }
+    h2 { font-size: 1.8em; margin-top: 1.5em; }
+    h3 { font-size: 1.4em; margin-top: 1.2em; }
+    code { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; font-family: 'SF Mono', Menlo, monospace; }
+    pre { background: #f8f8f8; padding: 16px; border-radius: 8px; overflow-x: auto; }
+    ul, ol { padding-left: 1.8em; }
+    li { margin: 0.5em 0; }
+    hr { border: none; border-top: 1px solid #eee; margin: 2em 0; }
+    .badge {
       display: inline-block;
-      background: var(--edge-accent);
+      background: #FF9500;
       color: white;
-      padding: 4px 12px;
-      border-radius: 999px;
-      font-size: 0.75em;
-      font-weight: 700;
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      margin-bottom: 12px;
+      padding: 3px 9px;
+      border-radius: 10px;
+      font-size: 0.85em;
+      font-weight: bold;
+      margin-left: 10px;
+      vertical-align: middle;
     }
-
-    /* Print styles */
-    @media print {
-      .manual-header { break-after: page; }
-      .chapter { break-before: page; }
-      .nav { display: none; }
-      body { background: white; }
+    .version-info {
+      color: #666;
+      font-style: italic;
+      margin-bottom: 2em;
     }
   </style>
 </head>
 <body>
 
-  <!-- ===== MANUAL HEADER ===== -->
-  <div class="manual-header">
-    <h1>
-      <span class="brand-mark">NCC advant<strong>EDGE</strong>™</span>
-    </h1>
-    <div class="subtitle">Competitive Advantage Manual — Feature Intelligence &amp; Sales Playbook</div>
-    <div class="meta">
-      Version: 1.0 | Date: February 2026 | Classification: Internal + Sales<br>
-      Audience: Sales, Marketing, Product, Executive, Onboarding
-    </div>
-  </div>
-
-  <!-- ===== INTRODUCTION ===== -->
-  <div class="callout">
-    <strong>What is NCC advantEDGE?</strong><br><br>
-    The advantEDGE Index is the definitive collection of competitive advantages built into Nexus Contractor Connect. Each chapter is a self-contained <strong>advantEDGE Brief</strong> — covering what the feature is, why it matters, how it's different from competitors, key capabilities, and ready-to-use sales talking points.<br><br>
-    Use this manual to prepare for demos, build proposals, onboard new team members, and understand what makes NCC the most capable construction platform on the market.
-  </div>
-
-  <!-- ===== TABLE OF CONTENTS ===== -->
-  <div class="toc">
-    <h2>⚡ advantEDGE Index</h2>
-    <ul>
-      <li><span class="chapter-num">01</span> <a href="#ch1">NCC fasTRACK — Smart-Center Navigation Intelligence</a></li>
-      <li><span class="chapter-num">02</span> <a href="#ch2">NCC eDocs — Full-Lifecycle Document Intelligence</a></li>
-      <li><span class="chapter-num">03</span> <a href="#ch3">Collaborator Technology — Scoped Multi-Party Access</a></li>
-      <li><span class="chapter-num">04</span> <a href="#ch4">Field PETL — Real-Time Project Element Tracking</a></li>
-      <li><span class="chapter-num">05</span> <a href="#ch5">Offline-First Architecture — Full Capability Without Connectivity</a></li>
-      <li><span class="chapter-num">06</span> <a href="#ch6">Daily Log Intelligence — OCR, Type-Aware Logging &amp; Delayed Publish</a></li>
-      <li><span class="chapter-num">07</span> <a href="#ch7">Multi-Tenant Hot-Switch — Instant Org Switching</a></li>
-      <!-- Add more chapters as advantEDGE briefs are written -->
-    </ul>
-  </div>
-
-  <!-- ===== CHAPTER 1: fasTRACK ===== -->
-  <div id="ch1" class="chapter">
-    <span class="edge-badge">advantEDGE Brief</span>
-    <h1>01 — NCC fasTRACK™</h1>
-
-    <div class="tagline">
-      Your projects know you're coming. fasTRACK learns how you work and puts your most active projects front and center — before you even search.
-    </div>
-
-    <h2>What It Is</h2>
-    <p>NCC fasTRACK is a smart-center navigation system built into the NCC mobile and web experience. It uses a local, on-device usage ledger to track which projects, modules, and actions a user engages with most frequently. A recency-weighted scoring algorithm continuously ranks projects so the ones that matter <em>right now</em> surface automatically at the top of every project list.</p>
-    <p>fasTRACK doesn't require configuration, training, or setup. It starts learning from the first tap.</p>
-
-    <h2>Why It Matters</h2>
-    <p>Construction professionals manage dozens — sometimes hundreds — of active projects. The industry standard is alphabetical lists or manual favorites. Neither adapts to how people actually work: you're on Project A all week, then shift to Project B next week. Static lists don't move with you.</p>
-
-    <div class="callout">
-      <strong>The problem:</strong> A superintendent opens the app, scrolls past 40 projects to find the one they've been working on all day. Multiply that by every crew lead, PM, and admin across every login. That's thousands of wasted interactions per week.<br><br>
-      <strong>fasTRACK eliminates the scroll.</strong> The project you need is already at the top.
-    </div>
-
-    <h2>How It's Different</h2>
-    <table class="compare">
-      <tr><th>Competitor Approach</th><th>NCC fasTRACK</th></tr>
-      <tr><td>Alphabetical lists</td><td>Recency + frequency weighted smart sort</td></tr>
-      <tr><td>Manual "favorites" that go stale</td><td>Auto-adapting — no user action required</td></tr>
-      <tr><td>Server-side analytics (slow, privacy concerns)</td><td>On-device scoring — instant, private, works offline</td></tr>
-      <tr><td>One-size-fits-all navigation</td><td>Personalized per user, per device</td></tr>
-      <tr><td>No learning capability</td><td>Learns from every tap: project opens, log creation, PETL sessions</td></tr>
-    </table>
-
-    <p><strong>No other construction platform has adaptive, on-device navigation intelligence.</strong></p>
-
-    <h2>Key Capabilities</h2>
-    <ul>
-      <li><strong>Recency-weighted frequency scoring</strong> — Each interaction contributes a score of <code>1 / (1 + daysSinceEvent)</code>. Today's activity scores ~1.0, yesterday's ~0.5, last week's ~0.125.</li>
-      <li><strong>Multi-signal tracking</strong> — Project opens, daily log creation, log views, PETL sessions, and directions requests all feed the score.</li>
-      <li><strong>On-device processing</strong> — SQLite on-device. No server round-trips, no cloud dependency, works fully offline.</li>
-      <li><strong>Auto-pruning</strong> — Events older than 90 days are cleaned up automatically. Zero maintenance.</li>
-      <li><strong>Threshold-based surfacing</strong> — Only projects that clear a minimum relevance score appear in fasTRACK.</li>
-      <li><strong>Graceful cold start</strong> — New users see alphabetical by default. fasTRACK appears as usage data accumulates.</li>
-      <li><strong>Dual browse modes</strong> — Projects + Client Search (by contact name, email, phone, address) with grouped results.</li>
-    </ul>
-
-    <h2>Architecture</h2>
-    <div class="mermaid">
-graph TD
-    TAP["User Action\n(open project, create log, view log)"]:::action
-    RECORD["recordUsage(projectId, action)"]:::code
-    SQLITE["SQLite: usage_events\n(projectId, action, timestamp)"]:::store
-    SCORE["getProjectScores()\nΣ 1/(1+daysSince) per project"]:::code
-    DISPLAY["⚡ fasTRACK Section\nTop 5 scored projects"]:::ui
-    ALPHA["All Projects (A→Z)"]:::ui
-    PRUNE["pruneOldEvents()\n> 90 days removed"]:::code
-
-    TAP --> RECORD
-    RECORD --> SQLITE
-    SQLITE --> SCORE
-    SCORE --> DISPLAY
-    SCORE --> ALPHA
-    SQLITE -.-> PRUNE
-
-    classDef action fill:#e94560,stroke:#fff,color:#fff,stroke-width:2px
-    classDef code fill:#0f3460,stroke:#fff,color:#fff,stroke-width:2px
-    classDef store fill:#1a1a2e,stroke:#fff,color:#fff,stroke-width:2px
-    classDef ui fill:#f5a623,stroke:#fff,color:#1a1a2e,stroke-width:2px
-    </div>
-    <p class="caption">fasTRACK data flow — from user action to smart-sorted project list</p>
-
-    <h2>Sales Talking Points</h2>
-    <div class="talking-points">
-      <blockquote>"fasTRACK learns how your team works. The projects they're on today are already at the top — no scrolling, no searching, no favorites to manage."</blockquote>
-      <blockquote>"It's like a GPS for your workday. fasTRACK knows where you need to be before you do."</blockquote>
-      <blockquote>"Every tap teaches fasTRACK. Open a project, create a log, check PETL — it all contributes to smarter navigation that adapts in real time."</blockquote>
-      <blockquote>"This runs entirely on the device. No cloud processing, no delays, no privacy concerns. It even works when you're offline on a jobsite with no signal."</blockquote>
-      <blockquote>"Your competitors are still using alphabetical lists. NCC learns."</blockquote>
-    </div>
-
-    <h2>Demo Script (60 seconds)</h2>
-    <ol>
-      <li>Open the Projects tab — show the ⚡ fasTRACK section with the user's most active projects highlighted at the top</li>
-      <li>Open a project, create a quick daily log, go back — show how that project's fasTRACK score just increased</li>
-      <li>Toggle to Client Search — type a client name, show grouped results</li>
-      <li>Switch tenants — show fasTRACK adapts per-org</li>
-      <li>Close with: <em>"This is NCC fasTRACK. It learns how you work so you can spend less time navigating and more time building."</em></li>
-    </ol>
-
-    <div class="tech-notes">
-      <h3>Technical Notes</h3>
-      <ul>
-        <li><strong>Storage:</strong> <code>usage_events</code> table in SQLite (<code>nexus_mobile.db</code>)</li>
-        <li><strong>Module:</strong> <code>apps/mobile/src/storage/usageTracker.ts</code></li>
-        <li><strong>Scoring:</strong> <code>getProjectScores()</code> — 60-day window, <code>Σ 1/(1+daysSince)</code></li>
-        <li><strong>Actions tracked:</strong> <code>open_project</code>, <code>create_daily_log</code>, <code>view_daily_log</code>, <code>open_petl</code>, <code>open_directions</code></li>
-        <li><strong>Constants:</strong> <code>FREQUENT_THRESHOLD=0.5</code>, <code>MAX_FREQUENT=5</code>, <code>SCORING_WINDOW=60d</code>, <code>PRUNE=90d</code></li>
-        <li><strong>Future:</strong> Module-level tracking, cross-device sync, team-level heat maps</li>
-      </ul>
-    </div>
-
-    <div class="nav">
-      <span>← Start</span>
-      <a href="#ch2">Next: eDocs →</a>
-    </div>
-  </div>
-
-  <!-- ===== CHAPTER 2: eDocs (placeholder) ===== -->
-  <div id="ch2" class="chapter">
-    <span class="edge-badge">advantEDGE Brief</span>
-    <h1>02 — NCC eDocs</h1>
-
-    <div class="tagline">
-      Documents that think. eDocs brings full-lifecycle document intelligence — from import to Mermaid diagrams to scoped reader groups — into every corner of NCC.
-    </div>
-
-    <h2>What It Is</h2>
-    <p><em>Chapter content to be authored — collaborate with Grok to expand this brief covering the eDocs system: document import pipeline, rich viewer with Mermaid rendering, reader groups, share tokens, print/PDF export, and the unpublished → published workflow.</em></p>
-
-    <div class="nav">
-      <a href="#ch1">← Previous: fasTRACK</a>
-      <a href="#ch3">Next: Collaborator Technology →</a>
-    </div>
-  </div>
-
-  <!-- ===== CHAPTER 3: Collaborator Technology (placeholder) ===== -->
-  <div id="ch3" class="chapter">
-    <span class="edge-badge">advantEDGE Brief</span>
-    <h1>03 — Collaborator Technology</h1>
-
-    <div class="tagline">
-      One project. Many parties. Zero friction. Collaborator Technology gives owners, subs, and clients scoped real-time access — without separate portals or logins.
-    </div>
-
-    <h2>What It Is</h2>
-    <p><em>Chapter content to be authored — collaborate with Grok to expand this brief covering the multi-party collaboration model: scoped access by role, real-time shared workspace, owner vs collaborator permissions, invite flow, and data isolation.</em></p>
-
-    <div class="nav">
-      <a href="#ch2">← Previous: eDocs</a>
-      <a href="#ch4">Next: Field PETL →</a>
-    </div>
-  </div>
-
-  <!-- ===== CHAPTER 4: Field PETL (placeholder) ===== -->
-  <div id="ch4" class="chapter">
-    <span class="edge-badge">advantEDGE Brief</span>
-    <h1>04 — Field PETL</h1>
-
-    <div class="tagline">
-      Track every element from the field. PETL brings real-time project element progress tracking to the hands of the people doing the work.
-    </div>
-
-    <h2>What It Is</h2>
-    <p><em>Chapter content to be authored.</em></p>
-
-    <div class="nav">
-      <a href="#ch3">← Previous: Collaborator Technology</a>
-      <a href="#ch5">Next: Offline-First Architecture →</a>
-    </div>
-  </div>
-
-  <!-- ===== CHAPTER 5: Offline-First (placeholder) ===== -->
-  <div id="ch5" class="chapter">
-    <span class="edge-badge">advantEDGE Brief</span>
-    <h1>05 — Offline-First Architecture</h1>
-
-    <div class="tagline">
-      No signal? No problem. NCC works fully offline — logs, photos, time entries, and more sync automatically when connectivity returns.
-    </div>
-
-    <h2>What It Is</h2>
-    <p><em>Chapter content to be authored.</em></p>
-
-    <div class="nav">
-      <a href="#ch4">← Previous: Field PETL</a>
-      <a href="#ch6">Next: Daily Log Intelligence →</a>
-    </div>
-  </div>
-
-  <!-- ===== CHAPTER 6: Daily Log Intelligence (placeholder) ===== -->
-  <div id="ch6" class="chapter">
-    <span class="edge-badge">advantEDGE Brief</span>
-    <h1>06 — Daily Log Intelligence</h1>
-
-    <div class="tagline">
-      Smarter logging, not more logging. Type-aware forms, receipt OCR, photo compression, and delayed publish — daily logs that work as hard as your crew.
-    </div>
-
-    <h2>What It Is</h2>
-    <p><em>Chapter content to be authored.</em></p>
-
-    <div class="nav">
-      <a href="#ch5">← Previous: Offline-First Architecture</a>
-      <a href="#ch7">Next: Multi-Tenant Hot-Switch →</a>
-    </div>
-  </div>
-
-  <!-- ===== CHAPTER 7: Multi-Tenant Hot-Switch (placeholder) ===== -->
-  <div id="ch7" class="chapter">
-    <span class="edge-badge">advantEDGE Brief</span>
-    <h1>07 — Multi-Tenant Hot-Switch</h1>
-
-    <div class="tagline">
-      Switch companies in one tap. No logout, no re-login, no lost context. Your work follows you across every organization you belong to.
-    </div>
-
-    <h2>What It Is</h2>
-    <p><em>Chapter content to be authored.</em></p>
-
-    <div class="nav">
-      <a href="#ch6">← Previous: Daily Log Intelligence</a>
-      <span>End →</span>
-    </div>
-  </div>
-
-  <!-- ===== FOOTER ===== -->
-  <hr style="margin: 60px 0 24px; border: none; border-top: 2px solid #eee;" />
-  <p style="text-align: center; color: #999; font-size: 0.85em;">
-    NCC advantEDGE™ is a proprietary framework of NEXUS Construction Cloud.<br>
-    This document is confidential and intended for internal use and authorized sales activities only.
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 1 — Handbook Introduction                               -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch1" class="chapter">
+  <h1>NCC advantEDGE Handbook</h1>
+  <p class="version-info">
+    <strong>Version:</strong> 1.1.0 &nbsp;|&nbsp;
+    <strong>Updated:</strong> February 20, 2026
   </p>
+  <p>
+    The <strong>NCC advantEDGE Handbook</strong> documents every engineered advantage
+    that makes Nexus Connect faster, smarter, and more intuitive for construction teams.
+    Each entry names a branded capability, explains what it does, and states why it wins.
+  </p>
+  <p>This handbook serves as:</p>
+  <ul>
+    <li>Internal north star for product decisions</li>
+    <li>Sales enablement asset for demos and proposals</li>
+    <li>Onboarding guide for new team members, subs, and clients</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 2 — fasTRACK™                                           -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch2" class="chapter">
+  <h2>fasTRACK™ <span class="badge">Adaptive Navigation</span></h2>
+  <p><strong>Category:</strong> Adaptive Navigation &amp; Workflow Intelligence<br>
+  <strong>Introduced:</strong> Phase 1 (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Uses local usage tracking (recency + frequency scoring) to automatically prioritize
+  your most active projects at the top of the list. Includes smart toggle between
+  alphabetical project view and client/contact search that groups all projects under
+  matching contact names, emails, or phones.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Construction pros waste time scrolling long project lists daily. fasTRACK™ remembers
+  your rhythm — the current jobsite jumps to the top instantly. Saves 5–20 minutes per
+  session for supers and foremen. No cloud dependency, works fully offline.</p>
+  <p><strong>Target users:</strong> Superintendents, Foremen, Project Managers, Daily Field Users</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 3 — BioSecure™                                          -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch3" class="chapter">
+  <h2>BioSecure™ <span class="badge">Mobile Security</span></h2>
+  <p><strong>Category:</strong> Mobile Security &amp; Access<br>
+  <strong>Introduced:</strong> Mobile Phase 1–3 (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Integrates biometric authentication (fingerprint/face ID) with saved credentials
+  and password visibility toggles for seamless, secure mobile logins.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Field users get instant, device-native security without typing passwords on muddy
+  screens. Enhances compliance in high-stakes environments; offline-ready for remote sites.</p>
+  <p><strong>Target users:</strong> Foremen, Superintendents, Mobile-Heavy Roles</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 4 — RoleGuard™                                          -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch4" class="chapter">
+  <h2>RoleGuard™ <span class="badge">Access Control</span></h2>
+  <p><strong>Category:</strong> Access Control &amp; Collaboration<br>
+  <strong>Introduced:</strong> MVP Phase 1 (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Enforces role-based permissions (Admin, PM, Subcontractor, Client) with multi-tenant
+  sharing via invites/tokens; ties to projects and HR candidate management.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Prevents unauthorized access while enabling secure cross-org collaboration (e.g.,
+  sharing candidates without exposing full data). Faster than manual approvals.</p>
+  <p><strong>Target users:</strong> Admins, HR, Project Managers</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 5 — LogTag™                                             -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch5" class="chapter">
+  <h2>LogTag™ <span class="badge">Daily Logging</span></h2>
+  <p><strong>Category:</strong> Daily Logging &amp; Tagging<br>
+  <strong>Introduced:</strong> Milestone 3–4 (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Captures daily logs (text, photos, weather) with custom tags; filters and searches
+  by tag/project/user/date; exports to Excel.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Turns chaotic field notes into actionable, searchable insights. Quick issue spotting
+  (e.g., "Weather" delays) beats paper logs or basic apps.</p>
+  <p><strong>Target users:</strong> Field Users, Project Managers</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 6 — FlowTrigger™                                        -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch6" class="chapter">
+  <h2>FlowTrigger™ <span class="badge">Workflow Automation</span></h2>
+  <p><strong>Category:</strong> Automated Workflows<br>
+  <strong>Introduced:</strong> Milestone 6 (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Triggers workflows from tags (e.g., "Change Order" → reviews/notifications);
+  tracks status with role-based reminders.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Automates escalations to cut delays in approvals/billing; proactive emails for
+  overdues keep projects on track without constant check-ins.</p>
+  <p><strong>Target users:</strong> AR Teams, Project Managers</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 7 — BillPrep™                                           -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch7" class="chapter">
+  <h2>BillPrep™ <span class="badge">Invoicing Automation</span></h2>
+  <p><strong>Category:</strong> Invoicing &amp; Billing<br>
+  <strong>Introduced:</strong> Milestone 7–8 (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Pulls tag-filtered logs into invoice drafts (Google Sheets integration); adds line
+  items, generates PDFs, tracks sent/paid status.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Links field data directly to billing for accurate % complete and unit rates;
+  reduces errors and AR cycles vs. manual transfers.</p>
+  <p><strong>Target users:</strong> AR, Finance, Clients</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 8 — TaskEscalate™                                       -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch8" class="chapter">
+  <h2>TaskEscalate™ <span class="badge">Project Management</span></h2>
+  <p><strong>Category:</strong> Project &amp; Task Management<br>
+  <strong>Introduced:</strong> Milestone 2 (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Manages projects/teams with ToDos, deadlines, and overdue lists; relates tasks
+  to logs; dashboard for status/team counts.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Contextual escalations (e.g., daily emails for overdues) prevent bottlenecks;
+  visual progress beats spreadsheet chaos.</p>
+  <p><strong>Target users:</strong> Project Managers, Teams</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 9 — CacheBoost™                                         -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch9" class="chapter">
+  <h2>CacheBoost™ <span class="badge">Performance</span></h2>
+  <p><strong>Category:</strong> Performance Optimization<br>
+  <strong>Introduced:</strong> Infra Setup (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Uses Redis for caching (e.g., Field Security, bulk updates) and queues to
+  eliminate flickering/lag in data operations.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Handles high-volume enterprise loads smoothly; real-time feel without crashes —
+  ideal for large teams.</p>
+  <p><strong>Target users:</strong> All Users (Backend Reliability)</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 10 — AssetFlow™                                         -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch10" class="chapter">
+  <h2>AssetFlow™ <span class="badge">Logistics</span></h2>
+  <p><strong>Category:</strong> Logistics Tracking<br>
+  <strong>Introduced:</strong> Asset v1 (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Tracks asset locations, holdings, and movements across projects and tenants.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Minimizes loss in inventory-heavy operations; multi-tenant visibility for shared resources.</p>
+  <p><strong>Target users:</strong> Logistics, Superintendents</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 11 — PayCard™                                           -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch11" class="chapter">
+  <h2>PayCard™ <span class="badge">Payments</span></h2>
+  <p><strong>Category:</strong> Payment Handling<br>
+  <strong>Introduced:</strong> UI Enhancements (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Card-based UI for payments with delete/move; ties to billable expenses and invoicing.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Intuitive finance management within projects; preview/print for quick reviews.</p>
+  <p><strong>Target users:</strong> Finance, AR</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 12 — SOPStage™                                          -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch12" class="chapter">
+  <h2>SOPStage™ <span class="badge">Documentation</span></h2>
+  <p><strong>Category:</strong> Document &amp; Procedure Management<br>
+  <strong>Introduced:</strong> Docs/SOP (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Stages SOPs with sorting/file dates; auto-links HTML imports to manuals and chapters.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Streamlines compliance and onboarding; searchable procedures reduce training time.</p>
+  <p><strong>Target users:</strong> Operations, New Hires</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 13 — HireShare™                                         -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch13" class="chapter">
+  <h2>HireShare™ <span class="badge">HR Tools</span></h2>
+  <p><strong>Category:</strong> HR &amp; Talent Tools<br>
+  <strong>Introduced:</strong> HR Commits (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Manages candidates with multi-tenant sharing, invites, and portfolio templates.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Accelerates hiring in tight labor markets; secure token-based access for partners.</p>
+  <p><strong>Target users:</strong> HR, Managers</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 14 — MonoScale™                                         -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch14" class="chapter">
+  <h2>MonoScale™ <span class="badge">Development</span></h2>
+  <p><strong>Category:</strong> Dev Workflow<br>
+  <strong>Introduced:</strong> Repo Setup (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Turborepo monorepo for shared code and builds across web, mobile, and backend.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Faster iterations and scaling; reduces bugs from siloed codebases.</p>
+  <p><strong>Target users:</strong> Dev Teams (Internal)</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 15 — AutoDeploy™                                        -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch15" class="chapter">
+  <h2>AutoDeploy™ <span class="badge">DevOps</span></h2>
+  <p><strong>Category:</strong> DevOps Automation<br>
+  <strong>Introduced:</strong> GCP/Scripts (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Non-interactive deploys via GitHub Actions/GCP; health checks for dependencies.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Reliable updates with zero manual intervention; drift handling for prod stability.</p>
+  <p><strong>Target users:</strong> Operations, Devs</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 16 — OfflineEdge™                                       -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch16" class="chapter">
+  <h2>OfflineEdge™ <span class="badge">Mobile Resilience</span></h2>
+  <p><strong>Category:</strong> Mobile Resilience<br>
+  <strong>Introduced:</strong> Mobile SQLite (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Local storage (SQLite + AsyncStorage) for usage data and logs; syncs when back online.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Full functionality in no-signal areas; critical for remote field work.</p>
+  <p><strong>Target users:</strong> Remote Field Users</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 17 — IntegraHub™                                        -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch17" class="chapter">
+  <h2>IntegraHub™ <span class="badge">Integrations</span></h2>
+  <p><strong>Category:</strong> External Integrations<br>
+  <strong>Introduced:</strong> Milestones/Docs (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Ties to Google APIs (Sheets/Calendar/Maps), with potential Stripe, Twilio,
+  and Buildertrend integrations.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Unifies disparate tools; auto-weather in logs or calendar scheduling without leaving NCC.</p>
+  <p><strong>Target users:</strong> All (Ecosystem)</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 18 — HealthShield™                                      -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch18" class="chapter">
+  <h2>HealthShield™ <span class="badge">Monitoring</span></h2>
+  <p><strong>Category:</strong> Monitoring &amp; Resilience<br>
+  <strong>Introduced:</strong> API Endpoints (February 2026)</p>
+  <p><strong>What it does:</strong><br>
+  Liveness and readiness probes checking DB and Redis health.</p>
+  <p><strong>Competitive Edge:</strong><br>
+  Prevents outages; auto-recovery targeting 99.9% uptime.</p>
+  <p><strong>Target users:</strong> Enterprise Admins</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!-- Ch 19 — How to Add / Update Entries                        -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="ch19" class="chapter">
+  <h2>How to Add a New advantEDGE Entry</h2>
+  <ol>
+    <li>Ship the feature</li>
+    <li>Choose a catchy, defensible branded name (™ symbol encouraged)</li>
+    <li>Write 1–2 sentence "what it does" + 1–2 sentence "why it wins"</li>
+    <li>Add a new <code>&lt;div id="chN" class="chapter"&gt;</code> section</li>
+    <li>Update version number and date in ch1</li>
+    <li>(Optional) Add UI screenshot links or before/after comparison</li>
+  </ol>
+</div>
 
 </body>
 </html>

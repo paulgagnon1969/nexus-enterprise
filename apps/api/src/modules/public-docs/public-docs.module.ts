@@ -7,6 +7,8 @@ import {
   ShareLinksController,
   DocumentShareManagementController,
   ManualShareManagementController,
+  SecureDocumentShareController,
+  ReaderGroupController,
 } from "./public-docs.controller";
 
 @Module({
@@ -17,6 +19,8 @@ import {
     ShareLinksController,
     DocumentShareManagementController,
     ManualShareManagementController,
+    SecureDocumentShareController,
+    ReaderGroupController,
   ],
   providers: [PublicDocsService],
   exports: [PublicDocsService],

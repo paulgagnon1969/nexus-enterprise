@@ -11,6 +11,7 @@ import {
   markOutboxError,
   markOutboxProcessing,
 } from "./outbox";
+import { processMediaQueue } from "./mediaQueue";
 
 export async function canSyncNow(): Promise<boolean> {
   const wifiOnly = await getWifiOnlySync();
@@ -252,6 +253,13 @@ async function processOutboxItem(type: string, payloadStr: string): Promise<void
       return;
     }
 
+    case "media.upload": {
+      // Media uploads are handled by the dedicated media queue,
+      // which respects bandwidth throttling and WiFi-gating.
+      // Skip here — processMediaQueue() handles these items directly.
+      return;
+    }
+
     case "fieldPetl.bulkUpdatePercent": {
       const { projectId, sowItemIds, newPercent } = payload as {
         projectId: string;
@@ -392,6 +400,15 @@ export async function syncOnce(): Promise<{ processed: number; failed: number; s
 
   if (authFailure) {
     return { processed, failed, skippedReason: "Authentication failed - please log in again" };
+  }
+
+  // After processing standard outbox items, run the media queue
+  try {
+    const mediaResult = await processMediaQueue();
+    processed += mediaResult.uploaded;
+    failed += mediaResult.failed;
+  } catch (err) {
+    console.log(`[sync] Media queue error:`, err instanceof Error ? err.message : err);
   }
 
   return { processed, failed };

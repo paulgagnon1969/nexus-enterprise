@@ -16,11 +16,11 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { apiFetch, apiJson } from "../api/client";
-import { fetchUserProjects, triggerLogOcr } from "../api/dailyLog";
+import { fetchUserProjects, triggerLogOcr, scanReceiptImage } from "../api/dailyLog";
 import { enqueueOutbox } from "../offline/outbox";
 import { triggerSync } from "../offline/autoSync";
 import { copyToAppStorage, type StoredFile } from "../storage/files";
-import { compressImage } from "../utils/image";
+import { compressForNetwork, getNetworkTier } from "../utils/mediaCompressor";
 import { recordUsage } from "../storage/usageTracker";
 import { colors } from "../theme/colors";
 import type { DailyLogCreateRequest, DailyLogType, ProjectListItem } from "../types/api";
@@ -61,6 +61,7 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
   const [personOnsite, setPersonOnsite] = useState("");
   const [confidentialNotes, setConfidentialNotes] = useState("");
   const [attachments, setAttachments] = useState<StoredFile[]>([]);
+  const [scanning, setScanning] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -87,38 +88,56 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
       return;
     }
 
+    const tier = await getNetworkTier();
     const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
+      mediaTypes: ["images", "videos"],
       quality: 0.8,
+      videoQuality: tier === "wifi" ? 1 : 0,
       allowsMultipleSelection: true,
-      selectionLimit: 10, // Allow up to 10 photos at once
+      selectionLimit: 10,
     });
     if (res.canceled || !res.assets?.length) return;
 
-    // Process all selected photos
+    // Process all selected media
     const newAttachments: StoredFile[] = [];
     for (const asset of res.assets) {
       if (!asset.uri) continue;
       try {
-        // Compress before storing to reduce upload size
-        const compressed = await compressImage(asset.uri, "medium");
-        const stored = await copyToAppStorage({
-          uri: compressed.uri,
-          name: (asset as any).fileName ?? null,
-          mimeType: "image/jpeg",
-        });
-        newAttachments.push(stored);
+        const isVideo = asset.type === "video";
+        if (isVideo) {
+          // Store video directly (no re-encoding)
+          const stored = await copyToAppStorage({
+            uri: asset.uri,
+            name: (asset as any).fileName ?? null,
+            mimeType: (asset as any).mimeType ?? "video/mp4",
+          });
+          newAttachments.push(stored);
+        } else {
+          // Compress images using network-aware quality
+          const compressed = await compressForNetwork(asset.uri);
+          const stored = await copyToAppStorage({
+            uri: compressed.uri,
+            name: (asset as any).fileName ?? null,
+            mimeType: "image/jpeg",
+          });
+          newAttachments.push(stored);
+        }
       } catch (err) {
-        console.error(`[DailyLogCreate] Failed to copy photo to storage:`, err);
-        setStatus(`Failed to save photo: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[DailyLogCreate] Failed to save media:`, err);
+        setStatus(`Failed to save media: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
     setAttachments((prev) => [...prev, ...newAttachments]);
     if (newAttachments.length > 1) {
-      setStatus(`Added ${newAttachments.length} photos`);
+      setStatus(`Added ${newAttachments.length} files`);
     } else if (newAttachments.length === 1) {
-      setStatus(null); // Clear status for single successful photo
+      setStatus(null);
+    }
+
+    // Auto-scan first photo if receipt type
+    if (logType === "RECEIPT_EXPENSE" && newAttachments.length > 0) {
+      void runReceiptScan(newAttachments[0]);
     }
   };
 
@@ -130,9 +149,11 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
     }
 
     const captureAndAsk = async (): Promise<void> => {
+      const tier = await getNetworkTier();
       const res = await ImagePicker.launchCameraAsync({
-        mediaTypes: ["images"],
+        mediaTypes: ["images", "videos"],
         quality: 0.8,
+        videoQuality: tier === "wifi" ? 1 : 0,
       });
       if (res.canceled) return;
 
@@ -140,25 +161,39 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
       if (!a?.uri) return;
 
       try {
-        // Compress before storing to reduce upload size
-        const compressed = await compressImage(a.uri, "medium");
-        const stored = await copyToAppStorage({
-          uri: compressed.uri,
-          name: (a as any).fileName ?? null,
-          mimeType: "image/jpeg",
-        });
+        const isVideo = a.type === "video";
+        let stored: StoredFile;
+        if (isVideo) {
+          stored = await copyToAppStorage({
+            uri: a.uri,
+            name: (a as any).fileName ?? null,
+            mimeType: (a as any).mimeType ?? "video/mp4",
+          });
+        } else {
+          const compressed = await compressForNetwork(a.uri);
+          stored = await copyToAppStorage({
+            uri: compressed.uri,
+            name: (a as any).fileName ?? null,
+            mimeType: "image/jpeg",
+          });
+        }
         setAttachments((prev) => [...prev, stored]);
+
+        // Auto-scan if receipt type (images only)
+        if (!isVideo && logType === "RECEIPT_EXPENSE") {
+          void runReceiptScan(stored);
+        }
       } catch (err) {
-        console.error(`[DailyLogCreate] Failed to copy camera photo to storage:`, err);
-        setStatus(`Failed to save photo: ${err instanceof Error ? err.message : String(err)}`);
+        console.error(`[DailyLogCreate] Failed to save media:`, err);
+        setStatus(`Failed to save: ${err instanceof Error ? err.message : String(err)}`);
         return;
       }
 
-      // Ask if they want to take another photo
+      // Ask if they want to capture another
       return new Promise((resolve) => {
         Alert.alert(
-          "Photo Added",
-          "Photo saved. Take another?",
+          "Media Added",
+          "Saved. Capture another?",
           [
             {
               text: "Done",
@@ -179,6 +214,29 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
     };
 
     await captureAndAsk();
+  };
+
+  // Inline receipt OCR — scan photo and pre-fill vendor/amount/date
+  const runReceiptScan = async (file: StoredFile) => {
+    setScanning(true);
+    setStatus("🔍 Scanning receipt...");
+    try {
+      const result = await scanReceiptImage(file.uri, file.name, file.mimeType);
+      if (result.success) {
+        if (result.vendor && !expenseVendor) setExpenseVendor(result.vendor);
+        if (result.amount != null && !expenseAmount) setExpenseAmount(String(result.amount));
+        if (result.date && expenseDate === today) setExpenseDate(result.date);
+        if (result.vendor && !title) setTitle(`Receipt — ${result.vendor}`);
+        const confPct = result.confidence ? `${Math.round(result.confidence * 100)}%` : "";
+        setStatus(`✅ Found: ${result.vendor || "Unknown"} — $${result.amount?.toFixed(2) ?? "?"}${confPct ? ` (${confPct})` : ""}`);
+      } else {
+        setStatus(`⚠️ OCR: ${result.error || "Could not read receipt"}`);
+      }
+    } catch (e) {
+      setStatus("⚠️ Receipt scan unavailable (offline?)");
+    } finally {
+      setScanning(false);
+    }
   };
 
   const removeAttachment = (uri: string) => {

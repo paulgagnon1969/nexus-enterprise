@@ -10,13 +10,28 @@ export interface ManualTocEntry {
   anchor: string;
   revisionNo?: number;
   includeInPrint?: boolean; // false = "This Section Intentionally Blank"
+  compact?: boolean; // true = single-doc chapter merged into one row
   children?: ManualTocEntry[];
+}
+
+/** JSON shape stored in ManualView.mapping */
+export interface ViewMapping {
+  compactSingleDocChapters?: boolean;
+  documentMoves?: { manualDocumentId: string; toChapterId: string; sortOrder?: number }[];
+  chapterOrder?: string[]; // chapter IDs in desired order
+  hiddenChapterIds?: string[];
+  hiddenDocumentIds?: string[];
+  chapterMerges?: { targetChapterId: string; sourceChapterIds: string[] }[];
 }
 
 export interface RenderOptions {
   includeRevisionMarkers?: boolean;
   includeToc?: boolean;
   includeCoverPage?: boolean;
+  /** Collapse single-document chapters into one TOC/content row */
+  compactToc?: boolean;
+  /** ID of a saved ManualView to apply */
+  viewId?: string;
   companyBranding?: {
     name?: string;
     logoUrl?: string;
@@ -53,6 +68,7 @@ export class ManualRenderService {
       includeRevisionMarkers = true,
       includeToc = true,
       includeCoverPage = true,
+      compactToc = false,
       baseUrl = '',
       userContext,
     } = options;
@@ -60,8 +76,32 @@ export class ManualRenderService {
     // Generate document serial number for tracking
     const serialNumber = this.generateSerialNumber(manualId, userContext?.userId);
 
-    const manual = await this.getManualWithContent(manualId);
-    const toc = this.buildToc(manual);
+    let manual = await this.getManualWithContent(manualId);
+
+    // Load and apply view mapping if a viewId was provided
+    let viewMapping: ViewMapping | null = null;
+    if (options.viewId) {
+      const view = await this.prisma.manualView.findFirst({
+        where: { id: options.viewId, manualId },
+      });
+      if (view) {
+        viewMapping = view.mapping as ViewMapping;
+        manual = this.applyView(manual, viewMapping);
+      }
+    } else {
+      // If no viewId provided, try to apply the manual's default view (if any)
+      const defaultView = await this.prisma.manualView.findFirst({
+        where: { manualId, isDefault: true },
+      });
+      if (defaultView) {
+        viewMapping = defaultView.mapping as ViewMapping;
+        manual = this.applyView(manual, viewMapping);
+      }
+    }
+
+    // Compact mode: view-level flag overrides explicit option
+    const effectiveCompact = viewMapping?.compactSingleDocChapters ?? compactToc;
+    const toc = this.buildToc(manual, effectiveCompact);
 
     const parts: string[] = [];
 
@@ -84,7 +124,7 @@ export class ManualRenderService {
     }
 
     // Chapters and documents
-    parts.push(this.renderContent(manual, toc, includeRevisionMarkers));
+    parts.push(this.renderContent(manual, toc, includeRevisionMarkers, effectiveCompact));
 
     // Confidentiality footer with serial number
     parts.push(this.renderConfidentialityFooter(serialNumber, userContext?.userName));
@@ -93,6 +133,91 @@ export class ManualRenderService {
     parts.push(this.renderFooterScript(manual));
 
     return this.wrapInHtmlDocument(manual.title, parts.join("\n"));
+  }
+
+  /**
+   * Apply a view mapping to the canonical manual structure.
+   * Returns a shallow-cloned manual with chapters/documents rearranged.
+   */
+  private applyView(manual: any, mapping: ViewMapping): any {
+    // Deep-clone the mutable parts so we don't mutate the original
+    let chapters: any[] = manual.chapters.map((ch: any) => ({
+      ...ch,
+      documents: [...ch.documents],
+    }));
+    let rootDocs: any[] = [...manual.documents];
+
+    // 1. Chapter merges: move all docs from source chapters into target chapter
+    if (mapping.chapterMerges) {
+      for (const merge of mapping.chapterMerges) {
+        const target = chapters.find((ch) => ch.id === merge.targetChapterId);
+        if (!target) continue;
+        for (const srcId of merge.sourceChapterIds) {
+          const srcIdx = chapters.findIndex((ch) => ch.id === srcId);
+          if (srcIdx === -1) continue;
+          target.documents.push(...chapters[srcIdx].documents);
+          chapters.splice(srcIdx, 1);
+        }
+      }
+    }
+
+    // 2. Document moves: relocate individual docs between chapters
+    if (mapping.documentMoves) {
+      for (const move of mapping.documentMoves) {
+        let doc: any = null;
+        // Remove from current location
+        for (const ch of chapters) {
+          const idx = ch.documents.findIndex((d: any) => d.id === move.manualDocumentId);
+          if (idx !== -1) {
+            doc = ch.documents.splice(idx, 1)[0];
+            break;
+          }
+        }
+        if (!doc) {
+          const rootIdx = rootDocs.findIndex((d: any) => d.id === move.manualDocumentId);
+          if (rootIdx !== -1) {
+            doc = rootDocs.splice(rootIdx, 1)[0];
+          }
+        }
+        if (!doc) continue;
+        // Insert into target chapter
+        const targetCh = chapters.find((ch) => ch.id === move.toChapterId);
+        if (targetCh) {
+          if (typeof move.sortOrder === "number") {
+            targetCh.documents.splice(move.sortOrder, 0, doc);
+          } else {
+            targetCh.documents.push(doc);
+          }
+        }
+      }
+    }
+
+    // 3. Chapter ordering
+    if (mapping.chapterOrder && mapping.chapterOrder.length > 0) {
+      const orderMap = new Map(mapping.chapterOrder.map((id, i) => [id, i]));
+      chapters.sort((a, b) => {
+        const ai = orderMap.get(a.id) ?? 9999;
+        const bi = orderMap.get(b.id) ?? 9999;
+        return ai - bi;
+      });
+    }
+
+    // 4. Hidden chapters
+    if (mapping.hiddenChapterIds && mapping.hiddenChapterIds.length > 0) {
+      const hidden = new Set(mapping.hiddenChapterIds);
+      chapters = chapters.filter((ch) => !hidden.has(ch.id));
+    }
+
+    // 5. Hidden documents
+    if (mapping.hiddenDocumentIds && mapping.hiddenDocumentIds.length > 0) {
+      const hidden = new Set(mapping.hiddenDocumentIds);
+      for (const ch of chapters) {
+        ch.documents = ch.documents.filter((d: any) => !hidden.has(d.id));
+      }
+      rootDocs = rootDocs.filter((d: any) => !hidden.has(d.id));
+    }
+
+    return { ...manual, chapters, documents: rootDocs };
   }
 
   /**
@@ -142,13 +267,31 @@ export class ManualRenderService {
 
   /**
    * Build table of contents structure
-   * Chapters come first, then root-level documents (appendices) at the end
+   * Chapters come first, then root-level documents (appendices) at the end.
+   * When compact=true, single-document chapters are collapsed into one entry.
    */
-  private buildToc(manual: any): ManualTocEntry[] {
+  private buildToc(manual: any, compact = false): ManualTocEntry[] {
     const entries: ManualTocEntry[] = [];
 
     // Chapters with their documents FIRST
     for (const chapter of manual.chapters) {
+      // Compact mode: collapse chapter + single doc into one row
+      if (compact && chapter.documents.length === 1) {
+        const doc = chapter.documents[0];
+        entries.push({
+          id: chapter.id,
+          type: "chapter",
+          title: chapter.title,
+          level: 1,
+          anchor: `chapter-${chapter.id}`,
+          revisionNo: doc.systemDocument.currentVersion?.versionNo,
+          includeInPrint: doc.includeInPrint ?? true,
+          compact: true,
+          children: [],
+        });
+        continue;
+      }
+
       const chapterEntry: ManualTocEntry = {
         id: chapter.id,
         type: "chapter",
@@ -843,14 +986,21 @@ export class ManualRenderService {
 
   /**
    * Render all chapters and documents
-   * Chapters come first, then root-level documents (appendices) at the end
+   * Chapters come first, then root-level documents (appendices) at the end.
+   * When compact=true, single-document chapters skip the nested document header.
    */
   private renderContent(
     manual: any,
     toc: ManualTocEntry[],
-    includeRevisionMarkers: boolean
+    includeRevisionMarkers: boolean,
+    compact = false
   ): string {
     const parts: string[] = [];
+
+    // Build a set of compact chapter IDs from the TOC for quick lookup
+    const compactChapterIds = new Set(
+      toc.filter(e => e.compact).map(e => e.id)
+    );
 
     // Chapters with documents FIRST
     for (let i = 0; i < manual.chapters.length; i++) {
@@ -859,6 +1009,13 @@ export class ManualRenderService {
       // Add page break indicator before each chapter (except first)
       if (i > 0) {
         parts.push('<div class="page-break-indicator">Page Break</div>');
+      }
+
+      // Compact: single-doc chapter — merge chapter header with document content (no nested doc header)
+      if (compact && compactChapterIds.has(chapter.id) && chapter.documents.length === 1) {
+        const doc = chapter.documents[0];
+        parts.push(this.renderCompactChapter(chapter, doc, includeRevisionMarkers));
+        continue;
       }
       
       parts.push(`
@@ -902,6 +1059,61 @@ export class ManualRenderService {
     }
 
     return parts.join("\n");
+  }
+
+  /**
+   * Render a compact chapter — single-doc chapter with no nested document header.
+   * The chapter header shows the chapter title + revision badge, and the document
+   * content flows directly beneath it.
+   */
+  private renderCompactChapter(
+    chapter: any,
+    doc: any,
+    includeRevisionMarkers: boolean
+  ): string {
+    const title = chapter.title;
+    const versionNo = doc.systemDocument.currentVersion?.versionNo || 1;
+    const includeInPrint = doc.includeInPrint ?? true;
+
+    if (!includeInPrint) {
+      return `
+<div class="chapter compact-chapter" id="chapter-${chapter.id}">
+  <div class="chapter-header">
+    <h2>${this.escapeHtml(title)} <span class="revision-badge">Rev ${versionNo}</span></h2>
+    ${chapter.description ? `<p class="chapter-description">${this.escapeHtml(chapter.description)}</p>` : ""}
+  </div>
+  <div class="chapter-content">
+    <div class="document-content intentionally-blank">
+      <p class="blank-notice">This Section Intentionally Blank</p>
+    </div>
+  </div>
+</div>`;
+    }
+
+    const content = doc.systemDocument.currentVersion?.htmlContent || "<p>No content available</p>";
+    const docTitle = doc.displayTitleOverride || doc.systemDocument.title;
+
+    const revisionStart = includeRevisionMarkers
+      ? `<p class="revision-marker start">▸ Document: ${this.escapeHtml(docTitle)} — Revision ${versionNo}</p>`
+      : "";
+    const revisionEnd = includeRevisionMarkers
+      ? `<p class="revision-marker end">◂ End of ${this.escapeHtml(docTitle)} (Rev ${versionNo})</p>`
+      : "";
+
+    return `
+<div class="chapter compact-chapter" id="chapter-${chapter.id}">
+  <div class="chapter-header">
+    <h2>${this.escapeHtml(title)} <span class="revision-badge">Rev ${versionNo}</span></h2>
+    ${chapter.description ? `<p class="chapter-description">${this.escapeHtml(chapter.description)}</p>` : ""}
+  </div>
+  <div class="chapter-content">
+    ${revisionStart}
+    <div class="document-content">
+      ${content}
+    </div>
+    ${revisionEnd}
+  </div>
+</div>`;
   }
 
   /**

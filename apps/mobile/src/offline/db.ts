@@ -54,4 +54,23 @@ export async function initDb(): Promise<void> {
   `);
   await d.execAsync(`CREATE INDEX IF NOT EXISTS usage_project_idx ON usage_events(projectId);`);
   await d.execAsync(`CREATE INDEX IF NOT EXISTS usage_ts_idx ON usage_events(ts);`);
+
+  // Media upload progress tracking.
+  await d.execAsync(`
+    CREATE TABLE IF NOT EXISTS media_uploads (
+      id TEXT PRIMARY KEY NOT NULL,
+      outboxId TEXT NOT NULL,
+      fileUri TEXT NOT NULL,
+      fileName TEXT NOT NULL,
+      mimeType TEXT NOT NULL,
+      mediaType TEXT NOT NULL DEFAULT 'image',
+      bytesTotal INTEGER NOT NULL DEFAULT 0,
+      bytesUploaded INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'QUEUED',
+      networkTier TEXT NOT NULL DEFAULT 'cellular',
+      wifiOnly INTEGER NOT NULL DEFAULT 0,
+      createdAt INTEGER NOT NULL
+    );
+  `);
+  await d.execAsync(`CREATE INDEX IF NOT EXISTS media_uploads_status_idx ON media_uploads(status);`);
 }

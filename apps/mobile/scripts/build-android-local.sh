@@ -11,7 +11,7 @@ export PATH="$JAVA_HOME/bin:$PATH"
 VARIANT="${1:-release}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(dirname "$SCRIPT_DIR")"
-OUTPUT_DIR="/Volumes/4T Data/nexus-builds"
+OUTPUT_DIR="$HOME/Library/CloudStorage/GoogleDrive-paulgcs2024@gmail.com/My Drive/# # NEXUS BUILDS"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 
 cd "$APP_DIR"
@@ -78,9 +78,9 @@ if [ ! -f "$APK_PATH" ]; then
   exit 1
 fi
 
-# Copy to output directory if it exists
-if [ -d "/Volumes/4T Data" ]; then
-  mkdir -p "$OUTPUT_DIR"
+# Copy to output directory (Google Drive)
+mkdir -p "$OUTPUT_DIR" 2>/dev/null
+if [ -d "$OUTPUT_DIR" ]; then
   OUTPUT_FILE="$OUTPUT_DIR/nexus-mobile-$VARIANT-$TIMESTAMP.apk"
   cp "$APK_PATH" "$OUTPUT_FILE"
   ln -sf "$OUTPUT_FILE" "$OUTPUT_DIR/nexus-mobile-$VARIANT-latest.apk"

@@ -13,6 +13,8 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { logout } from "../auth/auth";
+import { Platform } from "react-native";
+import appJson from "../../app.json";
 import { countPendingOutbox } from "../offline/outbox";
 import { syncOnce } from "../offline/sync";
 import { getWifiOnlySync, setWifiOnlySync } from "../storage/settings";
@@ -564,6 +566,11 @@ export function HomeScreen({
             <Text style={styles.backToAllText}>← View All Projects</Text>
           </Pressable>
 
+          {/* Version info */}
+          <Text style={styles.versionText}>
+            v{appJson.expo.version} ({Platform.OS === "ios" ? "iOS" : "Android"}) • build {appJson.expo.runtimeVersion}
+          </Text>
+
           {/* Logout */}
           <Pressable style={styles.logout} onPress={doLogout}>
             <Text style={styles.logoutText}>Logout</Text>
@@ -617,6 +624,11 @@ export function HomeScreen({
               </Pressable>
             ))
           )}
+
+          {/* Version info */}
+          <Text style={styles.versionText}>
+            v{appJson.expo.version} ({Platform.OS === "ios" ? "iOS" : "Android"}) • build {appJson.expo.runtimeVersion}
+          </Text>
 
           {/* Logout at bottom */}
           <Pressable style={styles.logout} onPress={doLogout}>
@@ -1119,6 +1131,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   logoutText: { color: "#991b1b", fontWeight: "700" },
+  versionText: {
+    textAlign: "center",
+    fontSize: 11,
+    color: "#9ca3af",
+    marginTop: 24,
+    marginBottom: 4,
+  },
 
   // Modal styles
   modalOverlay: {

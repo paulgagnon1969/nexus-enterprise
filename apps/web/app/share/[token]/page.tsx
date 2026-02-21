@@ -50,7 +50,10 @@ export default function ShareLinkPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [needsPasscode, setNeedsPasscode] = useState(false);
+  const [needsEmailAuth, setNeedsEmailAuth] = useState(false);
   const [passcode, setPasscode] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   // For manual navigation
@@ -83,7 +86,11 @@ export default function ShareLinkPage() {
       if (res.status === 403) {
         const data = await res.json();
         if (data.message?.includes("passcode")) {
+          // Check if this link has recipientEmail set (secure share vs legacy passcode)
+          // The API returns "This link requires a passcode" for both - we need to differentiate
+          // For secure shares, the link also has recipientEmail, so the verify endpoint is used
           setNeedsPasscode(true);
+          setNeedsEmailAuth(true);
           return;
         }
         if (data.message?.includes("expired")) {
@@ -114,6 +121,50 @@ export default function ShareLinkPage() {
     await loadContent(passcode);
   }
 
+  async function handleSecureAuthSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!authEmail.trim() || !authPassword.trim()) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/share/${token}/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authEmail, password: authPassword }),
+      });
+
+      if (res.status === 403) {
+        const data = await res.json();
+        if (data.message?.includes("expired")) {
+          setError("This share link has expired.");
+          setNeedsPasscode(false);
+          setNeedsEmailAuth(false);
+        } else {
+          setError("Invalid email or password. Please try again.");
+        }
+        return;
+      }
+
+      if (res.status === 404) {
+        setError("This share link is invalid or has been revoked.");
+        setNeedsPasscode(false);
+        setNeedsEmailAuth(false);
+        return;
+      }
+
+      if (!res.ok) throw new Error("Failed to verify credentials");
+
+      const data = await res.json();
+      setContent(data);
+      setNeedsPasscode(false);
+      setNeedsEmailAuth(false);
+    } catch (err: any) {
+      setError(err.message || "Failed to verify credentials");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   // Get the currently selected document for manual view
   const currentManualDoc = content?.type === "manual" && selectedDoc
     ? [...(content.chapters?.flatMap(c => c.documents) || []), ...(content.rootDocuments || [])].find(d => d.id === selectedDoc)
@@ -130,7 +181,55 @@ export default function ShareLinkPage() {
     );
   }
 
-  if (needsPasscode) {
+  if (needsPasscode && needsEmailAuth) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.passcodeBox}>
+          <div style={styles.lockIcon}>🔒</div>
+          <h1 style={styles.passcodeTitle}>Secure Document Access</h1>
+          <p style={styles.passcodeText}>
+            Enter the email address this was shared with and the password
+            sent to you in a separate email.
+          </p>
+          {error && (
+            <div style={{
+              background: "#fef2f2",
+              border: "1px solid #fca5a5",
+              borderRadius: 6,
+              padding: "8px 12px",
+              marginBottom: 16,
+              color: "#b91c1c",
+              fontSize: 13,
+            }}>
+              {error}
+            </div>
+          )}
+          <form onSubmit={handleSecureAuthSubmit} style={styles.passcodeForm}>
+            <input
+              type="email"
+              value={authEmail}
+              onChange={(e) => setAuthEmail(e.target.value)}
+              placeholder="Your email address"
+              autoFocus
+              style={{ ...styles.passcodeInput, textAlign: "left" }}
+            />
+            <input
+              type="password"
+              value={authPassword}
+              onChange={(e) => setAuthPassword(e.target.value)}
+              placeholder="Access password"
+              style={styles.passcodeInput}
+            />
+            <button type="submit" disabled={submitting} style={styles.passcodeButton}>
+              {submitting ? "Verifying..." : "Access Document"}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  if (needsPasscode && !needsEmailAuth) {
     return (
       <div style={styles.container}>
         <div style={styles.passcodeBox}>

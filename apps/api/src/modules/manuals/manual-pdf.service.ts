@@ -72,6 +72,8 @@ export class ManualPdfService implements OnModuleInit, OnModuleDestroy {
     manualId: string,
     options?: {
       companyBranding?: { name?: string; logoUrl?: string };
+      compactToc?: boolean;
+      viewId?: string;
       userContext?: { userId: string; userName?: string };
     }
   ): Promise<Buffer> {
@@ -80,6 +82,8 @@ export class ManualPdfService implements OnModuleInit, OnModuleDestroy {
       includeRevisionMarkers: true,
       includeToc: true,
       includeCoverPage: true,
+      compactToc: options?.compactToc ?? false,
+      viewId: options?.viewId,
       companyBranding: options?.companyBranding,
       userContext: options?.userContext,
     });

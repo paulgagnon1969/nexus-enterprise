@@ -26,6 +26,8 @@ import {
   UpdateManualDto,
   CreateChapterDto,
   UpdateChapterDto,
+  CreateManualViewDto,
+  UpdateManualViewDto,
 } from "./dto/manual.dto";
 
 function getUser(req: FastifyRequest): AuthenticatedUser {
@@ -49,6 +51,17 @@ export class TenantOwnedManualsController {
     private readonly renderService: ManualRenderService,
     private readonly pdfService: ManualPdfService,
   ) {}
+
+  /** Verify the manual belongs to the user's company and return it */
+  private async assertTenantManualAccess(userId: string, companyId: string, manualId: string) {
+    const manual = await this.prisma.manual.findFirst({
+      where: { id: manualId, ownerCompanyId: companyId },
+    });
+    if (!manual) {
+      throw new ForbiddenException("Manual not found or access denied");
+    }
+    return manual;
+  }
 
   /**
    * List tenant-owned manuals for current company
@@ -343,6 +356,87 @@ export class TenantOwnedManualsController {
   }
 
   // =========================================================================
+  // Views
+  // =========================================================================
+
+  @Get(":id/views")
+  async listViews(@Req() req: FastifyRequest, @Param("id") id: string) {
+    const user = getUser(req);
+    await this.assertTenantManualAccess(user.userId, user.companyId, id);
+    return this.prisma.manualView.findMany({
+      where: { manualId: id },
+      orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+      include: { createdBy: { select: { id: true, email: true, firstName: true, lastName: true } } },
+    });
+  }
+
+  @Post(":id/views")
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER)
+  async createView(
+    @Req() req: FastifyRequest,
+    @Param("id") id: string,
+    @Body() dto: CreateManualViewDto
+  ) {
+    const user = getUser(req);
+    await this.assertTenantManualAccess(user.userId, user.companyId, id);
+    return this.prisma.manualView.create({
+      data: {
+        manualId: id,
+        name: dto.name,
+        description: dto.description,
+        mapping: dto.mapping ?? {},
+        createdByUserId: user.userId,
+      },
+      include: { createdBy: { select: { id: true, email: true, firstName: true, lastName: true } } },
+    });
+  }
+
+  @Put(":id/views/:viewId")
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER)
+  async updateView(
+    @Req() req: FastifyRequest,
+    @Param("id") id: string,
+    @Param("viewId") viewId: string,
+    @Body() dto: UpdateManualViewDto
+  ) {
+    const user = getUser(req);
+    await this.assertTenantManualAccess(user.userId, user.companyId, id);
+    // If setting default, unset others
+    if (dto.isDefault) {
+      await this.prisma.manualView.updateMany({
+        where: { manualId: id, isDefault: true, id: { not: viewId } },
+        data: { isDefault: false },
+      });
+    }
+    return this.prisma.manualView.update({
+      where: { id: viewId },
+      data: {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.isDefault !== undefined && { isDefault: dto.isDefault }),
+        ...(dto.mapping !== undefined && { mapping: dto.mapping }),
+      },
+      include: { createdBy: { select: { id: true, email: true, firstName: true, lastName: true } } },
+    });
+  }
+
+  @Delete(":id/views/:viewId")
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER)
+  async deleteView(
+    @Req() req: FastifyRequest,
+    @Param("id") id: string,
+    @Param("viewId") viewId: string
+  ) {
+    const user = getUser(req);
+    await this.assertTenantManualAccess(user.userId, user.companyId, id);
+    await this.prisma.manualView.delete({ where: { id: viewId } });
+    return { success: true };
+  }
+
+  // =========================================================================
   // Rendering & Export
   // =========================================================================
 
@@ -377,23 +471,19 @@ export class TenantOwnedManualsController {
     @Query("toc") includeToc?: string,
     @Query("cover") includeCover?: string,
     @Query("revisions") includeRevisions?: string,
+    @Query("compact") compact?: string,
+    @Query("viewId") viewId?: string,
     @Query("baseUrl") baseUrl?: string
   ) {
     const user = getUser(req);
-
-    // Verify access
-    const manual = await this.prisma.manual.findFirst({
-      where: { id, ownerCompanyId: user.companyId },
-    });
-
-    if (!manual) {
-      throw new ForbiddenException("Manual not found or access denied");
-    }
+    await this.assertTenantManualAccess(user.userId, user.companyId, id);
 
     const html = await this.renderService.renderManualHtml(id, {
       includeToc: includeToc !== "false",
       includeCoverPage: includeCover !== "false",
       includeRevisionMarkers: includeRevisions !== "false",
+      compactToc: compact === "true",
+      viewId: viewId || undefined,
       baseUrl: baseUrl || '',
       userContext: {
         userId: user.userId,
@@ -411,18 +501,12 @@ export class TenantOwnedManualsController {
   async downloadPdf(
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
-    @Param("id") id: string
+    @Param("id") id: string,
+    @Query("compact") compact?: string,
+    @Query("viewId") viewId?: string
   ) {
     const user = getUser(req);
-
-    // Verify access
-    const manual = await this.prisma.manual.findFirst({
-      where: { id, ownerCompanyId: user.companyId },
-    });
-
-    if (!manual) {
-      throw new ForbiddenException("Manual not found or access denied");
-    }
+    const manual = await this.assertTenantManualAccess(user.userId, user.companyId, id);
 
     if (!this.pdfService.isAvailable()) {
       throw new ServiceUnavailableException(
@@ -436,6 +520,8 @@ export class TenantOwnedManualsController {
     );
 
     const pdfBuffer = await this.pdfService.generatePdf(id, {
+      compactToc: compact === "true",
+      viewId: viewId || undefined,
       userContext: {
         userId: user.userId,
         userName: user.email,

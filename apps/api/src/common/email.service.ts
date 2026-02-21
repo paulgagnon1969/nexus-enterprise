@@ -468,6 +468,112 @@ export class EmailService {
 
     return this.sendMail({ to: params.toEmail, subject, html, text });
   }
+  /**
+   * Send document share access link (Email 1 of 2).
+   * Contains the share URL and instructions to use their email as login.
+   * Password is sent separately in Email 2.
+   */
+  async sendDocumentShareAccess(params: {
+    toEmail: string;
+    recipientName?: string;
+    documentTitle: string;
+    shareUrl: string;
+    senderName?: string;
+    expiresAt?: Date;
+  }) {
+    const name = params.recipientName || "there";
+    const sender = params.senderName || "NEXUS";
+    const expiryNote = params.expiresAt
+      ? `<p style="margin: 0 0 16px; color: #b45309; font-size: 13px;">⏰ This link expires on ${new Date(params.expiresAt).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>`
+      : "";
+
+    const subject = `${sender} has shared a document with you: ${params.documentTitle}`;
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: #fff; padding: 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 20px;">📄 Document Shared With You</h1>
+          <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">from ${escapeHtml(sender)}</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Hello ${escapeHtml(name)},</p>
+          <p style="margin: 0 0 16px;">You have been granted access to view:</p>
+
+          <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+            <h2 style="margin: 0; font-size: 16px;">${escapeHtml(params.documentTitle)}</h2>
+          </div>
+
+          ${expiryNote}
+
+          <p style="margin: 0 0 12px;">To access this document:</p>
+          <ol style="margin: 0 0 20px; padding-left: 20px;">
+            <li style="margin-bottom: 8px;">Click the button below to open the document</li>
+            <li style="margin-bottom: 8px;">Enter your email address: <strong>${escapeHtml(params.toEmail)}</strong></li>
+            <li>Enter the access password (sent to you in a separate email)</li>
+          </ol>
+
+          <p style="margin: 0 0 24px; text-align: center;">
+            <a href="${params.shareUrl}" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%); color: #fff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
+              View Document
+            </a>
+          </p>
+
+          <p style="margin: 0 0 8px; color: #6b7280; font-size: 12px;">Or copy this link:</p>
+          <p style="margin: 0 0 20px; word-break: break-all; font-size: 12px; color: #2563eb;">
+            <a href="${params.shareUrl}" style="color: #2563eb;">${params.shareUrl}</a>
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">This email was sent by NEXUS on behalf of ${escapeHtml(sender)}. If you weren't expecting this, please disregard.</p>
+        </div>
+      </div>
+    `.trim();
+
+    const text = `Document Shared With You\n\nHello ${name},\n\nYou have been granted access to: ${params.documentTitle}\n\n1. Open: ${params.shareUrl}\n2. Login with your email: ${params.toEmail}\n3. Enter the password from a separate email\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
+
+  /**
+   * Send document share password (Email 2 of 2).
+   * Contains only the access password. Sent separately from the share URL.
+   */
+  async sendDocumentSharePassword(params: {
+    toEmail: string;
+    recipientName?: string;
+    documentTitle: string;
+    password: string;
+  }) {
+    const name = params.recipientName || "there";
+    const subject = "Your document access code";
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: #374151; color: #fff; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 18px;">🔑 Your Access Code</h1>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Hello ${escapeHtml(name)},</p>
+          <p style="margin: 0 0 16px;">Use the following password to access <strong>${escapeHtml(params.documentTitle)}</strong>:</p>
+
+          <div style="background: #f9fafb; border: 2px dashed #d1d5db; border-radius: 8px; padding: 20px; margin: 0 0 20px; text-align: center;">
+            <span style="font-family: monospace; font-size: 24px; font-weight: 700; letter-spacing: 2px; color: #111827;">${escapeHtml(params.password)}</span>
+          </div>
+
+          <p style="margin: 0 0 16px; color: #6b7280; font-size: 13px;">
+            Use your email address (<strong>${escapeHtml(params.toEmail)}</strong>) along with the password above to log in.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">This is an automated message from NEXUS. Do not share this password with anyone.</p>
+        </div>
+      </div>
+    `.trim();
+
+    const text = `Your Access Code\n\nHello ${name},\n\nYour password for "${params.documentTitle}":\n\n${params.password}\n\nUse your email (${params.toEmail}) and this password to log in.\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
 }
 
 function escapeHtml(input: string) {

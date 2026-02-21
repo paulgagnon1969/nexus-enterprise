@@ -157,7 +157,7 @@ export function DailyLogEditScreen({ log, onBack, onSaved }: Props) {
     }
 
     const res = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"],
+      mediaTypes: ["images", "videos"],
       quality: 0.8,
     });
     if (res.canceled) return;
@@ -168,7 +168,7 @@ export function DailyLogEditScreen({ log, onBack, onSaved }: Props) {
     const stored = await copyToAppStorage({
       uri: a.uri,
       name: (a as any).fileName ?? null,
-      mimeType: (a as any).mimeType ?? "image/jpeg",
+      mimeType: (a as any).mimeType ?? (a.type === "video" ? "video/mp4" : "image/jpeg"),
     });
 
     setNewAttachments((prev) => [...prev, stored]);
@@ -177,26 +177,26 @@ export function DailyLogEditScreen({ log, onBack, onSaved }: Props) {
   const pickPhotoFromLibrary = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert("Permission Denied", "Photo library access is required.");
+      Alert.alert("Permission Denied", "Media library access is required.");
       return;
     }
 
     const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
+      mediaTypes: ["images", "videos"],
       quality: 0.8,
       allowsMultipleSelection: true,
       selectionLimit: 10,
     });
     if (res.canceled || !res.assets?.length) return;
 
-    // Process all selected photos
+    // Process all selected media
     const newPhotos: StoredFile[] = [];
     for (const asset of res.assets) {
       if (!asset.uri) continue;
       const stored = await copyToAppStorage({
         uri: asset.uri,
         name: (asset as any).fileName ?? null,
-        mimeType: (asset as any).mimeType ?? "image/jpeg",
+        mimeType: (asset as any).mimeType ?? (asset.type === "video" ? "video/mp4" : "image/jpeg"),
       });
       newPhotos.push(stored);
     }
