@@ -9,11 +9,19 @@ value_score: 9
 created: 2026-02-21
 session_ref: "ncc-pm-redis-session-export.md"
 tags: [cam, technology, accuracy, reliability, fallback, redis, queue]
-website: true
-website_section: why-ncc
-website_priority: 60
-website_headline: "Your Data, Always Safe"
-website_summary: "NCC's resilient architecture ensures your imports and operations complete successfully—even when infrastructure hiccups occur."
+
+# Visibility Control
+visibility:
+  public: false              # Set to true when ready for website
+  internal: true
+  roles: [admin, exec]
+
+# Website Config (only used when visibility.public: true)
+website:
+  section: why-ncc
+  priority: 60
+  headline: "Your Data, Always Safe"
+  summary: "NCC's resilient architecture ensures your imports and operations complete successfully—even when infrastructure hiccups occur."
 ---
 
 # Graceful Synchronous Fallback for Infrastructure Resilience

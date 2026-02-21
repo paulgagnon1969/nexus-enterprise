@@ -62,12 +62,18 @@ title: "[Mode] - [Brief Title]"
 cam_id: "[MODE]-[CATEGORY]-[NNNN]"
 mode: [financial|operations|estimating|hr|client|compliance|technology]
 category: [automation|intelligence|integration|visibility|speed|accuracy|compliance|collaboration]
-status: draft|validated|published
+status: draft|validated|published|archived
 competitive_score: [1-10]  # How unique is this?
 value_score: [1-10]        # How much value does it provide?
 created: YYYY-MM-DD
 session_ref: "[session-file.md]"
 tags: [cam, mode, category, ...]
+
+# Visibility Control
+visibility:
+  public: false              # Show on public website?
+  internal: true             # Show in internal NCC docs?
+  roles: [admin, pm, exec]   # Which roles can see this?
 ---
 
 # [CAM Title]
@@ -143,15 +149,19 @@ Score each potential CAM:
 
 ### 4. Self-Assembly for Website
 
-CAMs tagged with `website: true` auto-populate website sections:
+CAMs with `visibility.public: true` auto-populate website sections:
 
 ```yaml
 # CAM frontmatter for website integration
-website: true
-website_section: features|case-studies|why-ncc
-website_priority: 1-100
-website_headline: "Short marketing headline"
-website_summary: "2-3 sentence marketing copy"
+visibility:
+  public: true               # Required for website
+  internal: true
+  roles: [all]
+website:
+  section: features|case-studies|why-ncc
+  priority: 1-100
+  headline: "Short marketing headline"
+  summary: "2-3 sentence marketing copy"
 ```
 
 ## Example CAMs from This Session
@@ -201,12 +211,82 @@ Every session closeout should include:
 - [CAM-ID]: [Title] → `docs/cams/[filename].md`
 ```
 
+## Visibility & Role-Based Access
+
+### Visibility Levels
+
+| Level | Description | Use Case |
+|-------|-------------|----------|
+| `public: true` | Visible on public website | Marketing-ready features |
+| `public: false, internal: true` | Internal NCC docs only | Competitive intel, roadmap items |
+| `public: false, internal: false` | Archived/hidden | Deprecated or sensitive CAMs |
+
+### Role Definitions
+
+| Role | Description | Typical Access |
+|------|-------------|----------------|
+| `all` | All authenticated users | General features, SOPs |
+| `admin` | System administrators | All documents |
+| `exec` | Executive team | Strategy, financials, competitive intel |
+| `pm` | Project managers | Operations, scheduling, workflows |
+| `estimator` | Estimating team | Pricing, PETL, cost books |
+| `accounting` | Accounting/finance | Invoicing, payroll, reporting |
+| `field` | Field crews | Daily logs, timecards, safety |
+| `client` | External clients (Collaborator) | Scoped project docs only |
+
+### Visibility Examples
+
+```yaml
+# Public marketing feature
+visibility:
+  public: true
+  internal: true
+  roles: [all]
+
+# Internal competitive intel (execs + admins only)
+visibility:
+  public: false
+  internal: true
+  roles: [admin, exec]
+
+# PM-specific workflow doc
+visibility:
+  public: false
+  internal: true
+  roles: [admin, pm]
+
+# Archived/deprecated
+visibility:
+  public: false
+  internal: false
+  roles: []
+```
+
+### Filtering Logic
+
+When rendering documents:
+
+```typescript
+function canViewDocument(doc: Document, user: User): boolean {
+  const vis = doc.visibility;
+  
+  // Public docs: anyone (even unauthenticated for website)
+  if (vis.public && context === 'website') return true;
+  
+  // Internal docs: must be authenticated + have matching role
+  if (!vis.internal) return false;
+  if (vis.roles.includes('all')) return true;
+  
+  return user.roles.some(role => vis.roles.includes(role));
+}
+```
+
 ## CAM Review Process
 
-1. **Draft** → Created by Warp during session closeout
+1. **Draft** → Created by Warp during session closeout (visibility: internal, roles: [admin])
 2. **Review** → PM/Admin evaluates accuracy and scores
-3. **Validated** → Confirmed as real competitive advantage
-4. **Published** → Added to CAM Library, optionally to website
+3. **Validated** → Confirmed as real competitive advantage (expand roles as appropriate)
+4. **Published** → Added to CAM Library, optionally set `public: true` for website
 
 ## Metrics & Reporting
 
