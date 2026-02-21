@@ -176,6 +176,13 @@ export default function SystemDocumentDetailPage() {
   // Ref for document content container (for Mermaid rendering)
   const contentRef = useRef<HTMLDivElement>(null);
   
+  // Memoize sanitized HTML to avoid re-computing on every render
+  const sanitizedContent = useMemo(() => {
+    const html = document?.currentVersion?.htmlContent;
+    if (!html) return "<em>No content</em>";
+    return sanitizeHtml(html);
+  }, [document?.currentVersion?.htmlContent]);
+  
   // Render Mermaid diagrams when content loads
   useMermaidRender(document?.currentVersion?.htmlContent, contentRef);
 
@@ -358,13 +365,20 @@ export default function SystemDocumentDetailPage() {
               </button>
               <button
                 onClick={() => {
-                  if (!document) return;
-                  generateAndDownloadPdf(
-                    document,
-                    () => setGeneratingPdf(true),
-                    () => setGeneratingPdf(false),
-                    (msg) => { setGeneratingPdf(false); alert(msg); }
-                  );
+                  if (!document || generatingPdf) return;
+                  // Set loading state IMMEDIATELY before any async work
+                  setGeneratingPdf(true);
+                  // Defer heavy work to next frame so UI can update first
+                  requestAnimationFrame(() => {
+                    setTimeout(() => {
+                      generateAndDownloadPdf(
+                        document,
+                        () => {}, // Already set above
+                        () => setGeneratingPdf(false),
+                        (msg) => { setGeneratingPdf(false); alert(msg); }
+                      );
+                    }, 0);
+                  });
                 }}
                 disabled={generatingPdf}
                 style={{
@@ -658,7 +672,7 @@ export default function SystemDocumentDetailPage() {
                 margin: readerMode ? "0 auto" : 0,
               }}
               className="document-content"
-              dangerouslySetInnerHTML={{ __html: sanitizeHtml(document.currentVersion?.htmlContent || "<em>No content</em>") }}
+              dangerouslySetInnerHTML={{ __html: sanitizedContent }}
             />
           </div>
 

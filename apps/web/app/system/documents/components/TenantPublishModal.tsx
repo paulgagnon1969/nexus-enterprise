@@ -65,7 +65,7 @@ export function TenantPublishModal({
       setLoading(true);
       try {
         const [companiesRes, groupsRes] = await Promise.all([
-          fetch(`${API_BASE}/companies`, { headers: getAuthHeaders() }),
+          fetch(`${API_BASE}/admin/companies`, { headers: getAuthHeaders() }),
           fetch(`${API_BASE}/publication-groups`, { headers: getAuthHeaders() }),
         ]);
 
