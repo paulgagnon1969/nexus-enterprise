@@ -11,7 +11,7 @@ export PATH="$JAVA_HOME/bin:$PATH"
 VARIANT="${1:-release}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(dirname "$SCRIPT_DIR")"
-OUTPUT_DIR="$HOME/Library/CloudStorage/GoogleDrive-paulgcs2024@gmail.com/My Drive/# # NEXUS BUILDS"
+OUTPUT_DIR="$HOME/Library/CloudStorage/GoogleDrive-paul.gagnon@keystone-restoration.com/My Drive/nexus-builds"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 
 cd "$APP_DIR"
