@@ -31,6 +31,7 @@ export default function ManualsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [defaultViews, setDefaultViews] = useState<Record<string, string>>({});
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem("accessToken");
@@ -59,6 +60,32 @@ export default function ManualsPage() {
   useEffect(() => {
     loadManuals();
   }, [loadManuals]);
+
+  // After manuals load, fetch default views for each
+  useEffect(() => {
+    if (manuals.length === 0) return;
+    Promise.all(
+      manuals.map(async (m) => {
+        try {
+          const res = await fetch(`${API_BASE}/system/manuals/${m.id}/views`, {
+            headers: getAuthHeaders(),
+          });
+          if (!res.ok) return null;
+          const views = await res.json();
+          const def = views.find((v: any) => v.isDefault);
+          return def ? { manualId: m.id, viewName: def.name as string } : null;
+        } catch {
+          return null;
+        }
+      })
+    ).then((results) => {
+      const map: Record<string, string> = {};
+      for (const r of results) {
+        if (r) map[r.manualId] = r.viewName;
+      }
+      setDefaultViews(map);
+    });
+  }, [manuals]);
 
   const handleCreate = async (data: { code: string; title: string; description?: string; iconEmoji?: string }) => {
     try {
@@ -290,6 +317,23 @@ export default function ManualsPage() {
                       }}
                     >
                       PUBLIC
+                    </span>
+                  )}
+                  {defaultViews[manual.id] && (
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 3,
+                        padding: "1px 6px",
+                        backgroundColor: "#fef3c7",
+                        color: "#92400e",
+                        borderRadius: 4,
+                        fontSize: 10,
+                        fontWeight: 500,
+                      }}
+                    >
+                      ★ {defaultViews[manual.id]}
                     </span>
                   )}
                 </div>
