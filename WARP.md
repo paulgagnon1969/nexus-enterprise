@@ -339,6 +339,55 @@ flowchart TD
 - Department tags as applicable: `admin`, `accounting`, `operations`, `hr`
 - Role tags as applicable: `admin-only`, `manager`, `all-users`
 
+## Document Visibility & Role-Based Access
+
+All documents in the Nexus ecosystem (SOPs, CAMs, handbooks, etc.) support visibility controls via frontmatter:
+
+```yaml
+visibility:
+  public: false              # Show on public website?
+  internal: true             # Show in internal NCC docs?
+  roles: [admin, pm, exec]   # Which roles can see this?
+```
+
+### Visibility Levels
+- `public: true` — Visible on public website (marketing-ready)
+- `public: false, internal: true` — Internal NCC docs only
+- `public: false, internal: false` — Archived/hidden
+
+### Standard Roles
+| Role | Description |
+|------|-------------|
+| `all` | All authenticated users |
+| `admin` | System administrators |
+| `exec` | Executive team |
+| `pm` | Project managers |
+| `estimator` | Estimating team |
+| `accounting` | Accounting/finance |
+| `field` | Field crews |
+| `client` | External clients (Collaborator Technology) |
+
+### Default Visibility by Document Type
+- **SOPs**: `internal: true, roles: [all]` (visible to all authenticated users)
+- **CAMs (draft)**: `internal: true, roles: [admin]` (restricted until reviewed)
+- **CAMs (validated)**: `internal: true, roles: [admin, exec, pm]` (expand as appropriate)
+- **CAMs (published)**: `public: true, roles: [all]` (if approved for website)
+- **Handbooks**: `internal: true, roles: [role-specific]` (auto-filter by reader's role)
+
+### Handbook Auto-Filtering
+
+When generating role-specific handbooks, documents are automatically filtered:
+
+```typescript
+// Example: Generate PM Handbook
+const pmDocs = allDocs.filter(doc => 
+  doc.visibility.internal && 
+  (doc.visibility.roles.includes('all') || doc.visibility.roles.includes('pm'))
+);
+```
+
+This allows a single source of truth with role-appropriate views.
+
 ## Session Memorialization Contract
 
 At the end of significant development sessions, Warp MUST evaluate and potentially create documentation:

@@ -9,11 +9,19 @@ value_score: 8
 created: 2026-02-21
 session_ref: "ncc-pm-redis-session-export.md"
 tags: [cam, estimating, speed, redis, caching, petl, golden-price-list]
-website: true
-website_section: features
-website_priority: 75
-website_headline: "54,000 Prices in 50ms"
-website_summary: "NCC's intelligent caching delivers the entire Golden Price List instantly. Estimators spend time estimating, not waiting."
+
+# Visibility Control
+visibility:
+  public: false              # Set to true when ready for website
+  internal: true
+  roles: [admin, exec, pm]
+
+# Website Config (only used when visibility.public: true)
+website:
+  section: features
+  priority: 75
+  headline: "54,000 Prices in 50ms"
+  summary: "NCC's intelligent caching delivers the entire Golden Price List instantly. Estimators spend time estimating, not waiting."
 ---
 
 # Instant Price List Access via Redis Caching
