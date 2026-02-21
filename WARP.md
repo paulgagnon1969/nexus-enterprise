@@ -338,3 +338,47 @@ flowchart TD
 - Module tag: `module-name` (e.g., `document-import`, `timecard`, `user-management`)
 - Department tags as applicable: `admin`, `accounting`, `operations`, `hr`
 - Role tags as applicable: `admin-only`, `manager`, `all-users`
+
+## Session Memorialization Contract
+
+At the end of significant development sessions, Warp MUST evaluate and potentially create documentation:
+
+### 1. Create Session Export (When Appropriate)
+- **Location:** `docs/sops-staging/session-[date]-[topic].md`
+- **Include:** Problems solved, decisions made, code changes, lessons learned
+- **Trigger:** User requests export, or session involved significant production changes
+
+### 2. Evaluate for Competitive Advantage Modules (CAMs)
+
+Score each significant feature/fix against these criteria (1-10 each):
+
+| Criterion | Question |
+|-----------|----------|
+| **Uniqueness** | Do competitors have this? (1=common, 10=unique) |
+| **Value** | How much does this help users? (1=minor, 10=critical) |
+| **Demonstrable** | Can we show this in a demo? (1=hard, 10=easy) |
+| **Defensible** | Is this hard to copy? (1=easy, 10=hard) |
+
+**CAM Threshold:** Combined score ≥ 24/40 → Create CAM draft in `docs/cams/`
+
+### 3. CAM Document Structure
+
+CAMs are organized by **Mode** and **Category**:
+
+**Modes:** `FIN` (Financial), `OPS` (Operations), `EST` (Estimating), `HR` (Workforce), `CLT` (Client Relations), `CMP` (Compliance), `TECH` (Technology)
+
+**Categories:** `AUTO` (Automation), `INTL` (Intelligence), `INTG` (Integration), `VIS` (Visibility), `SPD` (Speed), `ACC` (Accuracy), `CMP` (Compliance), `COLLAB` (Collaboration)
+
+**CAM ID Format:** `{MODE}-{CATEGORY}-{NNNN}` (e.g., `EST-SPD-0001`)
+
+### 4. Storage & Sync
+- Session exports: `docs/sops-staging/` → syncs to Nexus Documents "Unpublished SOPs"
+- CAMs: `docs/cams/` → syncs to Nexus Documents "CAM Library"
+- CAMs with `website: true` in frontmatter feed into website content pipeline
+
+### 5. Session Closeout Prompt
+
+After significant sessions, prompt user:
+> "Session complete. Created [N] doc(s) and [M] CAM(s). Ready to push?"
+
+See full CAM system documentation: `docs/sops-staging/cam-competitive-advantage-system-sop.md`
