@@ -1,4 +1,4 @@
-name: Sync SOPs to Nexus Documents
+name: Sync SOPs and CAMs to Nexus Documents
 
 on:
   workflow_dispatch:
@@ -7,9 +7,10 @@ on:
       - main
     paths:
       - "docs/sops-staging/**"
+      - "docs/cams/**"
 
 jobs:
-  sync-sops:
+  sync-docs:
     runs-on: ubuntu-latest
 
     steps:
@@ -27,6 +28,12 @@ jobs:
 
       - name: Sync SOPs to Nexus Documents
         run: npm run sops:sync
+        env:
+          NEXUS_API_URL: ${{ secrets.NEXUS_API_URL }}
+          NEXUS_API_TOKEN: ${{ secrets.NEXUS_API_TOKEN }}
+
+      - name: Sync CAMs to Nexus Documents
+        run: npm run cams:sync
         env:
           NEXUS_API_URL: ${{ secrets.NEXUS_API_URL }}
           NEXUS_API_TOKEN: ${{ secrets.NEXUS_API_TOKEN }}
