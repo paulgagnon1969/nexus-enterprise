@@ -1316,4 +1316,60 @@ export class AuthService {
 
     return { accessToken, refreshToken };
   }
+
+  /**
+   * Create a long-lived service token for automation (SOP sync, CI/CD, etc.)
+   * Only SUPER_ADMIN can create these tokens.
+   * Default expiry: 90 days. Max: 365 days.
+   */
+  async createServiceToken(
+    actor: AuthenticatedUser,
+    label?: string,
+    expiresInDays?: number,
+  ) {
+    if (actor.globalRole !== GlobalRole.SUPER_ADMIN) {
+      throw new UnauthorizedException("Only SUPER_ADMIN can create service tokens");
+    }
+
+    const days = Math.min(expiresInDays || 90, 365);
+    const expiresInSeconds = days * 24 * 60 * 60;
+
+    const payload = {
+      sub: actor.userId,
+      companyId: actor.companyId,
+      role: Role.OWNER,
+      email: actor.email,
+      globalRole: actor.globalRole,
+      isServiceToken: true,
+      tokenLabel: label || "service-token",
+    };
+
+    const serviceToken = await this.jwt.signAsync(payload, {
+      secret: process.env.JWT_ACCESS_SECRET || "change-me-access",
+      expiresIn: expiresInSeconds,
+    });
+
+    // Log service token creation for audit
+    await this.prisma.adminAuditLog.create({
+      data: {
+        actorId: actor.userId,
+        actorEmail: actor.email,
+        actorGlobalRole: actor.globalRole,
+        action: "SERVICE_TOKEN_CREATED",
+        targetCompanyId: actor.companyId,
+        targetUserId: actor.userId,
+        metadata: {
+          label: label || "service-token",
+          expiresInDays: days,
+        } as any,
+      },
+    });
+
+    return {
+      token: serviceToken,
+      label: label || "service-token",
+      expiresAt: new Date(Date.now() + expiresInSeconds * 1000).toISOString(),
+      expiresInDays: days,
+    };
+  }
 }
