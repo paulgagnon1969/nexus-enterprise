@@ -87,3 +87,6 @@ flowchart TD
 | Rev | Date       | Changes                                      |
 |-----|------------|----------------------------------------------|
 | 1.0 | 2026-02-21 | Initial release (session export + SOP notes) |
+
+## Notes
+Session exported from Warp on 2026-02-21.
