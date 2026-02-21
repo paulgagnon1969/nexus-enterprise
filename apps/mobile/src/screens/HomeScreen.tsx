@@ -42,6 +42,46 @@ interface ProjectWithLatestLog {
   latestLogDate: Date | null;
 }
 
+// Map pin icon matching the provided design (teal/blue teardrop marker)
+function MapPinIcon({ size = 22, color = "#0ea5e9" }: { size?: number; color?: string }) {
+  return (
+    <View style={{ width: size, height: size * 1.3, alignItems: "center" }}>
+      <View
+        style={{
+          width: size * 0.75,
+          height: size * 0.75,
+          borderRadius: size * 0.375,
+          backgroundColor: color,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <View
+          style={{
+            width: size * 0.28,
+            height: size * 0.28,
+            borderRadius: size * 0.14,
+            backgroundColor: "#ffffff",
+          }}
+        />
+      </View>
+      <View
+        style={{
+          width: 0,
+          height: 0,
+          borderLeftWidth: size * 0.2,
+          borderRightWidth: size * 0.2,
+          borderTopWidth: size * 0.35,
+          borderLeftColor: "transparent",
+          borderRightColor: "transparent",
+          borderTopColor: color,
+          marginTop: -3,
+        }}
+      />
+    </View>
+  );
+}
+
 export function HomeScreen({
   onLogout,
   onGoProjects,
@@ -84,6 +124,10 @@ export function HomeScreen({
   const [projectsWithLogs, setProjectsWithLogs] = useState<ProjectWithLatestLog[]>([]);
   const [feedLoading, setFeedLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // All logs for the selected project
+  const [projectLogs, setProjectLogs] = useState<DailyLogListItem[]>([]);
+  const [projectLogsLoading, setProjectLogsLoading] = useState(false);
 
   // Expanded daily log detail
   const [expandedLog, setExpandedLog] = useState<DailyLogDetail | null>(null);
@@ -246,6 +290,33 @@ export function HomeScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentCompanyId, currentCompanyName]);
 
+  // Load all logs when a project is selected
+  const loadProjectLogs = useCallback(async (projectId: string) => {
+    setProjectLogsLoading(true);
+    try {
+      const res = await fetchDailyLogFeed({ projectIds: [projectId], limit: 200 });
+      // Sort newest to oldest
+      const sorted = [...res.items].sort(
+        (a, b) => new Date(b.logDate).getTime() - new Date(a.logDate).getTime(),
+      );
+      setProjectLogs(sorted);
+    } catch (e) {
+      console.error("Failed to load project logs:", e);
+      setProjectLogs([]);
+    } finally {
+      setProjectLogsLoading(false);
+    }
+  }, []);
+
+  // Reload project logs when selected project changes
+  useEffect(() => {
+    if (selectedProject) {
+      void loadProjectLogs(selectedProject.id);
+    } else {
+      setProjectLogs([]);
+    }
+  }, [selectedProject, loadProjectLogs]);
+
   const toggleWifiOnly = async (next: boolean) => {
     setWifiOnly(next);
     await setWifiOnlySync(next);
@@ -296,9 +367,11 @@ export function HomeScreen({
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([refresh(), loadProjectFeed()]);
+    const tasks: Promise<any>[] = [refresh(), loadProjectFeed()];
+    if (selectedProject) tasks.push(loadProjectLogs(selectedProject.id));
+    await Promise.all(tasks);
     setRefreshing(false);
-  }, [loadProjectFeed]);
+  }, [loadProjectFeed, loadProjectLogs, selectedProject]);
 
   // Open daily log detail
   const openLogDetail = async (logId: string, projectId?: string) => {
@@ -417,7 +490,7 @@ export function HomeScreen({
           <Text style={styles.orgDropdownArrow}>▼</Text>
         </Pressable>
 
-        {/* Center: Sync bar (flex) */}
+        {/* Center: Sync bar (shrunk) */}
         <Pressable
           style={[styles.syncBar, syncing && styles.syncBarActive]}
           onPress={runSync}
@@ -432,15 +505,26 @@ export function HomeScreen({
           )}
         </Pressable>
 
-        {/* Right: WiFi toggle + pending count */}
+        {/* Right: WiFi toggle + pending count + map pin */}
         <View style={styles.rightControls}>
-          <View style={styles.wifiRow}>
-            <Text style={styles.wifiLabel}>WiFi</Text>
-            <Switch
-              value={wifiOnly}
-              onValueChange={toggleWifiOnly}
-              style={styles.wifiSwitch}
-            />
+          <View style={styles.rightControlsRow}>
+            <View style={styles.wifiRow}>
+              <Text style={styles.wifiLabel}>WiFi</Text>
+              <Switch
+                value={wifiOnly}
+                onValueChange={toggleWifiOnly}
+                style={styles.wifiSwitch}
+              />
+            </View>
+            {selectedProject &&
+              (selectedProject.latitude || selectedProject.addressLine1) && (
+                <Pressable
+                  style={styles.mapPinButton}
+                  onPress={() => setShowDirections(true)}
+                >
+                  <MapPinIcon size={20} color="#0ea5e9" />
+                </Pressable>
+              )}
           </View>
           {pending > 0 && (
             <Pressable onPress={onGoOutbox}>
@@ -471,60 +555,41 @@ export function HomeScreen({
             )}
           </View>
 
-          {/* Daily Log Button */}
-          <View style={styles.dailyLogSection}>
+          {/* Combined Action Bar: Add Daily Log + Clock In/Out */}
+          <View style={styles.combinedActionBar}>
             <Pressable
-              style={styles.dailyLogButton}
+              style={styles.combinedActionBtn}
               onPress={() => setShowDailyLogPicker(true)}
             >
-              <Text style={styles.dailyLogButtonIcon}>📋</Text>
-              <View style={styles.dailyLogButtonContent}>
-                <Text style={styles.dailyLogButtonText}>Add Daily Log</Text>
-                <Text style={styles.dailyLogButtonSubtext}>Select log type</Text>
+              <Text style={styles.combinedActionIcon}>📋</Text>
+              <View style={styles.combinedActionContent}>
+                <Text style={styles.combinedActionTitle}>Add Daily Log</Text>
+                <Text style={styles.combinedActionSub}>Select type ▼</Text>
               </View>
-              <Text style={styles.dailyLogButtonArrow}>▼</Text>
             </Pressable>
-          </View>
 
-          {/* Clock In/Out */}
-          <View style={styles.clockSection}>
             <Pressable
               style={[
-                styles.clockButton,
-                clockedIn ? styles.clockButtonOut : styles.clockButtonIn,
+                styles.combinedActionBtn,
+                clockedIn ? styles.combinedClockOut : styles.combinedClockIn,
               ]}
               onPress={handleClockToggle}
             >
-              <Text style={styles.clockButtonIcon}>
+              <Text style={styles.combinedActionIcon}>
                 {clockedIn ? "⏹️" : "▶️"}
               </Text>
-              <View>
-                <Text style={styles.clockButtonText}>
+              <View style={styles.combinedActionContent}>
+                <Text style={styles.combinedActionTitle}>
                   {clockedIn ? "Clock Out" : "Clock In"}
                 </Text>
-                {clockedIn && clockInTime && (
-                  <Text style={styles.clockElapsed}>{getElapsedTime()}</Text>
+                {clockedIn && clockInTime ? (
+                  <Text style={styles.combinedActionSub}>{getElapsedTime()}</Text>
+                ) : (
+                  <Text style={styles.combinedActionSub}>Tap to start</Text>
                 )}
               </View>
             </Pressable>
           </View>
-
-          {/* Directions */}
-          {(selectedProject.latitude || selectedProject.addressLine1) && (
-            <Pressable
-              style={styles.actionCard}
-              onPress={() => setShowDirections(true)}
-            >
-              <Text style={styles.actionCardIcon}>🗺️</Text>
-              <View style={styles.actionCardContent}>
-                <Text style={styles.actionCardTitle}>Get Directions</Text>
-                <Text style={styles.actionCardSubtitle}>
-                  Open in your preferred maps app
-                </Text>
-              </View>
-              <Text style={styles.chevron}>›</Text>
-            </Pressable>
-          )}
 
           {/* TODOs Section */}
           <View style={styles.todosSection}>
@@ -537,25 +602,58 @@ export function HomeScreen({
             </View>
           </View>
 
-          {/* Recent Activity */}
-          <View style={styles.recentSection}>
-            <Text style={styles.recentSectionTitle}>Recent Logs</Text>
-            {projectsWithLogs
-              .filter((p) => p.project.id === selectedProject.id && p.latestLog)
-              .map((item) => (
+          {/* All Daily Logs — newest to oldest */}
+          <View style={styles.allLogsSection}>
+            <Text style={styles.allLogsSectionTitle}>Daily Logs</Text>
+            {projectLogsLoading ? (
+              <ActivityIndicator
+                size="small"
+                color="#1e3a8a"
+                style={{ marginTop: 12 }}
+              />
+            ) : projectLogs.length === 0 ? (
+              <View style={styles.noLogsPlaceholder}>
+                <Text style={styles.noLogsText}>No daily logs yet</Text>
+              </View>
+            ) : (
+              projectLogs.map((log) => (
                 <Pressable
-                  key={item.latestLog!.id}
-                  style={styles.recentLogRow}
-                  onPress={() => openLogDetail(item.latestLog!.id)}
+                  key={log.id}
+                  style={styles.allLogRow}
+                  onPress={() => openLogDetail(log.id, log.projectId)}
                 >
-                  <Text style={styles.recentLogDate}>
-                    {formatDate(item.latestLog!.logDate)}
-                  </Text>
-                  <Text style={styles.recentLogSummary} numberOfLines={1}>
-                    {item.latestLog!.workPerformed || item.latestLog!.title || "Daily log"}
-                  </Text>
+                  <View style={styles.allLogLeft}>
+                    <Text style={styles.allLogDate}>
+                      {formatDate(log.logDate)}
+                    </Text>
+                    {log.type && log.type !== "PUDL" && (
+                      <Text style={styles.allLogTypeBadge}>
+                        {log.type === "RECEIPT_EXPENSE"
+                          ? "🧾"
+                          : log.type === "JSA"
+                          ? "⚠️"
+                          : log.type === "INCIDENT"
+                          ? "🚨"
+                          : log.type === "QUALITY"
+                          ? "🔍"
+                          : ""}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.allLogCenter}>
+                    <Text style={styles.allLogTitle} numberOfLines={1}>
+                      {log.title || log.workPerformed || "Daily log"}
+                    </Text>
+                    {log.createdByUser && (
+                      <Text style={styles.allLogAuthor} numberOfLines={1}>
+                        {log.createdByUser.firstName || log.createdByUser.email}
+                      </Text>
+                    )}
+                  </View>
+                  <Text style={styles.chevron}>›</Text>
                 </Pressable>
-              ))}
+              ))
+            )}
           </View>
 
           {/* Back to all projects */}
@@ -1009,7 +1107,7 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
 
-  // Sync bar (center, flexible - shrinks to fit)
+  // Sync bar (center, shrunk to fit with map pin)
   syncBar: {
     flex: 1,
     flexDirection: "row",
@@ -1017,10 +1115,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#eff6ff",
     borderRadius: 8,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 8,
     minHeight: 36,
-    minWidth: 50,
+    minWidth: 40,
   },
   syncBarActive: {
     backgroundColor: "#dbeafe",
@@ -1031,9 +1129,14 @@ const styles = StyleSheet.create({
     color: "#1e3a8a",
   },
 
-  // Right controls (WiFi + pending)
+  // Right controls (WiFi + pending + map pin)
   rightControls: {
     alignItems: "flex-end",
+  },
+  rightControlsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   wifiRow: {
     flexDirection: "row",
@@ -1052,6 +1155,13 @@ const styles = StyleSheet.create({
     color: "#d97706",
     fontWeight: "600",
     marginTop: 2,
+  },
+  mapPinButton: {
+    padding: 4,
+    borderRadius: 6,
+    backgroundColor: "#f0f9ff",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   companyMessage: {
@@ -1363,38 +1473,43 @@ const styles = StyleSheet.create({
     color: "#6b7280",
   },
 
-  // Daily Log section
-  dailyLogSection: {
+  // Combined Action Bar (Daily Log + Clock)
+  combinedActionBar: {
+    flexDirection: "row",
     paddingHorizontal: 16,
     paddingTop: 16,
+    gap: 10,
   },
-  dailyLogButton: {
+  combinedActionBtn: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    padding: 16,
+    padding: 14,
     borderRadius: 12,
     backgroundColor: "#1e3a8a",
-    gap: 12,
+    gap: 10,
   },
-  dailyLogButtonIcon: {
-    fontSize: 28,
+  combinedClockIn: {
+    backgroundColor: "#16a34a",
   },
-  dailyLogButtonContent: {
+  combinedClockOut: {
+    backgroundColor: "#dc2626",
+  },
+  combinedActionIcon: {
+    fontSize: 22,
+  },
+  combinedActionContent: {
     flex: 1,
   },
-  dailyLogButtonText: {
-    fontSize: 18,
+  combinedActionTitle: {
+    fontSize: 14,
     fontWeight: "700",
     color: "#ffffff",
   },
-  dailyLogButtonSubtext: {
-    fontSize: 13,
+  combinedActionSub: {
+    fontSize: 11,
     color: "rgba(255,255,255,0.7)",
-    marginTop: 2,
-  },
-  dailyLogButtonArrow: {
-    fontSize: 14,
-    color: "rgba(255,255,255,0.7)",
+    marginTop: 1,
   },
 
   // Daily Log Type picker options
@@ -1424,63 +1539,67 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // Clock section
-  clockSection: {
-    padding: 16,
+  // All Logs section
+  allLogsSection: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 16,
   },
-  clockButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 16,
-    borderRadius: 12,
-    gap: 12,
-  },
-  clockButtonIn: {
-    backgroundColor: "#dcfce7",
-  },
-  clockButtonOut: {
-    backgroundColor: "#fee2e2",
-  },
-  clockButtonIcon: {
-    fontSize: 28,
-  },
-  clockButtonText: {
-    fontSize: 18,
+  allLogsSectionTitle: {
+    fontSize: 14,
     fontWeight: "700",
     color: "#1f2937",
+    marginBottom: 12,
   },
-  clockElapsed: {
+  noLogsPlaceholder: {
+    alignItems: "center",
+    padding: 24,
+    backgroundColor: "#f9fafb",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderStyle: "dashed",
+  },
+  noLogsText: {
     fontSize: 14,
-    color: "#6b7280",
-    marginTop: 2,
+    color: "#9ca3af",
+    fontStyle: "italic",
   },
-
-  // Action card (directions)
-  actionCard: {
+  allLogRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginHorizontal: 16,
-    marginBottom: 12,
-    padding: 14,
-    backgroundColor: "#f3f4f6",
-    borderRadius: 12,
+    padding: 12,
+    backgroundColor: "#f9fafb",
+    borderRadius: 8,
+    marginBottom: 6,
   },
-  actionCardIcon: {
-    fontSize: 24,
-    marginRight: 12,
+  allLogLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    minWidth: 75,
+    marginRight: 8,
   },
-  actionCardContent: {
+  allLogDate: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1e3a8a",
+  },
+  allLogTypeBadge: {
+    fontSize: 14,
+    marginLeft: 4,
+  },
+  allLogCenter: {
     flex: 1,
   },
-  actionCardTitle: {
-    fontSize: 15,
-    fontWeight: "600",
+  allLogTitle: {
+    fontSize: 14,
+    fontWeight: "500",
     color: "#1f2937",
   },
-  actionCardSubtitle: {
+  allLogAuthor: {
     fontSize: 12,
-    color: "#6b7280",
-    marginTop: 2,
+    color: "#9ca3af",
+    marginTop: 1,
   },
 
   // TODOs section

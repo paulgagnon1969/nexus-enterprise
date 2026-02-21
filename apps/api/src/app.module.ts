@@ -49,6 +49,7 @@ import { SupplierModule } from "./modules/supplier/supplier.module";
 import { BidRequestModule } from "./modules/bid-request/bid-request.module";
 import { BidPortalModule } from "./modules/bid-portal/bid-portal.module";
 import { OcrModule } from "./modules/ocr/ocr.module";
+import { OshaSyncModule } from "./modules/osha-sync/osha-sync.module";
 
 @Module({
   imports: [
@@ -106,6 +107,7 @@ import { OcrModule } from "./modules/ocr/ocr.module";
     BidRequestModule,
     BidPortalModule,
     OcrModule,
+    OshaSyncModule,
   ],
   controllers: [DevController]
 })
