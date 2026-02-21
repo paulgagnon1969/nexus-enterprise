@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/commo
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { rebuildPayrollWeekForProject } from "@repo/database";
 import * as argon2 from "argon2";
-import { Role, ProjectRole, ProjectParticipantScope, ProjectVisibilityLevel } from "@prisma/client";
+import { Role, ProjectParticipantScope, ProjectVisibilityLevel } from "@prisma/client";
 
 export interface UpsertTimecardEntryDto {
   workerId: string;
@@ -449,7 +449,7 @@ export class TimecardService {
             userId: user.id,
             projectId: project.id,
             companyId: rowCompanyId,
-            role: ProjectRole.VIEWER,
+            role: "VIEWER",
             scope: ProjectParticipantScope.OWNER_MEMBER,
             visibility: ProjectVisibilityLevel.FULL,
           },

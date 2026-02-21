@@ -100,6 +100,21 @@ export class CompanyController {
     return this.companies.updateMemberActive(companyId, userId, !!isActive, actor);
   }
 
+  // --- Role profiles (SORM-backed) ---
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/role-profiles")
+  getRoleProfiles(@Param("id") companyId: string, @Req() req: any) {
+    return this.companies.getRoleProfiles(companyId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get("me/role-profiles")
+  getMyRoleProfiles(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.getRoleProfiles(actor.companyId);
+  }
+
   // --- Company offices ---
 
   @UseGuards(JwtAuthGuard)

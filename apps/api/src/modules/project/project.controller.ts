@@ -178,6 +178,18 @@ export class ProjectController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Patch(":id/members/:userId")
+  updateMemberRole(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("userId") userId: string,
+    @Body() body: { role: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.updateMemberRole(projectId, userId, body.role, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(":id/hierarchy")
   hierarchy(@Req() req: any, @Param("id") projectId: string) {
     const user = req.user as AuthenticatedUser;

@@ -1,2 +1,0 @@
--- AlterEnum
-ALTER TYPE "ImportJobType" ADD VALUE 'PROJECT_PETL_PERCENT';
