@@ -24,6 +24,24 @@ interface TocEntry {
   children?: TocEntry[];
 }
 
+interface ManualView {
+  id: string;
+  name: string;
+  description: string | null;
+  isDefault: boolean;
+  mapping: ViewMapping;
+  createdBy: { id: string; email: string; firstName: string | null; lastName: string | null };
+}
+
+interface ViewMapping {
+  compactSingleDocChapters?: boolean;
+  documentMoves?: { manualDocumentId: string; toChapterId: string; sortOrder?: number }[];
+  chapterOrder?: string[];
+  hiddenChapterIds?: string[];
+  hiddenDocumentIds?: string[];
+  chapterMerges?: { targetChapterId: string; sourceChapterIds: string[] }[];
+}
+
 export default function ManualPreviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: manualId } = React.use(params);
   const router = useRouter();
@@ -41,6 +59,17 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
   const [includeToc, setIncludeToc] = useState(true);
   const [includeCover, setIncludeCover] = useState(true);
   const [includeRevisions, setIncludeRevisions] = useState(true);
+  const [compactMode, setCompactMode] = useState(false);
+
+  // Views
+  const [views, setViews] = useState<ManualView[]>([]);
+  const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
+  const [showViewDropdown, setShowViewDropdown] = useState(false);
+  const [creatingView, setCreatingView] = useState(false);
+  const [newViewName, setNewViewName] = useState("");
+  const [savingView, setSavingView] = useState(false);
+  const [showViewEditor, setShowViewEditor] = useState(false);
+  const [editMapping, setEditMapping] = useState<ViewMapping>({});
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem("accessToken");
@@ -78,6 +107,111 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
       // Ignore TOC load errors
     }
   }, [manualId]);
+
+  const loadViews = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/system/manuals/${manualId}/views`, {
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        const data: ManualView[] = await res.json();
+        setViews(data);
+        // Auto-select default on first load
+        const def = data.find((v) => v.isDefault);
+        if (def && !selectedViewId) {
+          setSelectedViewId(def.id);
+          setEditMapping(def.mapping || {});
+          if (def.mapping?.compactSingleDocChapters !== undefined) {
+            setCompactMode(def.mapping.compactSingleDocChapters);
+          }
+        }
+      }
+    } catch {
+      // Ignore
+    }
+  }, [manualId, selectedViewId]);
+
+  const handleCreateView = async () => {
+    if (!newViewName.trim()) return;
+    setCreatingView(true);
+    try {
+      const res = await fetch(`${API_BASE}/system/manuals/${manualId}/views`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newViewName.trim(), mapping: {} }),
+      });
+      if (res.ok) {
+        const view = await res.json();
+        setViews((prev) => [...prev, view]);
+        setSelectedViewId(view.id);
+        setEditMapping(view.mapping || {});
+        setNewViewName("");
+        setShowViewEditor(true);
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setCreatingView(false);
+    }
+  };
+
+  const handleSaveView = async () => {
+    if (!selectedViewId) return;
+    setSavingView(true);
+    try {
+      const res = await fetch(`${API_BASE}/system/manuals/${manualId}/views/${selectedViewId}`, {
+        method: "PUT",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ mapping: editMapping }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setViews((prev) => prev.map((v) => (v.id === updated.id ? updated : v)));
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setSavingView(false);
+    }
+  };
+
+  const handleDeleteView = async (viewId: string) => {
+    if (!confirm("Delete this view?")) return;
+    try {
+      const res = await fetch(`${API_BASE}/system/manuals/${manualId}/views/${viewId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        setViews((prev) => prev.filter((v) => v.id !== viewId));
+        if (selectedViewId === viewId) {
+          setSelectedViewId(null);
+          setShowViewEditor(false);
+          setEditMapping({});
+        }
+      }
+    } catch {
+      // Ignore
+    }
+  };
+
+  const selectView = (viewId: string | null) => {
+    setSelectedViewId(viewId);
+    setShowViewDropdown(false);
+    if (viewId) {
+      const view = views.find((v) => v.id === viewId);
+      if (view) {
+        setEditMapping(view.mapping || {});
+        // If the view has compactSingleDocChapters set, sync the compact toggle
+        if (view.mapping?.compactSingleDocChapters !== undefined) {
+          setCompactMode(view.mapping.compactSingleDocChapters);
+        }
+      }
+    } else {
+      setEditMapping({});
+      setShowViewEditor(false);
+    }
+  };
 
   const toggleDocumentInclusion = async (docId: string, currentValue: boolean) => {
     setTogglingDoc(docId);
@@ -119,6 +253,8 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
       if (!includeToc) queryParams.set("toc", "false");
       if (!includeCover) queryParams.set("cover", "false");
       if (!includeRevisions) queryParams.set("revisions", "false");
+      if (compactMode) queryParams.set("compact", "true");
+      if (selectedViewId) queryParams.set("viewId", selectedViewId);
       // Pass baseUrl for logo/asset resolution
       queryParams.set("baseUrl", window.location.origin);
 
@@ -136,20 +272,26 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
     } finally {
       setLoading(false);
     }
-  }, [manualId, includeToc, includeCover, includeRevisions]);
+  }, [manualId, includeToc, includeCover, includeRevisions, compactMode, selectedViewId]);
 
   useEffect(() => {
     loadManualInfo();
     loadToc();
+    loadViews();
     loadPreview();
-  }, [loadManualInfo, loadToc, loadPreview]);
+  }, [loadManualInfo, loadToc, loadViews, loadPreview]);
 
   const handleDownloadPdf = async () => {
     setDownloading(true);
     try {
-      const res = await fetch(`${API_BASE}/system/manuals/${manualId}/pdf`, {
-        headers: getAuthHeaders(),
-      });
+      const pdfParams = new URLSearchParams();
+      if (compactMode) pdfParams.set("compact", "true");
+      if (selectedViewId) pdfParams.set("viewId", selectedViewId);
+      const pdfQuery = pdfParams.toString();
+      const res = await fetch(
+        `${API_BASE}/system/manuals/${manualId}/pdf${pdfQuery ? `?${pdfQuery}` : ""}`,
+        { headers: getAuthHeaders() }
+      );
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
@@ -247,6 +389,196 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {/* Options */}
           <div style={{ display: "flex", alignItems: "center", gap: 16, marginRight: 8 }}>
+            {/* Views dropdown */}
+            <div style={{ position: "relative" }}>
+              <button
+                type="button"
+                onClick={() => setShowViewDropdown(!showViewDropdown)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 12px",
+                  fontSize: 13,
+                  backgroundColor: selectedViewId ? "#1d4ed8" : "#374151",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                }}
+              >
+                <span style={{ fontSize: 14 }}>👁</span>
+                {selectedViewId
+                  ? views.find((v) => v.id === selectedViewId)?.name || "View"
+                  : "Standard"}
+                <span style={{ fontSize: 10, marginLeft: 2 }}>▼</span>
+              </button>
+              {showViewDropdown && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    left: 0,
+                    marginTop: 4,
+                    width: 240,
+                    backgroundColor: "#1f2937",
+                    border: "1px solid #374151",
+                    borderRadius: 6,
+                    zIndex: 100,
+                    overflow: "hidden",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => selectView(null)}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      padding: "8px 12px",
+                      fontSize: 12,
+                      color: !selectedViewId ? "#60a5fa" : "#e5e7eb",
+                      backgroundColor: "transparent",
+                      border: "none",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      fontWeight: !selectedViewId ? 600 : 400,
+                    }}
+                  >
+                    Standard (no view)
+                  </button>
+                  {views.map((v) => (
+                    <div
+                      key={v.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "0 4px 0 0",
+                        gap: 4,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => selectView(v.id)}
+                        style={{
+                          flex: 1,
+                          padding: "8px 12px",
+                          fontSize: 12,
+                          color: selectedViewId === v.id ? "#60a5fa" : "#e5e7eb",
+                          backgroundColor: "transparent",
+                          border: "none",
+                          textAlign: "left",
+                          cursor: "pointer",
+                          fontWeight: selectedViewId === v.id ? 600 : 400,
+                        }}
+                      >
+                        {v.name}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          // Toggle default/star
+                          const makeDefault = !v.isDefault;
+                          const res = await fetch(`${API_BASE}/system/manuals/${manualId}/views/${v.id}`, {
+                            method: "PUT",
+                            headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+                            body: JSON.stringify({ isDefault: makeDefault }),
+                          });
+                          if (res.ok) {
+                            const updated = await res.json();
+                            setViews((prev) => prev.map((x) => ({ ...x, isDefault: x.id === updated.id ? updated.isDefault : false })));
+                          }
+                        }}
+                        style={{
+                          padding: "2px 6px",
+                          fontSize: 14,
+                          color: v.isDefault ? "#fbbf24" : "#9ca3af",
+                          backgroundColor: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                        }}
+                        title={v.isDefault ? "Unstar (unset default)" : "Star as default"}
+                      >
+                        {v.isDefault ? "★" : "☆"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteView(v.id)}
+                        style={{
+                          padding: "2px 6px",
+                          fontSize: 11,
+                          color: "#ef4444",
+                          backgroundColor: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                        }}
+                        title="Delete view"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                  <div style={{ borderTop: "1px solid #374151", padding: "8px 12px" }}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        type="text"
+                        value={newViewName}
+                        onChange={(e) => setNewViewName(e.target.value)}
+                        placeholder="New view name…"
+                        style={{
+                          flex: 1,
+                          padding: "4px 8px",
+                          fontSize: 12,
+                          borderRadius: 4,
+                          border: "1px solid #4b5563",
+                          backgroundColor: "#111827",
+                          color: "#e5e7eb",
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && handleCreateView()}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCreateView}
+                        disabled={creatingView || !newViewName.trim()}
+                        style={{
+                          padding: "4px 10px",
+                          fontSize: 11,
+                          fontWeight: 500,
+                          borderRadius: 4,
+                          border: "none",
+                          backgroundColor: "#2563eb",
+                          color: "#fff",
+                          cursor: creatingView ? "wait" : "pointer",
+                          opacity: !newViewName.trim() ? 0.5 : 1,
+                        }}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            {selectedViewId && (
+              <button
+                type="button"
+                onClick={() => setShowViewEditor(!showViewEditor)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 12px",
+                  fontSize: 13,
+                  backgroundColor: showViewEditor ? "#4b5563" : "#374151",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                }}
+              >
+                ✏️ Edit View
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setShowTocPanel(!showTocPanel)}
@@ -292,6 +624,15 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
                 style={{ accentColor: "#3b82f6" }}
               />
               Revisions
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, color: "#9ca3af", fontSize: 13, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={compactMode}
+                onChange={(e) => setCompactMode(e.target.checked)}
+                style={{ accentColor: "#3b82f6" }}
+              />
+              Compact
             </label>
           </div>
 
@@ -342,10 +683,93 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
         </div>
       </div>
 
-      {/* Main content area with optional TOC panel */}
+      {/* Main content area with optional panels */}
       <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        {/* View Editor Panel */}
+        {showViewEditor && selectedViewId && (
+          <div
+            style={{
+              width: 320,
+              backgroundColor: "#1f2937",
+              borderRight: "1px solid #374151",
+              overflow: "auto",
+              padding: 16,
+              flexShrink: 0,
+            }}
+          >
+            <div style={{ marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#ffffff" }}>
+                Edit: {views.find((v) => v.id === selectedViewId)?.name}
+              </h3>
+              <p style={{ margin: "4px 0 0", fontSize: 11, color: "#9ca3af" }}>
+                Configure how sections appear in this view
+              </p>
+            </div>
+
+            {/* Compact toggle */}
+            <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", color: "#e5e7eb", fontSize: 12, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={editMapping.compactSingleDocChapters ?? false}
+                onChange={(e) => setEditMapping((m) => ({ ...m, compactSingleDocChapters: e.target.checked }))}
+                style={{ accentColor: "#3b82f6" }}
+              />
+              Compact single-doc sections
+            </label>
+
+            <div style={{ borderTop: "1px solid #374151", marginTop: 8, paddingTop: 8 }}>
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 8 }}>Hide chapters / documents</div>
+              {toc.map((entry) => (
+                <ViewEditorEntry
+                  key={entry.id}
+                  entry={entry}
+                  mapping={editMapping}
+                  onToggleChapterHidden={(chId) => {
+                    setEditMapping((m) => {
+                      const hidden = new Set(m.hiddenChapterIds || []);
+                      if (hidden.has(chId)) hidden.delete(chId);
+                      else hidden.add(chId);
+                      return { ...m, hiddenChapterIds: Array.from(hidden) };
+                    });
+                  }}
+                  onToggleDocHidden={(docId) => {
+                    setEditMapping((m) => {
+                      const hidden = new Set(m.hiddenDocumentIds || []);
+                      if (hidden.has(docId)) hidden.delete(docId);
+                      else hidden.add(docId);
+                      return { ...m, hiddenDocumentIds: Array.from(hidden) };
+                    });
+                  }}
+                />
+              ))}
+            </div>
+
+            <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={handleSaveView}
+                disabled={savingView}
+                style={{
+                  flex: 1,
+                  padding: "8px 14px",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  borderRadius: 6,
+                  border: "none",
+                  backgroundColor: "#2563eb",
+                  color: "#fff",
+                  cursor: savingView ? "wait" : "pointer",
+                  opacity: savingView ? 0.6 : 1,
+                }}
+              >
+                {savingView ? "Saving…" : "Save View"}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* TOC Section Panel */}
-        {showTocPanel && (
+        {showTocPanel && !showViewEditor && (
           <div
             style={{
               width: 320,
@@ -488,6 +912,84 @@ function TocEntryRow({
       </div>
       {entry.children?.map((child) => (
         <TocEntryRow key={child.id} entry={child} onToggle={onToggle} togglingDoc={togglingDoc} />
+      ))}
+    </>
+  );
+}
+
+// --- View Editor Entry Component ---
+
+function ViewEditorEntry({
+  entry,
+  mapping,
+  onToggleChapterHidden,
+  onToggleDocHidden,
+}: {
+  entry: TocEntry;
+  mapping: ViewMapping;
+  onToggleChapterHidden: (chapterId: string) => void;
+  onToggleDocHidden: (docId: string) => void;
+}) {
+  const isChapter = entry.type === "chapter";
+  const isHidden = isChapter
+    ? (mapping.hiddenChapterIds || []).includes(entry.id)
+    : (mapping.hiddenDocumentIds || []).includes(entry.id);
+
+  return (
+    <>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "5px 8px",
+          backgroundColor: entry.level === 1 ? "#374151" : "#2d3748",
+          borderRadius: 4,
+          marginLeft: entry.level === 2 ? 16 : 0,
+          marginBottom: 3,
+          opacity: isHidden ? 0.5 : 1,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() =>
+            isChapter ? onToggleChapterHidden(entry.id) : onToggleDocHidden(entry.id)
+          }
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            fontSize: 14,
+            padding: 0,
+            lineHeight: 1,
+          }}
+          title={isHidden ? "Show in view" : "Hide from view"}
+        >
+          {isHidden ? "🚫" : "👁"}
+        </button>
+        <span
+          style={{
+            flex: 1,
+            fontSize: 12,
+            color: isHidden ? "#6b7280" : "#e5e7eb",
+            textDecoration: isHidden ? "line-through" : "none",
+            fontWeight: entry.level === 1 ? 500 : 400,
+          }}
+        >
+          {entry.title}
+        </span>
+        {isHidden && (
+          <span style={{ fontSize: 10, color: "#ef4444" }}>Hidden</span>
+        )}
+      </div>
+      {entry.children?.map((child) => (
+        <ViewEditorEntry
+          key={child.id}
+          entry={child}
+          mapping={mapping}
+          onToggleChapterHidden={onToggleChapterHidden}
+          onToggleDocHidden={onToggleDocHidden}
+        />
       ))}
     </>
   );

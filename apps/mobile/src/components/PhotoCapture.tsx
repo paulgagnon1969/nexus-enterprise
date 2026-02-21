@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,14 +10,26 @@ import {
   ActivityIndicator,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import { compressImage, rotateImage } from "../utils/image";
-import type { CompressionLevel } from "../utils/image";
+import { rotateImage } from "../utils/image";
+import {
+  compressForNetwork,
+  getNetworkTier,
+  getVideoQuality,
+  generateVideoThumbnail,
+  getFileSize,
+  formatBytes,
+  type NetworkTier,
+} from "../utils/mediaCompressor";
+import { getMediaQueueStatus } from "../offline/mediaQueue";
 import { DocumentScanner } from "./DocumentScanner";
 
 export interface CapturedPhoto {
   uri: string;
   name: string;
   mimeType: string;
+  estimatedBytes?: number;
+  mediaType?: "image" | "video";
+  thumbnailUri?: string;
 }
 
 interface PhotoCaptureProps {
@@ -26,7 +38,7 @@ interface PhotoCaptureProps {
   onCapture: (photos: CapturedPhoto[]) => void;
   maxPhotos?: number;
   allowMultiple?: boolean;
-  defaultCompression?: CompressionLevel;
+  allowVideo?: boolean;
 }
 
 export function PhotoCapture({
@@ -35,19 +47,38 @@ export function PhotoCapture({
   onCapture,
   maxPhotos = 10,
   allowMultiple = true,
-  defaultCompression = "medium",
+  allowVideo = false,
 }: PhotoCaptureProps) {
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
-  const [compression, setCompression] = useState<CompressionLevel>(defaultCompression);
   const [processing, setProcessing] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [networkTier, setNetworkTier] = useState<NetworkTier>("cellular");
+  const [queueInfo, setQueueInfo] = useState({ queued: 0, uploading: 0, total: 0, wifiWaiting: 0 });
 
-  const compressionOptions: { level: CompressionLevel; label: string; desc: string }[] = [
-    { level: "high", label: "High", desc: "Smallest file, lower quality" },
-    { level: "medium", label: "Medium", desc: "Balanced quality & size" },
-    { level: "low", label: "Low", desc: "Better quality, larger file" },
-    { level: "original", label: "Original", desc: "Full quality, largest file" },
-  ];
+  // Detect network tier on mount and periodically
+  useEffect(() => {
+    if (!visible) return;
+    let mounted = true;
+    const refresh = async () => {
+      if (!mounted) return;
+      const [tier, queue] = await Promise.all([
+        getNetworkTier(),
+        getMediaQueueStatus(),
+      ]);
+      if (mounted) {
+        setNetworkTier(tier);
+        setQueueInfo(queue);
+      }
+    };
+    refresh();
+    const id = setInterval(refresh, 5000);
+    return () => { mounted = false; clearInterval(id); };
+  }, [visible]);
+
+  const networkLabel = networkTier === "wifi" ? "📡 WiFi Mode" : "📶 Cellular Mode";
+  const networkDesc = networkTier === "wifi"
+    ? "Enhanced quality (1600px, ~300-500KB)"
+    : "Optimized for speed (1200px, ~100-200KB)";
 
   const handleTakePhoto = async () => {
     if (photos.length >= maxPhotos) return;
@@ -56,8 +87,9 @@ export function PhotoCapture({
     if (!perm.granted) return;
 
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"],
+      mediaTypes: allowVideo ? ["images", "videos"] : ["images"],
       quality: 0.9,
+      videoQuality: networkTier === "wifi" ? 1 : 0,
       allowsMultipleSelection: false,
     });
 
@@ -66,16 +98,35 @@ export function PhotoCapture({
     setProcessing(true);
     try {
       const asset = result.assets[0];
-      const compressed = await compressImage(asset.uri, compression);
+      const isVideo = asset.type === "video";
 
-      const fileName = `photo_${Date.now().toString(36)}_${Math.random()
-        .toString(36)
-        .slice(2, 6)}.jpg`;
+      if (isVideo) {
+        const bytes = await getFileSize(asset.uri);
+        let thumbnailUri: string | undefined;
+        try {
+          const thumb = await generateVideoThumbnail(asset.uri);
+          thumbnailUri = thumb.uri;
+        } catch { /* no thumbnail */ }
 
-      setPhotos((prev) => [
-        ...prev,
-        { uri: compressed.uri, name: fileName, mimeType: "image/jpeg" },
-      ]);
+        const fileName = `video_${Date.now().toString(36)}_${Math.random()
+          .toString(36)
+          .slice(2, 6)}.mp4`;
+
+        setPhotos((prev) => [
+          ...prev,
+          { uri: asset.uri, name: fileName, mimeType: "video/mp4", estimatedBytes: bytes, mediaType: "video", thumbnailUri },
+        ]);
+      } else {
+        const compressed = await compressForNetwork(asset.uri);
+        const fileName = `photo_${Date.now().toString(36)}_${Math.random()
+          .toString(36)
+          .slice(2, 6)}.jpg`;
+
+        setPhotos((prev) => [
+          ...prev,
+          { uri: compressed.uri, name: fileName, mimeType: "image/jpeg", estimatedBytes: compressed.estimatedBytes, mediaType: "image" },
+        ]);
+      }
     } finally {
       setProcessing(false);
     }
@@ -89,8 +140,9 @@ export function PhotoCapture({
     if (!perm.granted) return;
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
+      mediaTypes: allowVideo ? ["images", "videos"] : ["images"],
       quality: 0.9,
+      videoQuality: networkTier === "wifi" ? 1 : 0,
       allowsMultipleSelection: allowMultiple,
       selectionLimit: remaining,
     });
@@ -102,16 +154,35 @@ export function PhotoCapture({
       const newPhotos: CapturedPhoto[] = [];
 
       for (const asset of result.assets) {
-        const compressed = await compressImage(asset.uri, compression);
-        const fileName = `photo_${Date.now().toString(36)}_${Math.random()
-          .toString(36)
-          .slice(2, 6)}.jpg`;
+        const isVideo = asset.type === "video";
 
-        newPhotos.push({
-          uri: compressed.uri,
-          name: fileName,
-          mimeType: "image/jpeg",
-        });
+        if (isVideo) {
+          const bytes = await getFileSize(asset.uri);
+          let thumbnailUri: string | undefined;
+          try {
+            const thumb = await generateVideoThumbnail(asset.uri);
+            thumbnailUri = thumb.uri;
+          } catch { /* no thumbnail */ }
+
+          const fileName = `video_${Date.now().toString(36)}_${Math.random()
+            .toString(36)
+            .slice(2, 6)}.mp4`;
+
+          newPhotos.push({
+            uri: asset.uri, name: fileName, mimeType: "video/mp4",
+            estimatedBytes: bytes, mediaType: "video", thumbnailUri,
+          });
+        } else {
+          const compressed = await compressForNetwork(asset.uri);
+          const fileName = `photo_${Date.now().toString(36)}_${Math.random()
+            .toString(36)
+            .slice(2, 6)}.jpg`;
+
+          newPhotos.push({
+            uri: compressed.uri, name: fileName, mimeType: "image/jpeg",
+            estimatedBytes: compressed.estimatedBytes, mediaType: "image",
+          });
+        }
       }
 
       setPhotos((prev) => [...prev, ...newPhotos].slice(0, maxPhotos));
@@ -181,34 +252,19 @@ export function PhotoCapture({
           </Pressable>
         </View>
 
-        {/* Compression selector */}
+        {/* Network-aware compression badge */}
         <View style={styles.compressionSection}>
-          <Text style={styles.sectionLabel}>Compression</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {compressionOptions.map((opt) => (
-              <Pressable
-                key={opt.level}
-                style={[
-                  styles.compressionChip,
-                  compression === opt.level && styles.compressionChipSelected,
-                ]}
-                onPress={() => setCompression(opt.level)}
-              >
-                <Text
-                  style={
-                    compression === opt.level
-                      ? styles.compressionChipTextSelected
-                      : styles.compressionChipText
-                  }
-                >
-                  {opt.label}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-          <Text style={styles.compressionDesc}>
-            {compressionOptions.find((o) => o.level === compression)?.desc}
-          </Text>
+          <View style={styles.networkBadge}>
+            <Text style={styles.networkBadgeText}>{networkLabel}</Text>
+          </View>
+          <Text style={styles.compressionDesc}>{networkDesc}</Text>
+          {queueInfo.total > 0 && (
+            <Text style={styles.queueStatus}>
+              {queueInfo.uploading > 0 ? `Uploading ${queueInfo.uploading}...` : ""}
+              {queueInfo.queued > 0 ? ` ${queueInfo.queued} queued` : ""}
+              {queueInfo.wifiWaiting > 0 ? ` (${queueInfo.wifiWaiting} waiting for WiFi)` : ""}
+            </Text>
+          )}
         </View>
 
         {/* Action buttons */}
@@ -252,14 +308,24 @@ export function PhotoCapture({
         <ScrollView style={styles.photoGrid} contentContainerStyle={styles.photoGridContent}>
           {photos.map((photo, index) => (
             <View key={photo.uri} style={styles.photoCard}>
-              <Image source={{ uri: photo.uri }} style={styles.photoThumb} />
+              <Image
+                source={{ uri: photo.thumbnailUri || photo.uri }}
+                style={styles.photoThumb}
+              />
+              {photo.mediaType === "video" && (
+                <View style={styles.videoOverlay}>
+                  <Text style={styles.videoOverlayText}>▶ Video</Text>
+                </View>
+              )}
               <View style={styles.photoActions}>
-                <Pressable
-                  style={styles.photoActionBtn}
-                  onPress={() => handleRotatePhoto(index)}
-                >
-                  <Text style={styles.photoActionText}>⟳</Text>
-                </Pressable>
+                {photo.mediaType !== "video" && (
+                  <Pressable
+                    style={styles.photoActionBtn}
+                    onPress={() => handleRotatePhoto(index)}
+                  >
+                    <Text style={styles.photoActionText}>⟳</Text>
+                  </Pressable>
+                )}
                 <Pressable
                   style={[styles.photoActionBtn, styles.photoRemoveBtn]}
                   onPress={() => handleRemovePhoto(index)}
@@ -267,9 +333,16 @@ export function PhotoCapture({
                   <Text style={styles.photoRemoveText}>✕</Text>
                 </Pressable>
               </View>
-              <Text style={styles.photoName} numberOfLines={1}>
-                {photo.name}
-              </Text>
+              <View style={styles.photoMeta}>
+                <Text style={styles.photoName} numberOfLines={1}>
+                  {photo.name}
+                </Text>
+                {photo.estimatedBytes ? (
+                  <Text style={styles.photoSize}>
+                    {formatBytes(photo.estimatedBytes)}
+                  </Text>
+                ) : null}
+              </View>
             </View>
           ))}
 
@@ -293,7 +366,7 @@ export function PhotoCapture({
           visible={showScanner}
           onClose={() => setShowScanner(false)}
           onCapture={handleScannedDocument}
-          compressionLevel={compression}
+          compressionLevel="auto"
         />
       </View>
     </Modal>
@@ -337,38 +410,31 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#e5e7eb",
   },
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#374151",
-    marginBottom: 8,
-  },
-  compressionChip: {
+  networkBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#f0fdf4",
     borderWidth: 1,
-    borderColor: "#d1d5db",
+    borderColor: "#86efac",
     borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 8,
-    backgroundColor: "#ffffff",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    marginBottom: 4,
   },
-  compressionChipSelected: {
-    backgroundColor: "#111827",
-    borderColor: "#111827",
-  },
-  compressionChipText: {
+  networkBadgeText: {
     fontSize: 14,
-    color: "#374151",
-  },
-  compressionChipTextSelected: {
-    fontSize: 14,
-    color: "#ffffff",
     fontWeight: "600",
+    color: "#166534",
   },
   compressionDesc: {
     fontSize: 12,
     color: "#9ca3af",
-    marginTop: 8,
+    marginTop: 4,
+  },
+  queueStatus: {
+    fontSize: 12,
+    color: "#2563eb",
+    marginTop: 6,
+    fontWeight: "500",
   },
 
   actions: {
@@ -452,11 +518,33 @@ const styles = StyleSheet.create({
     color: "#b91c1c",
     fontWeight: "700",
   },
+  videoOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.3)",
+  },
+  videoOverlayText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  photoMeta: {
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+  },
   photoName: {
     fontSize: 11,
     color: "#6b7280",
-    paddingHorizontal: 8,
-    paddingBottom: 8,
+  },
+  photoSize: {
+    fontSize: 10,
+    color: "#2563eb",
+    marginTop: 2,
   },
 
   emptyState: {

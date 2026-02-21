@@ -151,6 +151,55 @@ export async function triggerProjectFileOcr(
 }
 
 /**
+ * Standalone receipt OCR — upload an image and get extracted data back
+ * without creating a log. Used for inline scan-while-editing.
+ */
+export interface ReceiptScanResult {
+  success: boolean;
+  vendor: string | null;
+  amount: number | null;
+  date: string | null;
+  subtotal?: number | null;
+  taxAmount?: number | null;
+  currency?: string;
+  paymentMethod?: string | null;
+  lineItems?: Array<{ description: string; quantity?: number; unitPrice?: number; amount?: number }>;
+  confidence: number | null;
+  notes?: string | null;
+  error?: string;
+}
+
+export async function scanReceiptImage(
+  fileUri: string,
+  fileName: string,
+  mimeType: string,
+): Promise<ReceiptScanResult> {
+  console.log(`[scanReceiptImage] Scanning: ${fileName}`);
+
+  const formData = new FormData();
+  formData.append("file", {
+    uri: fileUri,
+    name: fileName,
+    type: mimeType,
+  } as any);
+
+  const res = await apiFetch("/ocr/receipt-scan", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    console.error(`[scanReceiptImage] Failed: ${res.status} ${errText}`);
+    return { success: false, vendor: null, amount: null, date: null, confidence: null, error: `Scan failed: ${res.status}` };
+  }
+
+  const data: ReceiptScanResult = await res.json();
+  console.log(`[scanReceiptImage] Result: vendor=${data.vendor}, amount=${data.amount}, confidence=${data.confidence}`);
+  return data;
+}
+
+/**
  * Delete an attachment from a daily log.
  */
 export async function deleteAttachment(

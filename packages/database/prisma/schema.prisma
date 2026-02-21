@@ -482,6 +482,7 @@ model User {
   // Manuals / Document Collections
   manualsCreated        Manual[]        @relation("ManualCreatedBy")
   manualVersionsCreated ManualVersion[] @relation("ManualVersionCreatedBy")
+  manualViewsCreated    ManualView[]    @relation("ManualViewCreatedBy")
 
   // Document Share Links
   shareLinksCreated DocumentShareLink[] @relation("ShareLinkCreatedBy")
@@ -5313,6 +5314,7 @@ model Manual {
   chapters     ManualChapter[]
   documents    ManualDocument[]
   versions     ManualVersion[]
+  views        ManualView[] // Saved view layouts
   targetTags   ManualTargetTag[] // Which tenant tags can see this manual
   tenantCopies TenantManualCopy[] // Distributed copies to tenants
   shareLinks   DocumentShareLink[] // Private share links
@@ -5381,6 +5383,26 @@ model ManualDocument {
   @@unique([manualId, systemDocumentId, removedInManualVersion], map: "ManualDocument_manual_doc_version_key")
   @@index([manualId, chapterId, sortOrder], map: "ManualDocument_chapter_order_idx")
   @@index([systemDocumentId], map: "ManualDocument_doc_idx")
+}
+
+/// Saved view layout for a manual — allows rearranging/merging/hiding sections
+/// without modifying the canonical chapter/document structure.
+model ManualView {
+  id              String   @id @default(cuid())
+  manualId        String
+  name            String // e.g., "Executive Summary", "Compact"
+  description     String?  @db.Text
+  isDefault       Boolean  @default(false) // At most one default per manual
+  mapping         Json // View mapping rules (compactSingleDocChapters, documentMoves, chapterOrder, etc.)
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  manual    Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  createdBy User   @relation("ManualViewCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@unique([manualId, name], map: "ManualView_manual_name_key")
+  @@index([manualId], map: "ManualView_manual_idx")
 }
 
 /// Join table for which tenant tags can access a manual

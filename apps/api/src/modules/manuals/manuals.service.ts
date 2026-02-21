@@ -18,6 +18,8 @@ import {
   AddDocumentToManualDto,
   UpdateManualDocumentDto,
   ReorderDocumentsDto,
+  CreateManualViewDto,
+  UpdateManualViewDto,
 } from "./dto/manual.dto";
 
 @Injectable()
@@ -694,6 +696,111 @@ export class ManualsService {
         createdByUserId: userId,
       },
     });
+  }
+
+  // =========================================================================
+  // Manual Views
+  // =========================================================================
+
+  async listViews(manualId: string) {
+    return this.prisma.manualView.findMany({
+      where: { manualId },
+      orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+      include: {
+        createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
+      },
+    });
+  }
+
+  async getView(manualId: string, viewId: string) {
+    const view = await this.prisma.manualView.findFirst({
+      where: { id: viewId, manualId },
+      include: {
+        createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
+      },
+    });
+    if (!view) {
+      throw new NotFoundException("View not found");
+    }
+    return view;
+  }
+
+  async createView(manualId: string, userId: string, dto: CreateManualViewDto) {
+    // Verify manual exists
+    await this.getManual(manualId);
+
+    // Check name uniqueness within the manual
+    const existing = await this.prisma.manualView.findFirst({
+      where: { manualId, name: dto.name },
+    });
+    if (existing) {
+      throw new ConflictException(`A view named "${dto.name}" already exists for this manual`);
+    }
+
+    return this.prisma.manualView.create({
+      data: {
+        manualId,
+        name: dto.name,
+        description: dto.description,
+        mapping: dto.mapping ?? {},
+        createdByUserId: userId,
+      },
+      include: {
+        createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
+      },
+    });
+  }
+
+  async updateView(manualId: string, viewId: string, dto: UpdateManualViewDto) {
+    const view = await this.prisma.manualView.findFirst({
+      where: { id: viewId, manualId },
+    });
+    if (!view) {
+      throw new NotFoundException("View not found");
+    }
+
+    // If renaming, check uniqueness
+    if (dto.name && dto.name !== view.name) {
+      const dup = await this.prisma.manualView.findFirst({
+        where: { manualId, name: dto.name, id: { not: viewId } },
+      });
+      if (dup) {
+        throw new ConflictException(`A view named "${dto.name}" already exists for this manual`);
+      }
+    }
+
+    // If setting as default, unset any existing default first
+    if (dto.isDefault) {
+      await this.prisma.manualView.updateMany({
+        where: { manualId, isDefault: true, id: { not: viewId } },
+        data: { isDefault: false },
+      });
+    }
+
+    return this.prisma.manualView.update({
+      where: { id: viewId },
+      data: {
+        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.description !== undefined && { description: dto.description }),
+        ...(dto.isDefault !== undefined && { isDefault: dto.isDefault }),
+        ...(dto.mapping !== undefined && { mapping: dto.mapping }),
+      },
+      include: {
+        createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
+      },
+    });
+  }
+
+  async deleteView(manualId: string, viewId: string) {
+    const view = await this.prisma.manualView.findFirst({
+      where: { id: viewId, manualId },
+    });
+    if (!view) {
+      throw new NotFoundException("View not found");
+    }
+
+    await this.prisma.manualView.delete({ where: { id: viewId } });
+    return { success: true };
   }
 
   // =========================================================================

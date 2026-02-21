@@ -214,3 +214,36 @@ export class ReorderDocumentsDto {
   @IsString({ each: true })
   documentIds!: string[]; // ManualDocument IDs in desired order
 }
+
+// =========================================================================
+// Manual View DTOs
+// =========================================================================
+
+export class CreateManualViewDto {
+  @IsString()
+  name!: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsOptional()
+  mapping?: Record<string, any>; // View mapping rules JSON
+}
+
+export class UpdateManualViewDto {
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isDefault?: boolean;
+
+  @IsOptional()
+  mapping?: Record<string, any>;
+}

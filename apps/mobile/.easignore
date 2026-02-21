@@ -50,7 +50,8 @@ docs/
 infra/
 
 # Exclude database package internals (only types needed)
-packages/database/prisma/
+# Keep prisma/schema.prisma — needed by root postinstall (prisma generate)
+packages/database/prisma/migrations/
 packages/database/src/
 packages/database/dist/
 

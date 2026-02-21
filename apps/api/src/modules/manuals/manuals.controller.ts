@@ -31,6 +31,8 @@ import {
   UpdateManualDocumentDto,
   ReorderDocumentsDto,
   TogglePrintInclusionDto,
+  CreateManualViewDto,
+  UpdateManualViewDto,
 } from "./dto/manual.dto";
 
 function getUser(req: FastifyRequest): AuthenticatedUser {
@@ -257,6 +259,51 @@ export class ManualsController {
   }
 
   // =========================================================================
+  // Views
+  // =========================================================================
+
+  @Get(":id/views")
+  async listViews(@Req() req: FastifyRequest, @Param("id") id: string) {
+    const user = getUser(req);
+    assertSystemManualAccess(user);
+    return this.manualsService.listViews(id);
+  }
+
+  @Post(":id/views")
+  async createView(
+    @Req() req: FastifyRequest,
+    @Param("id") id: string,
+    @Body() dto: CreateManualViewDto
+  ) {
+    const user = getUser(req);
+    assertSystemManualAccess(user);
+    return this.manualsService.createView(id, user.userId, dto);
+  }
+
+  @Put(":id/views/:viewId")
+  async updateView(
+    @Req() req: FastifyRequest,
+    @Param("id") id: string,
+    @Param("viewId") viewId: string,
+    @Body() dto: UpdateManualViewDto
+  ) {
+    const user = getUser(req);
+    assertSystemManualAccess(user);
+    return this.manualsService.updateView(id, viewId, dto);
+  }
+
+  @Delete(":id/views/:viewId")
+  async deleteView(
+    @Req() req: FastifyRequest,
+    @Param("id") id: string,
+    @Param("viewId") viewId: string
+  ) {
+    const user = getUser(req);
+    assertSystemManualAccess(user);
+    return this.manualsService.deleteView(id, viewId);
+  }
+
+  // =========================================================================
   // Rendering & Export
   // =========================================================================
 
@@ -276,6 +323,8 @@ export class ManualsController {
     @Query("toc") includeToc?: string,
     @Query("cover") includeCover?: string,
     @Query("revisions") includeRevisions?: string,
+    @Query("compact") compact?: string,
+    @Query("viewId") viewId?: string,
     @Query("baseUrl") baseUrl?: string
   ) {
     const user = getUser(req);
@@ -285,6 +334,8 @@ export class ManualsController {
       includeToc: includeToc !== "false",
       includeCoverPage: includeCover !== "false",
       includeRevisionMarkers: includeRevisions !== "false",
+      compactToc: compact === "true",
+      viewId: viewId || undefined,
       baseUrl: baseUrl || '',
       userContext: {
         userId: user.userId,
@@ -299,7 +350,9 @@ export class ManualsController {
   async downloadPdf(
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
-    @Param("id") id: string
+    @Param("id") id: string,
+    @Query("compact") compact?: string,
+    @Query("viewId") viewId?: string
   ) {
     const user = getUser(req);
     assertSuperAdmin(user);
@@ -319,6 +372,8 @@ export class ManualsController {
 
     // Generate PDF with user context for serialization/tracking
     const pdfBuffer = await this.pdfService.generatePdf(id, {
+      compactToc: compact === "true",
+      viewId: viewId || undefined,
       userContext: {
         userId: user.userId,
         userName: user.email,

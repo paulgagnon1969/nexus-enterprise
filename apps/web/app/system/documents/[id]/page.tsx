@@ -775,6 +775,23 @@ export default function SystemDocumentDetailPage() {
 
 // --- Share Modal ---
 
+interface SecureShareEntry {
+  id: string;
+  recipientEmail: string;
+  recipientName: string | null;
+  isActive: boolean;
+  accessCount: number;
+  lastAccessedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+interface ReaderGroupSummary {
+  id: string;
+  name: string;
+  _count: { members: number };
+}
+
 function ShareModal({
   documentId,
   documentCode,
@@ -790,10 +807,23 @@ function ShareModal({
   onClose: () => void;
   onUpdate: () => void;
 }) {
+  const [tab, setTab] = useState<"public" | "secure">("secure");
+
+  // --- Public tab state ---
   const [localIsPublic, setLocalIsPublic] = useState(isPublic);
   const [localSlug, setLocalSlug] = useState(publicSlug || documentCode.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // --- Secure share tab state ---
+  const [recipients, setRecipients] = useState<{ email: string; name: string }[]>([{ email: "", name: "" }]);
+  const [readerGroups, setReaderGroups] = useState<ReaderGroupSummary[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<{ email: string; sent: boolean }[] | null>(null);
+  const [secureShares, setSecureShares] = useState<SecureShareEntry[]>([]);
+  const [loadingShares, setLoadingShares] = useState(false);
 
   const publicUrl = typeof window !== "undefined"
     ? `${window.location.origin}/docs/${localSlug}`
@@ -802,6 +832,33 @@ function ShareModal({
   const portalUrl = typeof window !== "undefined"
     ? `${window.location.origin}/portal`
     : `/portal`;
+
+  // Load reader groups and existing secure shares
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    fetch(`${API_BASE}/system/reader-groups`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setReaderGroups)
+      .catch(() => {});
+
+    loadSecureShares();
+  }, []);
+
+  async function loadSecureShares() {
+    setLoadingShares(true);
+    try {
+      const token = localStorage.getItem("accessToken");
+      const res = await fetch(`${API_BASE}/system/documents/${documentId}/secure-shares`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setSecureShares(await res.json());
+    } catch {}
+    setLoadingShares(false);
+  }
 
   const handleSave = async () => {
     setSaving(true);
@@ -837,6 +894,68 @@ function ShareModal({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleSendSecureShare = async () => {
+    const validRecipients = recipients.filter((r) => r.email.trim());
+    if (validRecipients.length === 0 && !selectedGroupId) {
+      alert("Add at least one recipient email or select a reader group.");
+      return;
+    }
+    setSending(true);
+    setSendResult(null);
+    try {
+      const token = localStorage.getItem("accessToken");
+      const res = await fetch(`${API_BASE}/system/documents/${documentId}/secure-share`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          recipients: validRecipients,
+          readerGroupId: selectedGroupId || undefined,
+          expiresAt: expiresAt || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to send");
+      }
+      const data = await res.json();
+      setSendResult(data.recipients);
+      setRecipients([{ email: "", name: "" }]);
+      setSelectedGroupId("");
+      loadSecureShares();
+    } catch (err: any) {
+      alert(err?.message || "Failed to send secure share");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleRevokeShare = async (linkId: string) => {
+    try {
+      const token = localStorage.getItem("accessToken");
+      await fetch(`${API_BASE}/system/documents/share-links/${linkId}/revoke`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      loadSecureShares();
+    } catch {}
+  };
+
+  const addRecipientRow = () => setRecipients([...recipients, { email: "", name: "" }]);
+
+  const updateRecipient = (idx: number, field: "email" | "name", value: string) => {
+    const updated = [...recipients];
+    updated[idx] = { ...updated[idx], [field]: value };
+    setRecipients(updated);
+  };
+
+  const removeRecipient = (idx: number) => {
+    if (recipients.length <= 1) return;
+    setRecipients(recipients.filter((_, i) => i !== idx));
+  };
+
   return (
     <div
       style={{
@@ -856,146 +975,367 @@ function ShareModal({
           borderRadius: 12,
           padding: 24,
           width: "90%",
-          maxWidth: 480,
+          maxWidth: 560,
+          maxHeight: "90vh",
+          overflow: "auto",
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <h2 style={{ margin: 0, fontSize: 18 }}>🔗 Share Document</h2>
 
-        <div style={{ marginTop: 20 }}>
-          {/* Public Toggle */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: 16,
-              background: localIsPublic ? "#f0fdf4" : "#f9fafb",
-              borderRadius: 8,
-              border: `1px solid ${localIsPublic ? "#86efac" : "#e5e7eb"}`,
-            }}
-          >
-            <div>
-              <div style={{ fontWeight: 500, fontSize: 14 }}>Public Access</div>
-              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
-                Anyone with the link can view (read-only)
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setLocalIsPublic(!localIsPublic)}
-              style={{
-                width: 48,
-                height: 28,
-                borderRadius: 14,
-                background: localIsPublic ? "#22c55e" : "#d1d5db",
-                border: "none",
-                cursor: "pointer",
-                position: "relative",
-              }}
-            >
-              <div
-                style={{
-                  width: 22,
-                  height: 22,
-                  borderRadius: 11,
-                  background: "white",
-                  position: "absolute",
-                  top: 3,
-                  left: localIsPublic ? 23 : 3,
-                  transition: "left 0.2s",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-                }}
-              />
-            </button>
-          </div>
-
-          {/* Public URL settings */}
-          {localIsPublic && (
-            <div style={{ marginTop: 16 }}>
-              <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
-                Public URL Slug
-              </label>
-              <input
-                type="text"
-                value={localSlug}
-                onChange={(e) => setLocalSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
-                placeholder="my-document"
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  fontSize: 14,
-                  border: "1px solid #d1d5db",
-                  borderRadius: 6,
-                  fontFamily: "monospace",
-                }}
-              />
-              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
-                Direct URL: <span style={{ fontFamily: "monospace" }}>{publicUrl}</span>
-              </div>
-              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
-                Also visible on: <a href={portalUrl} target="_blank" style={{ color: "#2563eb" }}>/portal</a>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleCopyLink}
-                style={{
-                  marginTop: 12,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "10px 16px",
-                  fontSize: 14,
-                  background: copied ? "#dcfce7" : "#f3f4f6",
-                  color: copied ? "#166534" : "#374151",
-                  border: `1px solid ${copied ? "#86efac" : "#d1d5db"}`,
-                  borderRadius: 6,
-                  cursor: "pointer",
-                  width: "100%",
-                  justifyContent: "center",
-                }}
-              >
-                {copied ? "✓ Copied!" : "📋 Copy Public Link"}
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", marginTop: 24 }}>
+        {/* Tab Switcher */}
+        <div style={{ display: "flex", gap: 4, marginTop: 16, background: "#f3f4f6", borderRadius: 8, padding: 4 }}>
           <button
-            type="button"
-            onClick={onClose}
+            onClick={() => setTab("secure")}
             style={{
-              padding: "8px 16px",
-              fontSize: 14,
-              background: "white",
-              color: "#374151",
-              border: "1px solid #d1d5db",
-              borderRadius: 6,
-              cursor: "pointer",
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            style={{
-              padding: "8px 16px",
-              fontSize: 14,
-              fontWeight: 500,
-              background: saving ? "#9ca3af" : "#7c3aed",
-              color: "white",
+              flex: 1,
+              padding: "8px 12px",
+              fontSize: 13,
+              fontWeight: tab === "secure" ? 600 : 400,
+              background: tab === "secure" ? "white" : "transparent",
               border: "none",
               borderRadius: 6,
-              cursor: saving ? "not-allowed" : "pointer",
+              cursor: "pointer",
+              color: tab === "secure" ? "#111827" : "#6b7280",
+              boxShadow: tab === "secure" ? "0 1px 2px rgba(0,0,0,0.1)" : "none",
             }}
           >
-          {saving ? "Saving..." : "Save Changes"}
-        </button>
+            🔒 Secure Share
+          </button>
+          <button
+            onClick={() => setTab("public")}
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              fontSize: 13,
+              fontWeight: tab === "public" ? 600 : 400,
+              background: tab === "public" ? "white" : "transparent",
+              border: "none",
+              borderRadius: 6,
+              cursor: "pointer",
+              color: tab === "public" ? "#111827" : "#6b7280",
+              boxShadow: tab === "public" ? "0 1px 2px rgba(0,0,0,0.1)" : "none",
+            }}
+          >
+            🌐 Public Access
+          </button>
         </div>
+
+        {/* ============= SECURE SHARE TAB ============= */}
+        {tab === "secure" && (
+          <div style={{ marginTop: 16 }}>
+            {/* Send Result */}
+            {sendResult && (
+              <div style={{
+                background: "#f0fdf4",
+                border: "1px solid #86efac",
+                borderRadius: 8,
+                padding: 12,
+                marginBottom: 16,
+                fontSize: 13,
+              }}>
+                <div style={{ fontWeight: 600, marginBottom: 8 }}>✅ Emails sent!</div>
+                {sendResult.map((r, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
+                    <span>{r.email}</span>
+                    <span style={{ color: r.sent ? "#16a34a" : "#dc2626" }}>
+                      {r.sent ? "Sent" : "Failed"}
+                    </span>
+                  </div>
+                ))}
+                <button
+                  onClick={() => setSendResult(null)}
+                  style={{ marginTop: 8, fontSize: 12, color: "#6b7280", background: "none", border: "none", cursor: "pointer" }}
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* Recipients */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 8 }}>
+                Recipients
+              </label>
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 8 }}>
+                Each person gets a unique link + password via two separate emails.
+              </div>
+              {recipients.map((r, idx) => (
+                <div key={idx} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                  <input
+                    type="email"
+                    value={r.email}
+                    onChange={(e) => updateRecipient(idx, "email", e.target.value)}
+                    placeholder="email@example.com"
+                    style={{ flex: 2, padding: "8px 10px", fontSize: 13, border: "1px solid #d1d5db", borderRadius: 6 }}
+                  />
+                  <input
+                    type="text"
+                    value={r.name}
+                    onChange={(e) => updateRecipient(idx, "name", e.target.value)}
+                    placeholder="Name (optional)"
+                    style={{ flex: 1, padding: "8px 10px", fontSize: 13, border: "1px solid #d1d5db", borderRadius: 6 }}
+                  />
+                  {recipients.length > 1 && (
+                    <button
+                      onClick={() => removeRecipient(idx)}
+                      style={{ padding: "4px 8px", border: "1px solid #d1d5db", borderRadius: 6, background: "white", cursor: "pointer", fontSize: 13 }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                onClick={addRecipientRow}
+                style={{ fontSize: 12, color: "#2563eb", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+              >
+                + Add another recipient
+              </button>
+            </div>
+
+            {/* Reader Group Picker */}
+            {readerGroups.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
+                  Or use a Reader Group
+                </label>
+                <select
+                  value={selectedGroupId}
+                  onChange={(e) => setSelectedGroupId(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", fontSize: 13, border: "1px solid #d1d5db", borderRadius: 6 }}
+                >
+                  <option value="">None</option>
+                  {readerGroups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name} ({g._count.members} members)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Expiration */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
+                Expires (optional)
+              </label>
+              <input
+                type="date"
+                value={expiresAt}
+                onChange={(e) => setExpiresAt(e.target.value)}
+                style={{ padding: "8px 10px", fontSize: 13, border: "1px solid #d1d5db", borderRadius: 6 }}
+              />
+            </div>
+
+            <button
+              onClick={handleSendSecureShare}
+              disabled={sending}
+              style={{
+                width: "100%",
+                padding: "12px 16px",
+                fontSize: 14,
+                fontWeight: 600,
+                background: sending ? "#9ca3af" : "#2563eb",
+                color: "white",
+                border: "none",
+                borderRadius: 8,
+                cursor: sending ? "not-allowed" : "pointer",
+              }}
+            >
+              {sending ? "Sending..." : "🔐 Send Secure Share"}
+            </button>
+
+            {/* Existing Secure Shares */}
+            {secureShares.length > 0 && (
+              <div style={{ marginTop: 20, borderTop: "1px solid #e5e7eb", paddingTop: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Active Secure Shares</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {secureShares.map((s) => (
+                    <div
+                      key={s.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "8px 10px",
+                        background: s.isActive ? "#f9fafb" : "#fef2f2",
+                        borderRadius: 6,
+                        fontSize: 12,
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 500 }}>
+                          {s.recipientEmail}
+                          {s.recipientName && <span style={{ color: "#6b7280" }}> ({s.recipientName})</span>}
+                        </div>
+                        <div style={{ color: "#9ca3af", marginTop: 2 }}>
+                          {s.accessCount} views
+                          {s.lastAccessedAt && ` · last ${new Date(s.lastAccessedAt).toLocaleDateString()}`}
+                          {!s.isActive && <span style={{ color: "#dc2626" }}> · Revoked</span>}
+                        </div>
+                      </div>
+                      {s.isActive && (
+                        <button
+                          onClick={() => handleRevokeShare(s.id)}
+                          style={{
+                            padding: "4px 8px",
+                            borderRadius: 4,
+                            border: "1px solid #fca5a5",
+                            background: "white",
+                            color: "#b91c1c",
+                            fontSize: 11,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Revoke
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============= PUBLIC ACCESS TAB ============= */}
+        {tab === "public" && (
+          <div style={{ marginTop: 16 }}>
+            {/* Public Toggle */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: 16,
+                background: localIsPublic ? "#f0fdf4" : "#f9fafb",
+                borderRadius: 8,
+                border: `1px solid ${localIsPublic ? "#86efac" : "#e5e7eb"}`,
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 14 }}>Public Access</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                  Anyone with the link can view (read-only)
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLocalIsPublic(!localIsPublic)}
+                style={{
+                  width: 48,
+                  height: 28,
+                  borderRadius: 14,
+                  background: localIsPublic ? "#22c55e" : "#d1d5db",
+                  border: "none",
+                  cursor: "pointer",
+                  position: "relative",
+                }}
+              >
+                <div
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 11,
+                    background: "white",
+                    position: "absolute",
+                    top: 3,
+                    left: localIsPublic ? 23 : 3,
+                    transition: "left 0.2s",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                  }}
+                />
+              </button>
+            </div>
+
+            {/* Public URL settings */}
+            {localIsPublic && (
+              <div style={{ marginTop: 16 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 500, marginBottom: 6 }}>
+                  Public URL Slug
+                </label>
+                <input
+                  type="text"
+                  value={localSlug}
+                  onChange={(e) => setLocalSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))}
+                  placeholder="my-document"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    fontSize: 14,
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                    fontFamily: "monospace",
+                  }}
+                />
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>
+                  Direct URL: <span style={{ fontFamily: "monospace" }}>{publicUrl}</span>
+                </div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+                  Also visible on: <a href={portalUrl} target="_blank" style={{ color: "#2563eb" }}>/portal</a>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  style={{
+                    marginTop: 12,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "10px 16px",
+                    fontSize: 14,
+                    background: copied ? "#dcfce7" : "#f3f4f6",
+                    color: copied ? "#166534" : "#374151",
+                    border: `1px solid ${copied ? "#86efac" : "#d1d5db"}`,
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    width: "100%",
+                    justifyContent: "center",
+                  }}
+                >
+                  {copied ? "✓ Copied!" : "📋 Copy Public Link"}
+                </button>
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", marginTop: 24 }}>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  padding: "8px 16px",
+                  fontSize: 14,
+                  background: "white",
+                  color: "#374151",
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                style={{
+                  padding: "8px 16px",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  background: saving ? "#9ca3af" : "#7c3aed",
+                  color: "white",
+                  border: "none",
+                  borderRadius: 6,
+                  cursor: saving ? "not-allowed" : "pointer",
+                }}
+              >
+                {saving ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

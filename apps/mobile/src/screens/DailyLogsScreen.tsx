@@ -8,17 +8,19 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  ScrollView,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import * as ImagePicker from "expo-image-picker";
 import { apiJson } from "../api/client";
+import { scanReceiptImage } from "../api/dailyLog";
 import { getCache, setCache } from "../offline/cache";
 import { enqueueOutbox } from "../offline/outbox";
 import { addLocalDailyLog } from "../offline/sync";
 import { triggerSync } from "../offline/autoSync";
 import { copyToAppStorage, type StoredFile } from "../storage/files";
 import { colors } from "../theme/colors";
-import type { DailyLogCreateRequest, ProjectListItem } from "../types/api";
+import type { DailyLogCreateRequest, DailyLogType, ProjectListItem } from "../types/api";
 import type { PetlSessionChanges } from "./FieldPetlScreen";
 
 function makeLocalId() {
@@ -76,8 +78,14 @@ export function DailyLogsScreen({
   const [status, setStatus] = useState<string | null>(null);
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const [logType, setLogType] = useState<DailyLogType>((createLogType as DailyLogType) || "PUDL");
   const [logDate, setLogDate] = useState(today);
   const [title, setTitle] = useState("");
+
+  // Receipt/expense fields
+  const [expenseVendor, setExpenseVendor] = useState("");
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseDate, setExpenseDate] = useState(today);
 
   // Main note field
   const [workPerformed, setWorkPerformed] = useState("");
@@ -93,6 +101,7 @@ export function DailyLogsScreen({
   const [confidentialNotes, setConfidentialNotes] = useState("");
 
   const [attachments, setAttachments] = useState<StoredFile[]>([]);
+  const [scanning, setScanning] = useState(false);
   const processedPetlChangesRef = useRef<string | null>(null);
 
   const key = `dailyLogs:${project.id}`;
@@ -119,6 +128,13 @@ export function DailyLogsScreen({
   useEffect(() => {
     void loadCached().then(refreshOnline);
   }, [project.id]);
+
+  // Sync createLogType prop → logType state when navigated with a pre-selected type
+  useEffect(() => {
+    if (createLogType) {
+      setLogType(createLogType as DailyLogType);
+    }
+  }, [createLogType]);
 
   // Apply PETL changes when returning from Field PETL
   useEffect(() => {
@@ -156,28 +172,33 @@ export function DailyLogsScreen({
     }
 
     const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
+      mediaTypes: ["images", "videos"],
       quality: 0.8,
       allowsMultipleSelection: true,
       selectionLimit: 10,
     });
     if (res.canceled || !res.assets?.length) return;
 
-    // Process all selected photos
+    // Process all selected media
     const newPhotos: StoredFile[] = [];
     for (const asset of res.assets) {
       if (!asset.uri) continue;
       const stored = await copyToAppStorage({
         uri: asset.uri,
         name: (asset as any).fileName ?? null,
-        mimeType: (asset as any).mimeType ?? "image/jpeg",
+        mimeType: (asset as any).mimeType ?? (asset.type === "video" ? "video/mp4" : "image/jpeg"),
       });
       newPhotos.push(stored);
     }
 
     setAttachments((prev) => [...prev, ...newPhotos]);
     if (newPhotos.length > 1) {
-      setStatus(`Added ${newPhotos.length} photos`);
+      setStatus(`Added ${newPhotos.length} files`);
+    }
+
+    // Auto-scan first photo if receipt type
+    if (logType === "RECEIPT_EXPENSE" && newPhotos.length > 0) {
+      void runReceiptScan(newPhotos[0]);
     }
   };
 
@@ -189,7 +210,7 @@ export function DailyLogsScreen({
     }
 
     const res = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"],
+      mediaTypes: ["images", "videos"],
       quality: 0.8,
     });
     if (res.canceled) return;
@@ -200,10 +221,38 @@ export function DailyLogsScreen({
     const stored = await copyToAppStorage({
       uri: a.uri,
       name: (a as any).fileName ?? null,
-      mimeType: (a as any).mimeType ?? "image/jpeg",
+      mimeType: (a as any).mimeType ?? (a.type === "video" ? "video/mp4" : "image/jpeg"),
     });
 
     setAttachments((prev) => [...prev, stored]);
+
+    // Auto-scan if receipt type
+    if (logType === "RECEIPT_EXPENSE") {
+      void runReceiptScan(stored);
+    }
+  };
+
+  // Inline receipt OCR — scan photo and pre-fill vendor/amount/date
+  const runReceiptScan = async (file: StoredFile) => {
+    setScanning(true);
+    setStatus("🔍 Scanning receipt...");
+    try {
+      const result = await scanReceiptImage(file.uri, file.name, file.mimeType);
+      if (result.success) {
+        if (result.vendor && !expenseVendor) setExpenseVendor(result.vendor);
+        if (result.amount != null && !expenseAmount) setExpenseAmount(String(result.amount));
+        if (result.date && expenseDate === today) setExpenseDate(result.date);
+        if (result.vendor && !title) setTitle(`Receipt — ${result.vendor}`);
+        const confPct = result.confidence ? `${Math.round(result.confidence * 100)}%` : "";
+        setStatus(`✅ Found: ${result.vendor || "Unknown"} — $${result.amount?.toFixed(2) ?? "?"}${confPct ? ` (${confPct})` : ""}`);
+      } else {
+        setStatus(`⚠️ OCR: ${result.error || "Could not read receipt"}`);
+      }
+    } catch (e) {
+      setStatus("⚠️ Receipt scan unavailable (offline?)");
+    } finally {
+      setScanning(false);
+    }
   };
 
   const removeAttachment = (uri: string) => {
@@ -228,8 +277,11 @@ export function DailyLogsScreen({
 
     const localLogId = makeLocalId();
 
+    const isReceipt = logType === "RECEIPT_EXPENSE";
+
     const dto: DailyLogCreateRequest = {
       logDate,
+      type: logType,
       title: title.trim(),
       weatherSummary: weatherSummary || null,
       crewOnSite: crewOnSite || null,
@@ -239,11 +291,17 @@ export function DailyLogsScreen({
       manpowerOnsite: manpowerOnsite || null,
       personOnsite: personOnsite || null,
       confidentialNotes: confidentialNotes || null,
-      // Default sharing policy for now (can be expanded later)
-      shareInternal: true,
+      // Receipt/expense fields
+      ...(isReceipt ? {
+        expenseVendor: expenseVendor || null,
+        expenseAmount: expenseAmount ? parseFloat(expenseAmount) : null,
+        expenseDate: expenseDate || null,
+      } : {}),
+      // Receipts are private by default
+      shareInternal: isReceipt ? false : true,
       shareSubs: false,
       shareClient: false,
-      sharePrivate: false,
+      sharePrivate: isReceipt ? true : false,
     };
 
     const localLog = {
@@ -285,6 +343,7 @@ export function DailyLogsScreen({
       onNavigateHome();
     } else {
       // Fallback: clear form if no navigation callback
+      setLogType("PUDL");
       setTitle("");
       setWeatherSummary("");
       setCrewOnSite("");
@@ -294,6 +353,9 @@ export function DailyLogsScreen({
       setManpowerOnsite("");
       setPersonOnsite("");
       setConfidentialNotes("");
+      setExpenseVendor("");
+      setExpenseAmount("");
+      setExpenseDate(today);
       setAttachments([]);
       setStatus("Saved. Syncing...");
     }
@@ -342,7 +404,40 @@ export function DailyLogsScreen({
       >
         {status ? <Text style={styles.status}>{status}</Text> : null}
 
-        {/* 1. DATE - Always at top */}
+        {/* 1. LOG TYPE SELECTOR */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Log Type</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.typeScroll}
+          >
+            {([
+              { key: "PUDL" as const, label: "📝 Daily Log" },
+              { key: "RECEIPT_EXPENSE" as const, label: "🧾 Receipt" },
+              { key: "JSA" as const, label: "⚠️ Job Safety" },
+              { key: "INCIDENT" as const, label: "🚨 Incident" },
+              { key: "QUALITY" as const, label: "🔍 Quality" },
+            ]).map((t) => (
+              <Pressable
+                key={t.key}
+                style={[
+                  styles.typeChip,
+                  logType === t.key && styles.typeChipSelected,
+                ]}
+                onPress={() => setLogType(t.key)}
+              >
+                <Text
+                  style={logType === t.key ? styles.typeChipTextSelected : styles.typeChipText}
+                >
+                  {t.label}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+
+        {/* 2. DATE */}
         <View style={styles.dateRow}>
           <Text style={styles.dateLabel}>Date</Text>
           <TextInput
@@ -353,8 +448,40 @@ export function DailyLogsScreen({
           />
         </View>
 
-        {/* 2. PETL REVIEW - Prominent button */}
-        {onOpenPetl && (
+        {/* Receipt/Expense fields — shown when type is RECEIPT_EXPENSE */}
+        {logType === "RECEIPT_EXPENSE" && (
+          <View style={styles.receiptSection}>
+            <Text style={styles.receiptTitle}>🧾 Receipt Details</Text>
+            <Text style={styles.receiptHint}>Attach a receipt photo — OCR will auto-extract vendor &amp; amount.</Text>
+            <TextInput
+              style={styles.receiptInput}
+              value={expenseVendor}
+              onChangeText={setExpenseVendor}
+              placeholder="Vendor (Home Depot, Lowe's, etc.)"
+              placeholderTextColor={colors.textMuted}
+            />
+            <View style={styles.receiptRow}>
+              <TextInput
+                style={[styles.receiptInput, { flex: 1 }]}
+                value={expenseAmount}
+                onChangeText={setExpenseAmount}
+                placeholder="Amount ($)"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="decimal-pad"
+              />
+              <TextInput
+                style={[styles.receiptInput, { flex: 1, marginLeft: 8 }]}
+                value={expenseDate}
+                onChangeText={setExpenseDate}
+                placeholder="Receipt date"
+                placeholderTextColor={colors.textMuted}
+              />
+            </View>
+          </View>
+        )}
+
+        {/* 3. PETL REVIEW - Only for standard daily logs */}
+        {onOpenPetl && logType === "PUDL" && (
           <Pressable style={styles.petlButton} onPress={onOpenPetl}>
             <View>
               <Text style={styles.petlButtonText}>Review PETL Scope</Text>
@@ -364,7 +491,7 @@ export function DailyLogsScreen({
           </Pressable>
         )}
 
-        {/* 3. NOTES - Main work area */}
+        {/* 4. NOTES - Main work area */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Notes</Text>
           <TextInput
@@ -378,7 +505,7 @@ export function DailyLogsScreen({
           />
         </View>
 
-        {/* 4. ATTACHMENTS - Always visible with notes */}
+        {/* 5. ATTACHMENTS - Always visible with notes */}
         <View style={styles.attachmentsSection}>
           <View style={styles.attachmentsHeader}>
             <Text style={styles.sectionLabel}>Attachments</Text>
@@ -407,7 +534,7 @@ export function DailyLogsScreen({
           )}
         </View>
 
-        {/* 5. SUBJECT/TITLE - Auto-fills from notes if left empty */}
+        {/* 6. SUBJECT/TITLE - Auto-fills from notes if left empty */}
         <View style={styles.section}>
           <View style={styles.titleLabelRow}>
             <Text style={styles.sectionLabel}>Subject / Title</Text>
@@ -429,7 +556,7 @@ export function DailyLogsScreen({
           />
         </View>
 
-        {/* 6. COLLAPSIBLE DETAILS DRAWER */}
+        {/* 7. COLLAPSIBLE DETAILS DRAWER */}
         <Pressable
           style={styles.detailsToggle}
           onPress={() => setDetailsExpanded(!detailsExpanded)}
@@ -597,6 +724,69 @@ const styles = StyleSheet.create({
     color: colors.textSecondary, 
     marginBottom: 8,
     fontSize: 13,
+  },
+
+  // Type selector
+  typeScroll: {
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  typeChip: {
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.borderMuted,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginRight: 8,
+  },
+  typeChipSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  typeChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.textSecondary,
+  },
+  typeChipTextSelected: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.textOnPrimary,
+  },
+
+  // Receipt section
+  receiptSection: {
+    backgroundColor: colors.background,
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#f5deb3",
+    borderLeftWidth: 4,
+    borderLeftColor: "#FF9500",
+  },
+  receiptTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.textPrimary,
+    marginBottom: 4,
+  },
+  receiptHint: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginBottom: 10,
+  },
+  receiptInput: {
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 14,
+    color: colors.textPrimary,
+    marginBottom: 8,
+  },
+  receiptRow: {
+    flexDirection: "row" as const,
   },
 
   // Date row
