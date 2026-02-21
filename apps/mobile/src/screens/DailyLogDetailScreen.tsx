@@ -12,8 +12,29 @@ import {
 } from "react-native";
 import { fetchDailyLogDetail, delayPublishLog, publishLog, fetchRevisions } from "../api/dailyLog";
 import { getCache, setCache } from "../offline/cache";
+import { getApiBaseUrl } from "../api/config";
 import { colors } from "../theme/colors";
 import type { DailyLogDetail, DailyLogType, DailyLogListItem, DailyLogRevision } from "../types/api";
+
+/** Resolve a relative attachment URL to an absolute one using the API base. */
+function resolveAttachmentUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith("http")) return url;
+  return `${getApiBaseUrl()}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+/** Check if attachment is a video */
+const isVideoAttachment = (att: { fileName?: string | null; mimeType?: string | null }) => {
+  const fileName = att.fileName?.toLowerCase() || "";
+  const mimeType = att.mimeType?.toLowerCase() || "";
+  return (
+    mimeType.startsWith("video/") ||
+    fileName.endsWith(".mp4") ||
+    fileName.endsWith(".mov") ||
+    fileName.endsWith(".avi") ||
+    fileName.endsWith(".m4v")
+  );
+};
 
 interface Props {
   log: DailyLogListItem;
@@ -148,7 +169,8 @@ export function DailyLogDetailScreen({
   };
 
   const openAttachment = (url: string) => {
-    void Linking.openURL(url);
+    const resolved = resolveAttachmentUrl(url);
+    if (resolved) void Linking.openURL(resolved);
   };
 
   // Check if attachment is an image
@@ -372,7 +394,7 @@ export function DailyLogDetailScreen({
             {data.attachments.some(isImageAttachment) && (
               <View style={styles.photoGrid}>
                 {data.attachments.filter(isImageAttachment).map((att) => {
-                  const imageUri = att.fileUrl || att.thumbnailUrl;
+                  const imageUri = resolveAttachmentUrl(att.fileUrl || att.thumbnailUrl);
                   if (!imageUri) return null;
                   return (
                     <Pressable
@@ -390,9 +412,26 @@ export function DailyLogDetailScreen({
                 })}
               </View>
             )}
-            
-            {/* Non-image attachments */}
-            {data.attachments.filter((att) => !isImageAttachment(att)).map((att) => (
+
+            {/* Video attachments */}
+            {data.attachments.filter(isVideoAttachment).map((att) => (
+              <Pressable
+                key={att.id}
+                style={styles.videoRow}
+                onPress={() => att.fileUrl && openAttachment(att.fileUrl)}
+              >
+                <Text style={styles.videoIcon}>🎬</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.attachmentName} numberOfLines={1}>
+                    {att.fileName || "Video"}
+                  </Text>
+                  <Text style={styles.videoHint}>Tap to play</Text>
+                </View>
+              </Pressable>
+            ))}
+
+            {/* Other non-image, non-video attachments */}
+            {data.attachments.filter((att) => !isImageAttachment(att) && !isVideoAttachment(att)).map((att) => (
               <Pressable
                 key={att.id}
                 style={styles.attachmentRow}
@@ -614,6 +653,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.primary,
     flex: 1,
+  },
+  videoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderMuted,
+    backgroundColor: "#f9fafb",
+    borderRadius: 8,
+    marginBottom: 6,
+  },
+  videoIcon: {
+    fontSize: 28,
+    marginRight: 12,
+  },
+  videoHint: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 2,
   },
   sharingRow: {
     flexDirection: "row",
