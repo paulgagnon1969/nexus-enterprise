@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Req,
   Res,
   UseGuards,
@@ -199,6 +200,19 @@ export class ProjectController {
       user.companyId,
       user.role
     );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put(":id/team-tree")
+  async updateTeamTree(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body() body: { teamTree: Record<string, string[]> },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    await this.projects.getProjectByIdForUser(projectId, user);
+    const updated = await this.projects.updateTeamTree(projectId, user.companyId, body.teamTree);
+    return { teamTreeJson: updated.teamTreeJson };
   }
 
   @UseGuards(CombinedAuthGuard)

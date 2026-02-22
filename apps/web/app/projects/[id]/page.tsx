@@ -29,6 +29,7 @@ import { RoleVisible } from "../../role-audit";
 import { FileDropZone } from "../../components/file-drop-zone";
 import { ScheduleSection, makeMermaidSafeId, scheduleExtractGroupCode, MermaidGantt } from "./schedule-section";
 import { DescriptionPicker } from "../../components/DescriptionPicker";
+import PersonnelPicker, { type PersonnelEntry } from "./personnel-picker";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -548,6 +549,8 @@ interface Project {
   primaryContactName?: string | null;
   primaryContactEmail?: string | null;
   primaryContactPhone?: string | null;
+  // Team Tree: role → userId[]
+  teamTreeJson?: Record<string, string[]> | null;
 }
 
 interface PetlItem {
@@ -628,7 +631,7 @@ interface DailyLogAttachmentDto {
 type CompanyRole = "OWNER" | "ADMIN" | "MEMBER" | "CLIENT";
 type GlobalRole = "SUPER_ADMIN" | "NONE" | string;
 
-type DailyLogType = "PUDL" | "RECEIPT_EXPENSE" | "JSA" | "INCIDENT" | "QUALITY" | "CUSTOM";
+type DailyLogType = "PUDL" | "RECEIPT_EXPENSE" | "JSA" | "INCIDENT" | "QUALITY" | "TADL" | "CUSTOM";
 
 interface HourlyWeatherData {
   datetime: string;
@@ -683,6 +686,9 @@ interface DailyLog {
   expenseAmount?: number | null;
   expenseDate?: string | null;
   sourceBillId?: string | null;
+  personnelOnsiteJson?: PersonnelEntry[] | null;
+  sourceJsaId?: string | null;
+  jsaSafetyJson?: any;
   createdAt: string;
   createdByUser?: {
     id: string;
@@ -777,6 +783,7 @@ interface FieldPetlItem {
   qtyFlaggedIncorrect: boolean;
   qtyFieldReported: number | null;
   qtyReviewStatus: string | null;
+  qtyFieldNotes: string | null;
   orgGroupCode: string | null;
   // Percent comes from main PETL items; we merge it client-side when needed.
   percentComplete?: number;
@@ -790,6 +797,27 @@ interface FieldPetlEditState {
   note: string;
   saving: boolean;
   error: string | null;
+}
+
+function mapFieldPetlApiItem(r: any): FieldPetlItem {
+  return {
+    sowItemId: String(r.id),
+    lineNo: Number(r.lineNo ?? 0),
+    roomParticleId: r.roomParticleId ?? null,
+    roomName: r.roomName ?? null,
+    categoryCode: r.categoryCode ?? null,
+    selectionCode: r.selectionCode ?? null,
+    activity: r.activity ?? null,
+    description: r.description ?? null,
+    unit: r.unit ?? null,
+    originalQty: typeof r.originalQty === "number" ? r.originalQty : null,
+    qty: typeof r.qty === "number" ? r.qty : null,
+    qtyFlaggedIncorrect: !!r.qtyFlaggedIncorrect,
+    qtyFieldReported: typeof r.qtyFieldReported === "number" ? r.qtyFieldReported : null,
+    qtyReviewStatus: r.qtyReviewStatus ?? null,
+    qtyFieldNotes: typeof r.qtyFieldNotes === "string" ? r.qtyFieldNotes : null,
+    orgGroupCode: r.orgGroupCode ?? null,
+  };
 }
 
 interface FinancialSummary {
@@ -1243,6 +1271,31 @@ export default function ProjectDetailPage({
   const [tagsSaving, setTagsSaving] = useState(false);
   const [showTagManager, setShowTagManager] = useState(false);
   const [newTagLabel, setNewTagLabel] = useState("");
+
+  // Editable TeamTree: role-key → userId (single select per slot)
+  const TEAM_TREE_SLOTS = useMemo(() => [
+    { key: "PM", label: "Project Manager" },
+    { key: "SUPER", label: "Superintendent" },
+    { key: "FOREMAN", label: "Foreman" },
+  ], []);
+  const [teamTreeLocal, setTeamTreeLocal] = useState<Record<string, string>>({});
+  const [teamTreeSaving, setTeamTreeSaving] = useState(false);
+  const [teamTreeDirty, setTeamTreeDirty] = useState(false);
+
+  // Sync teamTreeLocal from project.teamTreeJson when project loads
+  useEffect(() => {
+    if (!project?.teamTreeJson) {
+      setTeamTreeLocal({});
+      setTeamTreeDirty(false);
+      return;
+    }
+    const map: Record<string, string> = {};
+    for (const [key, arr] of Object.entries(project.teamTreeJson)) {
+      if (Array.isArray(arr) && arr.length > 0) map[key] = arr[0];
+    }
+    setTeamTreeLocal(map);
+    setTeamTreeDirty(false);
+  }, [project?.teamTreeJson]);
 
   // Progress controls state
   const [groupLoading, setGroupLoading] = useState(false);
@@ -4333,6 +4386,7 @@ ${htmlBody}
     saving: boolean;
     error: string | null;
   } | null>(null);
+  const [fieldPetlExpandedNotes, setFieldPetlExpandedNotes] = useState<Set<string>>(() => new Set());
   // Person/s onsite multi-select state for Daily Logs
   const [personOnsiteList, setPersonOnsiteList] = useState<string[]>([]);
   const [personOnsiteDraft, setPersonOnsiteDraft] = useState<string>("");
@@ -4340,6 +4394,55 @@ ${htmlBody}
     { id: string; name: string; members: string[] }[]
   >([]);
   const [selectedPersonOnsiteGroupId, setSelectedPersonOnsiteGroupId] = useState<string>("");
+  // Structured personnel JSON for the new dual-listbox picker
+  const [personnelOnsiteJson, setPersonnelOnsiteJson] = useState<PersonnelEntry[]>([]);
+  const [personnelPickerOpen, setPersonnelPickerOpen] = useState(false);
+
+  // JSA status for the current project (headcount + JSA check)
+  const [jsaStatus, setJsaStatus] = useState<{
+    hasJsa: boolean;
+    jsaId: string | null;
+    personnelCount: number | null;
+    loading: boolean;
+  }>({ hasJsa: false, jsaId: null, personnelCount: null, loading: false });
+
+  // JSA prompt modal (shown when creating non-JSA log without a JSA)
+  const [jsaPrompt, setJsaPrompt] = useState<{
+    open: boolean;
+    pendingType: DailyLogType | null;
+  }>({ open: false, pendingType: null });
+
+  // JSA safety form fields (for JSA type logs)
+  const [jsaSafetyDraft, setJsaSafetyDraft] = useState<{
+    hazards: string[];
+    controls: string;
+    ppeRequired: string[];
+    allBriefed: boolean;
+  }>({ hazards: [], controls: "", ppeRequired: [], allBriefed: false });
+
+  // TADL time entry rows (for TADL type logs)
+  interface TadlTimeRow {
+    key: string; // unique row key
+    userId: string | null;
+    externalName: string | null;
+    name: string; // display name
+    clockIn: string; // HH:mm
+    clockOut: string; // HH:mm
+    breakMinutes: number;
+    note: string;
+  }
+  const [tadlTimeRows, setTadlTimeRows] = useState<TadlTimeRow[]>([]);
+  const [tadlLoadingPersonnel, setTadlLoadingPersonnel] = useState(false);
+  // Track previous TADL info for departure delta
+  const [tadlPrevEntryCount, setTadlPrevEntryCount] = useState(0);
+
+  // Daily log settings panel
+  const [dlSettingsOpen, setDlSettingsOpen] = useState(false);
+  const [dlSettings, setDlSettings] = useState<{
+    jsaReminderEnabled: boolean;
+    jsaReminderTime: string;
+    saving: boolean;
+  }>({ jsaReminderEnabled: true, jsaReminderTime: "09:00", saving: false });
   // When launched from PETL, capture context for a new PUDL
   const [pudlContext, setPudlContext] = useState<{
     open: boolean;
@@ -7754,6 +7857,26 @@ ${htmlBody}
 
     void loadLogs();
 
+    // Also fetch JSA status for headcount indicator
+    const loadJsaStatus = async () => {
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const jsaRes = await fetch(`${API_BASE}/projects/${project.id}/jsa-status?date=${today}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!cancelled && jsaRes.ok) {
+          const data: any = await jsaRes.json();
+          setJsaStatus({
+            hasJsa: data.hasJsa ?? false,
+            jsaId: data.jsaId ?? null,
+            personnelCount: data.personnelCount ?? null,
+            loading: false,
+          });
+        }
+      } catch {}
+    };
+    void loadJsaStatus();
+
     return () => {
       cancelled = true;
     };
@@ -7782,25 +7905,7 @@ ${htmlBody}
         const json: any = await res.json();
         if (cancelled) return;
         const items: any[] = Array.isArray(json?.items) ? json.items : [];
-        const mapped: FieldPetlItem[] = items.map((it: any) => ({
-          sowItemId: String(it.id),
-          lineNo: Number(it.lineNo ?? 0),
-          roomParticleId: it.roomParticleId ?? null,
-          roomName: it.roomName ?? null,
-          categoryCode: it.categoryCode ?? null,
-          selectionCode: it.selectionCode ?? null,
-          activity: it.activity ?? null,
-          description: it.description ?? null,
-          unit: it.unit ?? null,
-          originalQty: typeof it.originalQty === "number" ? it.originalQty : null,
-          qty: typeof it.qty === "number" ? it.qty : null,
-          qtyFlaggedIncorrect: !!it.qtyFlaggedIncorrect,
-          qtyFieldReported:
-            typeof it.qtyFieldReported === "number" ? it.qtyFieldReported : null,
-          qtyReviewStatus: it.qtyReviewStatus ?? null,
-          orgGroupCode: it.orgGroupCode ?? null,
-        }));
-        setFieldPetlItems(mapped);
+        setFieldPetlItems(items.map(mapFieldPetlApiItem));
       } catch (err: any) {
         if (!cancelled) {
           setFieldPetlError(err?.message ?? "Failed to load Field PETL.");
@@ -7853,44 +7958,27 @@ ${htmlBody}
 
   const handleFieldPetlCheckbox = useCallback(async (item: FieldPetlItem) => {
     if (item.qtyFlaggedIncorrect) {
-      // Already flagged — unflag via API
+      // Already flagged — optimistic unflag
+      setFieldPetlItems(prev => prev.map(it =>
+        it.sowItemId === item.sowItemId
+          ? { ...it, qtyFlaggedIncorrect: false, qtyFieldReported: null, qtyFieldNotes: null, qtyReviewStatus: null }
+          : it,
+      ));
+      setFieldPetlExpandedNotes(prev => { const next = new Set(prev); next.delete(item.sowItemId); return next; });
+      // Fire API + background reload
       const token = localStorage.getItem("accessToken");
       if (!token || !project) return;
       try {
-        const res = await fetch(
-          `${API_BASE}/projects/${project.id}/petl-field/qty-flags`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({
-              items: [{ sowItemId: item.sowItemId, qtyFlaggedIncorrect: false, qtyFieldReported: null, notes: null }],
-            }),
-          },
-        );
-        if (!res.ok) return;
-        const reloadRes = await fetch(`${API_BASE}/projects/${project.id}/petl-field`, {
-          headers: { Authorization: `Bearer ${token}` },
+        await fetch(`${API_BASE}/projects/${project.id}/petl-field/qty-flags`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ items: [{ sowItemId: item.sowItemId, qtyFlaggedIncorrect: false, qtyFieldReported: null, notes: null }] }),
         });
+        // Background reload to sync server state
+        const reloadRes = await fetch(`${API_BASE}/projects/${project.id}/petl-field`, { headers: { Authorization: `Bearer ${token}` } });
         if (reloadRes.ok) {
           const json: any = await reloadRes.json();
-          const arr: any[] = Array.isArray(json?.items) ? json.items : [];
-          setFieldPetlItems(arr.map((r: any) => ({
-            sowItemId: String(r.id),
-            lineNo: Number(r.lineNo ?? 0),
-            roomParticleId: r.roomParticleId ?? null,
-            roomName: r.roomName ?? null,
-            categoryCode: r.categoryCode ?? null,
-            selectionCode: r.selectionCode ?? null,
-            activity: r.activity ?? null,
-            description: r.description ?? null,
-            unit: r.unit ?? null,
-            originalQty: typeof r.originalQty === "number" ? r.originalQty : null,
-            qty: typeof r.qty === "number" ? r.qty : null,
-            qtyFlaggedIncorrect: !!r.qtyFlaggedIncorrect,
-            qtyFieldReported: typeof r.qtyFieldReported === "number" ? r.qtyFieldReported : null,
-            qtyReviewStatus: r.qtyReviewStatus ?? null,
-            orgGroupCode: r.orgGroupCode ?? null,
-          })));
+          setFieldPetlItems((Array.isArray(json?.items) ? json.items : []).map(mapFieldPetlApiItem));
         }
       } catch {}
     } else {
@@ -7927,7 +8015,23 @@ ${htmlBody}
       setFieldPetlInlineEdit(prev => prev ? { ...prev, error: "Enter a quantity or a note." } : prev);
       return;
     }
-    setFieldPetlInlineEdit(prev => prev ? { ...prev, saving: true, error: null } : prev);
+    // Require note when qty changes (reconciliation will need it)
+    if (trimmedQty && !trimmedNote) {
+      setFieldPetlInlineEdit(prev => prev ? { ...prev, error: "A note is required when changing qty." } : prev);
+      return;
+    }
+    // Optimistic UI: close form + update item immediately
+    setFieldPetlInlineEdit(null);
+    setFieldPetlItems(prev => prev.map(it =>
+      it.sowItemId === sowItemId
+        ? { ...it, qtyFlaggedIncorrect: true, qtyFieldReported: parsedQty, qtyFieldNotes: trimmedNote || null, qtyReviewStatus: "PENDING" }
+        : it,
+    ));
+    // Auto-expand the note row so user sees it was saved
+    if (trimmedNote) {
+      setFieldPetlExpandedNotes(prev => { const next = new Set(prev); next.add(sowItemId); return next; });
+    }
+    // Fire API + background reload
     try {
       const res = await fetch(
         `${API_BASE}/projects/${project.id}/petl-field/qty-flags`,
@@ -7935,51 +8039,28 @@ ${htmlBody}
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
           body: JSON.stringify({
-            items: [{
-              sowItemId,
-              qtyFlaggedIncorrect: true,
-              qtyFieldReported: parsedQty,
-              notes: trimmedNote || null,
-            }],
+            items: [{ sowItemId, qtyFlaggedIncorrect: true, qtyFieldReported: parsedQty, notes: trimmedNote || null }],
           }),
         },
       );
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Save failed (${res.status}) ${text}`);
-      }
-      try {
-        const reloadRes = await fetch(`${API_BASE}/projects/${project.id}/petl-field`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        // Reload to restore correct state on failure
+        const reloadRes = await fetch(`${API_BASE}/projects/${project.id}/petl-field`, { headers: { Authorization: `Bearer ${token}` } });
         if (reloadRes.ok) {
           const json: any = await reloadRes.json();
-          const arr: any[] = Array.isArray(json?.items) ? json.items : [];
-          setFieldPetlItems(arr.map((r: any) => ({
-            sowItemId: String(r.id),
-            lineNo: Number(r.lineNo ?? 0),
-            roomParticleId: r.roomParticleId ?? null,
-            roomName: r.roomName ?? null,
-            categoryCode: r.categoryCode ?? null,
-            selectionCode: r.selectionCode ?? null,
-            activity: r.activity ?? null,
-            description: r.description ?? null,
-            unit: r.unit ?? null,
-            originalQty: typeof r.originalQty === "number" ? r.originalQty : null,
-            qty: typeof r.qty === "number" ? r.qty : null,
-            qtyFlaggedIncorrect: !!r.qtyFlaggedIncorrect,
-            qtyFieldReported: typeof r.qtyFieldReported === "number" ? r.qtyFieldReported : null,
-            qtyReviewStatus: r.qtyReviewStatus ?? null,
-            orgGroupCode: r.orgGroupCode ?? null,
-          })));
+          setFieldPetlItems((Array.isArray(json?.items) ? json.items : []).map(mapFieldPetlApiItem));
+        }
+        return;
+      }
+      // Background reload to sync any server-side changes (recon entries, etc.)
+      try {
+        const reloadRes = await fetch(`${API_BASE}/projects/${project.id}/petl-field`, { headers: { Authorization: `Bearer ${token}` } });
+        if (reloadRes.ok) {
+          const json: any = await reloadRes.json();
+          setFieldPetlItems((Array.isArray(json?.items) ? json.items : []).map(mapFieldPetlApiItem));
         }
       } catch {}
-      setFieldPetlInlineEdit(null);
-    } catch (err: any) {
-      setFieldPetlInlineEdit(prev =>
-        prev ? { ...prev, saving: false, error: err?.message ?? "Save failed." } : prev,
-      );
-    }
+    } catch {}
   }, [project, fieldPetlInlineEdit]);
 
   const submitFieldPetlEdit = useCallback(async () => {
@@ -8095,25 +8176,7 @@ ${htmlBody}
         if (res.ok) {
           const json: any = await res.json();
           const items: any[] = Array.isArray(json?.items) ? json.items : [];
-          const mapped: FieldPetlItem[] = items.map((it: any) => ({
-            sowItemId: String(it.id),
-            lineNo: Number(it.lineNo ?? 0),
-            roomParticleId: it.roomParticleId ?? null,
-            roomName: it.roomName ?? null,
-            categoryCode: it.categoryCode ?? null,
-            selectionCode: it.selectionCode ?? null,
-            activity: it.activity ?? null,
-            description: it.description ?? null,
-            unit: it.unit ?? null,
-            originalQty: typeof it.originalQty === "number" ? it.originalQty : null,
-            qty: typeof it.qty === "number" ? it.qty : null,
-            qtyFlaggedIncorrect: !!it.qtyFlaggedIncorrect,
-            qtyFieldReported:
-              typeof it.qtyFieldReported === "number" ? it.qtyFieldReported : null,
-            qtyReviewStatus: it.qtyReviewStatus ?? null,
-            orgGroupCode: it.orgGroupCode ?? null,
-          }));
-          setFieldPetlItems(mapped);
+          setFieldPetlItems(items.map(mapFieldPetlApiItem));
         }
       } catch {
         // non-fatal
@@ -11015,7 +11078,10 @@ ${htmlBody}
           issues: newDailyLog.issues || null,
           safetyIncidents: newDailyLog.safetyIncidents || null,
           manpowerOnsite: newDailyLog.manpowerOnsite || null,
-          personOnsite: newDailyLog.personOnsite || null,
+          personOnsite: personnelOnsiteJson.length
+            ? personnelOnsiteJson.map((p) => p.name).join(", ")
+            : (newDailyLog.personOnsite || null),
+          personnelOnsiteJson: personnelOnsiteJson.length ? personnelOnsiteJson : undefined,
           confidentialNotes: newDailyLog.confidentialNotes || null,
           shareInternal: isReceiptExpense ? false : newDailyLog.shareInternal,
           shareSubs: isReceiptExpense ? false : newDailyLog.shareSubs,
@@ -11030,6 +11096,16 @@ ${htmlBody}
           const amt = parseFloat(newDailyLog.expenseAmount);
           body.expenseAmount = !isNaN(amt) ? amt : null;
           body.expenseDate = newDailyLog.expenseDate || null;
+        }
+
+        // JSA safety fields
+        if (newDailyLog.type === "JSA" && (jsaSafetyDraft.hazards.length || jsaSafetyDraft.controls || jsaSafetyDraft.ppeRequired.length || jsaSafetyDraft.allBriefed)) {
+          body.jsaSafetyJson = {
+            hazards: jsaSafetyDraft.hazards,
+            controls: jsaSafetyDraft.controls,
+            ppeRequired: jsaSafetyDraft.ppeRequired,
+            allBriefed: jsaSafetyDraft.allBriefed,
+          };
         }
 
         // Attachment file IDs
@@ -11058,6 +11134,31 @@ ${htmlBody}
         }
 
         const created: DailyLog = await res.json();
+
+        // TADL: create time entries after the daily log is saved
+        if (newDailyLog.type === "TADL" && tadlTimeRows.length > 0) {
+          const logDate = newDailyLog.logDate;
+          const timeEntries = tadlTimeRows
+            .filter(r => r.clockIn && (r.userId || r.externalName || r.name))
+            .map(r => ({
+              userId: r.userId || undefined,
+              externalName: r.externalName || (r.userId ? undefined : r.name) || undefined,
+              clockIn: `${logDate}T${r.clockIn}:00.000Z`,
+              clockOut: r.clockOut ? `${logDate}T${r.clockOut}:00.000Z` : undefined,
+              breakMinutes: r.breakMinutes || 0,
+              note: r.note || undefined,
+            }));
+          if (timeEntries.length > 0) {
+            try {
+              await fetch(`${API_BASE}/projects/${id}/daily-logs/${created.id}/time-entries`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ entries: timeEntries }),
+              });
+            } catch {}
+          }
+        }
+
         setDailyLogs(prev => [created, ...prev]);
 
         setNewDailyLog(prev => ({
@@ -11086,6 +11187,21 @@ ${htmlBody}
         setPersonOnsiteList([]);
         setPersonOnsiteDraft("");
         setSelectedPersonOnsiteGroupId("");
+        setPersonnelOnsiteJson([]);
+        setJsaSafetyDraft({ hazards: [], controls: "", ppeRequired: [], allBriefed: false });
+        setTadlTimeRows([]);
+
+        // Refresh JSA status after creating a log (especially if it was a JSA)
+        {
+          const tk = localStorage.getItem("accessToken");
+          if (tk) {
+            fetch(`${API_BASE}/projects/${id}/jsa-status`, {
+              headers: { Authorization: `Bearer ${tk}` },
+            }).then(r => r.ok ? r.json() : null).then(data => {
+              if (data) setJsaStatus({ hasJsa: data.hasJsa, jsaId: data.jsaId, personnelCount: data.personnelCount, loading: false });
+            }).catch(() => {});
+          }
+        }
 
         setPudlContext({
           open: false,
@@ -12550,6 +12666,18 @@ ${htmlBody}
               <RoleVisible minRole="CREW">
                 <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
                   Status: {project.status}
+                  {jsaStatus.personnelCount != null && jsaStatus.personnelCount > 0 && (
+                    <span style={{
+                      marginLeft: 10,
+                      color: jsaStatus.hasJsa ? "#16a34a" : "#d97706",
+                      fontWeight: 500,
+                    }}>
+                      {jsaStatus.hasJsa ? "👷" : "⚠️"} {jsaStatus.personnelCount} pers onsite
+                      {!jsaStatus.hasJsa && (
+                        <span style={{ fontSize: 11, marginLeft: 4, color: "#d97706" }}>No JSA</span>
+                      )}
+                    </span>
+                  )}
                 </p>
               </RoleVisible>
               {actorDisplayName && (
@@ -13750,91 +13878,171 @@ ${htmlBody}
             </div>
           </div>
 
-          {/* Project Team Tree */}
-          {participants && (() => {
-            const members = [...(participants.myOrganization ?? [])];
-            // Group by role, sorted by hierarchy (sortOrder ascending)
-            const roleGroups = new Map<string, { label: string; sortOrder: number; people: { name: string; email: string }[] }>();
-            for (const m of members) {
-              const code = m.role || "UNKNOWN";
-              const profile = roleProfileMap.get(code);
-              const label = profile?.label ?? code;
-              const sortOrder = profile?.sortOrder ?? 999;
-              const user = m.user as any;
-              const first = (user?.firstName || "").trim();
-              const last = (user?.lastName || "").trim();
-              const name = [first, last].filter(Boolean).join(" ") || (user?.email ?? "(unknown)");
-              if (!roleGroups.has(code)) {
-                roleGroups.set(code, { label, sortOrder, people: [] });
-              }
-              roleGroups.get(code)!.people.push({ name, email: user?.email ?? "" });
-            }
-            const sorted = [...roleGroups.entries()].sort((a, b) => a[1].sortOrder - b[1].sortOrder);
-            if (sorted.length === 0) return null;
-            return (
-              <div
-                style={{
-                  borderRadius: 8,
-                  border: "1px solid #e5e7eb",
-                  background: "#ffffff",
-                  marginBottom: 12,
-                }}
-              >
-                <div
-                  style={{
-                    padding: "6px 10px",
-                    borderBottom: "1px solid #e5e7eb",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    background: "#f3f4f6",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                  }}
-                >
-                  <span style={{ fontSize: 15 }}>&#127795;</span> Project Team
-                </div>
-                <div style={{ padding: "10px 14px" }}>
-                  {sorted.map(([code, group], idx) => (
-                    <div key={code} style={{ position: "relative", paddingLeft: 20, marginBottom: idx < sorted.length - 1 ? 0 : 0 }}>
-                      {/* Vertical connector line */}
-                      {idx < sorted.length - 1 && (
-                        <div style={{
-                          position: "absolute",
-                          left: 7,
-                          top: 14,
-                          bottom: -4,
-                          width: 2,
-                          background: "#d1d5db",
-                        }} />
-                      )}
-                      {/* Horizontal connector dot */}
+          {/* Project Team Tree — Editable */}
+          <div
+            style={{
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+              marginBottom: 12,
+            }}
+          >
+            <div
+              style={{
+                padding: "6px 10px",
+                borderBottom: "1px solid #e5e7eb",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <span style={{ fontSize: 15 }}>&#127795;</span> Project Team
+            </div>
+            <div style={{ padding: "10px 14px" }}>
+              {TEAM_TREE_SLOTS.map((slot, idx) => {
+                const selectedUserId = teamTreeLocal[slot.key] || "";
+                const members = participants?.myOrganization ?? [];
+                const selectedMember = members.find((m) => m.userId === selectedUserId);
+                const displayName = selectedMember
+                  ? [selectedMember.user.firstName, selectedMember.user.lastName].filter(Boolean).join(" ") || selectedMember.user.email
+                  : null;
+                return (
+                  <div key={slot.key} style={{ position: "relative", paddingLeft: 20, marginBottom: idx < TEAM_TREE_SLOTS.length - 1 ? 8 : 0 }}>
+                    {/* Vertical connector line */}
+                    {idx < TEAM_TREE_SLOTS.length - 1 && (
                       <div style={{
                         position: "absolute",
-                        left: 2,
-                        top: 6,
-                        width: 12,
-                        height: 12,
-                        borderRadius: "50%",
-                        background: idx === 0 ? "#2563eb" : idx === sorted.length - 1 ? "#9ca3af" : "#6b7280",
-                        border: "2px solid #ffffff",
-                        boxShadow: "0 0 0 1px #d1d5db",
+                        left: 7,
+                        top: 14,
+                        bottom: -8,
+                        width: 2,
+                        background: "#d1d5db",
                       }} />
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "#111827", marginBottom: 2 }}>
-                        {group.label}
-                      </div>
-                      {group.people.map((p, pi) => (
-                        <div key={pi} style={{ fontSize: 12, color: "#4b5563", paddingLeft: 4, lineHeight: 1.6 }}>
-                          {p.name}
-                        </div>
-                      ))}
-                      {idx < sorted.length - 1 && <div style={{ height: 8 }} />}
+                    )}
+                    {/* Connector dot */}
+                    <div style={{
+                      position: "absolute",
+                      left: 2,
+                      top: 6,
+                      width: 12,
+                      height: 12,
+                      borderRadius: "50%",
+                      background: idx === 0 ? "#2563eb" : idx === TEAM_TREE_SLOTS.length - 1 ? "#9ca3af" : "#6b7280",
+                      border: "2px solid #ffffff",
+                      boxShadow: "0 0 0 1px #d1d5db",
+                    }} />
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#111827", marginBottom: 2 }}>
+                      {slot.label}
                     </div>
-                  ))}
+                    <select
+                      value={selectedUserId}
+                      onChange={(e) => {
+                        setTeamTreeLocal((prev) => ({ ...prev, [slot.key]: e.target.value }));
+                        setTeamTreeDirty(true);
+                      }}
+                      style={{
+                        fontSize: 12,
+                        padding: "3px 6px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        background: "#ffffff",
+                        minWidth: 180,
+                        color: selectedUserId ? "#111827" : "#9ca3af",
+                      }}
+                    >
+                      <option value="">— Select —</option>
+                      {members.map((m) => {
+                        const name = [m.user.firstName, m.user.lastName].filter(Boolean).join(" ") || m.user.email;
+                        return (
+                          <option key={m.userId} value={m.userId}>{name}</option>
+                        );
+                      })}
+                    </select>
+                    {displayName && (
+                      <span style={{ fontSize: 11, color: "#6b7280", marginLeft: 6 }}>{displayName}</span>
+                    )}
+                  </div>
+                );
+              })}
+              {/* Save button */}
+              {teamTreeDirty && (
+                <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
+                  <button
+                    type="button"
+                    disabled={teamTreeSaving}
+                    onClick={async () => {
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) return;
+                      setTeamTreeSaving(true);
+                      // Convert local map (role→userId) to role→userId[] for API
+                      const payload: Record<string, string[]> = {};
+                      for (const [key, userId] of Object.entries(teamTreeLocal)) {
+                        if (userId) payload[key] = [userId];
+                      }
+                      try {
+                        const res = await fetch(`${API_BASE}/projects/${id}/team-tree`, {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ teamTreeJson: payload }),
+                        });
+                        if (res.ok) {
+                          const updated = await res.json();
+                          setProject((prev) => prev ? { ...prev, teamTreeJson: updated.teamTreeJson ?? payload } : prev);
+                          setTeamTreeDirty(false);
+                        }
+                      } catch (err) {
+                        console.error("Failed to save team tree", err);
+                      } finally {
+                        setTeamTreeSaving(false);
+                      }
+                    }}
+                    style={{
+                      padding: "4px 12px",
+                      borderRadius: 4,
+                      border: "1px solid #22c55e",
+                      background: "#dcfce7",
+                      color: "#166534",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: teamTreeSaving ? "not-allowed" : "pointer",
+                      opacity: teamTreeSaving ? 0.6 : 1,
+                    }}
+                  >
+                    {teamTreeSaving ? "Saving…" : "Save Team"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={teamTreeSaving}
+                    onClick={() => {
+                      // Reset to persisted values
+                      const map: Record<string, string> = {};
+                      if (project?.teamTreeJson) {
+                        for (const [key, arr] of Object.entries(project.teamTreeJson)) {
+                          if (Array.isArray(arr) && arr.length > 0) map[key] = arr[0];
+                        }
+                      }
+                      setTeamTreeLocal(map);
+                      setTeamTreeDirty(false);
+                    }}
+                    style={{
+                      padding: "4px 12px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      background: "#f9fafb",
+                      color: "#374151",
+                      fontSize: 12,
+                      cursor: teamTreeSaving ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    Cancel
+                  </button>
                 </div>
-              </div>
-            );
-          })()}
+              )}
+            </div>
+          </div>
 
           <ScheduleSection
             projectId={project.id}
@@ -24072,6 +24280,140 @@ ${htmlBody}
       {/* DAILY_LOGS tab content */}
       {activeTab === "DAILY_LOGS" && (
         <div style={{ marginTop: 8, marginBottom: 16 }}>
+          {/* JSA Prompt Modal */}
+          {jsaPrompt.open && (
+            <div style={{
+              position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 9998,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }} onClick={() => setJsaPrompt({ open: false, pendingType: null })}>
+              <div style={{
+                background: "#fff", borderRadius: 12, padding: "20px 24px", maxWidth: 420,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+              }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 20, marginBottom: 8 }}>⚠️</div>
+                <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>No JSA Filed Today</div>
+                <p style={{ fontSize: 13, color: "#4b5563", marginBottom: 16, lineHeight: 1.5 }}>
+                  A Job Safety Assessment has not been filed for this project today.
+                  OSHA best practice requires a JSA before work begins.
+                </p>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Continue without JSA — stamp jsaMissing
+                      setJsaPrompt({ open: false, pendingType: null });
+                      setShowNewDailyLogForm(true);
+                    }}
+                    style={{
+                      padding: "6px 14px", borderRadius: 6, border: "1px solid #d1d5db",
+                      background: "#fff", fontSize: 12, cursor: "pointer", color: "#6b7280",
+                    }}
+                  >Continue Without JSA</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Switch to JSA type
+                      const today = new Date().toISOString().slice(0, 10);
+                      setNewDailyLog(prev => ({ ...prev, type: "JSA" as DailyLogType, logDate: today }));
+                      setJsaSafetyDraft({ hazards: [], controls: "", ppeRequired: [], allBriefed: false });
+                      setJsaPrompt({ open: false, pendingType: null });
+                      setShowNewDailyLogForm(true);
+                    }}
+                    style={{
+                      padding: "6px 14px", borderRadius: 6, border: "none",
+                      background: "#065f46", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    }}
+                  >🦺 Create JSA First</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Daily Log Settings (Admin+) */}
+          {isAdminOrAbove && (
+            <div style={{ marginBottom: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!dlSettingsOpen) {
+                    // Fetch settings
+                    const token = localStorage.getItem("accessToken");
+                    if (token) {
+                      fetch(`${API_BASE}/projects/${id}/daily-log-settings`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                      }).then(r => r.ok ? r.json() : null).then(data => {
+                        if (data) setDlSettings(prev => ({
+                          ...prev,
+                          jsaReminderEnabled: data.jsaReminderEnabled ?? true,
+                          jsaReminderTime: data.jsaReminderTime ?? "09:00",
+                        }));
+                      }).catch(() => {});
+                    }
+                  }
+                  setDlSettingsOpen(v => !v);
+                }}
+                style={{
+                  fontSize: 11, color: "#6b7280", cursor: "pointer", background: "transparent",
+                  border: "none", padding: "2px 0",
+                }}
+              >
+                {dlSettingsOpen ? "▾" : "▸"} Daily Log Settings
+              </button>
+              {dlSettingsOpen && (
+                <div style={{
+                  padding: "8px 12px", marginTop: 4, borderRadius: 6,
+                  border: "1px solid #e5e7eb", background: "#fafafa", fontSize: 12,
+                  display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap",
+                }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <input
+                      type="checkbox"
+                      checked={dlSettings.jsaReminderEnabled}
+                      onChange={e => setDlSettings(prev => ({ ...prev, jsaReminderEnabled: e.target.checked }))}
+                    />
+                    JSA Reminder
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    Reminder time:
+                    <input
+                      type="time"
+                      value={dlSettings.jsaReminderTime}
+                      onChange={e => setDlSettings(prev => ({ ...prev, jsaReminderTime: e.target.value }))}
+                      style={{ fontSize: 12, padding: "2px 4px", borderRadius: 4, border: "1px solid #d1d5db" }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={dlSettings.saving}
+                    onClick={async () => {
+                      setDlSettings(prev => ({ ...prev, saving: true }));
+                      const token = localStorage.getItem("accessToken");
+                      if (token) {
+                        try {
+                          await fetch(`${API_BASE}/projects/${id}/daily-log-settings`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                            body: JSON.stringify({
+                              jsaReminderEnabled: dlSettings.jsaReminderEnabled,
+                              jsaReminderTime: dlSettings.jsaReminderTime,
+                            }),
+                          });
+                        } catch {}
+                      }
+                      setDlSettings(prev => ({ ...prev, saving: false }));
+                    }}
+                    style={{
+                      padding: "3px 10px", borderRadius: 4, border: "1px solid #d1d5db",
+                      background: "#fff", fontSize: 11, cursor: "pointer",
+                    }}
+                  >
+                    {dlSettings.saving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* New Daily Log button + type picker (shown when form is hidden) */}
           {!showNewDailyLogForm && (
             <div style={{
@@ -24086,14 +24428,15 @@ ${htmlBody}
                 {([
                   { type: "PUDL" as DailyLogType, label: "Daily Log (PUDL)", icon: "📋", desc: "Standard daily activity log", color: "#0f172a", bg: "#f8fafc" },
                   { type: "RECEIPT_EXPENSE" as DailyLogType, label: "Receipt / Expense", icon: "🧾", desc: "Capture a receipt or expense", color: "#92400e", bg: "#fffbeb" },
-                  { type: "JSA" as DailyLogType, label: "Job Safety Assessment", icon: "🦺", desc: "Pre-work safety analysis", color: "#065f46", bg: "#ecfdf5" },
+                  { type: "JSA" as DailyLogType, label: "JSA / Personnel Onsite", icon: "🦺", desc: "Pre-work safety + crew roster", color: "#065f46", bg: "#ecfdf5" },
+                  { type: "TADL" as DailyLogType, label: "Time Accounting (TADL)", icon: "⏱️", desc: "Clock in/out for crew", color: "#7c3aed", bg: "#f5f3ff" },
                   { type: "INCIDENT" as DailyLogType, label: "Incident Report", icon: "⚠️", desc: "Report a safety incident", color: "#991b1b", bg: "#fef2f2" },
                   { type: "QUALITY" as DailyLogType, label: "Quality Inspection", icon: "✅", desc: "Quality control check", color: "#1e40af", bg: "#eff6ff" },
                 ] as const).map(opt => (
                   <button
                     key={opt.type}
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       const today = new Date().toISOString().slice(0, 10);
                       setNewDailyLog(prev => ({
                         ...prev,
@@ -24116,7 +24459,134 @@ ${htmlBody}
                       }));
                       setPersonOnsiteList([]);
                       setPersonOnsiteDraft("");
+                      setPersonnelOnsiteJson([]);
+                      setJsaSafetyDraft({ hazards: [], controls: "", ppeRequired: [], allBriefed: false });
+                      setTadlTimeRows([]);
                       setDailyLogMessage(null);
+
+                      // TADL: fetch personnel + previous time entries for today
+                      if (opt.type === "TADL") {
+                        const token = localStorage.getItem("accessToken");
+                        if (token) {
+                          setTadlLoadingPersonnel(true);
+                          setTadlPrevEntryCount(0);
+                          try {
+                            // Fetch both personnel-for-date and existing time entries in parallel
+                            const [persRes, teRes] = await Promise.all([
+                              fetch(
+                                `${API_BASE}/projects/${id}/personnel-for-date?date=${today}`,
+                                { headers: { Authorization: `Bearer ${token}` } },
+                              ),
+                              fetch(
+                                `${API_BASE}/projects/${id}/time-entries?date=${today}`,
+                                { headers: { Authorization: `Bearer ${token}` } },
+                              ),
+                            ]);
+
+                            const personnel: PersonnelEntry[] = persRes.ok
+                              ? ((await persRes.json()).personnel ?? [])
+                              : [];
+                            const prevTimeData = teRes.ok ? await teRes.json() : { entries: [] };
+                            const prevEntries: any[] = prevTimeData.entries ?? [];
+                            setTadlPrevEntryCount(prevEntries.length);
+
+                            const now = new Date();
+                            const hh = String(now.getHours()).padStart(2, "0");
+                            const mm = String(now.getMinutes()).padStart(2, "0");
+                            const defaultClockIn = `${hh}:${mm}`;
+
+                            if (prevEntries.length > 0) {
+                              // Pre-fill from previous TADL's entries (carry forward)
+                              // Use last clock-out as new clock-in where available
+                              const prevByPerson = new Map<string, any>();
+                              for (const e of prevEntries) {
+                                const key = e.userId || (e.externalName ?? "").toLowerCase();
+                                prevByPerson.set(key, e); // last entry per person
+                              }
+
+                              setTadlTimeRows(
+                                personnel.map((p, i) => {
+                                  const key = p.userId || p.name.toLowerCase();
+                                  const prev = prevByPerson.get(key);
+                                  let clockIn = defaultClockIn;
+                                  if (prev?.clockOut) {
+                                    const co = new Date(prev.clockOut);
+                                    clockIn = `${String(co.getHours()).padStart(2, "0")}:${String(co.getMinutes()).padStart(2, "0")}`;
+                                  }
+                                  return {
+                                    key: p.userId || `ext-${i}`,
+                                    userId: p.userId ?? null,
+                                    externalName: p.type === "external" ? p.name : null,
+                                    name: p.name,
+                                    clockIn,
+                                    clockOut: "",
+                                    breakMinutes: 0,
+                                    note: "",
+                                  };
+                                })
+                              );
+                            } else {
+                              setTadlTimeRows(
+                                personnel.map((p, i) => ({
+                                  key: p.userId || `ext-${i}`,
+                                  userId: p.userId ?? null,
+                                  externalName: p.type === "external" ? p.name : null,
+                                  name: p.name,
+                                  clockIn: defaultClockIn,
+                                  clockOut: "",
+                                  breakMinutes: 0,
+                                  note: "",
+                                }))
+                              );
+                            }
+                            // Also set personnelOnsiteJson for the log
+                            setPersonnelOnsiteJson(personnel);
+                            const names = personnel.map((p) => p.name);
+                            setPersonOnsiteList(names);
+                            setNewDailyLog(prev => ({
+                              ...prev,
+                              personOnsite: names.join(", "),
+                              manpowerOnsite: names.length ? String(names.length) : "",
+                            }));
+                          } catch {} finally {
+                            setTadlLoadingPersonnel(false);
+                          }
+                        }
+                        setShowNewDailyLogForm(true);
+                        return;
+                      }
+
+                      // For non-JSA types: check if a JSA exists today
+                      if (opt.type !== "JSA") {
+                        const token = localStorage.getItem("accessToken");
+                        if (token) {
+                          try {
+                            const res = await fetch(
+                              `${API_BASE}/projects/${id}/jsa-roster?date=${today}`,
+                              { headers: { Authorization: `Bearer ${token}` } },
+                            );
+                            if (res.ok) {
+                              const data = await res.json();
+                              if (data.hasJsa && data.roster?.length) {
+                                // Auto-populate from JSA
+                                setPersonnelOnsiteJson(data.roster);
+                                const names = data.roster.map((p: any) => p.name);
+                                setPersonOnsiteList(names);
+                                setNewDailyLog(prev => ({
+                                  ...prev,
+                                  personOnsite: names.join(", "),
+                                  manpowerOnsite: names.length ? String(names.length) : "",
+                                }));
+                              } else if (!data.hasJsa) {
+                                // No JSA — show prompt
+                                setJsaPrompt({ open: true, pendingType: opt.type });
+                                return; // Don't open form yet
+                              }
+                            }
+                          } catch {}
+                        }
+                      }
+
                       setShowNewDailyLogForm(true);
                     }}
                     style={{
@@ -24324,6 +24794,245 @@ ${htmlBody}
                     </div>
                   )}
 
+                  {/* TADL Time Entry Table (shown when type is TADL) */}
+                  {newDailyLog.type === "TADL" && (
+                    <div
+                      style={{
+                        marginBottom: 6,
+                        padding: "8px",
+                        borderRadius: 4,
+                        background: "#f5f3ff",
+                        border: "1px solid #ddd6fe",
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#7c3aed" }}>
+                        ⏱️ Time Entries
+                      </div>
+                      {tadlPrevEntryCount > 0 && (
+                        <div style={{
+                          marginBottom: 6, padding: "4px 8px", borderRadius: 4,
+                          background: "#fef3c7", border: "1px solid #fbbf24", fontSize: 11, color: "#92400e",
+                        }}>
+                          ℹ️ Previous TADL found ({tadlPrevEntryCount} entries). Clock-in times pre-filled from last clock-out.
+                          Remove rows for departed personnel and add a departure note.
+                        </div>
+                      )}
+                      {tadlLoadingPersonnel ? (
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>Loading personnel…</div>
+                      ) : tadlTimeRows.length === 0 ? (
+                        <div style={{ fontSize: 12, color: "#6b7280" }}>
+                          No personnel found for today. Add personnel via a JSA or Daily Log first, or add rows manually.
+                        </div>
+                      ) : (
+                        <div style={{ overflowX: "auto" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                            <thead>
+                              <tr style={{ background: "#ede9fe" }}>
+                                <th style={{ padding: "4px 6px", textAlign: "left", fontWeight: 600 }}>Name</th>
+                                <th style={{ padding: "4px 6px", textAlign: "center", fontWeight: 600, width: 80 }}>Clock In</th>
+                                <th style={{ padding: "4px 6px", textAlign: "center", fontWeight: 600, width: 80 }}>Clock Out</th>
+                                <th style={{ padding: "4px 6px", textAlign: "center", fontWeight: 600, width: 60 }}>Break</th>
+                                <th style={{ padding: "4px 6px", textAlign: "center", fontWeight: 600, width: 55 }}>Hours</th>
+                                <th style={{ padding: "4px 6px", textAlign: "left", fontWeight: 600 }}>Note</th>
+                                <th style={{ padding: "4px 6px", width: 28 }}></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {tadlTimeRows.map((row, idx) => {
+                                // Auto-calc hours
+                                let hours = "";
+                                if (row.clockIn && row.clockOut) {
+                                  const [ih, im] = row.clockIn.split(":").map(Number);
+                                  const [oh, om] = row.clockOut.split(":").map(Number);
+                                  const diffMin = (oh * 60 + om) - (ih * 60 + im) - (row.breakMinutes || 0);
+                                  if (diffMin > 0) hours = (diffMin / 60).toFixed(2);
+                                }
+                                return (
+                                  <tr key={row.key} style={{ borderTop: "1px solid #e5e7eb" }}>
+                                    <td style={{ padding: "3px 6px", fontSize: 11 }}>
+                                      {row.userId || row.externalName ? row.name : (
+                                        <input
+                                          type="text"
+                                          value={row.name}
+                                          onChange={e => {
+                                            const v = e.target.value;
+                                            setTadlTimeRows(prev => prev.map((r, i) => i === idx ? { ...r, name: v, externalName: v } : r));
+                                          }}
+                                          style={{ fontSize: 11, padding: "2px 3px", width: "100%", border: "1px solid #d1d5db", borderRadius: 3 }}
+                                          placeholder="Name"
+                                        />
+                                      )}
+                                    </td>
+                                    <td style={{ padding: "3px 4px", textAlign: "center" }}>
+                                      <input
+                                        type="time"
+                                        value={row.clockIn}
+                                        onChange={e => {
+                                          const v = e.target.value;
+                                          setTadlTimeRows(prev => prev.map((r, i) => i === idx ? { ...r, clockIn: v } : r));
+                                        }}
+                                        style={{ fontSize: 11, padding: "2px 3px", width: 72, border: "1px solid #d1d5db", borderRadius: 3 }}
+                                      />
+                                    </td>
+                                    <td style={{ padding: "3px 4px", textAlign: "center" }}>
+                                      <input
+                                        type="time"
+                                        value={row.clockOut}
+                                        onChange={e => {
+                                          const v = e.target.value;
+                                          setTadlTimeRows(prev => prev.map((r, i) => i === idx ? { ...r, clockOut: v } : r));
+                                        }}
+                                        style={{ fontSize: 11, padding: "2px 3px", width: 72, border: "1px solid #d1d5db", borderRadius: 3 }}
+                                      />
+                                    </td>
+                                    <td style={{ padding: "3px 4px", textAlign: "center" }}>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        value={row.breakMinutes || ""}
+                                        onChange={e => {
+                                          const v = parseInt(e.target.value) || 0;
+                                          setTadlTimeRows(prev => prev.map((r, i) => i === idx ? { ...r, breakMinutes: v } : r));
+                                        }}
+                                        style={{ fontSize: 11, padding: "2px 3px", width: 48, border: "1px solid #d1d5db", borderRadius: 3, textAlign: "center" }}
+                                        placeholder="min"
+                                      />
+                                    </td>
+                                    <td style={{ padding: "3px 4px", textAlign: "center", fontSize: 11, color: hours ? "#1e293b" : "#9ca3af" }}>
+                                      {hours || "—"}
+                                    </td>
+                                    <td style={{ padding: "3px 4px" }}>
+                                      <input
+                                        type="text"
+                                        value={row.note}
+                                        onChange={e => {
+                                          const v = e.target.value;
+                                          setTadlTimeRows(prev => prev.map((r, i) => i === idx ? { ...r, note: v } : r));
+                                        }}
+                                        style={{ fontSize: 11, padding: "2px 3px", width: "100%", border: "1px solid #d1d5db", borderRadius: 3 }}
+                                        placeholder="optional"
+                                      />
+                                    </td>
+                                    <td style={{ padding: "3px 2px", textAlign: "center" }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => setTadlTimeRows(prev => prev.filter((_, i) => i !== idx))}
+                                        style={{ border: "none", background: "transparent", cursor: "pointer", color: "#ef4444", fontSize: 13, padding: 0 }}
+                                        title="Remove row"
+                                      >×</button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTadlTimeRows(prev => [...prev, {
+                            key: `manual-${Date.now()}`,
+                            userId: null,
+                            externalName: null,
+                            name: "",
+                            clockIn: "",
+                            clockOut: "",
+                            breakMinutes: 0,
+                            note: "",
+                          }]);
+                        }}
+                        style={{
+                          marginTop: 6, padding: "3px 10px", borderRadius: 4,
+                          border: "1px solid #d1d5db", background: "#fff", fontSize: 11, cursor: "pointer",
+                        }}
+                      >+ Add Row</button>
+                    </div>
+                  )}
+
+                  {/* JSA Safety Fields (shown when type is JSA) */}
+                  {newDailyLog.type === "JSA" && (
+                    <div
+                      style={{
+                        marginBottom: 6,
+                        padding: "8px",
+                        borderRadius: 4,
+                        background: "#ecfdf5",
+                        border: "1px solid #a7f3d0",
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: "#065f46" }}>
+                        🦺 Safety Assessment
+                      </div>
+
+                      <div style={{ marginBottom: 6 }}>
+                        <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Hazards Identified</label>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 4 }}>
+                          {["Falls", "Electrical", "Struck-by", "Caught-in", "Heat stress", "Confined space", "Chemical", "Noise"].map(h => (
+                            <label key={h} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11 }}>
+                              <input
+                                type="checkbox"
+                                checked={jsaSafetyDraft.hazards.includes(h)}
+                                onChange={e => {
+                                  setJsaSafetyDraft(prev => ({
+                                    ...prev,
+                                    hazards: e.target.checked
+                                      ? [...prev.hazards, h]
+                                      : prev.hazards.filter(x => x !== h),
+                                  }));
+                                }}
+                              />
+                              {h}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div style={{ marginBottom: 6 }}>
+                        <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>Controls in Place</label>
+                        <textarea
+                          value={jsaSafetyDraft.controls}
+                          onChange={e => setJsaSafetyDraft(prev => ({ ...prev, controls: e.target.value }))}
+                          rows={2}
+                          placeholder="Describe safety controls..."
+                          style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 11, resize: "vertical" }}
+                        />
+                      </div>
+
+                      <div style={{ marginBottom: 6 }}>
+                        <label style={{ display: "block", fontSize: 11, marginBottom: 2 }}>PPE Required</label>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          {["Hard hat", "Safety glasses", "Hi-vis vest", "Harness", "Gloves", "Steel-toe boots", "Ear protection", "Respirator"].map(ppe => (
+                            <label key={ppe} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11 }}>
+                              <input
+                                type="checkbox"
+                                checked={jsaSafetyDraft.ppeRequired.includes(ppe)}
+                                onChange={e => {
+                                  setJsaSafetyDraft(prev => ({
+                                    ...prev,
+                                    ppeRequired: e.target.checked
+                                      ? [...prev.ppeRequired, ppe]
+                                      : prev.ppeRequired.filter(x => x !== ppe),
+                                  }));
+                                }}
+                              />
+                              {ppe}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#065f46", marginTop: 4 }}>
+                        <input
+                          type="checkbox"
+                          checked={jsaSafetyDraft.allBriefed}
+                          onChange={e => setJsaSafetyDraft(prev => ({ ...prev, allBriefed: e.target.checked }))}
+                        />
+                        ✓ All personnel have been briefed on today&apos;s hazards and controls
+                      </label>
+                    </div>
+                  )}
+
                   {pudlContext.open && pudlContext.breadcrumb && (
                     <div
                       style={{
@@ -24408,250 +25117,56 @@ ${htmlBody}
                   >
                     <div style={{ flex: 2, minWidth: 0 }}>
                       <label style={{ display: "block", fontSize: 12, marginBottom: 2 }}>
-                        Person/s onsite
+                        JSA / Personnel Onsite
                       </label>
-                      {(() => {
-                        const availableOptions = personOnsiteOptions.filter(opt =>
-                          !personOnsiteList.some(
-                            name => name.toLowerCase() === opt.value.toLowerCase(),
-                          ),
-                        );
-                        return (
-                          <>
-                            {availableOptions.length > 0 && (
-                              <div style={{ marginBottom: 4 }}>
-                                <select
-                                  value=""
-                                  onChange={e => {
-                                    const value = e.target.value;
-                                    if (!value) return;
-                                    updatePersonOnsiteList(prev =>
-                                      prev.some(
-                                        name =>
-                                          name.toLowerCase() === value.toLowerCase(),
-                                      )
-                                        ? prev
-                                        : [...prev, value],
-                                    );
-                                  }}
-                                  style={{
-                                    width: "100%",
-                                    padding: "4px 6px",
-                                    borderRadius: 4,
-                                    border: "1px solid #d1d5db",
-                                    fontSize: 12,
-                                    marginBottom: 4,
-                                  }}
-                                >
-                                  <option value="">Add from project roster…</option>
-                                  {availableOptions.map(opt => (
-                                    <option key={opt.value} value={opt.value}>
-                                      {opt.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
-
-                            <div
-                              style={{
-                                minHeight: 34,
-                                padding: "4px 6px",
-                                borderRadius: 4,
-                                border: "1px solid #d1d5db",
-                                display: "flex",
-                                flexWrap: "wrap",
-                                gap: 4,
-                                cursor: "text",
-                              }}
-                              onClick={() => {
-                                const inputEl = document.getElementById(
-                                  "person-onsite-draft-input",
-                                ) as HTMLInputElement | null;
-                                inputEl?.focus();
-                              }}
-                            >
-                              {personOnsiteList.map(name => (
-                                <span
-                                  key={name}
-                                  style={{
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: 4,
-                                    padding: "2px 6px",
-                                    borderRadius: 999,
-                                    backgroundColor: "#eff6ff",
-                                    border: "1px solid #bfdbfe",
-                                    fontSize: 11,
-                                    color: "#1d4ed8",
-                                  }}
-                                >
-                                  <span>{name}</span>
-                                  <button
-                                    type="button"
-                                    onClick={e => {
-                                      e.stopPropagation();
-                                      updatePersonOnsiteList(prev =>
-                                        prev.filter(n => n !== name),
-                                      );
-                                    }}
-                                    style={{
-                                      border: "none",
-                                      background: "transparent",
-                                      cursor: "pointer",
-                                      fontSize: 11,
-                                      color: "#1d4ed8",
-                                    }}
-                                  >
-                                    ×
-                                  </button>
-                                </span>
-                              ))}
-                              <input
-                                id="person-onsite-draft-input"
-                                type="text"
-                                value={personOnsiteDraft}
-                                onChange={e => setPersonOnsiteDraft(e.target.value)}
-                                onKeyDown={e => {
-                                  if (e.key === "Enter" || e.key === ",") {
-                                    e.preventDefault();
-                                    const raw = personOnsiteDraft.trim();
-                                    if (!raw) return;
-                                    updatePersonOnsiteList(prev =>
-                                      prev.some(
-                                        name =>
-                                          name.toLowerCase() === raw.toLowerCase(),
-                                      )
-                                        ? prev
-                                        : [...prev, raw],
-                                    );
-                                    setPersonOnsiteDraft("");
-                                  }
-                                }}
-                                onBlur={e => {
-                                  const raw = e.target.value.trim();
-                                  if (!raw) {
-                                    setPersonOnsiteDraft("");
-                                    return;
-                                  }
-                                  updatePersonOnsiteList(prev =>
-                                    prev.some(
-                                      name =>
-                                        name.toLowerCase() === raw.toLowerCase(),
-                                    )
-                                      ? prev
-                                      : [...prev, raw],
-                                  );
-                                  setPersonOnsiteDraft("");
-                                }}
-                                placeholder={
-                                  personOnsiteList.length === 0
-                                    ? "Type a person onsite and press Enter…"
-                                    : "Type another name and press Enter…"
-                                }
-                                style={{
-                                  flex: 1,
-                                  minWidth: 120,
-                                  border: "none",
-                                  outline: "none",
-                                  fontSize: 12,
-                                  padding: 0,
-                                }}
-                              />
-                            </div>
-
-                            <div style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
-                              If a person isn&apos;t in the roster dropdown, type their name
-                              above. We&apos;ll create a workflow item for tenant admin to add
-                              them to this project.
-                            </div>
-
-                            <div
-                              style={{
-                                marginTop: 6,
-                                fontSize: 11,
-                                color: "#4b5563",
-                                display: "flex",
-                                flexWrap: "wrap",
-                                gap: 6,
-                                alignItems: "center",
-                              }}
-                            >
-                              <button
-                                type="button"
-                                disabled={personOnsiteList.length === 0}
-                                onClick={() => {
-                                  if (!personOnsiteList.length) return;
-                                  const name = window.prompt(
-                                    "Name this person/s onsite group (favorites)",
-                                  );
-                                  if (!name) return;
-                                  const trimmed = name.trim();
-                                  if (!trimmed) return;
-                                  const id = `grp-${Date.now().toString(36)}-${Math.random()
-                                    .toString(36)
-                                    .slice(2, 8)}`;
-                                  const group = {
-                                    id,
-                                    name: trimmed,
-                                    members: [...personOnsiteList],
-                                  };
-                                  persistPersonOnsiteGroups([
-                                    ...personOnsiteGroups,
-                                    group,
-                                  ]);
-                                  setSelectedPersonOnsiteGroupId(id);
-                                }}
-                                style={{
-                                  padding: "3px 8px",
-                                  borderRadius: 999,
-                                  border: "1px solid #d1d5db",
-                                  backgroundColor:
-                                    personOnsiteList.length === 0
-                                      ? "#f9fafb"
-                                      : "#ffffff",
-                                  fontSize: 11,
-                                  cursor:
-                                    personOnsiteList.length === 0
-                                      ? "default"
-                                      : "pointer",
-                                }}
-                              >
-                                Save group as favorite
-                              </button>
-                              {personOnsiteGroups.length > 0 && (
-                                <>
-                                  <span>Favorites:</span>
-                                  <select
-                                    value={selectedPersonOnsiteGroupId}
-                                    onChange={e => {
-                                      const id = e.target.value;
-                                      setSelectedPersonOnsiteGroupId(id);
-                                      const group = personOnsiteGroups.find(g => g.id === id);
-                                      if (group) {
-                                        updatePersonOnsiteList(() => [...group.members]);
-                                      }
-                                    }}
-                                    style={{
-                                      padding: "3px 6px",
-                                      borderRadius: 4,
-                                      border: "1px solid #d1d5db",
-                                      fontSize: 11,
-                                    }}
-                                  >
-                                    <option value="">Select group…</option>
-                                    {personOnsiteGroups.map(g => (
-                                      <option key={g.id} value={g.id}>
-                                        {g.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </>
-                              )}
-                            </div>
-                          </>
-                        );
-                      })()}
+                      <button
+                        type="button"
+                        onClick={() => setPersonnelPickerOpen(true)}
+                        style={{
+                          width: "100%",
+                          padding: "6px 10px",
+                          borderRadius: 6,
+                          border: "1px solid #d1d5db",
+                          background: personnelOnsiteJson.length > 0 ? "#eff6ff" : "#fff",
+                          cursor: "pointer",
+                          fontSize: 12,
+                          textAlign: "left",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                        }}
+                      >
+                        <span style={{ fontSize: 15 }}>👷</span>
+                        {personnelOnsiteJson.length > 0 ? (
+                          <span>
+                            <strong>{personnelOnsiteJson.length}</strong> pers onsite
+                            <span style={{ color: "#6b7280", marginLeft: 6, fontSize: 11 }}>
+                              {personnelOnsiteJson.slice(0, 3).map((p) => p.name).join(", ")}
+                              {personnelOnsiteJson.length > 3 && ` +${personnelOnsiteJson.length - 3} more`}
+                            </span>
+                          </span>
+                        ) : (
+                          <span style={{ color: "#9ca3af" }}>Select personnel onsite…</span>
+                        )}
+                      </button>
+                      <PersonnelPicker
+                        projectId={id}
+                        apiBase={API_BASE}
+                        value={personnelOnsiteJson}
+                        onChange={(next) => {
+                          setPersonnelOnsiteJson(next);
+                          // Keep legacy fields in sync
+                          const names = next.map((p) => p.name);
+                          setPersonOnsiteList(names);
+                          setNewDailyLog((prev) => ({
+                            ...prev,
+                            personOnsite: names.join(", "),
+                            manpowerOnsite: names.length ? String(names.length) : "",
+                          }));
+                        }}
+                        open={personnelPickerOpen}
+                        onClose={() => setPersonnelPickerOpen(false)}
+                      />
                     </div>
 
                     <div style={{ flex: 1, minWidth: 140 }}>
@@ -25637,6 +26152,8 @@ ${htmlBody}
                                         ? "#fef3c7"
                                         : log.type === "JSA"
                                         ? "#dbeafe"
+                                        : log.type === "TADL"
+                                        ? "#ede9fe"
                                         : log.type === "INCIDENT"
                                         ? "#fee2e2"
                                         : log.type === "QUALITY"
@@ -25647,6 +26164,8 @@ ${htmlBody}
                                         ? "#92400e"
                                         : log.type === "JSA"
                                         ? "#1e40af"
+                                        : log.type === "TADL"
+                                        ? "#7c3aed"
                                         : log.type === "INCIDENT"
                                         ? "#991b1b"
                                         : log.type === "QUALITY"
@@ -25658,6 +26177,8 @@ ${htmlBody}
                                     ? "Receipt"
                                     : log.type === "JSA"
                                     ? "JSA"
+                                    : log.type === "TADL"
+                                    ? "TADL"
                                     : log.type === "INCIDENT"
                                     ? "Incident"
                                     : log.type === "QUALITY"

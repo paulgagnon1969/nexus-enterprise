@@ -6,6 +6,7 @@ export enum DailyLogTypeDto {
   JSA = 'JSA',
   INCIDENT = 'INCIDENT',
   QUALITY = 'QUALITY',
+  TADL = 'TADL',
 }
 
 export class CreateDailyLogDto {
@@ -110,6 +111,19 @@ export class CreateDailyLogDto {
   @IsOptional()
   @IsDateString()
   expenseDate?: string | null;
+
+  // Structured personnel onsite (JSON array of PersonnelEntry)
+  @IsOptional()
+  personnelOnsiteJson?: any;
+
+  // Source JSA log ID (for seeding personnel from a JSA)
+  @IsOptional()
+  @IsString()
+  sourceJsaId?: string | null;
+
+  // JSA safety notes (JSON — hazards, controls, PPE)
+  @IsOptional()
+  jsaSafetyJson?: any;
 
   // Optional: project file IDs to attach (triggers OCR if receipt type)
   @IsOptional()

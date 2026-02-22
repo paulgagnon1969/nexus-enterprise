@@ -82,7 +82,7 @@ export class UpdateDailyLogDto {
   sharePrivate?: boolean;
 
   @IsOptional()
-  @IsIn(['PUDL', 'RECEIPT_EXPENSE', 'JSA', 'INCIDENT', 'QUALITY', 'CUSTOM'])
+  @IsIn(['PUDL', 'RECEIPT_EXPENSE', 'JSA', 'INCIDENT', 'QUALITY', 'TADL', 'CUSTOM'])
   type?: string;
 
   @IsOptional()
@@ -96,4 +96,17 @@ export class UpdateDailyLogDto {
   @IsOptional()
   @IsDateString()
   expenseDate?: string | null;
+
+  // Structured personnel onsite (JSON array of PersonnelEntry)
+  @IsOptional()
+  personnelOnsiteJson?: any;
+
+  // Source JSA log ID
+  @IsOptional()
+  @IsString()
+  sourceJsaId?: string | null;
+
+  // JSA safety notes (JSON)
+  @IsOptional()
+  jsaSafetyJson?: any;
 }

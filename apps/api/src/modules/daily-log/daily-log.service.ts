@@ -895,6 +895,10 @@ export class DailyLogService {
         safetyIncidents: dto.safetyIncidents ?? null,
         manpowerOnsite: dto.manpowerOnsite ?? null,
         personOnsite: dto.personOnsite ?? null,
+        personnelOnsiteJson: dto.personnelOnsiteJson ?? undefined,
+        sourceJsaId: dto.sourceJsaId ?? null,
+        jsaSafetyJson: dto.jsaSafetyJson ?? undefined,
+        jsaMissing: false,
         confidentialNotes: dto.confidentialNotes ?? null,
         buildingId: dto.buildingId ?? null,
         unitId: dto.unitId ?? null,
@@ -1579,6 +1583,7 @@ export class DailyLogService {
     const editableFields = [
       "logDate", "title", "weatherSummary", "weatherJson", "crewOnSite", "workPerformed",
       "issues", "safetyIncidents", "manpowerOnsite", "personOnsite",
+      "personnelOnsiteJson", "sourceJsaId", "jsaSafetyJson",
       "confidentialNotes", "buildingId", "unitId", "roomParticleId", "sowItemId",
       "shareInternal", "shareSubs", "shareClient", "sharePrivate",
       "type", "expenseVendor", "expenseAmount", "expenseDate",
