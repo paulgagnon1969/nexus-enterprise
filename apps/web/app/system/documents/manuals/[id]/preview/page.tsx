@@ -17,6 +17,7 @@ interface TocEntry {
   id: string;
   type: "chapter" | "document";
   title: string;
+  description?: string;
   level: number;
   anchor: string;
   revisionNo?: number;
@@ -52,7 +53,7 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [toc, setToc] = useState<TocEntry[]>([]);
-  const [showTocPanel, setShowTocPanel] = useState(false);
+  const [showTocPanel, setShowTocPanel] = useState(true);
   const [togglingDoc, setTogglingDoc] = useState<string | null>(null);
 
   // Options
@@ -334,6 +335,15 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
       };
     }
   };
+
+  const scrollPreviewTo = useCallback((anchor: string) => {
+    const iframe = document.getElementById("manual-preview-iframe") as HTMLIFrameElement | null;
+    if (!iframe?.contentDocument) return;
+    const el = iframe.contentDocument.getElementById(anchor);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
 
   if (error) {
     return (
@@ -793,6 +803,7 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
                   entry={entry}
                   onToggle={toggleDocumentInclusion}
                   togglingDoc={togglingDoc}
+                  onNavigate={scrollPreviewTo}
                 />
               ))}
             </div>
@@ -835,6 +846,7 @@ export default function ManualPreviewPage({ params }: { params: Promise<{ id: st
             }}
           >
             <iframe
+              id="manual-preview-iframe"
               srcDoc={htmlContent}
               style={{
                 width: "100%",
@@ -861,10 +873,12 @@ function TocEntryRow({
   entry,
   onToggle,
   togglingDoc,
+  onNavigate,
 }: {
   entry: TocEntry;
   onToggle: (docId: string, currentValue: boolean) => void;
   togglingDoc: string | null;
+  onNavigate: (anchor: string) => void;
 }) {
   const isDocument = entry.type === "document";
   const isToggling = togglingDoc === entry.id;
@@ -875,7 +889,7 @@ function TocEntryRow({
       <div
         style={{
           display: "flex",
-          alignItems: "center",
+          alignItems: "flex-start",
           gap: 8,
           padding: "6px 8px",
           backgroundColor: entry.level === 1 ? "#374151" : "#2d3748",
@@ -890,28 +904,52 @@ function TocEntryRow({
             checked={includeInPrint}
             onChange={() => onToggle(entry.id, includeInPrint)}
             disabled={isToggling}
-            style={{ accentColor: "#3b82f6", cursor: isToggling ? "wait" : "pointer" }}
+            style={{ accentColor: "#3b82f6", cursor: isToggling ? "wait" : "pointer", marginTop: 2, flexShrink: 0 }}
           />
         ) : (
-          <span style={{ width: 16, fontSize: 12 }}>📁</span>
+          <span style={{ width: 16, fontSize: 12, marginTop: 1, flexShrink: 0 }}>📁</span>
         )}
-        <span
-          style={{
-            flex: 1,
-            fontSize: 12,
-            color: includeInPrint ? "#e5e7eb" : "#6b7280",
-            textDecoration: includeInPrint ? "none" : "line-through",
-            fontWeight: entry.level === 1 ? 500 : 400,
-          }}
-        >
-          {entry.title}
-        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <button
+            type="button"
+            onClick={() => onNavigate(entry.anchor)}
+            style={{
+              display: "block",
+              width: "100%",
+              textAlign: "left",
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              fontSize: 12,
+              color: includeInPrint ? "#93c5fd" : "#6b7280",
+              textDecoration: includeInPrint ? "none" : "line-through",
+              fontWeight: entry.level === 1 ? 600 : 400,
+              lineHeight: 1.3,
+            }}
+            title={`Jump to: ${entry.title}`}
+          >
+            {entry.title}
+          </button>
+          {entry.description && (
+            <div
+              style={{
+                fontSize: 10,
+                color: includeInPrint ? "#9ca3af" : "#4b5563",
+                lineHeight: 1.3,
+                marginTop: 2,
+              }}
+            >
+              {entry.description}
+            </div>
+          )}
+        </div>
         {isDocument && !includeInPrint && (
-          <span style={{ fontSize: 10, color: "#f59e0b" }}>Blank</span>
+          <span style={{ fontSize: 10, color: "#f59e0b", flexShrink: 0, marginTop: 2 }}>Blank</span>
         )}
       </div>
       {entry.children?.map((child) => (
-        <TocEntryRow key={child.id} entry={child} onToggle={onToggle} togglingDoc={togglingDoc} />
+        <TocEntryRow key={child.id} entry={child} onToggle={onToggle} togglingDoc={togglingDoc} onNavigate={onNavigate} />
       ))}
     </>
   );

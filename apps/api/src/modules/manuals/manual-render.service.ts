@@ -6,6 +6,7 @@ export interface ManualTocEntry {
   id: string;
   type: "chapter" | "document";
   title: string;
+  description?: string; // Chapter description or document description
   level: number;
   anchor: string;
   revisionNo?: number;
@@ -282,6 +283,7 @@ export class ManualRenderService {
           id: chapter.id,
           type: "chapter",
           title: chapter.title,
+          description: chapter.description || doc.systemDocument.description || undefined,
           level: 1,
           anchor: `chapter-${chapter.id}`,
           revisionNo: doc.systemDocument.currentVersion?.versionNo,
@@ -296,6 +298,7 @@ export class ManualRenderService {
         id: chapter.id,
         type: "chapter",
         title: chapter.title,
+        description: chapter.description || undefined,
         level: 1,
         anchor: `chapter-${chapter.id}`,
         children: [],
@@ -306,6 +309,7 @@ export class ManualRenderService {
           id: doc.id,
           type: "document",
           title: doc.displayTitleOverride || doc.systemDocument.title,
+          description: doc.systemDocument.description || undefined,
           level: 2,
           anchor: `doc-${doc.id}`,
           revisionNo: doc.systemDocument.currentVersion?.versionNo,
@@ -322,6 +326,7 @@ export class ManualRenderService {
         id: doc.id,
         type: "document",
         title: doc.displayTitleOverride || doc.systemDocument.title,
+        description: doc.systemDocument.description || undefined,
         level: 1,
         anchor: `doc-${doc.id}`,
         revisionNo: doc.systemDocument.currentVersion?.versionNo,
