@@ -5498,6 +5498,90 @@ model OshaSyncState {
 }
 
 // =============================================================================
+// GovInfo Integration — Federal Register Alerts
+// =============================================================================
+
+/// Federal Register document tracked by the GovInfo FR monitor.
+/// Created when the FR monitor finds rules/notices affecting watched CFR titles.
+model FederalRegisterAlert {
+  id              String   @id @default(cuid())
+  granuleId       String   @unique // GovInfo granule ID (e.g., "2024-12345")
+  packageId       String             // Parent FR package (e.g., "FR-2024-08-03")
+  documentType    String             // RULE, PRORULE, NOTICE, PRESDOC
+  title           String   @db.Text
+  summary         String?  @db.Text
+  cfrReferences   String[]           // e.g., ["29 CFR 1926", "29 CFR 1910"]
+  agencies        String[]           // e.g., ["OSHA", "EPA"]
+  publishedDate   DateTime
+  effectiveDate   DateTime?
+  commentDeadline DateTime?
+  govInfoUrl      String             // Link to GovInfo page
+  frDocNumber     String?            // Federal Register document number
+  isRead          Boolean  @default(false)
+  isRelevant      Boolean  @default(true) // Admin can mark irrelevant
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([publishedDate], map: "FRAlert_published_idx")
+  @@index([documentType], map: "FRAlert_type_idx")
+  @@index([isRead, isRelevant], map: "FRAlert_status_idx")
+}
+
+// =============================================================================
+// GovInfo Integration — CFR Annual Snapshots & Diffs (Phase 4)
+// =============================================================================
+
+/// Snapshot metadata for an annual CFR edition (downloaded from GovInfo bulk data).
+model CfrAnnualSnapshot {
+  id           String   @id @default(cuid())
+  cfrTitle     Int
+  cfrPart      Int
+  year         Int
+  sectionCount Int      @default(0)
+  contentHash  String   // Hash of entire part XML for that year
+  fetchedAt    DateTime @default(now())
+
+  @@unique([cfrTitle, cfrPart, year], map: "CfrAnnualSnapshot_title_part_year_key")
+}
+
+/// Section-level diff between two annual CFR editions.
+model CfrAnnualDiff {
+  id         String   @id @default(cuid())
+  cfrTitle   Int
+  cfrPart    Int
+  fromYear   Int
+  toYear     Int
+  sectionCfr String   // e.g., "1926.501"
+  changeType String   // ADDED, REMOVED, MODIFIED
+  summary    String?  @db.Text // Human-readable summary of changes
+  createdAt  DateTime @default(now())
+
+  @@index([cfrTitle, cfrPart, toYear], map: "CfrAnnualDiff_title_part_year_idx")
+  @@index([sectionCfr], map: "CfrAnnualDiff_section_idx")
+}
+
+// =============================================================================
+// GovInfo Integration — Regulatory Query Audit Log (Phase 3)
+// =============================================================================
+
+/// Audit log for regulatory AI queries made via the MCP integration.
+model RegQueryLog {
+  id           String   @id @default(cuid())
+  userId       String
+  question     String   @db.Text
+  answer       String?  @db.Text
+  sources      Json?    // Array of { cfrRef, url }
+  contextJson  Json?    // The context passed with the query
+  durationMs   Int?     // How long the query took
+  provider     String   @default("govinfo-mcp") // Which backend answered
+  wasSuccessful Boolean @default(true)
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt], map: "RegQueryLog_user_created_idx")
+}
+
+// =============================================================================
 // Publication Groups (for multi-tenant publishing)
 // =============================================================================
 

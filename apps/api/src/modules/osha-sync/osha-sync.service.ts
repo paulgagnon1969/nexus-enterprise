@@ -5,12 +5,83 @@ import * as crypto from "crypto";
 import { XMLParser } from "fast-xml-parser";
 
 const ECFR_BASE = "https://www.ecfr.gov";
-const CFR_TITLE = 29;
-const CFR_PART = 1926;
-const MANUAL_CODE = "osha-29cfr1926";
-const MANUAL_TITLE = "OSHA Construction Standards (29 CFR 1926)";
-const MANUAL_ICON = "🛡️";
-const MANUAL_CATEGORY = "Safety & Compliance";
+
+// ---------------------------------------------------------------------------
+// CFR Sync Configurations — each defines a title/part to sync
+// ---------------------------------------------------------------------------
+
+export interface CfrSyncConfig {
+  code: string;           // Unique key, e.g. "osha-1926"
+  cfrTitle: number;
+  cfrPart: number;
+  manualCode: string;
+  manualTitle: string;
+  manualIcon: string;
+  manualCategory: string;
+  tags: string[];
+}
+
+export const CFR_SYNC_CONFIGS: Record<string, CfrSyncConfig> = {
+  "osha-1926": {
+    code: "osha-1926",
+    cfrTitle: 29,
+    cfrPart: 1926,
+    manualCode: "osha-29cfr1926",
+    manualTitle: "OSHA Construction Standards (29 CFR 1926)",
+    manualIcon: "🛡️",
+    manualCategory: "Safety & Compliance",
+    tags: ["osha", "safety", "construction"],
+  },
+  "osha-1910": {
+    code: "osha-1910",
+    cfrTitle: 29,
+    cfrPart: 1910,
+    manualCode: "osha-29cfr1910",
+    manualTitle: "OSHA General Industry Standards (29 CFR 1910)",
+    manualIcon: "⚙️",
+    manualCategory: "Safety & Compliance",
+    tags: ["osha", "safety", "general-industry"],
+  },
+  "epa-61": {
+    code: "epa-61",
+    cfrTitle: 40,
+    cfrPart: 61,
+    manualCode: "epa-40cfr61",
+    manualTitle: "EPA Asbestos NESHAP (40 CFR 61)",
+    manualIcon: "🏭",
+    manualCategory: "Environmental Compliance",
+    tags: ["epa", "asbestos", "neshap", "environmental"],
+  },
+  "epa-745": {
+    code: "epa-745",
+    cfrTitle: 40,
+    cfrPart: 745,
+    manualCode: "epa-40cfr745",
+    manualTitle: "EPA Lead-Based Paint (40 CFR 745)",
+    manualIcon: "🎨",
+    manualCategory: "Environmental Compliance",
+    tags: ["epa", "lead", "paint", "environmental"],
+  },
+  "epa-763": {
+    code: "epa-763",
+    cfrTitle: 40,
+    cfrPart: 763,
+    manualCode: "epa-40cfr763",
+    manualTitle: "EPA Asbestos (40 CFR 763)",
+    manualIcon: "⚠️",
+    manualCategory: "Environmental Compliance",
+    tags: ["epa", "asbestos", "environmental"],
+  },
+};
+
+// Default config for backward compatibility
+const DEFAULT_CONFIG = CFR_SYNC_CONFIGS["osha-1926"];
+const CFR_TITLE = DEFAULT_CONFIG.cfrTitle;
+const CFR_PART = DEFAULT_CONFIG.cfrPart;
+const MANUAL_CODE = DEFAULT_CONFIG.manualCode;
+const MANUAL_TITLE = DEFAULT_CONFIG.manualTitle;
+const MANUAL_ICON = DEFAULT_CONFIG.manualIcon;
+const MANUAL_CATEGORY = DEFAULT_CONFIG.manualCategory;
 
 interface ParsedSection {
   subpartLetter: string;
@@ -790,6 +861,452 @@ export class OshaSyncService {
         return manual.id;
       },
       { timeout: 120_000 }, // Allow up to 2 minutes for the large transaction
+    );
+
+    return {
+      manualId,
+      totalSections: sections.length,
+      newSections,
+      updatedSections,
+      unchangedSections,
+      subpartCount: subpartMap.size,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Config-aware sync methods (Phase 2 — multi-title support)
+  // ---------------------------------------------------------------------------
+
+  /** Get available CFR sync configurations. */
+  getConfigs(): CfrSyncConfig[] {
+    return Object.values(CFR_SYNC_CONFIGS);
+  }
+
+  /** Get a specific config by code. */
+  getConfig(code: string): CfrSyncConfig | undefined {
+    return CFR_SYNC_CONFIGS[code];
+  }
+
+  /** Get eCFR title metadata for a specific CFR title number. */
+  async getEcfrTitleMetaForTitle(
+    cfrTitle: number,
+  ): Promise<{ latestAmendedOn: string | null; upToDateAsOf: string | null }> {
+    const res = await fetch(`${ECFR_BASE}/api/versioner/v1/titles`);
+    if (!res.ok) throw new Error(`eCFR titles API returned ${res.status}`);
+    const data: any = await res.json();
+    const title = data.titles?.find((t: any) => t.number === cfrTitle);
+    return {
+      latestAmendedOn: title?.latest_amended_on ?? null,
+      upToDateAsOf: title?.up_to_date_as_of ?? null,
+    };
+  }
+
+  /** Check for updates on a specific config. */
+  async checkForUpdatesOnConfig(
+    config: CfrSyncConfig,
+  ): Promise<{
+    hasUpdates: boolean;
+    ecfrDate: string | null;
+    storedDate: string | null;
+    syncStatus: string;
+  }> {
+    const meta = await this.getEcfrTitleMetaForTitle(config.cfrTitle);
+    const state = await this.prisma.oshaSyncState.findUnique({
+      where: {
+        cfrTitle_cfrPart: {
+          cfrTitle: config.cfrTitle,
+          cfrPart: config.cfrPart,
+        },
+      },
+    });
+
+    return {
+      hasUpdates:
+        !state?.lastAmendedDate ||
+        state.lastAmendedDate !== meta.latestAmendedOn,
+      ecfrDate: meta.latestAmendedOn,
+      storedDate: state?.lastAmendedDate ?? null,
+      syncStatus: state?.syncStatus ?? "NEVER",
+    };
+  }
+
+  /** Get sync status for a specific config. */
+  async getSyncStatusForConfig(config: CfrSyncConfig) {
+    const state = await this.prisma.oshaSyncState.findUnique({
+      where: {
+        cfrTitle_cfrPart: {
+          cfrTitle: config.cfrTitle,
+          cfrPart: config.cfrPart,
+        },
+      },
+    });
+    return (
+      state ?? {
+        cfrTitle: config.cfrTitle,
+        cfrPart: config.cfrPart,
+        syncStatus: "NEVER",
+        lastSyncedAt: null,
+        lastAmendedDate: null,
+        sectionCount: 0,
+        manualId: null,
+        lastError: null,
+      }
+    );
+  }
+
+  /** Sync a specific CFR title/part using the given config. */
+  async syncCfr(userId: string, config: CfrSyncConfig): Promise<SyncResult> {
+    const { cfrTitle, cfrPart, manualCode, manualTitle, manualIcon, manualCategory, tags } = config;
+
+    this.logger.log(
+      `Starting CFR sync: ${cfrTitle} CFR ${cfrPart} (${config.code})...`,
+    );
+
+    // Mark as syncing
+    await this.prisma.oshaSyncState.upsert({
+      where: { cfrTitle_cfrPart: { cfrTitle, cfrPart } },
+      create: { cfrTitle, cfrPart, syncStatus: "SYNCING" },
+      update: { syncStatus: "SYNCING", lastError: null },
+    });
+
+    try {
+      // 1. Get eCFR metadata
+      const meta = await this.getEcfrTitleMetaForTitle(cfrTitle);
+      const date = meta.upToDateAsOf || this.todayIso();
+
+      // 2. Fetch XML
+      const url = `${ECFR_BASE}/api/versioner/v1/full/${date}/title-${cfrTitle}.xml?part=${cfrPart}`;
+      this.logger.log(`Fetching eCFR XML: ${url}`);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`eCFR full XML returned ${res.status}`);
+      const xml = await res.text();
+      this.logger.log(`Fetched XML: ${(xml.length / 1024).toFixed(0)} KB`);
+
+      // 3. Parse into sections (reuse existing parser — works for any CFR part)
+      const sections = this.parseXmlToSections(xml);
+      this.logger.log(`Parsed ${sections.length} sections`);
+
+      if (sections.length === 0) {
+        throw new Error(
+          `No sections parsed from XML for ${cfrTitle} CFR ${cfrPart} — possible format change`,
+        );
+      }
+
+      // 4. Upsert into database using config-specific codes/titles
+      const result = await this.upsertSectionsWithConfig(
+        userId,
+        sections,
+        config,
+      );
+
+      // 5. Update sync state
+      await this.prisma.oshaSyncState.upsert({
+        where: { cfrTitle_cfrPart: { cfrTitle, cfrPart } },
+        create: {
+          cfrTitle,
+          cfrPart,
+          syncStatus: "SUCCESS",
+          lastSyncedAt: new Date(),
+          lastAmendedDate: meta.latestAmendedOn,
+          lastContentHash: this.hashContent(xml),
+          manualId: result.manualId,
+          sectionCount: result.totalSections,
+        },
+        update: {
+          syncStatus: "SUCCESS",
+          lastSyncedAt: new Date(),
+          lastAmendedDate: meta.latestAmendedOn,
+          lastContentHash: this.hashContent(xml),
+          manualId: result.manualId,
+          sectionCount: result.totalSections,
+          lastError: null,
+        },
+      });
+
+      this.logger.log(
+        `Sync complete (${config.code}): ${result.totalSections} sections ` +
+          `(${result.newSections} new, ${result.updatedSections} updated)`,
+      );
+
+      return { ...result, ecfrAmendedDate: meta.latestAmendedOn };
+    } catch (err: any) {
+      this.logger.error(
+        `CFR sync failed (${config.code}): ${err.message}`,
+        err.stack,
+      );
+
+      await this.prisma.oshaSyncState.upsert({
+        where: { cfrTitle_cfrPart: { cfrTitle, cfrPart } },
+        create: {
+          cfrTitle,
+          cfrPart,
+          syncStatus: "ERROR",
+          lastError: err.message,
+        },
+        update: { syncStatus: "ERROR", lastError: err.message },
+      });
+
+      throw err;
+    }
+  }
+
+  /**
+   * Config-aware version of upsertSections.
+   * Uses config-specific manual codes, titles, categories, and tags.
+   */
+  private async upsertSectionsWithConfig(
+    userId: string,
+    sections: ParsedSection[],
+    config: CfrSyncConfig,
+  ): Promise<Omit<SyncResult, "ecfrAmendedDate">> {
+    let newSections = 0;
+    let updatedSections = 0;
+    let unchangedSections = 0;
+
+    const subpartMap = new Map<
+      string,
+      { title: string; sections: ParsedSection[] }
+    >();
+    for (const s of sections) {
+      const key = s.subpartLetter;
+      if (!subpartMap.has(key)) {
+        subpartMap.set(key, { title: s.subpartTitle, sections: [] });
+      }
+      subpartMap.get(key)!.sections.push(s);
+    }
+
+    const manualId = await this.prisma.$transaction(
+      async (tx) => {
+        // Find or create the Manual
+        let manual = await tx.manual.findUnique({
+          where: { code: config.manualCode },
+        });
+        let manualVersion = 1;
+
+        if (!manual) {
+          manual = await tx.manual.create({
+            data: {
+              code: config.manualCode,
+              title: config.manualTitle,
+              iconEmoji: config.manualIcon,
+              description: `${config.manualTitle}, imported from the Electronic Code of Federal Regulations (eCFR). Automatically monitored for updates.`,
+              isNexusInternal: true,
+              createdByUserId: userId,
+              currentVersion: 1,
+            },
+          });
+
+          await tx.manualVersion.create({
+            data: {
+              manualId: manual.id,
+              version: 1,
+              changeType: ManualVersionChangeType.INITIAL,
+              changeNotes: "Initial import from eCFR",
+              createdByUserId: userId,
+              structureSnapshot: { chapters: [], documents: [] },
+            },
+          });
+        } else {
+          manualVersion = manual.currentVersion;
+        }
+
+        // Process each subpart as a chapter
+        let subpartSort = 0;
+        for (const [
+          letter,
+          { title: subpartDescName, sections: subSections },
+        ] of subpartMap) {
+          subpartSort++;
+          const chapterTitle = `Subpart ${letter}`;
+          const chapterDescription = subpartDescName || null;
+
+          let chapter = await tx.manualChapter.findFirst({
+            where: {
+              manualId: manual.id,
+              title: { startsWith: `Subpart ${letter}` },
+              active: true,
+            },
+          });
+
+          if (!chapter) {
+            chapter = await tx.manualChapter.create({
+              data: {
+                manualId: manual.id,
+                title: chapterTitle,
+                description: chapterDescription,
+                sortOrder: subpartSort,
+              },
+            });
+          } else {
+            await tx.manualChapter.update({
+              where: { id: chapter.id },
+              data: {
+                title: chapterTitle,
+                description: chapterDescription,
+                sortOrder: subpartSort,
+              },
+            });
+          }
+
+          for (const section of subSections) {
+            const docCode = `${config.code}-${section.sectionNumber}`;
+
+            const existingDoc = await tx.systemDocument.findUnique({
+              where: { code: docCode },
+              include: { currentVersion: true },
+            });
+
+            let docId: string;
+
+            if (existingDoc) {
+              docId = existingDoc.id;
+              const titleChanged = existingDoc.title !== section.title;
+              const descChanged =
+                (existingDoc.description || "") !==
+                (section.sectionName || "");
+              const contentChanged =
+                existingDoc.currentVersion?.contentHash !==
+                section.contentHash;
+
+              if (contentChanged) {
+                const lastVersion =
+                  await tx.systemDocumentVersion.findFirst({
+                    where: { systemDocumentId: existingDoc.id },
+                    orderBy: { versionNo: "desc" },
+                  });
+                const nextVersionNo = (lastVersion?.versionNo ?? 0) + 1;
+
+                const version = await tx.systemDocumentVersion.create({
+                  data: {
+                    systemDocumentId: existingDoc.id,
+                    versionNo: nextVersionNo,
+                    htmlContent: section.htmlContent,
+                    contentHash: section.contentHash,
+                    notes: "Updated via eCFR sync",
+                    createdByUserId: userId,
+                  },
+                });
+
+                await tx.systemDocument.update({
+                  where: { id: existingDoc.id },
+                  data: {
+                    currentVersionId: version.id,
+                    title: section.title,
+                    description: section.sectionName || null,
+                    category: config.manualCategory,
+                    subcategory: `Subpart ${section.subpartLetter}`,
+                  },
+                });
+                updatedSections++;
+              } else if (titleChanged || descChanged) {
+                await tx.systemDocument.update({
+                  where: { id: existingDoc.id },
+                  data: {
+                    title: section.title,
+                    description: section.sectionName || null,
+                    category: config.manualCategory,
+                    subcategory: `Subpart ${section.subpartLetter}`,
+                  },
+                });
+                updatedSections++;
+              } else {
+                unchangedSections++;
+              }
+            } else {
+              const newDoc = await tx.systemDocument.create({
+                data: {
+                  code: docCode,
+                  title: section.title,
+                  description: section.sectionName || null,
+                  category: config.manualCategory,
+                  subcategory: `Subpart ${section.subpartLetter}`,
+                  tags: [
+                    ...config.tags,
+                    `subpart-${section.subpartLetter.toLowerCase()}`,
+                  ],
+                  createdByUserId: userId,
+                },
+              });
+              docId = newDoc.id;
+
+              const version = await tx.systemDocumentVersion.create({
+                data: {
+                  systemDocumentId: newDoc.id,
+                  versionNo: 1,
+                  htmlContent: section.htmlContent,
+                  contentHash: section.contentHash,
+                  notes: "Initial version via eCFR import",
+                  createdByUserId: userId,
+                },
+              });
+
+              await tx.systemDocument.update({
+                where: { id: newDoc.id },
+                data: { currentVersionId: version.id },
+              });
+              newSections++;
+            }
+
+            // Ensure ManualDocument link exists
+            const existingLink = await tx.manualDocument.findFirst({
+              where: {
+                manualId: manual.id,
+                systemDocumentId: docId,
+                active: true,
+              },
+            });
+
+            if (!existingLink) {
+              await tx.manualDocument.create({
+                data: {
+                  manualId: manual.id,
+                  chapterId: chapter.id,
+                  systemDocumentId: docId,
+                  sortOrder: section.sortOrder,
+                  displayTitleOverride: section.title,
+                  addedInManualVersion: manualVersion,
+                },
+              });
+            } else if (
+              existingLink.displayTitleOverride !== section.title
+            ) {
+              await tx.manualDocument.update({
+                where: { id: existingLink.id },
+                data: { displayTitleOverride: section.title },
+              });
+            }
+          }
+        }
+
+        // Bump manual version if anything changed
+        if (newSections > 0 || updatedSections > 0) {
+          const newVersion = manualVersion + 1;
+          await tx.manual.update({
+            where: { id: manual.id },
+            data: { currentVersion: newVersion },
+          });
+
+          await tx.manualVersion.create({
+            data: {
+              manualId: manual.id,
+              version: newVersion,
+              changeType:
+                newSections > 0
+                  ? ManualVersionChangeType.DOCUMENT_ADDED
+                  : ManualVersionChangeType.METADATA_UPDATED,
+              changeNotes: `eCFR sync: ${newSections} new, ${updatedSections} updated sections`,
+              createdByUserId: userId,
+              structureSnapshot: {
+                subparts: Array.from(subpartMap.keys()),
+                totalSections: sections.length,
+              },
+            },
+          });
+        }
+
+        return manual.id;
+      },
+      { timeout: 120_000 },
     );
 
     return {
