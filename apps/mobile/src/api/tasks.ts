@@ -50,3 +50,49 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus): Prom
     body: JSON.stringify({ status }),
   });
 }
+
+/**
+ * Update a task (reassign, change title, description, priority, due date, status).
+ */
+export async function updateTask(
+  taskId: string,
+  data: {
+    title?: string;
+    description?: string;
+    assigneeId?: string | null;
+    status?: TaskStatus;
+    priority?: string;
+    dueDate?: string | null;
+  },
+): Promise<TaskItem> {
+  return apiJson<TaskItem>(`/tasks/${encodeURIComponent(taskId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * Lightweight member type for reassignment picker.
+ */
+export interface TeamMember {
+  id: string;
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+}
+
+/**
+ * Fetch company members for reassignment.
+ * Uses /users/me memberships as a lightweight source.
+ */
+export async function fetchCompanyMembers(): Promise<TeamMember[]> {
+  // The API doesn't have a dedicated members endpoint yet,
+  // so we pull from /companies/me/members if available, otherwise
+  // fall back to returning an empty list.
+  try {
+    return await apiJson<TeamMember[]>("/companies/me/members");
+  } catch {
+    return [];
+  }
+}

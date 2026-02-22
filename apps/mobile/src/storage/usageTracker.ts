@@ -108,7 +108,62 @@ export async function pruneOldUsageEvents(): Promise<void> {
     const db = await getDb();
     const cutoff = Date.now() - PRUNE_AFTER_DAYS * MS_PER_DAY;
     await db.runAsync("DELETE FROM usage_events WHERE ts < ?", [cutoff]);
+    // Also prune old tab events
+    await db.runAsync("DELETE FROM tab_events WHERE ts < ?", [cutoff]);
   } catch {
     // Non-fatal
+  }
+}
+
+// ---- Tab Usage Tracking ----
+
+/**
+ * Record a tab selection event. Fire-and-forget.
+ */
+export async function recordTabUsage(tabKey: string): Promise<void> {
+  try {
+    const db = await getDb();
+    await db.runAsync(
+      "INSERT INTO tab_events (tabKey, ts) VALUES (?, ?)",
+      [tabKey, Date.now()],
+    );
+  } catch {
+    // Non-fatal
+  }
+}
+
+/**
+ * Get the most-used tab using recency-weighted scoring.
+ * Returns the tab key with the highest score, or null if no data.
+ */
+export async function getTopTab(): Promise<string | null> {
+  try {
+    const db = await getDb();
+    const cutoff = Date.now() - SCORING_WINDOW_DAYS * MS_PER_DAY;
+    const rows = await db.getAllAsync<{ tabKey: string; ts: number }>(
+      "SELECT tabKey, ts FROM tab_events WHERE ts > ? ORDER BY tabKey, ts DESC",
+      [cutoff],
+    );
+    if (rows.length === 0) return null;
+
+    const now = Date.now();
+    const map = new Map<string, number>();
+    for (const row of rows) {
+      const daysSince = (now - row.ts) / MS_PER_DAY;
+      const eventScore = 1 / (1 + daysSince);
+      map.set(row.tabKey, (map.get(row.tabKey) ?? 0) + eventScore);
+    }
+
+    let best: string | null = null;
+    let bestScore = 0;
+    for (const [key, score] of map) {
+      if (score > bestScore) {
+        best = key;
+        bestScore = score;
+      }
+    }
+    return best;
+  } catch {
+    return null;
   }
 }

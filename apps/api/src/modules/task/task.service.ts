@@ -2,7 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/commo
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuditService } from "../../common/audit.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { TaskPriorityEnum, TaskStatusEnum } from "./dto/task.dto";
+import { TaskPriorityEnum, TaskStatusEnum, UpdateTaskDto } from "./dto/task.dto";
 import { Role } from "@prisma/client";
 
 @Injectable()
@@ -166,6 +166,53 @@ export class TaskService {
       projectId: task.projectId,
       userId: task.assigneeId ?? undefined,
       metadata: { taskId: task.id, from: task.status, to: status }
+    });
+
+    return updated;
+  }
+
+  async updateTask(actor: AuthenticatedUser, taskId: string, dto: UpdateTaskDto) {
+    const task = await this.prisma.task.findFirst({
+      where: { id: taskId, companyId: actor.companyId },
+    });
+
+    if (!task) {
+      throw new NotFoundException("Task not found in this company");
+    }
+
+    // Only OWNER/ADMIN or the task creator/assignee can update
+    if (actor.role !== "OWNER" && actor.role !== "ADMIN") {
+      if (task.assigneeId !== actor.userId && task.createdByUserId !== actor.userId) {
+        throw new ForbiddenException("You cannot update this task");
+      }
+    }
+
+    const data: any = {};
+    if (dto.title !== undefined) data.title = dto.title;
+    if (dto.description !== undefined) data.description = dto.description;
+    if (dto.assigneeId !== undefined) data.assigneeId = dto.assigneeId;
+    if (dto.status !== undefined) data.status = dto.status;
+    if (dto.priority !== undefined) data.priority = dto.priority;
+    if (dto.dueDate !== undefined) data.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
+
+    const updated = await this.prisma.task.update({
+      where: { id: taskId },
+      data,
+      include: {
+        assignee: {
+          select: { id: true, email: true, firstName: true, lastName: true },
+        },
+        createdBy: {
+          select: { id: true, email: true, firstName: true, lastName: true },
+        },
+      },
+    });
+
+    await this.audit.log(actor, "TASK_UPDATED", {
+      companyId: actor.companyId,
+      projectId: task.projectId,
+      userId: task.assigneeId ?? undefined,
+      metadata: { taskId: task.id, changes: dto },
     });
 
     return updated;

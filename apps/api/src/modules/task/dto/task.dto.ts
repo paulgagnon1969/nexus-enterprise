@@ -51,3 +51,29 @@ export class UpdateTaskStatusDto {
   @IsEnum(TaskStatusEnum)
   status!: TaskStatusEnum;
 }
+
+export class UpdateTaskDto {
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsUUID()
+  assigneeId?: string | null;
+
+  @IsOptional()
+  @IsEnum(TaskStatusEnum)
+  status?: TaskStatusEnum;
+
+  @IsOptional()
+  @IsEnum(TaskPriorityEnum)
+  priority?: TaskPriorityEnum;
+
+  @IsOptional()
+  @IsISO8601()
+  dueDate?: string | null;
+}

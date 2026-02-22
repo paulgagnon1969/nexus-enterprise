@@ -4,8 +4,9 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
-import { Text, View } from "react-native";
+import { Text, View, StyleSheet, Platform } from "react-native";
 import { colors } from "../theme/colors";
+import appJson from "../../app.json";
 
 import { HomeScreen } from "../screens/HomeScreen";
 import { ProjectsScreen } from "../screens/ProjectsScreen";
@@ -16,7 +17,9 @@ import { InventoryScreen } from "../screens/InventoryScreen";
 import { OutboxScreen } from "../screens/OutboxScreen";
 import { TimecardScreen } from "../screens/TimecardScreen";
 import { TodosScreen } from "../screens/TodosScreen";
+import { ScrollableTabBar } from "../components/ScrollableTabBar";
 import { fetchAllTasks } from "../api/tasks";
+import { recordTabUsage, getTopTab } from "../storage/usageTracker";
 import type { ProjectListItem, TaskItem } from "../types/api";
 
 // Type definitions for navigation
@@ -38,24 +41,6 @@ export type ProjectsStackParamList = {
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
-
-// Simple icon component (can be replaced with expo-vector-icons later)
-function TabIcon({ label, focused }: { label: string; focused: boolean }) {
-  const icons: Record<string, string> = {
-    Home: "🏠",
-    "ToDo's": "✅",
-    Timecard: "⏱️",
-    Directory: "👥",
-    Projects: "📋",
-    Inventory: "📦",
-    Outbox: "📤",
-  };
-  return (
-    <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.5 }}>
-      {icons[label] ?? "•"}
-    </Text>
-  );
-}
 
 // Projects stack wrappers
 function ProjectsListWrapper() {
@@ -184,37 +169,27 @@ function HomeTabScreen() {
   );
 }
 
-// Badge dot component for ToDo's tab
-function TodoBadge({ count }: { count: number }) {
-  if (count <= 0) return null;
-  return (
-    <View
-      style={{
-        position: "absolute",
-        top: -4,
-        right: -10,
-        backgroundColor: "#dc2626",
-        borderRadius: 10,
-        minWidth: 18,
-        height: 18,
-        alignItems: "center",
-        justifyContent: "center",
-        paddingHorizontal: 4,
-      }}
-    >
-      <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
-        {count > 99 ? "99+" : count}
-      </Text>
-    </View>
-  );
-}
-
 export function AppNavigator({ onLogout }: { onLogout: () => void }) {
   const [company, setCompany] = React.useState<{ id: string | null; name: string | null; refreshKey: number }>({
     id: null,
     name: null,
     refreshKey: 0,
   });
+
+  // Load usage-based initial tab (defaults to Home until enough data)
+  const [initialTab, setInitialTab] = React.useState<keyof RootTabParamList>("HomeTab");
+  const [tabReady, setTabReady] = React.useState(false);
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const top = await getTopTab();
+        if (top && top in TAB_KEYS) {
+          setInitialTab(top as keyof RootTabParamList);
+        }
+      } catch { /* default to Home */ }
+      setTabReady(true);
+    })();
+  }, []);
 
   // Track urgent task count for badge
   const [urgentCount, setUrgentCount] = React.useState(0);
@@ -235,79 +210,95 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
       } catch { /* ignore */ }
     };
     loadBadge();
-    // Refresh badge every 60s
     const interval = setInterval(loadBadge, 60_000);
     return () => { mounted = false; clearInterval(interval); };
   }, []);
-  
+
+  // Don't render navigator until we know the initial tab
+  if (!tabReady) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.primary }}>
+        <View style={navStyles.versionHeader}>
+          <Text style={navStyles.versionBrand}>NEXUS</Text>
+          <Text style={navStyles.versionText}>
+            v{appJson.expo.version} ({Platform.OS === "ios" ? "iOS" : "Android"})
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <LogoutContext.Provider value={onLogout}>
     <CompanyContext.Provider value={company}>
     <SetCompanyContext.Provider value={(c) => setCompany((prev) => ({ id: c.id, name: c.name, refreshKey: prev.refreshKey + 1 }))}>
+      {/* Version header bar */}
+      <View style={navStyles.versionHeader}>
+        <Text style={navStyles.versionBrand}>NEXUS</Text>
+        <Text style={navStyles.versionText}>
+          v{appJson.expo.version} ({Platform.OS === "ios" ? "iOS" : "Android"})
+        </Text>
+      </View>
+
       <Tab.Navigator
-        screenOptions={({ route }) => ({
-          headerShown: false,
-          tabBarIcon: ({ focused }) => (
-            <TabIcon label={route.name.replace("Tab", "")} focused={focused} />
-          ),
-          tabBarActiveTintColor: colors.tabActive,
-          tabBarInactiveTintColor: colors.tabInactive,
-          tabBarStyle: {
-            backgroundColor: colors.tabBackground,
-            borderTopColor: colors.tabBorder,
+        initialRouteName={initialTab}
+        screenOptions={{ headerShown: false }}
+        tabBar={(props) => (
+          <ScrollableTabBar {...props} todoBadgeCount={urgentCount} />
+        )}
+        screenListeners={{
+          tabPress: (e) => {
+            // Record tab usage for smart default
+            const tabName = e.target?.split("-")[0];
+            if (tabName) void recordTabUsage(tabName);
           },
-          tabBarLabelStyle: {
-            fontSize: 11,
-            fontWeight: "600",
-          },
-        })}
+        }}
       >
-        <Tab.Screen
-          name="HomeTab"
-          options={{ tabBarLabel: "Home" }}
-          component={HomeTabScreen}
-        />
-        <Tab.Screen
-          name="TodosTab"
-          options={{
-            tabBarLabel: "ToDo's",
-            tabBarIcon: ({ focused }) => (
-              <View>
-                <TabIcon label="ToDo's" focused={focused} />
-                <TodoBadge count={urgentCount} />
-              </View>
-            ),
-          }}
-          component={TodosScreen}
-        />
-        <Tab.Screen
-          name="TimecardTab"
-          options={{ tabBarLabel: "Timecard" }}
-          component={TimecardScreen}
-        />
-        <Tab.Screen
-          name="DirectoryTab"
-          options={{ tabBarLabel: "Directory" }}
-          component={DirectoryScreen}
-        />
-        <Tab.Screen
-          name="ProjectsTab"
-          options={{ tabBarLabel: "Projects" }}
-          component={ProjectsStackNavigator}
-        />
-        <Tab.Screen
-          name="InventoryTab"
-          options={{ tabBarLabel: "Inventory" }}
-          component={InventoryTabScreen}
-        />
-        <Tab.Screen
-          name="OutboxTab"
-          options={{ tabBarLabel: "Outbox" }}
-          component={OutboxTabScreen}
-        />
+        <Tab.Screen name="HomeTab" component={HomeTabScreen} />
+        <Tab.Screen name="TodosTab" component={TodosScreen} />
+        <Tab.Screen name="TimecardTab" component={TimecardScreen} />
+        <Tab.Screen name="DirectoryTab" component={DirectoryScreen} />
+        <Tab.Screen name="ProjectsTab" component={ProjectsStackNavigator} />
+        <Tab.Screen name="InventoryTab" component={InventoryTabScreen} />
+        <Tab.Screen name="OutboxTab" component={OutboxTabScreen} />
       </Tab.Navigator>
     </SetCompanyContext.Provider>
     </CompanyContext.Provider>
     </LogoutContext.Provider>
   );
 }
+
+/** Valid tab keys for type guard */
+const TAB_KEYS: Record<string, boolean> = {
+  HomeTab: true,
+  TodosTab: true,
+  TimecardTab: true,
+  DirectoryTab: true,
+  ProjectsTab: true,
+  InventoryTab: true,
+  OutboxTab: true,
+};
+
+const navStyles = StyleSheet.create({
+  versionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: colors.primary,
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === "ios" ? 54 : 32,
+    paddingBottom: 8,
+  },
+  versionBrand: {
+    color: colors.textOnPrimary,
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 2,
+  },
+  versionText: {
+    color: colors.textOnPrimary,
+    fontSize: 11,
+    fontWeight: "500",
+    opacity: 0.8,
+  },
+});

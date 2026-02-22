@@ -8,8 +8,10 @@ import {
   RefreshControl,
   ActivityIndicator,
   Alert,
+  Modal,
 } from "react-native";
-import { fetchAllTasks, updateTaskStatus } from "../api/tasks";
+import { fetchAllTasks, updateTaskStatus, updateTask, fetchCompanyMembers } from "../api/tasks";
+import type { TeamMember } from "../api/tasks";
 import { colors } from "../theme/colors";
 import type { TaskItem, TaskStatus } from "../types/api";
 
@@ -83,6 +85,16 @@ export function TodosScreen() {
     new Set(["done"]) // completed collapsed by default
   );
 
+  // Detail card state
+  const [selectedTask, setSelectedTask] = useState<TaskItem | null>(null);
+  const [showDetail, setShowDetail] = useState(false);
+  const [detailActionLoading, setDetailActionLoading] = useState(false);
+
+  // Reassign state
+  const [showReassign, setShowReassign] = useState(false);
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+
   const loadTasks = useCallback(async () => {
     try {
       const items = await fetchAllTasks();
@@ -104,19 +116,81 @@ export function TodosScreen() {
     loadTasks();
   }, [loadTasks]);
 
-  const handleToggle = async (task: TaskItem) => {
-    const nextStatus: TaskStatus = task.status === "DONE" ? "TODO" : "DONE";
-    // Optimistic
-    setTasks((prev) =>
-      prev.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t))
-    );
+  // Open detail card
+  const openDetail = (task: TaskItem) => {
+    setSelectedTask(task);
+    setShowDetail(true);
+  };
+
+  const closeDetail = () => {
+    setShowDetail(false);
+    setSelectedTask(null);
+  };
+
+  // Close (mark DONE) from detail card
+  const handleCloseTask = async () => {
+    if (!selectedTask) return;
+    setDetailActionLoading(true);
     try {
-      await updateTaskStatus(task.id, nextStatus);
-    } catch {
+      await updateTaskStatus(selectedTask.id, "DONE");
       setTasks((prev) =>
-        prev.map((t) => (t.id === task.id ? { ...t, status: task.status } : t))
+        prev.map((t) => (t.id === selectedTask.id ? { ...t, status: "DONE" as TaskStatus } : t))
       );
-      Alert.alert("Error", "Failed to update task status");
+      closeDetail();
+    } catch {
+      Alert.alert("Error", "Failed to close task");
+    } finally {
+      setDetailActionLoading(false);
+    }
+  };
+
+  // Reopen from detail card
+  const handleReopenTask = async () => {
+    if (!selectedTask) return;
+    setDetailActionLoading(true);
+    try {
+      await updateTaskStatus(selectedTask.id, "TODO");
+      setTasks((prev) =>
+        prev.map((t) => (t.id === selectedTask.id ? { ...t, status: "TODO" as TaskStatus } : t))
+      );
+      closeDetail();
+    } catch {
+      Alert.alert("Error", "Failed to reopen task");
+    } finally {
+      setDetailActionLoading(false);
+    }
+  };
+
+  // Open reassign picker
+  const openReassign = async () => {
+    setShowReassign(true);
+    setMembersLoading(true);
+    try {
+      const list = await fetchCompanyMembers();
+      setMembers(list);
+    } catch {
+      setMembers([]);
+    } finally {
+      setMembersLoading(false);
+    }
+  };
+
+  // Reassign to a member
+  const handleReassign = async (memberId: string) => {
+    if (!selectedTask) return;
+    setDetailActionLoading(true);
+    try {
+      const updated = await updateTask(selectedTask.id, { assigneeId: memberId });
+      setTasks((prev) =>
+        prev.map((t) => (t.id === selectedTask.id ? { ...t, ...updated } : t))
+      );
+      setSelectedTask(updated);
+      setShowReassign(false);
+      Alert.alert("Reassigned", "Task has been reassigned.");
+    } catch {
+      Alert.alert("Error", "Failed to reassign task");
+    } finally {
+      setDetailActionLoading(false);
     }
   };
 
@@ -253,11 +327,9 @@ export function TodosScreen() {
                         styles.taskCard,
                         { borderLeftColor: meta.border, borderLeftWidth: 4 },
                       ]}
-                      onPress={() => handleToggle(task)}
+                      onPress={() => openDetail(task)}
                     >
-                      <View style={[styles.checkbox, isDone && styles.checkboxDone]}>
-                        {isDone && <Text style={styles.checkmark}>✓</Text>}
-                      </View>
+                      <View style={[styles.statusDot, isDone && styles.statusDotDone]} />
                       <View style={styles.taskBody}>
                         <Text
                           style={[styles.taskTitle, isDone && styles.taskTitleDone]}
@@ -287,6 +359,7 @@ export function TodosScreen() {
                           </View>
                         </View>
                       </View>
+                      <Text style={styles.taskChevron}>›</Text>
                     </Pressable>
                   );
                 })}
@@ -296,6 +369,160 @@ export function TodosScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Task Detail Modal */}
+      <Modal
+        visible={showDetail}
+        animationType="slide"
+        transparent
+        onRequestClose={closeDetail}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Task Detail</Text>
+              <Pressable onPress={closeDetail}>
+                <Text style={styles.modalClose}>✕</Text>
+              </Pressable>
+            </View>
+
+            {selectedTask && (
+              <ScrollView style={styles.modalBody}>
+                <Text style={styles.detailTitle}>{selectedTask.title}</Text>
+
+                {selectedTask.description ? (
+                  <Text style={styles.detailDesc}>{selectedTask.description}</Text>
+                ) : null}
+
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Status</Text>
+                  <View style={[
+                    styles.detailStatusBadge,
+                    selectedTask.status === "DONE" && { backgroundColor: "#d1fae5" },
+                    selectedTask.status === "BLOCKED" && { backgroundColor: "#fee2e2" },
+                    selectedTask.status === "IN_PROGRESS" && { backgroundColor: "#dbeafe" },
+                  ]}>
+                    <Text style={styles.detailStatusText}>{selectedTask.status}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Priority</Text>
+                  <View style={[styles.priorityBadge, getPriorityStyle(selectedTask.priority)]}>
+                    <Text style={styles.priorityText}>{selectedTask.priority}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Assignee</Text>
+                  <Text style={styles.detailValue}>
+                    {selectedTask.assignee
+                      ? [selectedTask.assignee.firstName, selectedTask.assignee.lastName]
+                          .filter(Boolean).join(" ") || selectedTask.assignee.email
+                      : "Unassigned"}
+                  </Text>
+                </View>
+
+                {selectedTask.dueDate && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Due Date</Text>
+                    <Text style={styles.detailValue}>
+                      {new Date(selectedTask.dueDate).toLocaleDateString()}
+                    </Text>
+                  </View>
+                )}
+
+                {selectedTask.createdBy && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Created By</Text>
+                    <Text style={styles.detailValue}>
+                      {[selectedTask.createdBy.firstName, selectedTask.createdBy.lastName]
+                        .filter(Boolean).join(" ") || selectedTask.createdBy.email}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Action Buttons */}
+                <View style={styles.detailActions}>
+                  {selectedTask.status !== "DONE" ? (
+                    <Pressable
+                      style={[styles.detailBtn, styles.detailBtnClose]}
+                      onPress={handleCloseTask}
+                      disabled={detailActionLoading}
+                    >
+                      <Text style={styles.detailBtnText}>
+                        {detailActionLoading ? "Closing..." : "Close Task"}
+                      </Text>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      style={[styles.detailBtn, styles.detailBtnReopen]}
+                      onPress={handleReopenTask}
+                      disabled={detailActionLoading}
+                    >
+                      <Text style={styles.detailBtnText}>
+                        {detailActionLoading ? "Reopening..." : "Reopen Task"}
+                      </Text>
+                    </Pressable>
+                  )}
+
+                  <Pressable
+                    style={[styles.detailBtn, styles.detailBtnReassign]}
+                    onPress={openReassign}
+                    disabled={detailActionLoading}
+                  >
+                    <Text style={styles.detailBtnText}>Reassign</Text>
+                  </Pressable>
+                </View>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Reassign Picker Modal */}
+      <Modal
+        visible={showReassign}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowReassign(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Reassign To</Text>
+              <Pressable onPress={() => setShowReassign(false)}>
+                <Text style={styles.modalClose}>✕</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.modalBody}>
+              {membersLoading ? (
+                <ActivityIndicator style={{ marginVertical: 20 }} color={colors.primary} />
+              ) : members.length === 0 ? (
+                <Text style={styles.emptyText}>No team members found</Text>
+              ) : (
+                members.map((m) => {
+                  const name = [m.firstName, m.lastName].filter(Boolean).join(" ") || m.email;
+                  const isCurrent = selectedTask?.assigneeId === m.id;
+                  return (
+                    <Pressable
+                      key={m.id}
+                      style={[styles.memberOption, isCurrent && styles.memberOptionCurrent]}
+                      onPress={() => void handleReassign(m.id)}
+                      disabled={isCurrent || detailActionLoading}
+                    >
+                      <Text style={[styles.memberName, isCurrent && styles.memberNameCurrent]}>
+                        {name}
+                      </Text>
+                      {isCurrent && <Text style={styles.memberCurrentLabel}>Current</Text>}
+                    </Pressable>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -431,25 +658,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.cardBorder,
   },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: colors.border,
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.border,
     marginRight: 10,
-    marginTop: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    marginTop: 5,
   },
-  checkboxDone: {
+  statusDotDone: {
     backgroundColor: colors.success,
-    borderColor: colors.success,
   },
-  checkmark: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "700",
+  taskChevron: {
+    fontSize: 22,
+    color: "#9ca3af",
+    marginLeft: 8,
+    alignSelf: "center",
   },
   taskBody: {
     flex: 1,
@@ -488,5 +712,132 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
     color: "#374151",
+  },
+
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: "75%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.cardBorder,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.textPrimary,
+  },
+  modalClose: {
+    fontSize: 20,
+    color: "#6b7280",
+    padding: 4,
+  },
+  modalBody: {
+    padding: 16,
+    paddingBottom: 32,
+  },
+
+  // Detail card
+  detailTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.textPrimary,
+    marginBottom: 8,
+  },
+  detailDesc: {
+    fontSize: 14,
+    color: colors.textMuted,
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  detailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f3f4f6",
+  },
+  detailLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.textMuted,
+  },
+  detailValue: {
+    fontSize: 14,
+    color: colors.textPrimary,
+    fontWeight: "500",
+  },
+  detailStatusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: "#f3f4f6",
+  },
+  detailStatusText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#374151",
+  },
+  detailActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 24,
+  },
+  detailBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  detailBtnClose: {
+    backgroundColor: "#10b981",
+  },
+  detailBtnReopen: {
+    backgroundColor: "#3b82f6",
+  },
+  detailBtnReassign: {
+    backgroundColor: "#6366f1",
+  },
+  detailBtnText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+
+  // Reassign picker
+  memberOption: {
+    padding: 14,
+    borderRadius: 10,
+    marginVertical: 2,
+  },
+  memberOptionCurrent: {
+    backgroundColor: "#eff6ff",
+  },
+  memberName: {
+    fontSize: 15,
+    color: colors.textPrimary,
+  },
+  memberNameCurrent: {
+    fontWeight: "700",
+    color: "#1e3a8a",
+  },
+  memberCurrentLabel: {
+    fontSize: 11,
+    color: "#2563eb",
+    fontWeight: "600",
+    marginTop: 2,
   },
 });

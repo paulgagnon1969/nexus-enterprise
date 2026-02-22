@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from
 import { TaskService } from "./task.service";
 import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { CreateTaskDto, UpdateTaskStatusDto, TaskPriorityEnum, TaskStatusEnum } from "./dto/task.dto";
+import { CreateTaskDto, UpdateTaskStatusDto, UpdateTaskDto, TaskPriorityEnum, TaskStatusEnum } from "./dto/task.dto";
 
 @Controller("tasks")
 export class TaskController {
@@ -54,5 +54,16 @@ export class TaskController {
   ) {
     const actor = req.user as AuthenticatedUser;
     return this.tasks.updateStatus(actor, id, dto.status);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(":id")
+  update(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdateTaskDto
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.tasks.updateTask(actor, id, dto);
   }
 }

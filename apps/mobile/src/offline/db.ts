@@ -73,4 +73,14 @@ export async function initDb(): Promise<void> {
     );
   `);
   await d.execAsync(`CREATE INDEX IF NOT EXISTS media_uploads_status_idx ON media_uploads(status);`);
+
+  // Tab usage tracking for smart default tab.
+  await d.execAsync(`
+    CREATE TABLE IF NOT EXISTS tab_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tabKey TEXT NOT NULL,
+      ts INTEGER NOT NULL
+    );
+  `);
+  await d.execAsync(`CREATE INDEX IF NOT EXISTS tab_events_ts_idx ON tab_events(ts);`);
 }
