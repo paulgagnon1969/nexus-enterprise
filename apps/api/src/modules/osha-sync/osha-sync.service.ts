@@ -254,8 +254,8 @@ export class OshaSyncService {
         if (key === "#text" || key === ":@") continue;
         const upper = key.toUpperCase();
 
-        // Detect SUBPART containers
-        if (upper === "SUBPART" || upper === "DIV5") {
+        // Detect SUBPART containers (DIV6 in eCFR XML, or DIV5 for Part root)
+        if (upper === "SUBPART" || upper === "DIV5" || upper === "DIV6") {
           const children = node[key];
           if (Array.isArray(children)) {
             // Try to extract subpart heading
@@ -266,11 +266,14 @@ export class OshaSyncService {
           continue;
         }
 
-        // Detect SECTION containers (DIV8)
+        // Detect SECTION containers (DIV8 in eCFR XML)
         if (upper === "SECTION" || upper === "DIV8") {
           const children = node[key];
+          // Extract the N attribute (e.g. "1926.501") as fallback section number
+          const nodeAttrs = node[":@"]?.[":@"] ?? node[":@"] ?? {};
+          const nAttr = nodeAttrs.N || nodeAttrs.n || "";
           if (Array.isArray(children)) {
-            const section = this.extractSection(children, currentSubpart);
+            const section = this.extractSection(children, currentSubpart, nAttr);
             if (section) {
               sortCounter++;
               sections.push({ ...section, sortOrder: sortCounter });
@@ -314,6 +317,7 @@ export class OshaSyncService {
   private extractSection(
     nodes: any[],
     currentSubpart?: { letter: string; title: string },
+    divNAttr?: string,
   ): Omit<ParsedSection, "sortOrder"> | null {
     let sectionNumber = "";
     let title = "";
@@ -329,6 +333,17 @@ export class OshaSyncService {
           // e.g., "1926.501"
         } else if (upper === "SUBJECT") {
           title = this.getTextContent(node[key]).trim();
+        } else if (upper === "HEAD" && !sectionNumber) {
+          // eCFR uses <HEAD>§ 1926.1 Purpose and scope.</HEAD> instead of SECTNO/SUBJECT
+          const headText = this.getTextContent(node[key]).trim();
+          const headMatch = headText.match(/§\s*([\d.]+)\s*(.*)/);
+          if (headMatch) {
+            sectionNumber = headMatch[1].trim();
+            title = headMatch[2].replace(/^[\u2014\-—–\s]+/, "").trim().replace(/\.$/, "");
+          } else {
+            // Not a section heading — treat as body HTML
+            bodyHtml += this.elementToHtml(node[key], key);
+          }
         } else if (upper === "RESERVED") {
           title = this.getTextContent(node[key]).trim() || "[Reserved]";
           bodyHtml += `<p><em>[Reserved]</em></p>\n`;
@@ -338,6 +353,11 @@ export class OshaSyncService {
           bodyHtml += this.elementToHtml(node[key], key);
         }
       }
+    }
+
+    // Fall back to DIV8 N attribute (e.g. "1926.501") if SECTNO/HEAD didn't provide it
+    if (!sectionNumber && divNAttr) {
+      sectionNumber = divNAttr.replace("§", "").trim();
     }
 
     if (!sectionNumber) return null;
