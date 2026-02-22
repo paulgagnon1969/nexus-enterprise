@@ -19,7 +19,14 @@ import appJson from "../../app.json";
 import { getApiBaseUrl } from "../api/config";
 import { countPendingOutbox } from "../offline/outbox";
 import { syncOnce } from "../offline/sync";
-import { getWifiOnlySync, setWifiOnlySync } from "../storage/settings";
+import {
+  getWifiOnlySync,
+  setWifiOnlySync,
+  getFavoriteProjectIds,
+  toggleFavoriteProject,
+  getLastSelectedProjectId,
+  setLastSelectedProjectId,
+} from "../storage/settings";
 import { getUserMe, getUserCompanyMe } from "../api/user";
 import { switchCompany as apiSwitchCompany } from "../api/company";
 import {
@@ -29,7 +36,7 @@ import {
   updateDailyLog,
   reassignDailyLog,
 } from "../api/dailyLog";
-import { recordUsage } from "../storage/usageTracker";
+import { recordUsage, getProjectScores } from "../storage/usageTracker";
 import { DirectionsDialog } from "../components/DirectionsDialog";
 import type {
   DailyLogListItem,
@@ -152,6 +159,14 @@ export function HomeScreen({
   const [showProjectPicker, setShowProjectPicker] = useState(false);
   const [showDirections, setShowDirections] = useState(false);
 
+  // Favorites + usage scores
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [usageScoreMap, setUsageScoreMap] = useState<Map<string, number>>(new Map());
+  const [autoDefaultApplied, setAutoDefaultApplied] = useState(false);
+
+  // WiFi tooltip
+  const [showWifiTooltip, setShowWifiTooltip] = useState(false);
+
   // Clock in/out state
   const [clockedIn, setClockedIn] = useState(false);
   const [clockInTime, setClockInTime] = useState<Date | null>(null);
@@ -222,6 +237,18 @@ export function HomeScreen({
     }
   };
 
+  // Load favorites and usage scores
+  const loadFavoritesAndScores = useCallback(async () => {
+    const [favIds, scores] = await Promise.all([
+      getFavoriteProjectIds(),
+      getProjectScores(),
+    ]);
+    setFavoriteIds(new Set(favIds));
+    const scoreMap = new Map<string, number>();
+    for (const s of scores) scoreMap.set(s.projectId, s.score);
+    setUsageScoreMap(scoreMap);
+  }, []);
+
   // Load project feed with daily logs
   const loadProjectFeed = useCallback(async () => {
     try {
@@ -274,7 +301,8 @@ export function HomeScreen({
     void refresh();
     void loadCompanies();
     void loadProjectFeed();
-  }, [loadProjectFeed]);
+    void loadFavoritesAndScores();
+  }, [loadProjectFeed, loadFavoritesAndScores]);
 
   // Auto-sync when navigating here with triggerSyncOnMount
   useEffect(() => {
@@ -291,6 +319,40 @@ export function HomeScreen({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentCompanyId, currentCompanyName]);
+
+  // Auto-default to most-used project on first load
+  useEffect(() => {
+    if (autoDefaultApplied || selectedProject || allProjects.length === 0) return;
+    setAutoDefaultApplied(true);
+
+    const autoSelect = async () => {
+      // 1. Try last-selected project
+      const lastId = await getLastSelectedProjectId();
+      if (lastId) {
+        const found = allProjects.find((p) => p.id === lastId);
+        if (found) {
+          setSelectedProject(found);
+          return;
+        }
+      }
+      // 2. Try highest usage score
+      const scores = await getProjectScores();
+      if (scores.length > 0) {
+        const topId = scores[0].projectId;
+        const found = allProjects.find((p) => p.id === topId);
+        if (found) {
+          setSelectedProject(found);
+          return;
+        }
+      }
+    };
+    void autoSelect();
+  }, [allProjects, autoDefaultApplied, selectedProject]);
+
+  // Persist selected project
+  useEffect(() => {
+    void setLastSelectedProjectId(selectedProject?.id ?? null);
+  }, [selectedProject]);
 
   // Load all logs when a project is selected
   const loadProjectLogs = useCallback(async (projectId: string) => {
@@ -352,7 +414,14 @@ export function HomeScreen({
       if (res.company?.id) {
         setCurrentCompanyId(res.company.id);
         setCurrentCompanyName(res.company.name ?? res.company.id);
+        // Notify parent (e.g. AppNavigator) of the tenant change
+        onCompanyChange?.(res.company);
       }
+      // Clear current project (belongs to old tenant)
+      setSelectedProject(null);
+      setProjectLogs([]);
+      // Reload project feed + favorites for the new tenant
+      await Promise.all([loadProjectFeed(), loadFavoritesAndScores()]);
     } catch (e) {
       setCompanyMessage(
         e instanceof Error ? e.message : `Failed to switch: ${String(e)}`,
@@ -369,11 +438,11 @@ export function HomeScreen({
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    const tasks: Promise<any>[] = [refresh(), loadProjectFeed()];
+    const tasks: Promise<any>[] = [refresh(), loadProjectFeed(), loadFavoritesAndScores()];
     if (selectedProject) tasks.push(loadProjectLogs(selectedProject.id));
     await Promise.all(tasks);
     setRefreshing(false);
-  }, [loadProjectFeed, loadProjectLogs, selectedProject]);
+  }, [loadProjectFeed, loadProjectLogs, loadFavoritesAndScores, selectedProject]);
 
   // Open daily log detail
   const openLogDetail = async (logId: string, projectId?: string) => {
@@ -507,17 +576,9 @@ export function HomeScreen({
           )}
         </Pressable>
 
-        {/* Right: WiFi toggle + pending count + map pin */}
+        {/* Right: pending count + map pin */}
         <View style={styles.rightControls}>
           <View style={styles.rightControlsRow}>
-            <View style={styles.wifiRow}>
-              <Text style={styles.wifiLabel}>WiFi</Text>
-              <Switch
-                value={wifiOnly}
-                onValueChange={toggleWifiOnly}
-                style={styles.wifiSwitch}
-              />
-            </View>
             {selectedProject &&
               (selectedProject.latitude || selectedProject.addressLine1) && (
                 <Pressable
@@ -1009,53 +1070,121 @@ export function HomeScreen({
               </Pressable>
             </View>
             <ScrollView style={styles.modalBody}>
-              {/* Organizations Section */}
-              <Text style={styles.pickerSectionTitle}>Organizations</Text>
-              {companies.map((c) => {
-                const selected = c.id === currentCompanyId && !selectedProject;
-                const switching = companySwitchingId === c.id;
-                return (
-                  <Pressable
-                    key={`org-${c.id}`}
-                    style={[styles.tenantOption, selected && styles.tenantOptionSelected]}
-                    onPress={async () => {
-                      await handleSelectCompany(c.id);
-                      setSelectedProject(null);
-                      setShowProjectPicker(false);
-                    }}
-                    disabled={switching}
-                  >
-                    <Text style={[styles.tenantOptionText, selected && styles.tenantOptionTextSelected]}>
-                      🏢 {c.name}
-                    </Text>
-                    {selected && <Text style={styles.tenantOptionCheck}>✓</Text>}
-                    {switching && <Text style={styles.tenantOptionSwitching}>...</Text>}
-                  </Pressable>
-                );
-              })}
+              {/* Current Tenant Banner */}
+              {currentCompanyName && (
+                <View style={styles.tenantBanner}>
+                  <Text style={styles.tenantBannerLabel}>Current Tenant</Text>
+                  <Text style={styles.tenantBannerName}>{currentCompanyName}</Text>
+                </View>
+              )}
 
-              {/* Projects Section */}
-              {allProjects.length > 0 && (
+              {/* Organizations Section — only show if multiple tenants */}
+              {companies.length > 1 && (
                 <>
-                  <Text style={styles.pickerSectionTitle}>Projects</Text>
-                  {allProjects.map((p) => {
-                    const selected = selectedProject?.id === p.id;
+                  <Text style={styles.pickerSectionTitle}>Switch Tenant</Text>
+                  {companies.map((c) => {
+                    const isCurrent = c.id === currentCompanyId;
+                    const switching = companySwitchingId === c.id;
                     return (
                       <Pressable
-                        key={`proj-${p.id}`}
-                        style={[styles.tenantOption, selected && styles.tenantOptionSelected]}
-                        onPress={() => {
-                          setSelectedProject(p);
-                          setShowProjectPicker(false);
+                        key={`org-${c.id}`}
+                        style={[styles.tenantOption, isCurrent && styles.tenantOptionSelected]}
+                        onPress={async () => {
+                          if (isCurrent) return;
+                          await handleSelectCompany(c.id);
+                          // Keep picker open so user can select a project in the new tenant
                         }}
+                        disabled={switching || isCurrent}
                       >
-                        <Text style={[styles.tenantOptionText, selected && styles.tenantOptionTextSelected]}>
-                          📋 {p.name}
+                        <Text style={[styles.tenantOptionText, isCurrent && styles.tenantOptionTextSelected]}>
+                          🏢 {c.name}
                         </Text>
-                        {selected && <Text style={styles.tenantOptionCheck}>✓</Text>}
+                        {isCurrent && <Text style={styles.tenantOptionCheck}>✓ Active</Text>}
+                        {switching && <ActivityIndicator size="small" color="#2563eb" style={{ marginLeft: 8 }} />}
                       </Pressable>
                     );
                   })}
+                  <View style={styles.tenantDivider} />
+                </>
+              )}
+
+              {/* ★ Favorites Section */}
+              {(() => {
+                const favProjects = allProjects.filter((p) => favoriteIds.has(p.id));
+                // Sort favorites by usage score descending
+                favProjects.sort(
+                  (a, b) => (usageScoreMap.get(b.id) ?? 0) - (usageScoreMap.get(a.id) ?? 0),
+                );
+                if (favProjects.length === 0) return null;
+                return (
+                  <>
+                    <Text style={styles.pickerSectionTitle}>★ Favorites</Text>
+                    {favProjects.map((p) => {
+                      const selected = selectedProject?.id === p.id;
+                      return (
+                        <View key={`fav-${p.id}`} style={styles.pickerRowWithStar}>
+                          <Pressable
+                            style={[styles.tenantOption, styles.pickerRowFlex, selected && styles.tenantOptionSelected]}
+                            onPress={() => {
+                              setSelectedProject(p);
+                              setShowProjectPicker(false);
+                            }}
+                          >
+                            <Text style={[styles.tenantOptionText, selected && styles.tenantOptionTextSelected]}>
+                              ⭐ {p.name}
+                            </Text>
+                            {selected && <Text style={styles.tenantOptionCheck}>✓</Text>}
+                          </Pressable>
+                          <Pressable
+                            style={styles.starButton}
+                            onPress={async () => {
+                              await toggleFavoriteProject(p.id);
+                              await loadFavoritesAndScores();
+                            }}
+                          >
+                            <Text style={styles.starActive}>★</Text>
+                          </Pressable>
+                        </View>
+                      );
+                    })}
+                  </>
+                );
+              })()}
+
+              {/* All Projects Section */}
+              {allProjects.length > 0 && (
+                <>
+                  <Text style={styles.pickerSectionTitle}>All Projects</Text>
+                  {allProjects
+                    .filter((p) => !favoriteIds.has(p.id))
+                    .map((p) => {
+                      const selected = selectedProject?.id === p.id;
+                      return (
+                        <View key={`proj-${p.id}`} style={styles.pickerRowWithStar}>
+                          <Pressable
+                            style={[styles.tenantOption, styles.pickerRowFlex, selected && styles.tenantOptionSelected]}
+                            onPress={() => {
+                              setSelectedProject(p);
+                              setShowProjectPicker(false);
+                            }}
+                          >
+                            <Text style={[styles.tenantOptionText, selected && styles.tenantOptionTextSelected]}>
+                              📋 {p.name}
+                            </Text>
+                            {selected && <Text style={styles.tenantOptionCheck}>✓</Text>}
+                          </Pressable>
+                          <Pressable
+                            style={styles.starButton}
+                            onPress={async () => {
+                              await toggleFavoriteProject(p.id);
+                              await loadFavoritesAndScores();
+                            }}
+                          >
+                            <Text style={styles.starInactive}>☆</Text>
+                          </Pressable>
+                        </View>
+                      );
+                    })}
                 </>
               )}
             </ScrollView>
@@ -1115,6 +1244,34 @@ export function HomeScreen({
           }}
         />
       )}
+
+      {/* Floating WiFi Only toggle — bottom right above tab bar */}
+      <View style={styles.wifiFloating}>
+        {showWifiTooltip && (
+          <View style={styles.wifiTooltip}>
+            <Text style={styles.wifiTooltipText}>
+              When enabled, syncing and uploads only occur over WiFi to save cellular data.
+            </Text>
+          </View>
+        )}
+        <View style={styles.wifiFloatingRow}>
+          <Pressable
+            onPress={() => setShowWifiTooltip((v) => !v)}
+            style={styles.wifiInfoBtn}
+          >
+            <Text style={styles.wifiInfoIcon}>ⓘ</Text>
+          </Pressable>
+          <Text style={styles.wifiFloatingLabel}>WiFi Only</Text>
+          <Switch
+            value={wifiOnly}
+            onValueChange={(v) => {
+              toggleWifiOnly(v);
+              setShowWifiTooltip(false);
+            }}
+            style={styles.wifiSwitch}
+          />
+        </View>
+      </View>
     </View>
   );
 }
@@ -1181,7 +1338,7 @@ const styles = StyleSheet.create({
     color: "#1e3a8a",
   },
 
-  // Right controls (WiFi + pending + map pin)
+  // Right controls (pending + map pin)
   rightControls: {
     alignItems: "flex-end",
   },
@@ -1189,18 +1346,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-  },
-  wifiRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  wifiLabel: {
-    fontSize: 11,
-    color: "#6b7280",
-    marginRight: 4,
-  },
-  wifiSwitch: {
-    transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }],
   },
   pendingBadge: {
     fontSize: 10,
@@ -1214,6 +1359,55 @@ const styles = StyleSheet.create({
     backgroundColor: "#f0f9ff",
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  // Floating WiFi toggle (bottom right)
+  wifiFloating: {
+    position: "absolute",
+    bottom: 90,
+    right: 12,
+    alignItems: "flex-end",
+  },
+  wifiFloatingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+    gap: 4,
+  },
+  wifiInfoBtn: {
+    padding: 2,
+  },
+  wifiInfoIcon: {
+    fontSize: 14,
+    color: "#6b7280",
+  },
+  wifiFloatingLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  wifiSwitch: {
+    transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }],
+  },
+  wifiTooltip: {
+    backgroundColor: "#1f2937",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 6,
+    maxWidth: 220,
+  },
+  wifiTooltipText: {
+    fontSize: 12,
+    color: "#ffffff",
+    lineHeight: 16,
   },
 
   companyMessage: {
@@ -1395,6 +1589,27 @@ const styles = StyleSheet.create({
     color: "#6b7280",
   },
 
+  // Picker row with star
+  pickerRowWithStar: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  pickerRowFlex: {
+    flex: 1,
+  },
+  starButton: {
+    padding: 12,
+    marginLeft: -4,
+  },
+  starActive: {
+    fontSize: 20,
+    color: "#f59e0b",
+  },
+  starInactive: {
+    fontSize: 20,
+    color: "#d1d5db",
+  },
+
   // Detail modal (full screen)
   detailContainer: {
     flex: 1,
@@ -1524,6 +1739,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     backgroundColor: "#fef3c7",
+  },
+
+  // Tenant banner in picker
+  tenantBanner: {
+    backgroundColor: "#eff6ff",
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    borderRadius: 10,
+    padding: 12,
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  tenantBannerLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#6b7280",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  tenantBannerName: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1e3a8a",
+    marginTop: 2,
+  },
+  tenantDivider: {
+    height: 1,
+    backgroundColor: "#e5e7eb",
+    marginHorizontal: 16,
+    marginVertical: 8,
   },
 
   // Picker section titles

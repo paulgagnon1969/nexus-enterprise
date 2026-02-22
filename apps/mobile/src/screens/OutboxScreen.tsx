@@ -3,6 +3,97 @@ import { View, Text, Pressable, StyleSheet, ScrollView, RefreshControl } from "r
 import { listOutboxRecent, resetErrorItems, clearPendingItems, countPendingOutbox } from "../offline/outbox";
 import { syncOnce } from "../offline/sync";
 
+/** Friendly display labels for outbox types */
+const TYPE_LABELS: Record<string, string> = {
+  "dailyLog.create": "Daily Log",
+  "dailyLog.uploadAttachment": "Attachment Upload",
+  "dailyLog.update": "Daily Log Update",
+  "inventory.moveAsset": "Inventory Move",
+  "fieldPetl.edit": "Field PETL Edit",
+  "fieldPetl.bulkUpdatePercent": "Field PETL Bulk Update",
+  "timecard.clockIn": "Clock In",
+  "timecard.clockOut": "Clock Out",
+  "media.upload": "Media Upload",
+};
+
+interface GroupedRow {
+  key: string;
+  label: string;
+  status: string;
+  createdAt: number;
+  errorMsg: string | null;
+}
+
+/**
+ * Group related outbox items (e.g. a dailyLog.create + its attachment uploads)
+ * into a single display row so the outbox doesn't show N separate entries per photo.
+ */
+function groupOutboxRows(rows: any[]): GroupedRow[] {
+  const groups: GroupedRow[] = [];
+  let i = 0;
+
+  while (i < rows.length) {
+    const row = rows[i];
+
+    // If this is a create, look ahead for attachment uploads within 5s
+    if (row.type === "dailyLog.create") {
+      const attachments: any[] = [];
+      let j = i + 1;
+      while (j < rows.length) {
+        const next = rows[j];
+        if (
+          next.type === "dailyLog.uploadAttachment" &&
+          Math.abs(next.createdAt - row.createdAt) < 5000
+        ) {
+          attachments.push(next);
+          j++;
+        } else {
+          break;
+        }
+      }
+
+      if (attachments.length > 0) {
+        // Determine overall status
+        const allStatuses = [row, ...attachments].map((r) => r.status);
+        const hasError = allStatuses.includes("ERROR");
+        const hasProcessing = allStatuses.includes("PROCESSING");
+        const allDone = allStatuses.every((s) => s === "DONE");
+        const status = hasError
+          ? "ERROR"
+          : hasProcessing
+            ? "PROCESSING"
+            : allDone
+              ? "DONE"
+              : "PENDING";
+
+        const errorItem = [row, ...attachments].find((r) => r.lastError);
+
+        groups.push({
+          key: row.id,
+          label: `Daily Log + ${attachments.length} attachment${attachments.length > 1 ? "s" : ""}`,
+          status,
+          createdAt: row.createdAt,
+          errorMsg: errorItem?.lastError ?? null,
+        });
+        i = j;
+        continue;
+      }
+    }
+
+    // Standalone item
+    groups.push({
+      key: row.id,
+      label: TYPE_LABELS[row.type] || row.type,
+      status: row.status,
+      createdAt: row.createdAt,
+      errorMsg: row.lastError ?? null,
+    });
+    i++;
+  }
+
+  return groups;
+}
+
 export function OutboxScreen({ onBack }: { onBack: () => void }) {
   const [rows, setRows] = useState<any[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
@@ -119,13 +210,13 @@ export function OutboxScreen({ onBack }: { onBack: () => void }) {
       )}
 
       <ScrollView style={{ flex: 1 }}>
-        {rows.map((r) => (
-          <View key={r.id} style={styles.card}>
+        {groupOutboxRows(rows).map((group) => (
+          <View key={group.key} style={styles.card}>
             <Text style={styles.cardTitle}>
-              {r.type} — {r.status}
+              {group.label} — {group.status}
             </Text>
-            <Text style={styles.cardSub}>{new Date(r.createdAt).toLocaleString()}</Text>
-            {r.lastError ? <Text style={styles.error}>{r.lastError}</Text> : null}
+            <Text style={styles.cardSub}>{new Date(group.createdAt).toLocaleString()}</Text>
+            {group.errorMsg ? <Text style={styles.error}>{group.errorMsg}</Text> : null}
           </View>
         ))}
         {!rows.length ? <Text style={styles.cardSub}>No outbox items yet.</Text> : null}

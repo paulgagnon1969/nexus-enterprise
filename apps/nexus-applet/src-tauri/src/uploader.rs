@@ -11,6 +11,8 @@ pub struct UploadRequest {
     pub category: String,
     pub original_format: String,
     pub word_count: u32,
+    pub folder_name: String,
+    pub breadcrumb: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +101,8 @@ impl UploadQueue {
             category: String,
             original_format: String,
             word_count: u32,
+            folder_name: String,
+            breadcrumb: Vec<String>,
         }
 
         let payload = ApiPayload {
@@ -107,6 +111,8 @@ impl UploadQueue {
             category: request.category,
             original_format: request.original_format,
             word_count: request.word_count,
+            folder_name: request.folder_name,
+            breadcrumb: request.breadcrumb,
         };
 
         match self

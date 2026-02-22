@@ -20,15 +20,19 @@ export class TaskService {
       assigneeId?: string;
       priority?: TaskPriorityEnum;
       overdueOnly?: boolean;
+      relatedEntityType?: string;
+      relatedEntityId?: string;
     }
   ) {
-    const { projectId, status, assigneeId, priority, overdueOnly } = filters;
+    const { projectId, status, assigneeId, priority, overdueOnly, relatedEntityType, relatedEntityId } = filters;
 
     const baseWhere: any = {
       companyId: actor.companyId,
       ...(projectId ? { projectId } : {}),
       ...(status ? { status } : {}),
       ...(priority ? { priority } : {}),
+      ...(relatedEntityType ? { relatedEntityType } : {}),
+      ...(relatedEntityId ? { relatedEntityId } : {}),
       ...(overdueOnly
         ? {
             dueDate: {
@@ -38,12 +42,23 @@ export class TaskService {
         : {})
     };
 
+    const include = {
+      assignee: {
+        select: { id: true, email: true, firstName: true, lastName: true },
+      },
+      createdBy: {
+        select: { id: true, email: true, firstName: true, lastName: true },
+      },
+    };
+
     if (actor.role === Role.OWNER || actor.role === Role.ADMIN) {
       return this.prisma.task.findMany({
         where: {
           ...baseWhere,
           ...(assigneeId ? { assigneeId } : {})
-        }
+        },
+        include,
+        orderBy: { createdAt: "desc" },
       });
     }
 
@@ -51,7 +66,9 @@ export class TaskService {
       where: {
         ...baseWhere,
         assigneeId: actor.userId
-      }
+      },
+      include,
+      orderBy: { createdAt: "desc" },
     });
   }
 
@@ -62,11 +79,9 @@ export class TaskService {
     assigneeId?: string;
     priority?: TaskPriorityEnum;
     dueDate?: Date;
+    relatedEntityType?: string;
+    relatedEntityId?: string;
   }) {
-    if (actor.role !== "OWNER" && actor.role !== "ADMIN") {
-      throw new ForbiddenException("Only company OWNER or ADMIN can create tasks");
-    }
-
     const project = await this.prisma.project.findFirst({
       where: {
         id: dto.projectId,
@@ -78,6 +93,21 @@ export class TaskService {
       throw new NotFoundException("Project not found in this company");
     }
 
+    // Verify project membership for non-admin users
+    if (actor.role !== "OWNER" && actor.role !== "ADMIN") {
+      const membership = await this.prisma.projectMembership.findUnique({
+        where: {
+          userId_projectId: {
+            userId: actor.userId,
+            projectId: dto.projectId,
+          },
+        },
+      });
+      if (!membership) {
+        throw new ForbiddenException("You do not have access to this project");
+      }
+    }
+
     const task = await this.prisma.task.create({
       data: {
         title: dto.title,
@@ -87,14 +117,17 @@ export class TaskService {
         dueDate: dto.dueDate ?? null,
         companyId: actor.companyId,
         projectId: dto.projectId,
-        assigneeId: dto.assigneeId ?? null
+        assigneeId: dto.assigneeId ?? null,
+        createdByUserId: actor.userId,
+        relatedEntityType: dto.relatedEntityType ?? null,
+        relatedEntityId: dto.relatedEntityId ?? null,
       }
     });
 
     await this.audit.log(actor, "TASK_CREATED", {
       companyId: actor.companyId,
       projectId: dto.projectId,
-      metadata: { taskId: task.id, title: task.title }
+      metadata: { taskId: task.id, title: task.title, relatedEntityType: dto.relatedEntityType, relatedEntityId: dto.relatedEntityId }
     });
 
     return task;

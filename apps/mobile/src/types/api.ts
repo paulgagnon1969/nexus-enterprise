@@ -226,3 +226,47 @@ export interface DailyLogRevision {
   changes: Record<string, any>;
   previousValues: Record<string, any>;
 }
+
+// Task types
+export type TaskStatus = "TODO" | "IN_PROGRESS" | "BLOCKED" | "DONE";
+export type TaskPriority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+export interface TaskItem {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate?: string | null;
+  projectId: string;
+  companyId: string;
+  assigneeId?: string | null;
+  createdByUserId?: string | null;
+  relatedEntityType?: string | null;
+  relatedEntityId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  assignee?: {
+    id: string;
+    email: string;
+    firstName?: string | null;
+    lastName?: string | null;
+  } | null;
+  createdBy?: {
+    id: string;
+    email: string;
+    firstName?: string | null;
+    lastName?: string | null;
+  } | null;
+}
+
+export interface CreateTaskRequest {
+  projectId: string;
+  title: string;
+  description?: string;
+  assigneeId?: string;
+  priority?: TaskPriority;
+  dueDate?: string;
+  relatedEntityType?: string;
+  relatedEntityId?: string;
+}

@@ -37,6 +37,14 @@ export class CreateTaskDto {
   @IsOptional()
   @IsISO8601()
   dueDate?: string;
+
+  @IsOptional()
+  @IsString()
+  relatedEntityType?: string;
+
+  @IsOptional()
+  @IsString()
+  relatedEntityId?: string;
 }
 
 export class UpdateTaskStatusDto {

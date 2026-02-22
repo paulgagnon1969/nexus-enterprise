@@ -764,6 +764,24 @@ model DailyTimecard {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  /// Foreman-level approval (daily review)
+  foremanStatus     String?   // PENDING | APPROVED | REJECTED
+  foremanUserId     String?
+  foremanApprovedAt DateTime?
+  foremanNotes      String?
+
+  /// Superintendent+ approval (escalation)
+  superStatus     String?   // PENDING | APPROVED | REJECTED
+  superUserId     String?
+  superApprovedAt DateTime?
+  superNotes      String?
+
+  /// Payroll approval (final sign-off for payroll processing)
+  payrollStatus     String?   // PENDING | APPROVED
+  payrollUserId     String?
+  payrollApprovedAt DateTime?
+  payrollNotes      String?
+
   company   Company           @relation(fields: [companyId], references: [id])
   project   Project           @relation(fields: [projectId], references: [id])
   createdBy User?             @relation(fields: [createdByUserId], references: [id])

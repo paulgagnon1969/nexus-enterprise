@@ -16,7 +16,9 @@ export class TaskController {
     @Query("status") status?: TaskStatusEnum,
     @Query("assigneeId") assigneeId?: string,
     @Query("priority") priority?: TaskPriorityEnum,
-    @Query("overdueOnly") overdueOnly?: string
+    @Query("overdueOnly") overdueOnly?: string,
+    @Query("relatedEntityType") relatedEntityType?: string,
+    @Query("relatedEntityId") relatedEntityId?: string,
   ) {
     const actor = req.user as AuthenticatedUser;
     return this.tasks.listTasks(actor, {
@@ -24,12 +26,13 @@ export class TaskController {
       status,
       assigneeId,
       priority,
-      overdueOnly: overdueOnly === "true"
+      overdueOnly: overdueOnly === "true",
+      relatedEntityType,
+      relatedEntityId,
     });
   }
 
   @UseGuards(JwtAuthGuard)
-  @Roles(Role.OWNER, Role.ADMIN)
   @Post()
   create(@Req() req: any, @Body() dto: CreateTaskDto) {
     const actor = req.user as AuthenticatedUser;

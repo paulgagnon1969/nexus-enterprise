@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { RedisService } from "../../infra/redis/redis.service";
 
@@ -316,8 +317,8 @@ export class McpClientService {
           userId,
           question,
           answer: result?.answer ?? null,
-          sources: result?.sources ?? null,
-          contextJson: context ?? null,
+          sources: result?.sources ?? Prisma.JsonNull,
+          contextJson: context ?? Prisma.JsonNull,
           durationMs: Date.now() - startMs,
           provider: result?.provider ?? "unknown",
           wasSuccessful,

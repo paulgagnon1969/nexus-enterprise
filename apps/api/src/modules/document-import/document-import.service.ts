@@ -1734,6 +1734,105 @@ ${bodyHtml}
     };
   }
 
+  // ==================== Upload HTML from Nexus Utilities App ====================
+
+  /**
+   * Accept a locally-converted HTML document from the Nexus Utilities App.
+   * Groups documents by original scan folder so each disk folder becomes
+   * its own scan job / library card in the web UI.
+   */
+  async uploadHtmlFromApplet(
+    actor: AuthenticatedUser,
+    data: {
+      htmlContent: string;
+      title: string;
+      category?: string;
+      originalFormat: string;
+      wordCount: number;
+      folderName: string;
+      breadcrumb: string[];
+    }
+  ) {
+    // One scan job per unique folder path (preserves disk folder grouping)
+    const scanPath = `Local Upload: ${data.folderName}`;
+
+    let scanJob = await this.prisma.documentScanJob.findFirst({
+      where: {
+        companyId: actor.companyId,
+        scanPath,
+      },
+    });
+
+    if (!scanJob) {
+      scanJob = await this.prisma.documentScanJob.create({
+        data: {
+          companyId: actor.companyId,
+          scanPath,
+          status: DocumentScanJobStatus.COMPLETED,
+          documentsFound: 0,
+          documentsProcessed: 0,
+          createdByUserId: actor.userId,
+          startedAt: new Date(),
+          completedAt: new Date(),
+        },
+      });
+    }
+
+    // Build breadcrumb — use what the applet sent, fall back to folder name
+    const breadcrumb = data.breadcrumb.length > 0
+      ? data.breadcrumb
+      : ["Local Upload", data.folderName];
+
+    // Slug-safe file name for the record
+    const slug = data.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "");
+
+    const doc = await this.prisma.stagedDocument.create({
+      data: {
+        companyId: actor.companyId,
+        scanJobId: scanJob.id,
+        fileName: `${slug}.html`,
+        filePath: breadcrumb.join("/"),
+        originalPath: breadcrumb.join("/"),
+        breadcrumb,
+        fileType: data.originalFormat,
+        fileSize: BigInt(data.htmlContent.length),
+        mimeType: "text/html",
+        status: StagedDocumentStatus.ACTIVE,
+        scannedByUserId: actor.userId,
+        displayTitle: data.title,
+        category: data.category || "local-upload",
+        tags: ["local-upload", `format:${data.originalFormat}`],
+        htmlContent: data.htmlContent,
+        textContent: data.htmlContent.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 50000),
+        conversionStatus: HtmlConversionStatus.COMPLETED,
+        convertedAt: new Date(),
+        documentTypeGuess: DocumentTypeGuess.UNKNOWN,
+        classificationScore: 0,
+        classificationReason: `Uploaded from Nexus Utilities App (${data.originalFormat}, ${data.wordCount} words)`,
+      },
+    });
+
+    // Increment scan job counts
+    await this.prisma.documentScanJob.update({
+      where: { id: scanJob.id },
+      data: {
+        documentsFound: { increment: 1 },
+        documentsProcessed: { increment: 1 },
+      },
+    });
+
+    this.logger.log(`Applet upload: ${data.title} (${data.originalFormat}, ${data.wordCount} words) → ${scanPath}`);
+
+    return {
+      id: doc.id,
+      documentId: doc.id,
+      scanJobId: scanJob.id,
+      title: data.title,
+      folderName: data.folderName,
+      message: "Document uploaded successfully",
+    };
+  }
+
   // ==================== Create Document From Scratch ====================
 
   /**

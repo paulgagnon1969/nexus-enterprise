@@ -33,3 +33,43 @@ export async function setPreferredMapApp(value: MapAppType): Promise<void> {
 export async function clearPreferredMapApp(): Promise<void> {
   await AsyncStorage.removeItem(PREFERRED_MAP_APP_KEY);
 }
+
+// ---- Favorite Projects ----
+
+const FAVORITE_PROJECTS_KEY = "nexus.favoriteProjects";
+const LAST_SELECTED_PROJECT_KEY = "nexus.lastSelectedProject";
+
+export async function getFavoriteProjectIds(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(FAVORITE_PROJECTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function toggleFavoriteProject(projectId: string): Promise<boolean> {
+  const ids = await getFavoriteProjectIds();
+  const idx = ids.indexOf(projectId);
+  if (idx >= 0) {
+    ids.splice(idx, 1);
+    await AsyncStorage.setItem(FAVORITE_PROJECTS_KEY, JSON.stringify(ids));
+    return false; // removed
+  } else {
+    ids.push(projectId);
+    await AsyncStorage.setItem(FAVORITE_PROJECTS_KEY, JSON.stringify(ids));
+    return true; // added
+  }
+}
+
+export async function getLastSelectedProjectId(): Promise<string | null> {
+  return AsyncStorage.getItem(LAST_SELECTED_PROJECT_KEY);
+}
+
+export async function setLastSelectedProjectId(projectId: string | null): Promise<void> {
+  if (projectId) {
+    await AsyncStorage.setItem(LAST_SELECTED_PROJECT_KEY, projectId);
+  } else {
+    await AsyncStorage.removeItem(LAST_SELECTED_PROJECT_KEY);
+  }
+}

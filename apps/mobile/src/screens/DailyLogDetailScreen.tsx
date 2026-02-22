@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,12 +9,15 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  TextInput,
+  Modal,
 } from "react-native";
 import { fetchDailyLogDetail, delayPublishLog, publishLog, fetchRevisions } from "../api/dailyLog";
+import { fetchTasksForDailyLog, createTask, updateTaskStatus } from "../api/tasks";
 import { getCache, setCache } from "../offline/cache";
 import { getApiBaseUrl } from "../api/config";
 import { colors } from "../theme/colors";
-import type { DailyLogDetail, DailyLogType, DailyLogListItem, DailyLogRevision } from "../types/api";
+import type { DailyLogDetail, DailyLogType, DailyLogListItem, DailyLogRevision, TaskItem, TaskStatus } from "../types/api";
 
 /** Resolve a relative attachment URL to an absolute one using the API base. */
 function resolveAttachmentUrl(url: string | null | undefined): string | null {
@@ -67,7 +70,27 @@ export function DailyLogDetailScreen({
   const [revisions, setRevisions] = useState<DailyLogRevision[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
 
+  // Tasks state
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskDesc, setNewTaskDesc] = useState("");
+  const [addingTask, setAddingTask] = useState(false);
+
   const cacheKey = `dailyLogDetail:${log.id}`;
+
+  const loadTasks = useCallback(async () => {
+    setTasksLoading(true);
+    try {
+      const items = await fetchTasksForDailyLog(log.id);
+      setTasks(items);
+    } catch {
+      // silent — tasks are supplementary
+    } finally {
+      setTasksLoading(false);
+    }
+  }, [log.id]);
 
   useEffect(() => {
     (async () => {
@@ -96,7 +119,8 @@ export function DailyLogDetailScreen({
         setLoading(false);
       }
     })();
-  }, [log.id]);
+    loadTasks();
+  }, [log.id, loadTasks]);
 
   // Check if current user can edit this log
   const canEdit = () => {
@@ -155,6 +179,45 @@ export function DailyLogDetailScreen({
       Alert.alert("Error", e instanceof Error ? e.message : String(e));
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleToggleTaskStatus = async (task: TaskItem) => {
+    const nextStatus: TaskStatus = task.status === "DONE" ? "TODO" : "DONE";
+    // Optimistic update
+    setTasks((prev) =>
+      prev.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t))
+    );
+    try {
+      await updateTaskStatus(task.id, nextStatus);
+    } catch {
+      // Revert on failure
+      setTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? { ...t, status: task.status } : t))
+      );
+      Alert.alert("Error", "Failed to update task status");
+    }
+  };
+
+  const handleAddTask = async () => {
+    if (!newTaskTitle.trim()) return;
+    setAddingTask(true);
+    try {
+      const created = await createTask({
+        projectId: log.projectId,
+        title: newTaskTitle.trim(),
+        description: newTaskDesc.trim() || undefined,
+        relatedEntityType: "DAILY_LOG",
+        relatedEntityId: log.id,
+      });
+      setTasks((prev) => [created, ...prev]);
+      setNewTaskTitle("");
+      setNewTaskDesc("");
+      setShowAddTask(false);
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to create task");
+    } finally {
+      setAddingTask(false);
     }
   };
 
@@ -477,6 +540,76 @@ export function DailyLogDetailScreen({
           </View>
         )}
 
+        {/* Tasks */}
+        <View style={styles.section}>
+          <View style={styles.taskHeader}>
+            <Text style={styles.sectionTitle}>
+              Tasks {tasks.length > 0 ? `(${tasks.length})` : ""}
+            </Text>
+            <Pressable
+              style={styles.addTaskButton}
+              onPress={() => setShowAddTask(true)}
+            >
+              <Text style={styles.addTaskButtonText}>+ Add Task</Text>
+            </Pressable>
+          </View>
+
+          {tasksLoading && tasks.length === 0 && (
+            <ActivityIndicator size="small" color={colors.primary} />
+          )}
+
+          {!tasksLoading && tasks.length === 0 && (
+            <Text style={styles.emptyTaskText}>No tasks yet. Tap "+ Add Task" to create one.</Text>
+          )}
+
+          {tasks.map((task) => {
+            const isDone = task.status === "DONE";
+            const assigneeName = task.assignee
+              ? [task.assignee.firstName, task.assignee.lastName].filter(Boolean).join(" ") || task.assignee.email
+              : null;
+            return (
+              <Pressable
+                key={task.id}
+                style={styles.taskRow}
+                onPress={() => handleToggleTaskStatus(task)}
+              >
+                <View style={[styles.taskCheckbox, isDone && styles.taskCheckboxDone]}>
+                  {isDone && <Text style={styles.taskCheckmark}>✓</Text>}
+                </View>
+                <View style={styles.taskContent}>
+                  <Text
+                    style={[
+                      styles.taskTitle,
+                      isDone && styles.taskTitleDone,
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {task.title}
+                  </Text>
+                  {task.description ? (
+                    <Text style={styles.taskDesc} numberOfLines={1}>
+                      {task.description}
+                    </Text>
+                  ) : null}
+                  <View style={styles.taskMeta}>
+                    {assigneeName && (
+                      <Text style={styles.taskMetaText}>👤 {assigneeName}</Text>
+                    )}
+                    {task.dueDate && (
+                      <Text style={styles.taskMetaText}>
+                        📅 {new Date(task.dueDate).toLocaleDateString()}
+                      </Text>
+                    )}
+                    <View style={[styles.taskPriorityBadge, getTaskPriorityStyle(task.priority)]}>
+                      <Text style={styles.taskPriorityText}>{task.priority}</Text>
+                    </View>
+                  </View>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+
         {/* Revision history */}
         {revisions.length > 0 && (
           <View style={styles.section}>
@@ -505,6 +638,56 @@ export function DailyLogDetailScreen({
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Add Task Modal */}
+      <Modal visible={showAddTask} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Add Task</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Task title"
+              placeholderTextColor={colors.textMuted}
+              value={newTaskTitle}
+              onChangeText={setNewTaskTitle}
+              autoFocus
+            />
+            <TextInput
+              style={[styles.modalInput, styles.modalInputMultiline]}
+              placeholder="Description (optional)"
+              placeholderTextColor={colors.textMuted}
+              value={newTaskDesc}
+              onChangeText={setNewTaskDesc}
+              multiline
+              numberOfLines={3}
+            />
+            <View style={styles.modalButtons}>
+              <Pressable
+                style={styles.modalCancelBtn}
+                onPress={() => {
+                  setShowAddTask(false);
+                  setNewTaskTitle("");
+                  setNewTaskDesc("");
+                }}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.modalSaveBtn,
+                  (!newTaskTitle.trim() || addingTask) && { opacity: 0.5 },
+                ]}
+                onPress={handleAddTask}
+                disabled={!newTaskTitle.trim() || addingTask}
+              >
+                <Text style={styles.modalSaveText}>
+                  {addingTask ? "Adding..." : "Add Task"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -791,7 +974,168 @@ const styles = StyleSheet.create({
     color: "#92400e",
     marginBottom: 8,
   },
+  // Task styles
+  taskHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  addTaskButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  addTaskButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  emptyTaskText: {
+    fontSize: 13,
+    color: colors.textMuted,
+    textAlign: "center",
+    paddingVertical: 12,
+  },
+  taskRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderMuted,
+  },
+  taskCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: colors.border,
+    marginRight: 10,
+    marginTop: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  taskCheckboxDone: {
+    backgroundColor: colors.success,
+    borderColor: colors.success,
+  },
+  taskCheckmark: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  taskContent: {
+    flex: 1,
+  },
+  taskTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.textPrimary,
+  },
+  taskTitleDone: {
+    textDecorationLine: "line-through",
+    color: colors.textMuted,
+  },
+  taskDesc: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  taskMeta: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 4,
+    alignItems: "center",
+  },
+  taskMetaText: {
+    fontSize: 11,
+    color: colors.textMuted,
+  },
+  taskPriorityBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  taskPriorityText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#374151",
+  },
+  // Add Task Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  modalContent: {
+    backgroundColor: colors.cardBackground,
+    borderRadius: 16,
+    padding: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.textPrimary,
+    marginBottom: 16,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: colors.textPrimary,
+    backgroundColor: colors.background,
+    marginBottom: 12,
+  },
+  modalInputMultiline: {
+    minHeight: 70,
+    textAlignVertical: "top",
+  },
+  modalButtons: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 4,
+  },
+  modalCancelBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modalCancelText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.textSecondary,
+  },
+  modalSaveBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+  },
+  modalSaveText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
+  },
 });
+
+function getTaskPriorityStyle(priority: string) {
+  switch (priority) {
+    case "CRITICAL": return { backgroundColor: "#fee2e2" } as const;
+    case "HIGH": return { backgroundColor: "#ffedd5" } as const;
+    case "MEDIUM": return { backgroundColor: "#e0e7ff" } as const;
+    case "LOW": return { backgroundColor: "#d1fae5" } as const;
+    default: return { backgroundColor: "#e5e7eb" } as const;
+  }
+}
 
 function getTypeLabel(type?: DailyLogType): string {
   switch (type) {

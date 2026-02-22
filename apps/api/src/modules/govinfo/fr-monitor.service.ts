@@ -344,7 +344,7 @@ export class FrMonitorService implements OnModuleInit, OnModuleDestroy {
   private async notifyAdmins(newAlertCount: number): Promise<void> {
     try {
       const admins = await this.prisma.user.findMany({
-        where: { globalRole: "SUPER_ADMIN", isActive: true },
+        where: { globalRole: "SUPER_ADMIN" },
         select: { id: true },
       });
 

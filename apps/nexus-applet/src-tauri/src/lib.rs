@@ -304,6 +304,8 @@ async fn upload_document(
     category: String,
     original_format: String,
     word_count: u32,
+    folder_name: String,
+    breadcrumb: Vec<String>,
 ) -> Result<UploadResult, String> {
     let request = UploadRequest {
         document_id,
@@ -312,6 +314,8 @@ async fn upload_document(
         category,
         original_format,
         word_count,
+        folder_name,
+        breadcrumb,
     };
     
     Ok(state.upload_queue.upload_document(&api_url, &token, request).await)

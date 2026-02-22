@@ -45,6 +45,41 @@ export class DocumentImportController {
     return this.documentImport.getPublicDocumentBySlug(slug);
   }
 
+  // ==================== Upload HTML from Nexus Utilities App ====================
+
+  /**
+   * Upload a locally-converted HTML document from the Nexus Utilities App.
+   * Groups documents by their original scan folder path.
+   * POST /document-import/upload-html
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER)
+  @Post("upload-html")
+  async uploadHtmlFromApplet(
+    @Req() req: any,
+    @Body()
+    body: {
+      html_content: string;
+      title: string;
+      category?: string;
+      original_format?: string;
+      word_count?: number;
+      folder_name?: string;
+      breadcrumb?: string[];
+    }
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.documentImport.uploadHtmlFromApplet(actor, {
+      htmlContent: body.html_content,
+      title: body.title,
+      category: body.category,
+      originalFormat: body.original_format || "unknown",
+      wordCount: body.word_count || 0,
+      folderName: body.folder_name || "Local Upload Files",
+      breadcrumb: body.breadcrumb || [],
+    });
+  }
+
   // ==================== Create Document (from scratch) ====================
 
   /**

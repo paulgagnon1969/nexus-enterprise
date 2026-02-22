@@ -12,7 +12,7 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
-import { JwtAuthGuard } from "../auth/auth.guards";
+import { JwtAuthGuard, getEffectiveRoleLevel } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { FrMonitorService } from "./fr-monitor.service";
@@ -33,8 +33,14 @@ function assertSuperAdmin(user: AuthenticatedUser) {
 }
 
 function assertAdminOrPm(user: AuthenticatedUser) {
-  if (user.globalRole !== "SUPER_ADMIN" && user.globalRole !== "ADMIN") {
-    throw new ForbiddenException("ADMIN or SUPER_ADMIN role required");
+  const level = getEffectiveRoleLevel({
+    globalRole: user.globalRole,
+    role: user.role,
+    profileCode: user.profileCode,
+  });
+  // PM level (60) or above
+  if (level < 60) {
+    throw new ForbiddenException("PM-level access or higher required");
   }
 }
 
