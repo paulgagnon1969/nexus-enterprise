@@ -17,8 +17,29 @@ pub struct ConversionResult {
     pub error: Option<String>,
 }
 
-/// Convert a document to HTML with embedded base64 images
+/// Convert a document to HTML with embedded base64 images.
+/// Wrapped in catch_unwind to prevent panics in third-party crates (lopdf, zip,
+/// pdf_extract) from crashing the entire Tauri process.
 pub fn convert_to_html(file_path: &str) -> Result<ConversionResult, String> {
+    let path_str = file_path.to_string();
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        convert_to_html_inner(&path_str)
+    })) {
+        Ok(result) => result,
+        Err(panic_info) => {
+            let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "Unknown internal error".to_string()
+            };
+            Err(format!("Converter crashed ({}): {}", file_path, msg))
+        }
+    }
+}
+
+fn convert_to_html_inner(file_path: &str) -> Result<ConversionResult, String> {
     let path = Path::new(file_path);
     
     if !path.exists() {
@@ -39,15 +60,75 @@ pub fn convert_to_html(file_path: &str) -> Result<ConversionResult, String> {
 
     match extension.as_str() {
         "docx" => convert_docx(path, &file_name),
-        "doc" => Err("Legacy .doc format not supported. Please convert to .docx".to_string()),
+        "doc" | "rtf" => convert_doc_textutil(path, &file_name, &extension),
         "pdf" => convert_pdf(path, &file_name),
         "md" | "markdown" => convert_markdown(path, &file_name),
         "txt" => convert_text(path, &file_name),
         "html" | "htm" => convert_html_passthrough(path, &file_name),
-        "rtf" => Err("RTF format not yet supported".to_string()),
         "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" => convert_image(path, &file_name, &extension),
         _ => Err(format!("Unsupported format: .{}", extension)),
     }
+}
+
+/// Convert legacy .doc and .rtf files using macOS `textutil` (built-in).
+/// textutil natively handles .doc, .docx, .rtf, .txt, .html, .odt → HTML.
+fn convert_doc_textutil(path: &Path, title: &str, extension: &str) -> Result<ConversionResult, String> {
+    let temp_dir = std::env::temp_dir();
+    let output_path = temp_dir.join(format!("nexus-convert-{}.html", uuid::Uuid::new_v4()));
+
+    let status = std::process::Command::new("textutil")
+        .args([
+            "-convert", "html",
+            "-output",
+            output_path.to_str().ok_or("Invalid temp path")?,
+            path.to_str().ok_or("Invalid source path")?,
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run textutil: {} (is this macOS?)", e))?;
+
+    if !status.status.success() {
+        let stderr = String::from_utf8_lossy(&status.stderr);
+        let _ = fs::remove_file(&output_path);
+        return Err(format!("textutil conversion failed: {}", stderr.trim()));
+    }
+
+    let raw_html = fs::read_to_string(&output_path)
+        .map_err(|e| format!("Failed to read converted HTML: {}", e))?;
+    let _ = fs::remove_file(&output_path);
+
+    // Count words from text content (strip HTML tags)
+    let text_only = strip_html_tags(&raw_html);
+    let word_count = text_only.split_whitespace().count() as u32;
+    let image_count = raw_html.matches("<img ").count() as u32;
+
+    // Inline any local image references from the source directory
+    let parent = path.parent().unwrap_or(Path::new("."));
+    let html = inline_local_images(&raw_html, parent);
+
+    Ok(ConversionResult {
+        html,
+        title: title.to_string(),
+        word_count,
+        has_images: image_count > 0,
+        image_count,
+        original_format: extension.to_string(),
+        error: None,
+    })
+}
+
+/// Strip HTML tags for plain-text word counting.
+fn strip_html_tags(html: &str) -> String {
+    let mut result = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => { in_tag = false; result.push(' '); }
+            _ if !in_tag => result.push(c),
+            _ => {}
+        }
+    }
+    result
 }
 
 /// Extract images from a DOCX ZIP archive into a map of filename -> base64 data URI.
@@ -225,9 +306,22 @@ fn convert_docx(path: &Path, title: &str) -> Result<ConversionResult, String> {
     })
 }
 
-/// Extract JPEG images from a PDF using lopdf.
-/// DCTDecode streams are raw JPEG data — we can embed them directly.
-/// Other image filters (FlateDecode, CCITTFax, JBIG2) are flagged but not extracted.
+/// Helper to extract a readable message from a caught panic.
+fn panic_message(info: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = info.downcast_ref::<&str>() {
+        s.to_string()
+    } else if let Some(s) = info.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "Unknown internal error".to_string()
+    }
+}
+
+/// Extract JPEG images from a PDF using lopdf — hardened version.
+/// Uses direct enum pattern matching to avoid panics from unsupported
+/// color spaces, PostScript function types, and malformed objects.
+/// DCTDecode streams are raw JPEG data — embedded directly as base64.
+/// Other filters (FlateDecode, CCITTFax, JBIG2) are counted but not extracted.
 fn extract_pdf_images(path: &Path) -> (Vec<String>, u32) {
     let mut data_uris: Vec<String> = Vec::new();
     let mut unextracted = 0u32;
@@ -237,37 +331,53 @@ fn extract_pdf_images(path: &Path) -> (Vec<String>, u32) {
         Err(_) => return (data_uris, 0),
     };
 
-    for (_, obj_id) in &doc.objects {
-        // Look for stream objects that are Image XObjects
-        if let Ok(stream) = obj_id.as_stream() {
-            let dict = &stream.dict;
-            let is_image = dict
-                .get(b"Subtype")
-                .ok()
-                .and_then(|v| v.as_name().ok())
-                .map(|n: &[u8]| n == b"Image")
-                .unwrap_or(false);
+    for (_obj_ref, obj) in &doc.objects {
+        // Direct enum matching — avoids method calls that could have edge-case panics
+        let stream = match obj {
+            lopdf::Object::Stream(ref s) => s,
+            _ => continue,
+        };
 
-            if !is_image {
-                continue;
+        let dict = &stream.dict;
+
+        // Check Subtype == Image using direct enum matching
+        let is_image = match dict.get(b"Subtype") {
+            Ok(lopdf::Object::Name(ref name)) => name == b"Image",
+            _ => false,
+        };
+
+        if !is_image {
+            continue;
+        }
+
+        // Get filter name safely — handle both Name and Array forms
+        // (some PDFs use /Filter [/DCTDecode] instead of /Filter /DCTDecode)
+        let filter_name: Option<Vec<u8>> = match dict.get(b"Filter") {
+            Ok(lopdf::Object::Name(ref name)) => Some(name.clone()),
+            Ok(lopdf::Object::Array(ref arr)) => {
+                arr.first().and_then(|v| {
+                    if let lopdf::Object::Name(ref n) = v {
+                        Some(n.clone())
+                    } else {
+                        None
+                    }
+                })
             }
+            _ => None,
+        };
 
-            // Check the filter to determine encoding
-            let filter: &[u8] = dict
-                .get(b"Filter")
-                .ok()
-                .and_then(|v| v.as_name().ok())
-                .unwrap_or(&[]);
-
-            if filter == b"DCTDecode" {
+        match filter_name.as_deref() {
+            Some(b"DCTDecode") => {
                 // DCTDecode = raw JPEG bytes
                 let b64 = BASE64.encode(&stream.content);
                 data_uris.push(format!("data:image/jpeg;base64,{}", b64));
-            } else if filter == b"JPXDecode" {
+            }
+            Some(b"JPXDecode") => {
                 // JPEG 2000
                 let b64 = BASE64.encode(&stream.content);
                 data_uris.push(format!("data:image/jp2;base64,{}", b64));
-            } else {
+            }
+            _ => {
                 // FlateDecode, CCITTFaxDecode, JBIG2, etc. — can't easily embed
                 unextracted += 1;
             }
@@ -276,14 +386,86 @@ fn extract_pdf_images(path: &Path) -> (Vec<String>, u32) {
     (data_uris, unextracted)
 }
 
-/// Convert PDF to HTML with text and embedded JPEG images
+/// Convert PDF to HTML with text and embedded JPEG images.
+/// Hardened: text extraction and image extraction are each independently
+/// wrapped in catch_unwind so a panic in one phase doesn't block the other.
+/// Returns partial results whenever possible — only fails when both phases
+/// produce absolutely nothing.
 fn convert_pdf(path: &Path, title: &str) -> Result<ConversionResult, String> {
-    let text = pdf_extract::extract_text(path)
-        .map_err(|e| format!("Failed to extract PDF text: {}", e))?;
+    let mut warnings: Vec<String> = Vec::new();
 
-    let (images, unextracted_count) = extract_pdf_images(path);
+    // ── Phase 1: Text extraction ─────────────────────────────────────
+    // pdf_extract can panic on malformed PDFs, CJK encodings (Identity-H
+    // assertion), and PDFs with unsupported function types or color spaces.
+    let text = {
+        let p = path.to_path_buf();
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            pdf_extract::extract_text(&p)
+        })) {
+            Ok(Ok(t)) => t,
+            Ok(Err(e)) => {
+                warnings.push(format!("Text extraction failed: {}", e));
+                String::new()
+            }
+            Err(panic_info) => {
+                let msg = panic_message(&panic_info);
+                warnings.push(format!("Text extraction crashed: {}", msg));
+                String::new()
+            }
+        }
+    };
+
+    // ── Phase 1b: Fallback text via lopdf content streams ─────────────
+    // If pdf_extract panicked or errored, try extracting raw text operators
+    // directly from page content streams. Simpler but avoids pdf_extract's
+    // font/encoding paths that trigger panics.
+    let text = if text.trim().is_empty() && !warnings.is_empty() {
+        let p = path.to_path_buf();
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            extract_text_lopdf_fallback(&p)
+        })) {
+            Ok(t) if !t.trim().is_empty() => {
+                warnings.push("Used fallback text extraction (may have reduced quality)".to_string());
+                t
+            }
+            _ => text,
+        }
+    } else {
+        text
+    };
+
+    // ── Phase 2: Image extraction ────────────────────────────────────
+    // lopdf can panic on unsupported PostScript functions, DeviceN color
+    // spaces, and other exotic PDF features.
+    let (images, unextracted_count) = {
+        let p = path.to_path_buf();
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            extract_pdf_images(&p)
+        })) {
+            Ok(result) => result,
+            Err(panic_info) => {
+                let msg = panic_message(&panic_info);
+                warnings.push(format!("Image extraction crashed: {}", msg));
+                (Vec::new(), 0u32)
+            }
+        }
+    };
+
+    let has_text = !text.trim().is_empty();
+    let has_images = !images.is_empty();
     let extracted_count = images.len() as u32;
     let total_images = extracted_count + unextracted_count;
+
+    // Only fail if we got absolutely nothing
+    if !has_text && !has_images {
+        if !warnings.is_empty() {
+            return Err(format!(
+                "PDF conversion failed — no content could be extracted: {}",
+                warnings.join("; ")
+            ));
+        }
+        // Truly empty PDF — we'll still return a minimal shell
+    }
 
     let word_count = text.split_whitespace().count() as u32;
 
@@ -298,12 +480,22 @@ fn convert_pdf(path: &Path, title: &str) -> Result<ConversionResult, String> {
     html.push_str(".pdf-notice { background: #fffbeb; border: 1px solid #f59e0b; border-radius: 6px; padding: 12px; margin-bottom: 16px; font-size: 0.9em; color: #92400e; }\n");
     html.push_str("</style>\n</head>\n<body>\n");
 
-    // Warning banner if some images couldn't be extracted
-    if unextracted_count > 0 {
-        html.push_str(&format!(
-            "<div class=\"pdf-notice\">\u{26a0} This PDF contains {} image(s) in a format that could not be embedded ({} of {} extracted). Original file should be kept as reference.</div>\n",
-            unextracted_count, extracted_count, total_images
-        ));
+    // Warning/notice banner for partial extraction or image limitations
+    if !warnings.is_empty() || unextracted_count > 0 {
+        html.push_str("<div class=\"pdf-notice\">");
+        if !warnings.is_empty() {
+            html.push_str(&format!("\u{26a0} {}", escape_html(&warnings.join("; "))));
+        }
+        if unextracted_count > 0 {
+            if !warnings.is_empty() {
+                html.push_str("<br>");
+            }
+            html.push_str(&format!(
+                "\u{26a0} {} image(s) in a format that could not be embedded ({} of {} extracted). Original file should be kept as reference.",
+                unextracted_count, extracted_count, total_images
+            ));
+        }
+        html.push_str("</div>\n");
     }
 
     // Embed extracted images at the top (before text)
@@ -327,6 +519,18 @@ fn convert_pdf(path: &Path, title: &str) -> Result<ConversionResult, String> {
 
     html.push_str("</body>\n</html>");
 
+    // Combine all info for the error field (used as metadata, not a failure)
+    let error_info = {
+        let mut parts = warnings.clone();
+        if unextracted_count > 0 {
+            parts.push(format!(
+                "{} of {} images could not be extracted (non-JPEG encoding)",
+                unextracted_count, total_images
+            ));
+        }
+        if parts.is_empty() { None } else { Some(parts.join("; ")) }
+    };
+
     Ok(ConversionResult {
         html,
         title: title.to_string(),
@@ -334,11 +538,7 @@ fn convert_pdf(path: &Path, title: &str) -> Result<ConversionResult, String> {
         has_images: total_images > 0,
         image_count: total_images,
         original_format: "pdf".to_string(),
-        error: if unextracted_count > 0 {
-            Some(format!("{} of {} images could not be extracted (non-JPEG encoding)", unextracted_count, total_images))
-        } else {
-            None
-        },
+        error: error_info,
     })
 }
 
@@ -534,10 +734,122 @@ fn escape_html(s: &str) -> String {
         .replace('\'', "&#39;")
 }
 
+/// Fallback text extraction using lopdf directly.
+/// Parses page content streams for text operators (Tj, TJ, ', ").
+/// More basic than pdf_extract but avoids its panic-prone font/encoding paths.
+/// Wrapped in catch_unwind by the caller.
+fn extract_text_lopdf_fallback(path: &Path) -> String {
+    let doc = match lopdf::Document::load(path) {
+        Ok(d) => d,
+        Err(_) => return String::new(),
+    };
+
+    let mut text = String::new();
+    let pages = doc.get_pages();
+    let mut page_nums: Vec<u32> = pages.keys().cloned().collect();
+    page_nums.sort();
+
+    for page_num in page_nums {
+        if let Some(&page_id) = pages.get(&page_num) {
+            // get_page_content may fail for damaged pages — skip gracefully
+            let content_data = match doc.get_page_content(page_id) {
+                Ok(data) => data,
+                Err(_) => continue,
+            };
+
+            let content = match lopdf::content::Content::decode(&content_data) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            for op in &content.operations {
+                match op.operator.as_str() {
+                    "Tj" => {
+                        // Show-string operator
+                        for operand in &op.operands {
+                            if let lopdf::Object::String(ref bytes, _) = operand {
+                                text.push_str(&decode_pdf_bytes(bytes));
+                            }
+                        }
+                    }
+                    "TJ" => {
+                        // Show-string-array operator (with kerning)
+                        for operand in &op.operands {
+                            if let lopdf::Object::Array(ref arr) = operand {
+                                for item in arr {
+                                    match item {
+                                        lopdf::Object::String(ref bytes, _) => {
+                                            text.push_str(&decode_pdf_bytes(bytes));
+                                        }
+                                        // Large negative kerning → word space
+                                        lopdf::Object::Integer(n) if *n < -100 => {
+                                            text.push(' ');
+                                        }
+                                        lopdf::Object::Real(n) if *n < -100.0 => {
+                                            text.push(' ');
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "'" | "\"" => {
+                        // Move-to-next-line-and-show operators
+                        text.push('\n');
+                        for operand in &op.operands {
+                            if let lopdf::Object::String(ref bytes, _) = operand {
+                                text.push_str(&decode_pdf_bytes(bytes));
+                            }
+                        }
+                    }
+                    "Td" | "TD" | "T*" => {
+                        // Text positioning — insert newline
+                        if !text.ends_with('\n') {
+                            text.push('\n');
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            text.push_str("\n\n"); // page break
+        }
+    }
+
+    text
+}
+
+/// Decode PDF string bytes to text.
+/// Handles UTF-16BE (BOM: FE FF), UTF-8, and Latin-1 fallback.
+fn decode_pdf_bytes(bytes: &[u8]) -> String {
+    // UTF-16BE BOM
+    if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+        let chars: Vec<u16> = bytes[2..]
+            .chunks(2)
+            .filter_map(|chunk| {
+                if chunk.len() == 2 {
+                    Some(u16::from_be_bytes([chunk[0], chunk[1]]))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        return String::from_utf16_lossy(&chars);
+    }
+
+    // UTF-8
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        return s.to_string();
+    }
+
+    // Latin-1 / PDFDocEncoding fallback
+    bytes.iter().map(|&b| b as char).collect()
+}
+
 /// Get supported formats for conversion
 pub fn supported_formats() -> Vec<&'static str> {
     vec![
-        "docx", "pdf", "md", "markdown", "txt", "html", "htm",
+        "docx", "doc", "rtf", "pdf", "md", "markdown", "txt", "html", "htm",
         "jpg", "jpeg", "png", "gif", "webp", "bmp",
     ]
 }

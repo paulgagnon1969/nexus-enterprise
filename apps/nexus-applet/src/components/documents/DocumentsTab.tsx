@@ -21,6 +21,7 @@ interface DocumentStats {
   pending: number;
   import: number;
   ignore: number;
+  converted: number;
   uploaded: number;
   failed: number;
 }
@@ -31,7 +32,7 @@ interface ScanResult {
   documents_updated: number;
 }
 
-type StatusFilter = "ALL" | "ACTIVE" | "PENDING" | "IMPORT" | "IGNORE" | "UPLOADED";
+type StatusFilter = "ALL" | "ACTIVE" | "PENDING" | "IMPORT" | "IGNORE" | "CONVERTED" | "UPLOADED" | "FAILED";
 
 interface UploadResult {
   success: boolean;
@@ -51,6 +52,14 @@ export function DocumentsTab() {
   const [search, setSearch] = useState("");
   const [previewDoc, setPreviewDoc] = useState<IndexedDocument | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{
+    total: number;
+    converted: number;
+    uploaded: number;
+    failed: number;
+    currentFile: string;
+    phase: 'converting' | 'uploading' | 'done';
+  } | null>(null);
   const [viewMode, setViewMode] = useState<'tree' | 'list'>('tree');
   const [sortField, setSortField] = useState<'name' | 'scanned_at'>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -194,7 +203,51 @@ export function DocumentsTab() {
     await loadStats();
   }, [loadDocuments, loadStats]);
 
-  /** Bulk convert + upload selected IMPORT documents */
+  /** Step 1: Bulk convert selected documents locally and cache HTML to disk */
+  const handleBulkConvert = async (ids: string[]) => {
+    const docsToConvert = documents.filter(
+      (d) => ids.includes(d.id) && d.status !== "UPLOADED" && d.status !== "IGNORE" && d.status !== "CONVERTED"
+    );
+    if (docsToConvert.length === 0) return;
+
+    setIsUploading(true);
+    setError(null);
+    setBulkProgress({ total: docsToConvert.length, converted: 0, uploaded: 0, failed: 0, currentFile: docsToConvert[0].file_name, phase: 'converting' });
+
+    let succeeded = 0;
+    let failed = 0;
+
+    for (const doc of docsToConvert) {
+      try {
+        setBulkProgress(prev => prev ? { ...prev, currentFile: doc.file_name, phase: 'converting' } : prev);
+
+        await invoke("convert_and_cache", {
+          documentId: doc.id,
+          filePath: doc.file_path,
+        });
+
+        succeeded++;
+        setBulkProgress(prev => prev ? { ...prev, converted: prev.converted + 1 } : prev);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await invoke("update_document_status", { id: doc.id, status: "FAILED", errorMessage: msg });
+        failed++;
+        setBulkProgress(prev => prev ? { ...prev, failed: prev.failed + 1 } : prev);
+      }
+    }
+
+    setBulkProgress(prev => prev ? { ...prev, phase: 'done', currentFile: '' } : prev);
+    setIsUploading(false);
+    await loadDocuments();
+    await loadStats();
+    setSelectedIds(new Set());
+    if (failed > 0) {
+      setError(`Conversion complete: ${succeeded} succeeded, ${failed} failed`);
+    }
+    setTimeout(() => setBulkProgress(null), 5000);
+  };
+
+  /** Step 2: Bulk upload previously-converted documents to the API */
   const handleBulkUpload = async (ids: string[]) => {
     const token = getStoredToken();
     const apiUrl = getApiUrl();
@@ -204,40 +257,38 @@ export function DocumentsTab() {
     }
 
     const docsToUpload = documents.filter(
-      (d) => ids.includes(d.id) && d.status !== "UPLOADED" && d.status !== "IGNORE"
+      (d) => ids.includes(d.id) && d.status === "CONVERTED"
     );
     if (docsToUpload.length === 0) return;
 
     setIsUploading(true);
     setError(null);
-    await invoke("set_upload_total", { total: docsToUpload.length });
-    await invoke("reset_upload_queue");
+    setBulkProgress({ total: docsToUpload.length, converted: docsToUpload.length, uploaded: 0, failed: 0, currentFile: docsToUpload[0].file_name, phase: 'uploading' });
 
     let succeeded = 0;
     let failed = 0;
 
     for (const doc of docsToUpload) {
       try {
-        // Convert locally
-        const conversion = await invoke<{
-          html: string;
-          title: string;
-          word_count: number;
-          original_format: string;
-        }>("convert_document", { filePath: doc.file_path });
+        setBulkProgress(prev => prev ? { ...prev, currentFile: doc.file_name, phase: 'uploading' } : prev);
+
+        // Read cached HTML from disk
+        const cachedHtml = await invoke<string>("get_cached_conversion", { documentId: doc.id });
 
         const folderPath = doc.file_path.substring(0, doc.file_path.lastIndexOf('/'));
         const folderName = folderPath.split('/').pop() || 'Local Upload Files';
+        const textContent = cachedHtml.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        const wordCount = textContent ? textContent.split(' ').length : 0;
 
         const result = await invoke<UploadResult>("upload_document", {
           apiUrl,
           token,
           documentId: doc.id,
-          htmlContent: conversion.html,
-          title: conversion.title || doc.file_name.replace(/\.[^/.]+$/, ''),
+          htmlContent: cachedHtml,
+          title: doc.file_name.replace(/\.[^/.]+$/, ''),
           category: "local-upload",
-          originalFormat: conversion.original_format,
-          wordCount: conversion.word_count,
+          originalFormat: doc.file_type || "unknown",
+          wordCount,
           folderName,
           breadcrumb: doc.breadcrumb,
         });
@@ -245,17 +296,21 @@ export function DocumentsTab() {
         if (result.success) {
           await invoke("update_document_status", { id: doc.id, status: "UPLOADED", errorMessage: null });
           succeeded++;
+          setBulkProgress(prev => prev ? { ...prev, uploaded: prev.uploaded + 1 } : prev);
         } else {
           await invoke("update_document_status", { id: doc.id, status: "FAILED", errorMessage: result.error || "Upload failed" });
           failed++;
+          setBulkProgress(prev => prev ? { ...prev, failed: prev.failed + 1 } : prev);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         await invoke("update_document_status", { id: doc.id, status: "FAILED", errorMessage: msg });
         failed++;
+        setBulkProgress(prev => prev ? { ...prev, failed: prev.failed + 1 } : prev);
       }
     }
 
+    setBulkProgress(prev => prev ? { ...prev, phase: 'done', currentFile: '' } : prev);
     setIsUploading(false);
     await loadDocuments();
     await loadStats();
@@ -263,6 +318,7 @@ export function DocumentsTab() {
     if (failed > 0) {
       setError(`Upload complete: ${succeeded} succeeded, ${failed} failed`);
     }
+    setTimeout(() => setBulkProgress(null), 5000);
   };
 
   const toggleSelect = (id: string) => {
@@ -381,6 +437,7 @@ export function DocumentsTab() {
       PENDING: { bg: "bg-amber-100", text: "text-amber-700", label: "Pending" },
       IMPORT: { bg: "bg-blue-100", text: "text-blue-700", label: "Import" },
       IGNORE: { bg: "bg-slate-100", text: "text-slate-500", label: "Ignore" },
+      CONVERTED: { bg: "bg-purple-100", text: "text-purple-700", label: "Converted" },
       UPLOADED: { bg: "bg-green-100", text: "text-green-700", label: "Uploaded" },
       FAILED: { bg: "bg-red-100", text: "text-red-700", label: "Failed" },
     };
@@ -446,8 +503,88 @@ export function DocumentsTab() {
         )}
       </div>
 
-      {/* Upload Queue Progress */}
-      <UploadQueue isUploading={isUploading} onComplete={handleUploadComplete} />
+      {/* Bulk Processing Progress Monitor */}
+      {bulkProgress && (
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {bulkProgress.phase !== 'done' && (
+                <div className="w-4 h-4 border-2 border-nexus-600 border-t-transparent rounded-full animate-spin" />
+              )}
+              <span className="font-medium text-slate-900">
+                {bulkProgress.phase === 'done'
+                  ? `✓ Complete — ${bulkProgress.converted} converted${bulkProgress.uploaded > 0 ? `, ${bulkProgress.uploaded} uploaded` : ''}${bulkProgress.failed > 0 ? `, ${bulkProgress.failed} failed` : ''}`
+                  : bulkProgress.phase === 'converting'
+                    ? `Converting: ${bulkProgress.currentFile}`
+                    : `Uploading: ${bulkProgress.currentFile}`}
+              </span>
+            </div>
+            <span className="text-sm text-slate-500">
+              {bulkProgress.converted + bulkProgress.failed} / {bulkProgress.total}
+            </span>
+          </div>
+
+          {/* Progress bar */}
+          <div className="relative h-2 bg-slate-200 rounded-full overflow-hidden">
+            {/* Converted (purple) */}
+            <div
+              className="absolute left-0 top-0 h-full bg-purple-500 transition-all duration-300"
+              style={{ width: `${(bulkProgress.converted / bulkProgress.total) * 100}%` }}
+            />
+            {/* Uploaded (green) overlaid on purple */}
+            {bulkProgress.uploaded > 0 && (
+              <div
+                className="absolute left-0 top-0 h-full bg-green-500 transition-all duration-300"
+                style={{ width: `${(bulkProgress.uploaded / bulkProgress.total) * 100}%` }}
+              />
+            )}
+            {/* Failed (red) */}
+            {bulkProgress.failed > 0 && (
+              <div
+                className="absolute top-0 h-full bg-red-400 transition-all duration-300"
+                style={{
+                  left: `${((bulkProgress.converted + bulkProgress.uploaded) / bulkProgress.total) * 100}%`,
+                  width: `${(bulkProgress.failed / bulkProgress.total) * 100}%`,
+                }}
+              />
+            )}
+            {/* In-progress shimmer */}
+            {bulkProgress.phase !== 'done' && (
+              <div
+                className="absolute top-0 h-full bg-nexus-400 transition-all duration-300 animate-pulse"
+                style={{
+                  left: `${((bulkProgress.converted + bulkProgress.failed) / bulkProgress.total) * 100}%`,
+                  width: `${(1 / bulkProgress.total) * 100}%`,
+                }}
+              />
+            )}
+          </div>
+
+          {/* Stats row */}
+          <div className="flex gap-4 text-xs">
+            <span className="text-purple-600">📄 {bulkProgress.converted} converted</span>
+            {bulkProgress.uploaded > 0 && (
+              <span className="text-green-600">✓ {bulkProgress.uploaded} uploaded</span>
+            )}
+            {bulkProgress.failed > 0 && (
+              <span className="text-red-600">✕ {bulkProgress.failed} failed</span>
+            )}
+          </div>
+
+          {bulkProgress.phase === 'done' && (
+            <button
+              type="button"
+              onClick={() => setBulkProgress(null)}
+              className="text-xs text-slate-400 hover:text-slate-600"
+            >
+              Dismiss
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Upload Queue Progress (legacy single-file uploads) */}
+      <UploadQueue isUploading={isUploading && !bulkProgress} onComplete={handleUploadComplete} />
 
       {/* Stats Bar */}
       {stats && stats.total > 0 && (
@@ -468,10 +605,22 @@ export function DocumentsTab() {
             <div className="text-xl font-semibold text-slate-600">{stats.ignore}</div>
             <div className="text-slate-500">Ignore</div>
           </div>
+          {stats.converted > 0 && (
+            <div className="flex-1 bg-purple-50 rounded-lg p-3 border border-purple-200 text-center">
+              <div className="text-xl font-semibold text-purple-700">{stats.converted}</div>
+              <div className="text-purple-600">Converted</div>
+            </div>
+          )}
           <div className="flex-1 bg-green-50 rounded-lg p-3 border border-green-200 text-center">
             <div className="text-xl font-semibold text-green-700">{stats.uploaded}</div>
             <div className="text-green-600">Uploaded</div>
           </div>
+          {stats.failed > 0 && (
+            <div className="flex-1 bg-red-50 rounded-lg p-3 border border-red-200 text-center">
+              <div className="text-xl font-semibold text-red-700">{stats.failed}</div>
+              <div className="text-red-600">Failed</div>
+            </div>
+          )}
         </div>
       )}
 
@@ -495,7 +644,9 @@ export function DocumentsTab() {
             <option value="PENDING">Pending</option>
             <option value="IMPORT">Import</option>
             <option value="IGNORE">Ignored</option>
+            <option value="CONVERTED">Converted</option>
             <option value="UPLOADED">Uploaded</option>
+            <option value="FAILED">Failed</option>
           </select>
           {/* View Toggle */}
           <div className="flex items-center bg-slate-100 rounded-lg p-0.5 flex-shrink-0">
@@ -597,27 +748,62 @@ export function DocumentsTab() {
           >
             📁 Ignore Folder(s)
           </button>
+          {/* Reset Failed → Import */}
+          {(() => {
+            const failedSelected = documents.filter(d => selectedIds.has(d.id) && d.status === 'FAILED');
+            return failedSelected.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => handleUpdateStatus(failedSelected.map(d => d.id), "IMPORT")}
+                className="px-3 py-1 text-xs bg-amber-600 text-white rounded-md hover:bg-amber-700"
+              >
+                ↻ Reset Failed ({failedSelected.length})
+              </button>
+            ) : null;
+          })()}
           <div className="flex-1" />
-          <button
-            type="button"
-            onClick={() => handleBulkUpload(Array.from(selectedIds))}
-            disabled={isUploading}
-            className="px-4 py-1.5 text-xs bg-green-600 text-white rounded-md hover:bg-green-700 font-medium flex items-center gap-1 disabled:opacity-50"
-          >
-            {isUploading ? (
-              <>
-                <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Uploading...
-              </>
-            ) : (
-              <>
-                ↑ Upload Now ({(() => {
-                  const uploadable = documents.filter(d => selectedIds.has(d.id) && d.status !== 'UPLOADED' && d.status !== 'IGNORE');
-                  return uploadable.length;
-                })()})
-              </>
-            )}
-          </button>
+          {/* Step 1: Convert */}
+          {(() => {
+            const convertable = documents.filter(d => selectedIds.has(d.id) && d.status !== 'UPLOADED' && d.status !== 'IGNORE' && d.status !== 'CONVERTED');
+            return convertable.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => handleBulkConvert(Array.from(selectedIds))}
+                disabled={isUploading}
+                className="px-4 py-1.5 text-xs bg-purple-600 text-white rounded-md hover:bg-purple-700 font-medium flex items-center gap-1 disabled:opacity-50"
+              >
+                {isUploading ? (
+                  <>
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>⚡ Convert ({convertable.length})</>
+                )}
+              </button>
+            ) : null;
+          })()}
+          {/* Step 2: Upload */}
+          {(() => {
+            const uploadable = documents.filter(d => selectedIds.has(d.id) && d.status === 'CONVERTED');
+            return uploadable.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => handleBulkUpload(Array.from(selectedIds))}
+                disabled={isUploading}
+                className="px-4 py-1.5 text-xs bg-green-600 text-white rounded-md hover:bg-green-700 font-medium flex items-center gap-1 disabled:opacity-50"
+              >
+                {isUploading ? (
+                  <>
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Uploading...
+                  </>
+                ) : (
+                  <>↑ Upload ({uploadable.length})</>
+                )}
+              </button>
+            ) : null;
+          })()}
           <button
             type="button"
             onClick={deselectAll}

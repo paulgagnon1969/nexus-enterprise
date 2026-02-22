@@ -15,6 +15,47 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::{Manager, State};
 
+/// Install a global panic hook that logs panic info to a file in the app data dir.
+/// This is critical for diagnosing crashes in release builds.
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        // Build a panic log message
+        let location = info.location().map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column())).unwrap_or_else(|| "unknown".to_string());
+        let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "<unknown panic payload>".to_string()
+        };
+        let thread = std::thread::current();
+        let thread_name = thread.name().unwrap_or("<unnamed>");
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        let msg = format!(
+            "[{}] PANIC on thread '{}' at {}:\n  {}\n\n",
+            timestamp, thread_name, location, payload
+        );
+
+        // Write to app data dir
+        if let Some(data_dir) = dirs_next::data_dir() {
+            let app_dir = data_dir.join("com.nexus.applet");
+            let _ = std::fs::create_dir_all(&app_dir);
+            let log_path = app_dir.join("panic.log");
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+                let _ = f.write_all(msg.as_bytes());
+            }
+        }
+
+        // Also print to stderr
+        eprintln!("{}", msg);
+
+        // Run the default hook (prints the standard panic message)
+        default_hook(info);
+    }));
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SyncSettings {
     pub auto_sync_enabled: bool,
@@ -29,6 +70,7 @@ pub struct AppState {
     pub document_index: DocumentIndex,
     pub upload_queue: UploadQueue,
     pub contact_groups: ContactGroupIndex,
+    pub converted_dir: std::path::PathBuf,
 }
 
 
@@ -291,6 +333,40 @@ fn get_supported_formats() -> Vec<&'static str> {
     converter::supported_formats()
 }
 
+/// Convert a document and cache the HTML to disk. Returns conversion metadata.
+/// The cached HTML is stored at app_data/converted/{document_id}.html
+#[tauri::command]
+fn convert_and_cache(
+    state: State<AppState>,
+    document_id: String,
+    file_path: String,
+) -> Result<ConversionResult, String> {
+    let result = converter::convert_to_html(&file_path)?;
+
+    // Save HTML to disk
+    let cache_path = state.converted_dir.join(format!("{}.html", document_id));
+    std::fs::write(&cache_path, &result.html)
+        .map_err(|e| format!("Failed to cache converted HTML: {}", e))?;
+
+    // Update status to CONVERTED
+    state.document_index
+        .update_status(&document_id, DocumentStatus::Converted, None)
+        .map_err(|e| e.to_string())?;
+
+    Ok(result)
+}
+
+/// Read cached HTML for a previously converted document.
+#[tauri::command]
+fn get_cached_conversion(
+    state: State<AppState>,
+    document_id: String,
+) -> Result<String, String> {
+    let cache_path = state.converted_dir.join(format!("{}.html", document_id));
+    std::fs::read_to_string(&cache_path)
+        .map_err(|_| format!("No cached conversion found for document {}", document_id))
+}
+
 // ============ Upload Commands ============
 
 #[tauri::command]
@@ -374,6 +450,8 @@ fn open_file_native(path: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    install_panic_hook();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -393,6 +471,10 @@ pub fn run() {
             let contact_groups = ContactGroupIndex::new(&groups_db_path)
                 .expect("Failed to initialize contact groups");
 
+            // Create converted HTML cache directory
+            let converted_dir = app_data_dir.join("converted");
+            std::fs::create_dir_all(&converted_dir).ok();
+
             let app_state = AppState {
                 settings: Mutex::new(SyncSettings {
                     auto_sync_enabled: false,
@@ -404,6 +486,7 @@ pub fn run() {
                 document_index,
                 upload_queue: UploadQueue::new(),
                 contact_groups,
+                converted_dir,
             };
             
             app.manage(app_state);
@@ -472,6 +555,8 @@ pub fn run() {
             // Conversion commands
             convert_document,
             get_supported_formats,
+            convert_and_cache,
+            get_cached_conversion,
             // Upload commands
             upload_document,
             get_upload_progress,

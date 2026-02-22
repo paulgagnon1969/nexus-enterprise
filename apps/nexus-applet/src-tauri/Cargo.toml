@@ -39,10 +39,11 @@ zip = "0.6"
 image = { version = "0.24", default-features = false, features = ["jpeg", "png", "gif"] }
 reqwest = { version = "0.11", features = ["json", "multipart"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+dirs-next = "2"
 
 [profile.release]
-panic = "abort"
+panic = "unwind"
 codegen-units = 1
 lto = true
 opt-level = "s"
-strip = true
+strip = false

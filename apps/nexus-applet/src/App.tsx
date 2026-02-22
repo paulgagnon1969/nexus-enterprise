@@ -44,6 +44,7 @@ function App() {
               <span className="text-white font-bold text-sm">N</span>
             </div>
             <h1 className="font-semibold text-slate-900">NEXUS Applet</h1>
+            <span className="text-xs text-slate-400 font-normal">v1.0.0</span>
           </div>
           {isAuthenticated && (
             <button

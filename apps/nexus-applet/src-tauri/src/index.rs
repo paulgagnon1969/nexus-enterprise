@@ -9,6 +9,7 @@ pub enum DocumentStatus {
     Pending,
     Import,
     Ignore,
+    Converted,
     Uploaded,
     Failed,
 }
@@ -19,6 +20,7 @@ impl DocumentStatus {
             DocumentStatus::Pending => "PENDING",
             DocumentStatus::Import => "IMPORT",
             DocumentStatus::Ignore => "IGNORE",
+            DocumentStatus::Converted => "CONVERTED",
             DocumentStatus::Uploaded => "UPLOADED",
             DocumentStatus::Failed => "FAILED",
         }
@@ -28,6 +30,7 @@ impl DocumentStatus {
         match s {
             "IMPORT" => DocumentStatus::Import,
             "IGNORE" => DocumentStatus::Ignore,
+            "CONVERTED" => DocumentStatus::Converted,
             "UPLOADED" => DocumentStatus::Uploaded,
             "FAILED" => DocumentStatus::Failed,
             _ => DocumentStatus::Pending,
@@ -221,6 +224,7 @@ impl DocumentIndex {
         let pending: i64 = conn.query_row("SELECT COUNT(*) FROM documents WHERE status = 'PENDING'", [], |row| row.get(0))?;
         let import: i64 = conn.query_row("SELECT COUNT(*) FROM documents WHERE status = 'IMPORT'", [], |row| row.get(0))?;
         let ignore: i64 = conn.query_row("SELECT COUNT(*) FROM documents WHERE status = 'IGNORE'", [], |row| row.get(0))?;
+        let converted: i64 = conn.query_row("SELECT COUNT(*) FROM documents WHERE status = 'CONVERTED'", [], |row| row.get(0))?;
         let uploaded: i64 = conn.query_row("SELECT COUNT(*) FROM documents WHERE status = 'UPLOADED'", [], |row| row.get(0))?;
         let failed: i64 = conn.query_row("SELECT COUNT(*) FROM documents WHERE status = 'FAILED'", [], |row| row.get(0))?;
 
@@ -229,6 +233,7 @@ impl DocumentIndex {
             pending: pending as u32,
             import: import as u32,
             ignore: ignore as u32,
+            converted: converted as u32,
             uploaded: uploaded as u32,
             failed: failed as u32,
         })
@@ -271,6 +276,7 @@ pub struct DocumentStats {
     pub pending: u32,
     pub import: u32,
     pub ignore: u32,
+    pub converted: u32,
     pub uploaded: u32,
     pub failed: u32,
 }

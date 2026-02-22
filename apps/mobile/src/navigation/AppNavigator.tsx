@@ -220,9 +220,6 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
       <View style={{ flex: 1, backgroundColor: colors.primary }}>
         <View style={navStyles.versionHeader}>
           <Text style={navStyles.versionBrand}>NEXUS</Text>
-          <Text style={navStyles.versionText}>
-            v{appJson.expo.version} ({Platform.OS === "ios" ? "iOS" : "Android"})
-          </Text>
         </View>
       </View>
     );
@@ -232,12 +229,9 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
     <LogoutContext.Provider value={onLogout}>
     <CompanyContext.Provider value={company}>
     <SetCompanyContext.Provider value={(c) => setCompany((prev) => ({ id: c.id, name: c.name, refreshKey: prev.refreshKey + 1 }))}>
-      {/* Version header bar */}
+      {/* Top brand bar */}
       <View style={navStyles.versionHeader}>
         <Text style={navStyles.versionBrand}>NEXUS</Text>
-        <Text style={navStyles.versionText}>
-          v{appJson.expo.version} ({Platform.OS === "ios" ? "iOS" : "Android"})
-        </Text>
       </View>
 
       <Tab.Navigator
@@ -294,11 +288,5 @@ const navStyles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800",
     letterSpacing: 2,
-  },
-  versionText: {
-    color: colors.textOnPrimary,
-    fontSize: 11,
-    fontWeight: "500",
-    opacity: 0.8,
   },
 });

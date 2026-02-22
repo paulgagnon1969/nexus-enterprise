@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { colors } from "../theme/colors";
+import appJson from "../../app.json";
 
 /** Module metadata (everything except Home) */
 const MODULES: { key: string; icon: string; label: string }[] = [
@@ -101,6 +102,11 @@ export function ScrollableTabBar({
             </View>
           )}
         </Pressable>
+
+        {/* Version badge */}
+        <Text style={styles.versionText}>
+          v{appJson.expo.version}
+        </Text>
       </View>
 
       {/* Module picker popup */}
@@ -167,7 +173,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.tabBorder,
     paddingTop: 8,
-    paddingBottom: Platform.OS === "ios" ? 24 : 10,
+    paddingBottom: Platform.OS === "ios" ? 24 : 30,
     paddingHorizontal: 16,
     gap: 12,
   },
@@ -238,6 +244,11 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 10,
     fontWeight: "700",
+  },
+  versionText: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: colors.tabInactive,
   },
 
   // ---- Modal overlay ----
