@@ -630,6 +630,34 @@ type GlobalRole = "SUPER_ADMIN" | "NONE" | string;
 
 type DailyLogType = "PUDL" | "RECEIPT_EXPENSE" | "JSA" | "INCIDENT" | "QUALITY" | "CUSTOM";
 
+interface HourlyWeatherData {
+  datetime: string;
+  temp: number | null;
+  precip: number | null;
+  precipProb: number | null;
+}
+
+interface WeatherApiData {
+  tempMax: number | null;
+  tempMin: number | null;
+  temp: number | null;
+  feelsLike: number | null;
+  humidity: number | null;
+  precip: number | null;
+  precipProb: number | null;
+  windSpeed: number | null;
+  windGust: number | null;
+  windDir: number | null;
+  cloudCover: number | null;
+  uvIndex: number | null;
+  conditions: string | null;
+  description: string | null;
+  icon: string | null;
+  sunrise: string | null;
+  sunset: string | null;
+  hours?: HourlyWeatherData[];
+}
+
 interface DailyLog {
   id: string;
   projectId: string;
@@ -4225,6 +4253,9 @@ ${htmlBody}
     setPetlReloadTick((t) => t + 1);
   }, []);
 
+  // New daily log form visibility — starts hidden, user clicks "New Daily Log" to open
+  const [showNewDailyLogForm, setShowNewDailyLogForm] = useState(false);
+
   const [dailyLogs, setDailyLogs] = useState<DailyLog[]>([]);
   const [dailyLogsLoading, setDailyLogsLoading] = useState(false);
   const [dailyLogSaving, setDailyLogSaving] = useState(false);
@@ -4295,6 +4326,13 @@ ${htmlBody}
   const [fieldPetlError, setFieldPetlError] = useState<string | null>(null);
   const [fieldPetlEdit, setFieldPetlEdit] = useState<FieldPetlEditState | null>(null);
   const [fieldPetlOrgGroupFilters, setFieldPetlOrgGroupFilters] = useState<string[]>([]);
+  const [fieldPetlInlineEdit, setFieldPetlInlineEdit] = useState<{
+    sowItemId: string;
+    fieldQty: string;
+    note: string;
+    saving: boolean;
+    error: string | null;
+  } | null>(null);
   // Person/s onsite multi-select state for Daily Logs
   const [personOnsiteList, setPersonOnsiteList] = useState<string[]>([]);
   const [personOnsiteDraft, setPersonOnsiteDraft] = useState<string>("");
@@ -4544,6 +4582,54 @@ ${htmlBody}
       attachmentProjectFileIds: [],
     };
   });
+
+  // Weather API preview state
+  const [weatherPreview, setWeatherPreview] = useState<{
+    loading: boolean;
+    available: boolean;
+    configured: boolean;
+    summary: string | null;
+    data: WeatherApiData | null;
+  }>({ loading: false, available: false, configured: false, summary: null, data: null });
+
+  // Auto-fetch weather when the daily log date or project changes
+  useEffect(() => {
+    if (!project || !newDailyLog.logDate) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+    setWeatherPreview(prev => ({ ...prev, loading: true }));
+
+    fetch(`${API_BASE}/projects/${project.id}/weather?date=${newDailyLog.logDate}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (cancelled) return;
+        if (!data) {
+          setWeatherPreview(prev => ({ ...prev, loading: false }));
+          return;
+        }
+        setWeatherPreview({
+          loading: false,
+          available: data.available ?? false,
+          configured: data.configured ?? false,
+          summary: data.summary ?? null,
+          data: data.data ?? null,
+        });
+        // Auto-fill weatherSummary if the user hasn't typed anything
+        if (data.summary && !newDailyLog.weatherSummary) {
+          setNewDailyLog(prev => prev.weatherSummary ? prev : { ...prev, weatherSummary: data.summary });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setWeatherPreview(prev => ({ ...prev, loading: false }));
+      });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, newDailyLog.logDate]);
 
   const [hierarchy, setHierarchy] = useState<{
     project: any;
@@ -7765,6 +7851,137 @@ ${htmlBody}
     setFieldPetlEdit(null);
   }, []);
 
+  const handleFieldPetlCheckbox = useCallback(async (item: FieldPetlItem) => {
+    if (item.qtyFlaggedIncorrect) {
+      // Already flagged — unflag via API
+      const token = localStorage.getItem("accessToken");
+      if (!token || !project) return;
+      try {
+        const res = await fetch(
+          `${API_BASE}/projects/${project.id}/petl-field/qty-flags`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              items: [{ sowItemId: item.sowItemId, qtyFlaggedIncorrect: false, qtyFieldReported: null, notes: null }],
+            }),
+          },
+        );
+        if (!res.ok) return;
+        const reloadRes = await fetch(`${API_BASE}/projects/${project.id}/petl-field`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (reloadRes.ok) {
+          const json: any = await reloadRes.json();
+          const arr: any[] = Array.isArray(json?.items) ? json.items : [];
+          setFieldPetlItems(arr.map((r: any) => ({
+            sowItemId: String(r.id),
+            lineNo: Number(r.lineNo ?? 0),
+            roomParticleId: r.roomParticleId ?? null,
+            roomName: r.roomName ?? null,
+            categoryCode: r.categoryCode ?? null,
+            selectionCode: r.selectionCode ?? null,
+            activity: r.activity ?? null,
+            description: r.description ?? null,
+            unit: r.unit ?? null,
+            originalQty: typeof r.originalQty === "number" ? r.originalQty : null,
+            qty: typeof r.qty === "number" ? r.qty : null,
+            qtyFlaggedIncorrect: !!r.qtyFlaggedIncorrect,
+            qtyFieldReported: typeof r.qtyFieldReported === "number" ? r.qtyFieldReported : null,
+            qtyReviewStatus: r.qtyReviewStatus ?? null,
+            orgGroupCode: r.orgGroupCode ?? null,
+          })));
+        }
+      } catch {}
+    } else {
+      // Not flagged — open inline correction form
+      setFieldPetlInlineEdit({
+        sowItemId: item.sowItemId,
+        fieldQty: "",
+        note: "",
+        saving: false,
+        error: null,
+      });
+    }
+  }, [project]);
+
+  const submitFieldPetlInlineCorrection = useCallback(async () => {
+    if (!project || !fieldPetlInlineEdit) return;
+    const { sowItemId, fieldQty, note } = fieldPetlInlineEdit;
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setFieldPetlInlineEdit(prev => prev ? { ...prev, error: "Missing access token." } : prev);
+      return;
+    }
+    const trimmedQty = fieldQty.trim();
+    const trimmedNote = note.trim();
+    let parsedQty: number | null = null;
+    if (trimmedQty) {
+      parsedQty = Number(trimmedQty);
+      if (!Number.isFinite(parsedQty) || parsedQty < 0) {
+        setFieldPetlInlineEdit(prev => prev ? { ...prev, error: "Qty must be a non-negative number." } : prev);
+        return;
+      }
+    }
+    if (!trimmedQty && !trimmedNote) {
+      setFieldPetlInlineEdit(prev => prev ? { ...prev, error: "Enter a quantity or a note." } : prev);
+      return;
+    }
+    setFieldPetlInlineEdit(prev => prev ? { ...prev, saving: true, error: null } : prev);
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${project.id}/petl-field/qty-flags`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            items: [{
+              sowItemId,
+              qtyFlaggedIncorrect: true,
+              qtyFieldReported: parsedQty,
+              notes: trimmedNote || null,
+            }],
+          }),
+        },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Save failed (${res.status}) ${text}`);
+      }
+      try {
+        const reloadRes = await fetch(`${API_BASE}/projects/${project.id}/petl-field`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (reloadRes.ok) {
+          const json: any = await reloadRes.json();
+          const arr: any[] = Array.isArray(json?.items) ? json.items : [];
+          setFieldPetlItems(arr.map((r: any) => ({
+            sowItemId: String(r.id),
+            lineNo: Number(r.lineNo ?? 0),
+            roomParticleId: r.roomParticleId ?? null,
+            roomName: r.roomName ?? null,
+            categoryCode: r.categoryCode ?? null,
+            selectionCode: r.selectionCode ?? null,
+            activity: r.activity ?? null,
+            description: r.description ?? null,
+            unit: r.unit ?? null,
+            originalQty: typeof r.originalQty === "number" ? r.originalQty : null,
+            qty: typeof r.qty === "number" ? r.qty : null,
+            qtyFlaggedIncorrect: !!r.qtyFlaggedIncorrect,
+            qtyFieldReported: typeof r.qtyFieldReported === "number" ? r.qtyFieldReported : null,
+            qtyReviewStatus: r.qtyReviewStatus ?? null,
+            orgGroupCode: r.orgGroupCode ?? null,
+          })));
+        }
+      } catch {}
+      setFieldPetlInlineEdit(null);
+    } catch (err: any) {
+      setFieldPetlInlineEdit(prev =>
+        prev ? { ...prev, saving: false, error: err?.message ?? "Save failed." } : prev,
+      );
+    }
+  }, [project, fieldPetlInlineEdit]);
+
   const submitFieldPetlEdit = useCallback(async () => {
     if (!project || !fieldPetlEdit) return;
     const { item, incorrect, fieldQty, newPercent, note } = fieldPetlEdit;
@@ -7777,13 +7994,14 @@ ${htmlBody}
 
     let parsedFieldQty: number | null = null;
     if (incorrect) {
-      if (!fieldQty.trim()) {
-        setFieldPetlEdit(prev => (prev ? { ...prev, error: "Enter a field quantity." } : prev));
-        return;
-      }
-      parsedFieldQty = Number(fieldQty);
-      if (!Number.isFinite(parsedFieldQty) || parsedFieldQty < 0) {
-        setFieldPetlEdit(prev => (prev ? { ...prev, error: "Field qty must be a non-negative number." } : prev));
+      if (fieldQty.trim()) {
+        parsedFieldQty = Number(fieldQty);
+        if (!Number.isFinite(parsedFieldQty) || parsedFieldQty < 0) {
+          setFieldPetlEdit(prev => (prev ? { ...prev, error: "Field qty must be a non-negative number." } : prev));
+          return;
+        }
+      } else if (!note.trim()) {
+        setFieldPetlEdit(prev => (prev ? { ...prev, error: "Enter a field quantity or a note." } : prev));
         return;
       }
     }
@@ -13531,6 +13749,92 @@ ${htmlBody}
               </div>
             </div>
           </div>
+
+          {/* Project Team Tree */}
+          {participants && (() => {
+            const members = [...(participants.myOrganization ?? [])];
+            // Group by role, sorted by hierarchy (sortOrder ascending)
+            const roleGroups = new Map<string, { label: string; sortOrder: number; people: { name: string; email: string }[] }>();
+            for (const m of members) {
+              const code = m.role || "UNKNOWN";
+              const profile = roleProfileMap.get(code);
+              const label = profile?.label ?? code;
+              const sortOrder = profile?.sortOrder ?? 999;
+              const user = m.user as any;
+              const first = (user?.firstName || "").trim();
+              const last = (user?.lastName || "").trim();
+              const name = [first, last].filter(Boolean).join(" ") || (user?.email ?? "(unknown)");
+              if (!roleGroups.has(code)) {
+                roleGroups.set(code, { label, sortOrder, people: [] });
+              }
+              roleGroups.get(code)!.people.push({ name, email: user?.email ?? "" });
+            }
+            const sorted = [...roleGroups.entries()].sort((a, b) => a[1].sortOrder - b[1].sortOrder);
+            if (sorted.length === 0) return null;
+            return (
+              <div
+                style={{
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                  background: "#ffffff",
+                  marginBottom: 12,
+                }}
+              >
+                <div
+                  style={{
+                    padding: "6px 10px",
+                    borderBottom: "1px solid #e5e7eb",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    background: "#f3f4f6",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  <span style={{ fontSize: 15 }}>&#127795;</span> Project Team
+                </div>
+                <div style={{ padding: "10px 14px" }}>
+                  {sorted.map(([code, group], idx) => (
+                    <div key={code} style={{ position: "relative", paddingLeft: 20, marginBottom: idx < sorted.length - 1 ? 0 : 0 }}>
+                      {/* Vertical connector line */}
+                      {idx < sorted.length - 1 && (
+                        <div style={{
+                          position: "absolute",
+                          left: 7,
+                          top: 14,
+                          bottom: -4,
+                          width: 2,
+                          background: "#d1d5db",
+                        }} />
+                      )}
+                      {/* Horizontal connector dot */}
+                      <div style={{
+                        position: "absolute",
+                        left: 2,
+                        top: 6,
+                        width: 12,
+                        height: 12,
+                        borderRadius: "50%",
+                        background: idx === 0 ? "#2563eb" : idx === sorted.length - 1 ? "#9ca3af" : "#6b7280",
+                        border: "2px solid #ffffff",
+                        boxShadow: "0 0 0 1px #d1d5db",
+                      }} />
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#111827", marginBottom: 2 }}>
+                        {group.label}
+                      </div>
+                      {group.people.map((p, pi) => (
+                        <div key={pi} style={{ fontSize: 12, color: "#4b5563", paddingLeft: 4, lineHeight: 1.6 }}>
+                          {p.name}
+                        </div>
+                      ))}
+                      {idx < sorted.length - 1 && <div style={{ height: 8 }} />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           <ScheduleSection
             projectId={project.id}
@@ -23768,21 +24072,92 @@ ${htmlBody}
       {/* DAILY_LOGS tab content */}
       {activeTab === "DAILY_LOGS" && (
         <div style={{ marginTop: 8, marginBottom: 16 }}>
+          {/* New Daily Log button + type picker (shown when form is hidden) */}
+          {!showNewDailyLogForm && (
+            <div style={{
+              marginBottom: 12,
+              padding: "16px 18px",
+              borderRadius: 10,
+              background: "#f8faff",
+              border: "1px solid #e8edf5",
+            }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10, color: "#1e293b" }}>+ New Daily Log</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {([
+                  { type: "PUDL" as DailyLogType, label: "Daily Log (PUDL)", icon: "📋", desc: "Standard daily activity log", color: "#0f172a", bg: "#f8fafc" },
+                  { type: "RECEIPT_EXPENSE" as DailyLogType, label: "Receipt / Expense", icon: "🧾", desc: "Capture a receipt or expense", color: "#92400e", bg: "#fffbeb" },
+                  { type: "JSA" as DailyLogType, label: "Job Safety Assessment", icon: "🦺", desc: "Pre-work safety analysis", color: "#065f46", bg: "#ecfdf5" },
+                  { type: "INCIDENT" as DailyLogType, label: "Incident Report", icon: "⚠️", desc: "Report a safety incident", color: "#991b1b", bg: "#fef2f2" },
+                  { type: "QUALITY" as DailyLogType, label: "Quality Inspection", icon: "✅", desc: "Quality control check", color: "#1e40af", bg: "#eff6ff" },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.type}
+                    type="button"
+                    onClick={() => {
+                      const today = new Date().toISOString().slice(0, 10);
+                      setNewDailyLog(prev => ({
+                        ...prev,
+                        type: opt.type,
+                        logDate: today,
+                        title: "",
+                        weatherSummary: "",
+                        workPerformed: "",
+                        crewOnSite: "",
+                        issues: "",
+                        safetyIncidents: "",
+                        manpowerOnsite: "",
+                        personOnsite: "",
+                        confidentialNotes: "",
+                        expenseVendor: "",
+                        expenseAmount: "",
+                        expenseDate: today,
+                        attachmentProjectFileIds: [],
+                        attachmentFiles: undefined,
+                      }));
+                      setPersonOnsiteList([]);
+                      setPersonOnsiteDraft("");
+                      setDailyLogMessage(null);
+                      setShowNewDailyLogForm(true);
+                    }}
+                    style={{
+                      flex: "1 1 180px",
+                      maxWidth: 220,
+                      padding: "12px 14px",
+                      borderRadius: 8,
+                      border: `1px solid #e5e7eb`,
+                      background: opt.bg,
+                      cursor: "pointer",
+                      textAlign: "left",
+                      transition: "box-shadow 0.15s",
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = "0 2px 8px rgba(0,0,0,0.1)"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = "none"; }}
+                  >
+                    <div style={{ fontSize: 20, marginBottom: 4 }}>{opt.icon}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: opt.color }}>{opt.label}</div>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "2fr 3fr",
+              gridTemplateColumns: showNewDailyLogForm ? "2fr 3fr" : "1fr",
               gap: 12,
               alignItems: "flex-start",
             }}
           >
-            {/* Left column: log info + permissions */}
+            {/* Left column: log form (only visible after type selection) */}
+            {showNewDailyLogForm && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div
                 style={{
                   borderRadius: 8,
-                  border: "1px solid #e5e7eb",
-                  background: "#ffffff",
+                  border: "1px solid #e0e7f1",
+                  background: "#f8faff",
                 }}
               >
                 <div
@@ -23792,9 +24167,27 @@ ${htmlBody}
                     fontSize: 13,
                     fontWeight: 600,
                     background: "#f3f4f6",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
                   }}
                 >
-                  Daily Log Information
+                  <span>New Daily Log</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewDailyLogForm(false)}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      fontSize: 16,
+                      cursor: "pointer",
+                      color: "#6b7280",
+                      padding: "0 4px",
+                    }}
+                    title="Cancel"
+                  >
+                    ×
+                  </button>
                 </div>
                 <form onSubmit={handleCreateDailyLog} style={{ padding: 10, fontSize: 13 }}>
                   <div style={{ marginBottom: 6 }}>
@@ -24731,7 +25124,7 @@ ${htmlBody}
                 </div>
               </div>
 
-              {/* Weather card - moved to left column */}
+              {/* Weather card - Visual Crossing API data */}
               <div
                 style={{
                   borderRadius: 8,
@@ -24746,21 +25139,274 @@ ${htmlBody}
                     fontSize: 13,
                     fontWeight: 600,
                     background: "#f3f4f6",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
                   }}
                 >
-                  Weather
+                  <span>🌤️ Weather</span>
+                  {weatherPreview.loading && (
+                    <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 400 }}>Loading…</span>
+                  )}
+                  {!weatherPreview.loading && weatherPreview.available && (
+                    <span style={{ fontSize: 10, color: "#16a34a", fontWeight: 400 }}>Visual Crossing</span>
+                  )}
                 </div>
                 <div style={{ padding: 10, fontSize: 13 }}>
-                  <div style={{ marginBottom: 6 }}>
-                    <div style={{ fontSize: 12, marginBottom: 2 }}>
-                      Weather Conditions / Notes
+                  {/* Rich weather data grid */}
+                  {weatherPreview.available && weatherPreview.data && (() => {
+                    const w = weatherPreview.data;
+                    const windDirLabel = (deg: number | null) => {
+                      if (deg == null) return "";
+                      const dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+                      return dirs[Math.round(deg / 22.5) % 16] || "";
+                    };
+                    return (
+                      <>
+                        {/* Conditions banner */}
+                        {w.conditions && (
+                          <div style={{
+                            padding: "6px 10px",
+                            marginBottom: 8,
+                            borderRadius: 6,
+                            background: "linear-gradient(135deg, #eff6ff, #f0fdf4)",
+                            border: "1px solid #bfdbfe",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: "#1e40af",
+                          }}>
+                            {w.conditions}
+                            {w.description && (
+                              <div style={{ fontSize: 11, fontWeight: 400, color: "#4b5563", marginTop: 2 }}>
+                                {w.description}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Temperature row */}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 8 }}>
+                          <div style={{
+                            padding: "6px 8px",
+                            borderRadius: 6,
+                            background: "#fef2f2",
+                            border: "1px solid #fecaca",
+                            textAlign: "center",
+                          }}>
+                            <div style={{ fontSize: 10, color: "#991b1b" }}>High</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: "#dc2626" }}>
+                              {w.tempMax != null ? `${Math.round(w.tempMax)}°F` : "—"}
+                            </div>
+                          </div>
+                          <div style={{
+                            padding: "6px 8px",
+                            borderRadius: 6,
+                            background: "#eff6ff",
+                            border: "1px solid #bfdbfe",
+                            textAlign: "center",
+                          }}>
+                            <div style={{ fontSize: 10, color: "#1e40af" }}>Low</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: "#2563eb" }}>
+                              {w.tempMin != null ? `${Math.round(w.tempMin)}°F` : "—"}
+                            </div>
+                          </div>
+                          <div style={{
+                            padding: "6px 8px",
+                            borderRadius: 6,
+                            background: "#f5f3ff",
+                            border: "1px solid #ddd6fe",
+                            textAlign: "center",
+                          }}>
+                            <div style={{ fontSize: 10, color: "#5b21b6" }}>Feels Like</div>
+                            <div style={{ fontSize: 16, fontWeight: 700, color: "#7c3aed" }}>
+                              {w.feelsLike != null ? `${Math.round(w.feelsLike)}°F` : "—"}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Details grid */}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                          <div style={{ padding: "4px 8px", borderRadius: 4, background: "#f9fafb", border: "1px solid #e5e7eb" }}>
+                            <span style={{ fontSize: 10, color: "#6b7280" }}>💧 Humidity</span>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>
+                              {w.humidity != null ? `${Math.round(w.humidity)}%` : "—"}
+                            </div>
+                          </div>
+                          <div style={{ padding: "4px 8px", borderRadius: 4, background: "#f9fafb", border: "1px solid #e5e7eb" }}>
+                            <span style={{ fontSize: 10, color: "#6b7280" }}>🌧️ Precipitation</span>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>
+                              {w.precip != null ? `${w.precip} in` : "—"}
+                              {w.precipProb != null && w.precipProb > 0 && (
+                                <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4 }}>({Math.round(w.precipProb)}% chance)</span>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ padding: "4px 8px", borderRadius: 4, background: "#f9fafb", border: "1px solid #e5e7eb" }}>
+                            <span style={{ fontSize: 10, color: "#6b7280" }}>💨 Wind</span>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>
+                              {w.windSpeed != null ? `${Math.round(w.windSpeed)} mph ${windDirLabel(w.windDir)}` : "—"}
+                              {w.windGust != null && w.windGust > 0 && (
+                                <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4 }}>(gusts {Math.round(w.windGust)})</span>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ padding: "4px 8px", borderRadius: 4, background: "#f9fafb", border: "1px solid #e5e7eb" }}>
+                            <span style={{ fontSize: 10, color: "#6b7280" }}>☁️ Cloud Cover</span>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>
+                              {w.cloudCover != null ? `${Math.round(w.cloudCover)}%` : "—"}
+                            </div>
+                          </div>
+                          <div style={{ padding: "4px 8px", borderRadius: 4, background: "#f9fafb", border: "1px solid #e5e7eb" }}>
+                            <span style={{ fontSize: 10, color: "#6b7280" }}>☀️ UV Index</span>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>
+                              {w.uvIndex != null ? w.uvIndex : "—"}
+                              {w.uvIndex != null && (
+                                <span style={{ fontSize: 10, color: w.uvIndex >= 8 ? "#dc2626" : w.uvIndex >= 6 ? "#d97706" : "#6b7280", marginLeft: 4 }}>
+                                  ({w.uvIndex >= 11 ? "Extreme" : w.uvIndex >= 8 ? "Very High" : w.uvIndex >= 6 ? "High" : w.uvIndex >= 3 ? "Moderate" : "Low"})
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ padding: "4px 8px", borderRadius: 4, background: "#f9fafb", border: "1px solid #e5e7eb" }}>
+                            <span style={{ fontSize: 10, color: "#6b7280" }}>🌡️ Avg Temp</span>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>
+                              {w.temp != null ? `${Math.round(w.temp)}°F` : "—"}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Hourly Temperature & Precipitation Charts */}
+                        {w.hours && w.hours.length > 0 && (() => {
+                          const hrs = w.hours;
+                          const temps = hrs.map(h => h.temp).filter((t): t is number => t != null);
+                          const precips = hrs.map(h => h.precip).filter((p): p is number => p != null);
+                          if (temps.length === 0) return null;
+
+                          const chartW = 320;
+                          const chartH = 80;
+                          const padL = 30;
+                          const padR = 8;
+                          const padT = 8;
+                          const padB = 18;
+                          const plotW = chartW - padL - padR;
+                          const plotH = chartH - padT - padB;
+
+                          // Temperature chart — area + line
+                          const tMin = Math.min(...temps) - 2;
+                          const tMax = Math.max(...temps) + 2;
+                          const tRange = tMax - tMin || 1;
+                          const tPoints = hrs.map((h, i) => {
+                            const x = padL + (i / (hrs.length - 1)) * plotW;
+                            const y = padT + plotH - ((((h.temp ?? tMin) - tMin) / tRange) * plotH);
+                            return `${x.toFixed(1)},${y.toFixed(1)}`;
+                          });
+                          const tLine = tPoints.join(" ");
+                          const tArea = `${padL},${padT + plotH} ${tLine} ${padL + plotW},${padT + plotH}`;
+
+                          // Precipitation chart — bars
+                          const pMax = Math.max(...precips, 0.05);
+                          const barW = plotW / hrs.length;
+
+                          // Tick labels (every 3h)
+                          const tLabels = hrs.filter((_, i) => i % 3 === 0).map((h, idx) => {
+                            const x = padL + ((idx * 3) / (hrs.length - 1)) * plotW;
+                            const hh = parseInt(h.datetime.split(":")[0] || "0", 10);
+                            const ampm = hh >= 12 ? "p" : "a";
+                            const h12 = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh;
+                            return { x, label: `${h12}${ampm}` };
+                          });
+
+                          return (
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                              {/* Temp chart */}
+                              <div>
+                                <div style={{ fontSize: 10, fontWeight: 600, color: "#4b5563", marginBottom: 2 }}>🌡️ Hourly Temperature</div>
+                                <svg viewBox={`0 0 ${chartW} ${chartH}`} width="100%" style={{ display: "block", background: "#fafafa", borderRadius: 6, border: "1px solid #e5e7eb" }}>
+                                  <polygon points={tArea} fill="rgba(239,68,68,0.10)" />
+                                  <polyline points={tLine} fill="none" stroke="#ef4444" strokeWidth="1.5" />
+                                  {/* Y-axis labels */}
+                                  <text x={padL - 4} y={padT + 4} textAnchor="end" fontSize="8" fill="#9ca3af">{Math.round(tMax)}°</text>
+                                  <text x={padL - 4} y={padT + plotH} textAnchor="end" fontSize="8" fill="#9ca3af">{Math.round(tMin)}°</text>
+                                  {/* X-axis time labels */}
+                                  {tLabels.map((t, i) => (
+                                    <text key={i} x={t.x} y={chartH - 2} textAnchor="middle" fontSize="7" fill="#9ca3af">{t.label}</text>
+                                  ))}
+                                </svg>
+                              </div>
+
+                              {/* Precip chart */}
+                              <div>
+                                <div style={{ fontSize: 10, fontWeight: 600, color: "#4b5563", marginBottom: 2 }}>🌧️ Hourly Precipitation</div>
+                                {precips.some(p => p > 0) ? (
+                                  <svg viewBox={`0 0 ${chartW} ${chartH}`} width="100%" style={{ display: "block", background: "#fafafa", borderRadius: 6, border: "1px solid #e5e7eb" }}>
+                                    {hrs.map((h, i) => {
+                                      const val = h.precip ?? 0;
+                                      if (val <= 0) return null;
+                                      const bH = (val / pMax) * plotH;
+                                      const x = padL + i * barW;
+                                      const y = padT + plotH - bH;
+                                      return <rect key={i} x={x + 0.5} y={y} width={Math.max(barW - 1, 1)} height={bH} fill="#3b82f6" opacity={0.7} rx={1} />;
+                                    })}
+                                    {/* Y-axis labels */}
+                                    <text x={padL - 4} y={padT + 4} textAnchor="end" fontSize="8" fill="#9ca3af">{pMax.toFixed(2)}&quot;</text>
+                                    <text x={padL - 4} y={padT + plotH} textAnchor="end" fontSize="8" fill="#9ca3af">0&quot;</text>
+                                    {/* X-axis time labels */}
+                                    {tLabels.map((t, i) => (
+                                      <text key={i} x={t.x} y={chartH - 2} textAnchor="middle" fontSize="7" fill="#9ca3af">{t.label}</text>
+                                    ))}
+                                  </svg>
+                                ) : (
+                                  <div style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    aspectRatio: `${chartW} / ${chartH}`,
+                                    background: "#fafafa",
+                                    borderRadius: 6,
+                                    border: "1px solid #e5e7eb",
+                                    fontSize: 11,
+                                    color: "#9ca3af",
+                                    fontStyle: "italic",
+                                  }}>
+                                    No precipitation — Intentionally blank
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Sunrise / Sunset */}
+                        {(w.sunrise || w.sunset) && (
+                          <div style={{ display: "flex", gap: 12, marginBottom: 8, fontSize: 11, color: "#6b7280" }}>
+                            {w.sunrise && <span>🌅 Sunrise: {w.sunrise}</span>}
+                            {w.sunset && <span>🌇 Sunset: {w.sunset}</span>}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+
+                  {/* No weather data message */}
+                  {!weatherPreview.loading && !weatherPreview.available && (
+                    <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 6 }}>
+                      {!weatherPreview.configured
+                        ? "Weather API not configured (missing VISUAL_CROSSING_API_KEY)"
+                        : "Weather data unavailable for this project location"}
+                    </div>
+                  )}
+
+                  {/* Manual override textarea */}
+                  <div>
+                    <div style={{ fontSize: 11, marginBottom: 2, color: "#6b7280" }}>
+                      Weather Summary (auto-filled, editable)
                     </div>
                     <textarea
                       value={newDailyLog.weatherSummary}
                       onChange={e =>
                         setNewDailyLog(prev => ({ ...prev, weatherSummary: e.target.value }))
                       }
-                      rows={3}
+                      rows={2}
                       style={{
                         width: "100%",
                         padding: "4px 6px",
@@ -24774,6 +25420,7 @@ ${htmlBody}
                 </div>
               </div>
             </div>
+            )}
 
             {/* Right column: Daily Logs list at top */}
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -25339,7 +25986,8 @@ ${htmlBody}
                             }
 
                             return (
-                              <tr key={it.sowItemId}>
+                              <React.Fragment key={it.sowItemId}>
+                              <tr>
                                 <td
                                   style={{
                                     padding: "4px 6px",
@@ -25392,7 +26040,7 @@ ${htmlBody}
                                   <input
                                     type="checkbox"
                                     checked={it.qtyFlaggedIncorrect}
-                                    onChange={() => openFieldPetlEdit(it)}
+                                    onChange={() => handleFieldPetlCheckbox(it)}
                                   />
                                 </td>
                                 <td
@@ -25409,23 +26057,153 @@ ${htmlBody}
                                     borderTop: "1px solid #e5e7eb",
                                   }}
                                 >
-                                  <button
-                                    type="button"
-                                    onClick={() => openFieldPetlEdit(it)}
-                                    style={{
-                                      padding: "2px 6px",
-                                      borderRadius: 4,
-                                      border: "1px solid #0f172a",
-                                      backgroundColor: "#0f172a",
-                                      color: "#f9fafb",
-                                      fontSize: 11,
-                                      cursor: "pointer",
-                                    }}
-                                  >
-                                    Verify / Edit
-                                  </button>
+                                  <div style={{ display: "flex", gap: 4 }}>
+                                    {(() => {
+                                      const linkedLog = dailyLogs.find(l => l.sowItem?.id === it.sowItemId);
+                                      return linkedLog ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => setViewDailyLog({
+                                            open: true,
+                                            log: linkedLog,
+                                            draft: {
+                                              type: linkedLog.type || "PUDL",
+                                              title: linkedLog.title || "",
+                                              tags: "",
+                                              logDate: linkedLog.logDate ? linkedLog.logDate.slice(0, 10) : "",
+                                              workPerformed: linkedLog.workPerformed || "",
+                                              crewOnSite: linkedLog.crewOnSite || "",
+                                              issues: linkedLog.issues || "",
+                                              safetyIncidents: linkedLog.safetyIncidents || "",
+                                              weatherSummary: linkedLog.weatherSummary || "",
+                                              personOnsite: linkedLog.personOnsite || "",
+                                              manpowerOnsite: linkedLog.manpowerOnsite != null ? String(linkedLog.manpowerOnsite) : "",
+                                              confidentialNotes: linkedLog.confidentialNotes || "",
+                                              shareInternal: linkedLog.shareInternal ?? true,
+                                              shareSubs: linkedLog.shareSubs ?? false,
+                                              shareClient: linkedLog.shareClient ?? false,
+                                              sharePrivate: linkedLog.sharePrivate ?? false,
+                                              attachmentFiles: [],
+                                              buildingId: linkedLog.building?.id || "",
+                                              unitId: linkedLog.unit?.id || "",
+                                              roomParticleId: linkedLog.roomParticle?.id || "",
+                                              sowItemId: linkedLog.sowItem?.id || "",
+                                              expenseVendor: linkedLog.expenseVendor || "",
+                                              expenseAmount: linkedLog.expenseAmount != null ? String(linkedLog.expenseAmount) : "",
+                                              expenseDate: linkedLog.expenseDate ? linkedLog.expenseDate.slice(0, 10) : "",
+                                            },
+                                            editing: false,
+                                            saving: false,
+                                            error: null,
+                                          })}
+                                          title="Open linked daily log"
+                                          style={{
+                                            padding: "2px 6px",
+                                            borderRadius: 4,
+                                            border: "1px solid #0f172a",
+                                            backgroundColor: "#0f172a",
+                                            color: "#f9fafb",
+                                            fontSize: 11,
+                                            cursor: "pointer",
+                                          }}
+                                        >
+                                          View Log
+                                        </button>
+                                      ) : (
+                                        <span style={{ fontSize: 10, color: "#9ca3af", padding: "2px 0" }}>No log</span>
+                                      );
+                                    })()}
+                                    <button
+                                      type="button"
+                                      onClick={() => openFieldPetlEdit(it)}
+                                      title="Verify / edit qty"
+                                      style={{
+                                        padding: "2px 6px",
+                                        borderRadius: 4,
+                                        border: "1px solid #6b7280",
+                                        backgroundColor: "#ffffff",
+                                        color: "#374151",
+                                        fontSize: 11,
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      Qty
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
+                              {fieldPetlInlineEdit?.sowItemId === it.sowItemId && (
+                                <tr>
+                                  <td colSpan={7} style={{
+                                    padding: "8px 6px",
+                                    borderTop: "1px solid #fbbf24",
+                                    background: "#fffbeb",
+                                  }}>
+                                    <div style={{ fontSize: 12 }}>
+                                      <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                                        Flag as incorrect — Line {it.lineNo}: {it.description || "(No description)"}
+                                      </div>
+                                      <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                                        <div style={{ width: 100 }}>
+                                          <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 2 }}>New Qty</label>
+                                          <input
+                                            type="number"
+                                            value={fieldPetlInlineEdit.fieldQty}
+                                            onChange={e => setFieldPetlInlineEdit(prev => prev ? { ...prev, fieldQty: e.target.value } : prev)}
+                                            placeholder="Optional"
+                                            style={{ width: "100%", padding: "3px 5px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                                          />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                          <label style={{ fontSize: 11, color: "#6b7280", display: "block", marginBottom: 2 }}>Note</label>
+                                          <input
+                                            type="text"
+                                            value={fieldPetlInlineEdit.note}
+                                            onChange={e => setFieldPetlInlineEdit(prev => prev ? { ...prev, note: e.target.value } : prev)}
+                                            placeholder="Describe the issue…"
+                                            style={{ width: "100%", padding: "3px 5px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                                          />
+                                        </div>
+                                        <div style={{ display: "flex", gap: 4, paddingTop: 14 }}>
+                                          <button
+                                            type="button"
+                                            onClick={submitFieldPetlInlineCorrection}
+                                            disabled={fieldPetlInlineEdit.saving}
+                                            style={{
+                                              padding: "3px 8px", borderRadius: 4,
+                                              border: "1px solid #0f172a",
+                                              backgroundColor: fieldPetlInlineEdit.saving ? "#e5e7eb" : "#0f172a",
+                                              color: fieldPetlInlineEdit.saving ? "#4b5563" : "#f9fafb",
+                                              fontSize: 11, cursor: fieldPetlInlineEdit.saving ? "default" : "pointer",
+                                            }}
+                                          >
+                                            {fieldPetlInlineEdit.saving ? "Saving…" : "Save"}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setFieldPetlInlineEdit(null)}
+                                            disabled={fieldPetlInlineEdit.saving}
+                                            style={{
+                                              padding: "3px 8px", borderRadius: 4,
+                                              border: "1px solid #d1d5db",
+                                              backgroundColor: "#ffffff",
+                                              fontSize: 11, cursor: fieldPetlInlineEdit.saving ? "default" : "pointer",
+                                            }}
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      </div>
+                                      {fieldPetlInlineEdit.error && (
+                                        <div style={{ color: "#b91c1c", fontSize: 11, marginTop: 4 }}>
+                                          {fieldPetlInlineEdit.error}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                              </React.Fragment>
                             );
                           })}
                         </tbody>

@@ -34,6 +34,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
   const [newOrgName, setNewOrgName] = useState("");
   const [newOrgTemplate, setNewOrgTemplate] = useState("BLANK");
   const [newOrgError, setNewOrgError] = useState<string | null>(null);
+  const [switchingToCompanyId, setSwitchingToCompanyId] = useState<string | null>(null);
 
 
   function getTokenOrThrow() {
@@ -121,6 +122,41 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
 
   const isActiveCompany = (id: string) => pathname?.startsWith(`/system/${id}`);
   const isOverview = pathname === "/system";
+
+  /** Switch into a tenant's context and land on their dashboard. */
+  const switchToTenant = async (companyId: string) => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    try {
+      setSwitchingToCompanyId(companyId);
+      const res = await fetch(`${API_BASE}/auth/switch-company`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ companyId }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Failed to switch company (${res.status}) ${text}`);
+      }
+      const json: any = await res.json();
+      if (json.accessToken && json.refreshToken && json.company?.id) {
+        window.localStorage.setItem("accessToken", json.accessToken);
+        window.localStorage.setItem("refreshToken", json.refreshToken);
+        window.localStorage.setItem("companyId", json.company.id);
+        window.localStorage.setItem("lastCompanyId", json.company.id);
+      }
+      window.location.href = "/projects";
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to switch to organization");
+    } finally {
+      setSwitchingToCompanyId(null);
+    }
+  };
 
   // Check if we're on a document detail page (should hide sidebar for full-width view)
   const isDocumentDetailPage = pathname?.match(/^\/system\/documents\/[^/]+$/) && 
@@ -416,31 +452,62 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
             <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
               {visibleCompanies.map(c => {
                 const active = isActiveCompany(c.id);
+                const isSwitching = switchingToCompanyId === c.id;
                 return (
                   <li key={c.id}>
-                    <Link
-                      href={`/system/${c.id}`}
+                    <div
                       style={{
-                        display: "block",
+                        display: "flex",
+                        alignItems: "center",
                         margin: "0 -8px 4px",
-                        padding: "6px 12px",
-                        textDecoration: "none",
-                        fontSize: 12,
-                        color: active ? "#0f172a" : "#111827",
                         backgroundColor: active ? "#bfdbfe" : "transparent",
                       }}
-                      title={c.name}
                     >
-                      <div
+                      <button
+                        type="button"
+                        onClick={() => switchToTenant(c.id)}
+                        disabled={isSwitching}
                         style={{
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
+                          flex: 1,
+                          display: "block",
+                          padding: "6px 12px",
+                          textAlign: "left",
+                          border: "none",
+                          background: "transparent",
+                          fontSize: 12,
+                          color: active ? "#0f172a" : "#111827",
+                          cursor: isSwitching ? "wait" : "pointer",
+                          opacity: isSwitching ? 0.6 : 1,
                         }}
+                        title={`Switch to ${c.name}`}
                       >
-                        {c.name}
-                      </div>
-                    </Link>
+                        <div
+                          style={{
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {isSwitching ? "Switching…" : c.name}
+                        </div>
+                      </button>
+                      <Link
+                        href={`/system/${c.id}`}
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                          flexShrink: 0,
+                          padding: "4px 6px",
+                          marginRight: 5,
+                          fontSize: 11,
+                          color: "#9ca3af",
+                          textDecoration: "none",
+                          borderRadius: 4,
+                        }}
+                        title={`Admin view for ${c.name}`}
+                      >
+                        ⚙
+                      </Link>
+                    </div>
                   </li>
                 );
               })}

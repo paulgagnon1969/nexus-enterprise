@@ -7999,11 +7999,12 @@ export class ProjectService {
       const currentQty = sowItem.qty ?? null;
       const reportedQty = qtyFieldReported ?? null;
 
-      // Only escalate into reconciliation workflow when a discrepancy exists.
+      // Escalate into reconciliation workflow when a discrepancy exists or a note is provided.
       const hasDeviation =
         qtyFlaggedIncorrect === true &&
         !(currentQty === null && reportedQty === null) &&
         currentQty !== reportedQty;
+      const hasFieldNote = qtyFlaggedIncorrect === true && !!notes?.trim();
 
       await this.prisma.sowItem.update({
         where: { id: sowItem.id },
@@ -8019,7 +8020,7 @@ export class ProjectService {
 
       updatedCount += 1;
 
-      if (!hasDeviation) {
+      if (!hasDeviation && !hasFieldNote) {
         continue;
       }
 
@@ -8031,21 +8032,60 @@ export class ProjectService {
         sowItemId: sowItem.id,
       });
 
-      const existingToday = await this.prisma.petlReconciliationEntry.findFirst({
-        where: {
-          caseId: reconCase.id,
-          parentSowItemId: sowItem.id,
-          kind: PetlReconciliationEntryKind.NOTE_ONLY,
-          createdAt: {
-            gte: new Date(new Date().setHours(0, 0, 0, 0)),
+      if (hasDeviation) {
+        const existingToday = await this.prisma.petlReconciliationEntry.findFirst({
+          where: {
+            caseId: reconCase.id,
+            parentSowItemId: sowItem.id,
+            kind: PetlReconciliationEntryKind.NOTE_ONLY,
+            createdAt: {
+              gte: new Date(new Date().setHours(0, 0, 0, 0)),
+            },
           },
-        },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, note: true },
-      });
+          orderBy: { createdAt: "desc" },
+          select: { id: true, note: true },
+        });
 
-      const notePrefix = "[FIELD_QTY_DISCREPANCY]";
-      if (!existingToday?.note?.startsWith(notePrefix)) {
+        const notePrefix = "[FIELD_QTY_DISCREPANCY]";
+        if (!existingToday?.note?.startsWith(notePrefix)) {
+          const noteBody = notes?.trim()
+            ? `${notePrefix} Field reported qty ${reportedQty} differs from estimate qty ${currentQty}. Note: ${notes.trim()}`
+            : `${notePrefix} Field reported qty ${reportedQty} differs from estimate qty ${currentQty}. Review required.`;
+          await this.prisma.petlReconciliationEntry.create({
+            data: {
+              projectId,
+              estimateVersionId: sowItem.estimateVersionId,
+              caseId: reconCase.id,
+              parentSowItemId: sowItem.id,
+              projectParticleId: sowItem.projectParticleId,
+              kind: PetlReconciliationEntryKind.NOTE_ONLY,
+              rcvAmount: null,
+              percentComplete: 0,
+              isPercentCompleteLocked: true,
+              note: noteBody,
+              createdByUserId: actor.userId,
+              originEstimateVersionId: sowItem.estimateVersionId,
+              originSowItemId: sowItem.id,
+              originLineNo: sowItem.rawRow?.lineNo ?? sowItem.lineNo ?? null,
+              events: {
+                create: {
+                  projectId,
+                  estimateVersionId: sowItem.estimateVersionId,
+                  caseId: reconCase.id,
+                  eventType: "ENTRY_CREATED_FIELD_QTY_DISCREPANCY",
+                  payloadJson: {
+                    sowItemId: sowItem.id,
+                    estimateQty: currentQty,
+                    fieldQty: reportedQty,
+                  },
+                  createdByUserId: actor.userId,
+                },
+              },
+            },
+          });
+        }
+      } else if (hasFieldNote) {
+        // Note-only (no qty deviation) — always create a reconciliation entry
         await this.prisma.petlReconciliationEntry.create({
           data: {
             projectId,
@@ -8057,7 +8097,7 @@ export class ProjectService {
             rcvAmount: null,
             percentComplete: 0,
             isPercentCompleteLocked: true,
-            note: `${notePrefix} Field reported qty ${reportedQty} differs from estimate qty ${currentQty}. Review required.`,
+            note: `[FIELD_NOTE] ${notes!.trim()}`,
             createdByUserId: actor.userId,
             originEstimateVersionId: sowItem.estimateVersionId,
             originSowItemId: sowItem.id,
@@ -8067,11 +8107,10 @@ export class ProjectService {
                 projectId,
                 estimateVersionId: sowItem.estimateVersionId,
                 caseId: reconCase.id,
-                eventType: "ENTRY_CREATED_FIELD_QTY_DISCREPANCY",
+                eventType: "ENTRY_CREATED_FIELD_NOTE",
                 payloadJson: {
                   sowItemId: sowItem.id,
-                  estimateQty: currentQty,
-                  fieldQty: reportedQty,
+                  note: notes!.trim(),
                 },
                 createdByUserId: actor.userId,
               },

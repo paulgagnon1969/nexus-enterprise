@@ -7,9 +7,10 @@ import { AuditService } from "../../common/audit.service";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { TaskService } from "../task/task.service";
 import { OcrModule } from "../ocr/ocr.module";
+import { WeatherModule } from "../weather/weather.module";
 
 @Module({
-  imports: [PrismaModule, NotificationsModule, OcrModule],
+  imports: [PrismaModule, NotificationsModule, OcrModule, WeatherModule],
   providers: [DailyLogService, AuditService, TaskService],
   controllers: [DailyLogController, DailyLogFeedController, DailyLogAttachmentsController]
 })

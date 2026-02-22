@@ -30,6 +30,9 @@ export class CreateDailyLogDto {
   weatherSummary?: string | null;
 
   @IsOptional()
+  weatherJson?: any;
+
+  @IsOptional()
   @IsString()
   crewOnSite?: string | null;
 

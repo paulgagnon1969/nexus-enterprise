@@ -2693,6 +2693,7 @@ model DailyLog {
   title                String?
   tagsJson             String?
   weatherSummary       String?
+  weatherJson          Json?
   crewOnSite           String?
   workPerformed        String?
   issues               String?
