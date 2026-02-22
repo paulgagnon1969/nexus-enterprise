@@ -9,11 +9,16 @@ import {
   Platform,
   Alert,
   ScrollView,
+  Modal,
+  ActivityIndicator,
+  Image,
+  Linking,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import * as ImagePicker from "expo-image-picker";
 import { apiJson } from "../api/client";
-import { scanReceiptImage } from "../api/dailyLog";
+import { getApiBaseUrl } from "../api/config";
+import { scanReceiptImage, fetchDailyLogDetail, updateDailyLog } from "../api/dailyLog";
 import { getCache, setCache } from "../offline/cache";
 import { enqueueOutbox } from "../offline/outbox";
 import { addLocalDailyLog } from "../offline/sync";
@@ -105,6 +110,16 @@ export function DailyLogsScreen({
   const [scanning, setScanning] = useState(false);
   const processedPetlChangesRef = useRef<string | null>(null);
 
+  // Log detail / edit state
+  const [showAllLogs, setShowAllLogs] = useState(false);
+  const [detailLog, setDetailLog] = useState<any | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
+  const [editingDetail, setEditingDetail] = useState(false);
+  const [editWork, setEditWork] = useState("");
+  const [editIssues, setEditIssues] = useState("");
+  const [savingDetail, setSavingDetail] = useState(false);
+
   const key = `dailyLogs:${project.id}`;
 
   const loadCached = async () => {
@@ -129,6 +144,53 @@ export function DailyLogsScreen({
   useEffect(() => {
     void loadCached().then(refreshOnline);
   }, [project.id]);
+
+  // Open log detail modal
+  const openLogDetail = async (logId: string) => {
+    if (logId.startsWith("local_")) return; // Can't fetch detail for pending local logs
+    setDetailLoading(true);
+    setShowDetail(true);
+    try {
+      const detail = await fetchDailyLogDetail(logId);
+      setDetailLog(detail);
+      setEditWork(detail.workPerformed || "");
+      setEditIssues(detail.issues || "");
+    } catch {
+      setShowDetail(false);
+      Alert.alert("Error", "Failed to load log details");
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const closeDetail = () => {
+    setShowDetail(false);
+    setDetailLog(null);
+    setEditingDetail(false);
+  };
+
+  const saveDetailEdits = async () => {
+    if (!detailLog) return;
+    setSavingDetail(true);
+    try {
+      const updated = await updateDailyLog(detailLog.id, {
+        workPerformed: editWork,
+        issues: editIssues,
+      });
+      setDetailLog(updated);
+      setEditingDetail(false);
+      void refreshOnline(); // Refresh the list
+    } catch {
+      Alert.alert("Error", "Failed to save changes");
+    } finally {
+      setSavingDetail(false);
+    }
+  };
+
+  const formatLogDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
 
   // Sync createLogType prop → logType state when navigated with a pre-selected type
   useEffect(() => {
@@ -694,27 +756,204 @@ export function DailyLogsScreen({
           <Text style={styles.saveButtonText}>Save Daily Log</Text>
         </Pressable>
 
-        {/* Previous logs - collapsed at bottom */}
+        {/* Previous logs — full list, tappable */}
         {logs.length > 0 && (
           <View style={styles.logsSection}>
-            <Text style={styles.logsSectionTitle}>Previous Logs</Text>
-            {logs.slice(0, 5).map((l) => (
-              <View key={l.id} style={styles.logCard}>
-                <Text style={styles.logCardTitle}>
-                  {l.title || "(no title)"} {l.__local ? "(pending)" : ""}
-                </Text>
-                <Text style={styles.logCardDate}>{String(l.logDate)}</Text>
-              </View>
+            <View style={styles.logsSectionHeader}>
+              <Text style={styles.logsSectionTitle}>Previous Logs ({logs.length})</Text>
+              {logs.length > 5 && (
+                <Pressable onPress={() => setShowAllLogs((v) => !v)}>
+                  <Text style={styles.logsToggle}>
+                    {showAllLogs ? "Show Less" : `Show All ${logs.length}`}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+            {(showAllLogs ? logs : logs.slice(0, 5)).map((l) => (
+              <Pressable
+                key={l.id}
+                style={styles.logCard}
+                onPress={() => openLogDetail(l.id)}
+                disabled={!!l.__local}
+              >
+                <View style={styles.logCardContent}>
+                  <Text style={styles.logCardTitle} numberOfLines={2}>
+                    {l.title || l.workPerformed || "(no title)"}
+                    {l.__local ? " (pending)" : ""}
+                  </Text>
+                  <Text style={styles.logCardDate}>
+                    {formatLogDate(l.logDate)}
+                    {l.createdByUser ? ` • ${l.createdByUser.firstName || l.createdByUser.email}` : ""}
+                  </Text>
+                </View>
+                {!l.__local && <Text style={styles.logCardChevron}>›</Text>}
+              </Pressable>
             ))}
-            {logs.length > 5 && (
-              <Text style={styles.logsMore}>+ {logs.length - 5} more logs</Text>
-            )}
           </View>
         )}
 
         {/* Bottom padding for scroll */}
         <View style={{ height: 40 }} />
       </KeyboardAwareScrollView>
+
+      {/* Log Detail Modal */}
+      <Modal visible={showDetail} animationType="slide" onRequestClose={closeDetail}>
+        <View style={styles.detailContainer}>
+          <View style={styles.detailHeader}>
+            <Pressable onPress={closeDetail} style={styles.detailBackBtn}>
+              <Text style={styles.detailBackText}>← Back</Text>
+            </Pressable>
+            <Text style={styles.detailHeaderTitle} numberOfLines={1}>
+              {detailLog?.projectName || project.name}
+            </Text>
+            <View style={{ width: 50 }} />
+          </View>
+
+          {detailLoading ? (
+            <View style={styles.detailLoading}>
+              <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+          ) : detailLog ? (
+            <ScrollView style={styles.detailBody} contentContainerStyle={{ paddingBottom: 40 }}>
+              <View style={styles.detailMeta}>
+                <Text style={styles.detailDate}>{formatLogDate(detailLog.logDate)}</Text>
+                <Text style={styles.detailAuthor}>
+                  by {detailLog.createdByUser?.firstName || detailLog.createdByUser?.email || "Unknown"}
+                </Text>
+                {detailLog.type && detailLog.type !== "PUDL" && (
+                  <Text style={styles.detailType}>{detailLog.type}</Text>
+                )}
+              </View>
+
+              {editingDetail ? (
+                <>
+                  <Text style={styles.detailFieldLabel}>Work Performed</Text>
+                  <TextInput
+                    style={styles.detailTextInput}
+                    value={editWork}
+                    onChangeText={setEditWork}
+                    multiline
+                    placeholder="Describe work performed..."
+                    placeholderTextColor={colors.textMuted}
+                  />
+                  <Text style={styles.detailFieldLabel}>Issues</Text>
+                  <TextInput
+                    style={styles.detailTextInput}
+                    value={editIssues}
+                    onChangeText={setEditIssues}
+                    multiline
+                    placeholder="Any issues encountered..."
+                    placeholderTextColor={colors.textMuted}
+                  />
+                  <View style={styles.detailEditActions}>
+                    <Pressable
+                      style={styles.detailCancelBtn}
+                      onPress={() => {
+                        setEditingDetail(false);
+                        setEditWork(detailLog.workPerformed || "");
+                        setEditIssues(detailLog.issues || "");
+                      }}
+                    >
+                      <Text style={styles.detailCancelText}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.detailSaveBtn, savingDetail && { opacity: 0.6 }]}
+                      onPress={saveDetailEdits}
+                      disabled={savingDetail}
+                    >
+                      <Text style={styles.detailSaveText}>
+                        {savingDetail ? "Saving..." : "Save"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : (
+                <>
+                  {detailLog.workPerformed ? (
+                    <>
+                      <Text style={styles.detailFieldLabel}>Work Performed</Text>
+                      <Text style={styles.detailFieldValue}>{detailLog.workPerformed}</Text>
+                    </>
+                  ) : null}
+                  {detailLog.issues ? (
+                    <>
+                      <Text style={styles.detailFieldLabel}>Issues</Text>
+                      <Text style={styles.detailFieldValue}>{detailLog.issues}</Text>
+                    </>
+                  ) : null}
+                  {detailLog.weatherSummary ? (
+                    <>
+                      <Text style={styles.detailFieldLabel}>Weather</Text>
+                      <Text style={styles.detailFieldValue}>{detailLog.weatherSummary}</Text>
+                    </>
+                  ) : null}
+                  {detailLog.crewOnSite ? (
+                    <>
+                      <Text style={styles.detailFieldLabel}>Crew On Site</Text>
+                      <Text style={styles.detailFieldValue}>{detailLog.crewOnSite}</Text>
+                    </>
+                  ) : null}
+                  {detailLog.safetyIncidents ? (
+                    <>
+                      <Text style={styles.detailFieldLabel}>Safety Incidents</Text>
+                      <Text style={styles.detailFieldValue}>{detailLog.safetyIncidents}</Text>
+                    </>
+                  ) : null}
+
+                  {/* Attachments */}
+                  {detailLog.attachments?.length > 0 && (
+                    <>
+                      <Text style={styles.detailFieldLabel}>
+                        Attachments ({detailLog.attachments.length})
+                      </Text>
+                      <View style={styles.detailAttGrid}>
+                        {detailLog.attachments.map((att: any) => {
+                          const isImage = att.mimeType?.startsWith("image/") ||
+                            att.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/);
+                          const fullUrl = att.fileUrl?.startsWith("http")
+                            ? att.fileUrl
+                            : `${getApiBaseUrl()}${att.fileUrl}`;
+                          if (isImage) {
+                            return (
+                              <Pressable
+                                key={att.id}
+                                style={styles.detailAttThumb}
+                                onPress={() => fullUrl && Linking.openURL(fullUrl)}
+                              >
+                                <Image
+                                  source={{ uri: fullUrl }}
+                                  style={styles.detailAttImg}
+                                  resizeMode="cover"
+                                />
+                              </Pressable>
+                            );
+                          }
+                          return (
+                            <Pressable
+                              key={att.id}
+                              style={styles.detailAttFile}
+                              onPress={() => fullUrl && Linking.openURL(fullUrl)}
+                            >
+                              <Text style={{ fontSize: 20, marginRight: 6 }}>📎</Text>
+                              <Text style={styles.detailAttFileName} numberOfLines={1}>
+                                {att.fileName || "File"}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </>
+                  )}
+
+                  <Pressable style={styles.detailEditBtn} onPress={() => setEditingDetail(true)}>
+                    <Text style={styles.detailEditBtnText}>Edit Log</Text>
+                  </Pressable>
+                </>
+              )}
+            </ScrollView>
+          ) : null}
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -1067,17 +1306,34 @@ const styles = StyleSheet.create({
   logsSection: {
     marginTop: 8,
   },
+  logsSectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
   logsSectionTitle: {
     fontSize: 13,
     fontWeight: "600",
     color: colors.textSecondary,
-    marginBottom: 8,
+  },
+  logsToggle: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.primary,
   },
   logCard: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: colors.background,
     borderRadius: 8,
     padding: 12,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: colors.borderMuted,
+  },
+  logCardContent: {
+    flex: 1,
   },
   logCardTitle: {
     fontSize: 14,
@@ -1089,10 +1345,161 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginTop: 4,
   },
-  logsMore: {
+  logCardChevron: {
+    fontSize: 20,
+    color: colors.textMuted,
+    marginLeft: 8,
+  },
+
+  // Detail modal
+  detailContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  detailHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: Platform.OS === "ios" ? 54 : 32,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderMuted,
+  },
+  detailBackBtn: {
+    width: 50,
+  },
+  detailBackText: {
+    color: colors.primary,
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  detailHeaderTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.textPrimary,
+    textAlign: "center",
+  },
+  detailLoading: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  detailBody: {
+    flex: 1,
+    padding: 16,
+  },
+  detailMeta: {
+    marginBottom: 16,
+  },
+  detailDate: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.textPrimary,
+  },
+  detailAuthor: {
     fontSize: 13,
     color: colors.textMuted,
-    textAlign: "center",
-    paddingVertical: 8,
+    marginTop: 2,
+  },
+  detailType: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.primary,
+    marginTop: 4,
+  },
+  detailFieldLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginTop: 16,
+    marginBottom: 6,
+  },
+  detailFieldValue: {
+    fontSize: 15,
+    color: colors.textPrimary,
+    lineHeight: 22,
+  },
+  detailTextInput: {
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 15,
+    color: colors.textPrimary,
+    minHeight: 100,
+    textAlignVertical: "top",
+    borderWidth: 1,
+    borderColor: colors.borderMuted,
+  },
+  detailEditActions: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 16,
+  },
+  detailCancelBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: colors.backgroundSecondary,
+  },
+  detailCancelText: {
+    fontWeight: "600",
+    color: colors.textSecondary,
+  },
+  detailSaveBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: colors.success,
+  },
+  detailSaveText: {
+    fontWeight: "700",
+    color: colors.textOnPrimary,
+  },
+  detailEditBtn: {
+    marginTop: 24,
+    padding: 14,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: colors.primary,
+  },
+  detailEditBtnText: {
+    fontWeight: "700",
+    color: colors.textOnPrimary,
+    fontSize: 16,
+  },
+  detailAttGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 4,
+  },
+  detailAttThumb: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  detailAttImg: {
+    width: 80,
+    height: 80,
+  },
+  detailAttFile: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 8,
+    padding: 10,
+  },
+  detailAttFileName: {
+    fontSize: 13,
+    color: colors.textPrimary,
+    flex: 1,
   },
 });

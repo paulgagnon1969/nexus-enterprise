@@ -781,7 +781,7 @@ export function TimecardScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 54 },
+  container: { flex: 1, padding: 16, paddingTop: 54, paddingBottom: 36 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   loadingText: { marginTop: 12, color: "#6b7280" },
   header: {

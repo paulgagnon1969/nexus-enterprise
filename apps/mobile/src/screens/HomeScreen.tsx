@@ -1277,7 +1277,7 @@ export function HomeScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#ffffff", paddingTop: 50 },
+  container: { flex: 1, backgroundColor: "#ffffff", paddingTop: 50, paddingBottom: 20 },
 
   // Header row styles
   headerRow: {

@@ -462,7 +462,7 @@ export function ProjectsScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 54 },
+  container: { flex: 1, padding: 16, paddingTop: 54, paddingBottom: 36 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",

@@ -226,7 +226,7 @@ export function OutboxScreen({ onBack }: { onBack: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 50 },
+  container: { flex: 1, padding: 16, paddingTop: 50, paddingBottom: 36 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
