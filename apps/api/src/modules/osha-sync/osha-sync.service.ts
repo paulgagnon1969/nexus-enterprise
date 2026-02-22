@@ -17,7 +17,8 @@ interface ParsedSection {
   subpartTitle: string;
   sectionNumber: string; // e.g. "501"
   sectionCfr: string; // e.g. "1926.501"
-  title: string;
+  title: string; // Full formatted title: "§1926.501 — Duty to have fall protection"
+  sectionName: string; // Just the name part: "Duty to have fall protection"
   htmlContent: string;
   contentHash: string;
   sortOrder: number;
@@ -107,6 +108,28 @@ export class OshaSyncService {
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
+  }
+
+  /** Decode XML/HTML numeric character references and common named entities. */
+  private decodeEntities(s: string): string {
+    return s
+      // Hex numeric: &#x2014; → —
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+      // Decimal numeric: &#8212; → —
+      .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+      // Common named entities
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&mdash;/g, "\u2014")
+      .replace(/&ndash;/g, "\u2013")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&lsquo;/g, "\u2018")
+      .replace(/&rsquo;/g, "\u2019")
+      .replace(/&ldquo;/g, "\u201C")
+      .replace(/&rdquo;/g, "\u201D");
   }
 
   /** Recursively convert a parsed XML element into HTML. */
@@ -332,16 +355,19 @@ export class OshaSyncService {
           sectionNumber = this.getTextContent(node[key]).replace("§", "").trim();
           // e.g., "1926.501"
         } else if (upper === "SUBJECT") {
-          title = this.getTextContent(node[key]).trim();
-        } else if (upper === "HEAD" && !sectionNumber) {
-          // eCFR uses <HEAD>§ 1926.1 Purpose and scope.</HEAD> instead of SECTNO/SUBJECT
+          const subjectText = this.getTextContent(node[key]).trim();
+          if (subjectText) title = subjectText;
+        } else if (upper === "HEAD") {
+          // eCFR may use HEAD instead of or in addition to SECTNO/SUBJECT
           const headText = this.getTextContent(node[key]).trim();
           const headMatch = headText.match(/§\s*([\d.]+)\s*(.*)/);
           if (headMatch) {
-            sectionNumber = headMatch[1].trim();
-            title = headMatch[2].replace(/^[\u2014\-—–\s]+/, "").trim().replace(/\.$/, "");
-          } else {
-            // Not a section heading — treat as body HTML
+            if (!sectionNumber) sectionNumber = headMatch[1].trim();
+            const headTitle = headMatch[2].replace(/^[\u2014\-—–\s]+/, "").trim().replace(/\.$/, "");
+            // Use HEAD title if we don't have one from SUBJECT yet
+            if (!title && headTitle) title = headTitle;
+          } else if (sectionNumber) {
+            // HEAD after SECTNO that isn't a section heading — body content
             bodyHtml += this.elementToHtml(node[key], key);
           }
         } else if (upper === "RESERVED") {
@@ -349,7 +375,6 @@ export class OshaSyncService {
           bodyHtml += `<p><em>[Reserved]</em></p>\n`;
         } else {
           // Build HTML from other elements
-          const attrs = node[":@"] || {};
           bodyHtml += this.elementToHtml(node[key], key);
         }
       }
@@ -362,13 +387,16 @@ export class OshaSyncService {
 
     if (!sectionNumber) return null;
 
+    // Strip trailing period from title
+    title = title.replace(/\.$/, "").trim();
+
     // Clean section number: "1926.501" → "501"
     const shortNum = sectionNumber.replace(`${CFR_PART}.`, "");
     const sub = currentSubpart || { letter: "?", title: "General" };
 
     const fullHtml = [
       `<div class="osha-section" data-section="${sectionNumber}">`,
-      `<h2>§${sectionNumber} — ${title}</h2>`,
+      `<h2>§${sectionNumber}${title ? ` \u2014 ${title}` : ""}</h2>`,
       bodyHtml,
       `</div>`,
     ].join("\n");
@@ -378,25 +406,31 @@ export class OshaSyncService {
       subpartTitle: sub.title,
       sectionNumber: shortNum,
       sectionCfr: sectionNumber,
-      title: `§${sectionNumber} — ${title}`,
+      title: `§${sectionNumber}${title ? ` \u2014 ${title}` : ""}`,
+      sectionName: title || "",
       htmlContent: fullHtml,
       contentHash: this.hashContent(fullHtml),
     };
   }
 
   private getTextContent(el: any): string {
-    if (typeof el === "string") return el;
-    if (typeof el === "number") return String(el);
-    if (!el) return "";
-    if (Array.isArray(el)) return el.map((e) => this.getTextContent(e)).join("");
-    if (el["#text"] !== undefined) return String(el["#text"]);
-    // Recurse into children
-    let text = "";
-    for (const key of Object.keys(el)) {
-      if (key === ":@") continue;
-      text += this.getTextContent(el[key]);
+    let raw: string;
+    if (typeof el === "string") raw = el;
+    else if (typeof el === "number") raw = String(el);
+    else if (!el) return "";
+    else if (Array.isArray(el)) raw = el.map((e) => this.getTextContent(e)).join("");
+    else if (el["#text"] !== undefined) raw = String(el["#text"]);
+    else {
+      // Recurse into children
+      let text = "";
+      for (const key of Object.keys(el)) {
+        if (key === ":@") continue;
+        text += this.getTextContent(el[key]);
+      }
+      raw = text;
     }
-    return text;
+    // Decode any XML/HTML entities that fast-xml-parser didn't handle
+    return this.decodeEntities(raw);
   }
 
   // ---------------------------------------------------------------------------
@@ -573,9 +607,10 @@ export class OshaSyncService {
 
         // --- Process each subpart as a chapter ---
         let subpartSort = 0;
-        for (const [letter, { title, sections: subSections }] of subpartMap) {
+        for (const [letter, { title: subpartDescName, sections: subSections }] of subpartMap) {
           subpartSort++;
-          const chapterTitle = `Subpart ${letter} — ${title}`;
+          const chapterTitle = `Subpart ${letter}`;
+          const chapterDescription = subpartDescName || null;
 
           // Find or create chapter
           let chapter = await tx.manualChapter.findFirst({
@@ -587,13 +622,15 @@ export class OshaSyncService {
               data: {
                 manualId: manual.id,
                 title: chapterTitle,
+                description: chapterDescription,
                 sortOrder: subpartSort,
               },
             });
-          } else if (chapter.title !== chapterTitle) {
+          } else {
+            // Always update title + description to fix legacy data
             await tx.manualChapter.update({
               where: { id: chapter.id },
-              data: { title: chapterTitle, sortOrder: subpartSort },
+              data: { title: chapterTitle, description: chapterDescription, sortOrder: subpartSort },
             });
           }
 
@@ -610,7 +647,12 @@ export class OshaSyncService {
 
             if (existingDoc) {
               docId = existingDoc.id;
-              if (existingDoc.currentVersion?.contentHash !== section.contentHash) {
+              // Always update title + description to fix legacy data
+              const titleChanged = existingDoc.title !== section.title;
+              const descChanged = (existingDoc.description || "") !== (section.sectionName || "");
+              const contentChanged = existingDoc.currentVersion?.contentHash !== section.contentHash;
+
+              if (contentChanged) {
                 // Content changed — create new version
                 const lastVersion = await tx.systemDocumentVersion.findFirst({
                   where: { systemDocumentId: existingDoc.id },
@@ -634,11 +676,24 @@ export class OshaSyncService {
                   data: {
                     currentVersionId: version.id,
                     title: section.title,
+                    description: section.sectionName || null,
                     category: MANUAL_CATEGORY,
                     subcategory: `Subpart ${section.subpartLetter}`,
                   },
                 });
 
+                updatedSections++;
+              } else if (titleChanged || descChanged) {
+                // Title/description metadata changed but content didn't
+                await tx.systemDocument.update({
+                  where: { id: existingDoc.id },
+                  data: {
+                    title: section.title,
+                    description: section.sectionName || null,
+                    category: MANUAL_CATEGORY,
+                    subcategory: `Subpart ${section.subpartLetter}`,
+                  },
+                });
                 updatedSections++;
               } else {
                 unchangedSections++;
@@ -649,6 +704,7 @@ export class OshaSyncService {
                 data: {
                   code: docCode,
                   title: section.title,
+                  description: section.sectionName || null,
                   category: MANUAL_CATEGORY,
                   subcategory: `Subpart ${section.subpartLetter}`,
                   tags: ["osha", "safety", "construction", `subpart-${section.subpartLetter.toLowerCase()}`],
@@ -695,6 +751,12 @@ export class OshaSyncService {
                   displayTitleOverride: section.title,
                   addedInManualVersion: manualVersion,
                 },
+              });
+            } else if (existingLink.displayTitleOverride !== section.title) {
+              // Update displayTitleOverride if it changed
+              await tx.manualDocument.update({
+                where: { id: existingLink.id },
+                data: { displayTitleOverride: section.title },
               });
             }
           }
