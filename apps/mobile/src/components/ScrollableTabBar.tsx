@@ -173,7 +173,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.tabBorder,
     paddingTop: 8,
-    paddingBottom: Platform.OS === "ios" ? 24 : 30,
+    paddingBottom: Platform.OS === "ios" ? 24 : 40,
     paddingHorizontal: 16,
     gap: 12,
   },
