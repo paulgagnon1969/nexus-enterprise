@@ -13,6 +13,23 @@ export async function fetchTasksForDailyLog(dailyLogId: string): Promise<TaskIte
 }
 
 /**
+ * Fetch all tasks for the current user.
+ * Foreman+ (OWNER/ADMIN) will see all tasks; others see only their assigned tasks.
+ */
+export async function fetchAllTasks(options?: {
+  projectId?: string;
+  status?: string;
+  overdueOnly?: boolean;
+}): Promise<TaskItem[]> {
+  const params = new URLSearchParams();
+  if (options?.projectId) params.set("projectId", options.projectId);
+  if (options?.status) params.set("status", options.status);
+  if (options?.overdueOnly) params.set("overdueOnly", "true");
+  const query = params.toString();
+  return apiJson<TaskItem[]>(query ? `/tasks?${query}` : "/tasks");
+}
+
+/**
  * Create a new task (optionally linked to a daily log).
  */
 export async function createTask(data: CreateTaskRequest): Promise<TaskItem> {

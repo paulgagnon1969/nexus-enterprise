@@ -1207,7 +1207,7 @@ export function HomeScreen({
                 <Text style={styles.modalClose}>✕</Text>
               </Pressable>
             </View>
-            <ScrollView style={styles.modalBody}>
+            <ScrollView style={styles.modalBody} contentContainerStyle={{ paddingBottom: 40 }}>
               {dailyLogTypes.map((type) => (
                 <Pressable
                   key={type.id}

@@ -19,7 +19,7 @@ export async function fetchContacts(options?: {
   }
 
   const query = params.toString();
-  const path = query ? `/contacts?${query}` : "/contacts";
+  const path = query ? `/personal-contacts?${query}` : "/personal-contacts";
 
   return apiJson<Contact[]>(path);
 }
@@ -28,5 +28,5 @@ export async function fetchContacts(options?: {
  * Fetch a single contact by ID.
  */
 export async function fetchContact(contactId: string): Promise<Contact> {
-  return apiJson<Contact>(`/contacts/${encodeURIComponent(contactId)}`);
+  return apiJson<Contact>(`/personal-contacts/${encodeURIComponent(contactId)}`);
 }

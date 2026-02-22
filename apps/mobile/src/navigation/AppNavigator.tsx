@@ -15,11 +15,14 @@ import { DirectoryScreen } from "../screens/DirectoryScreen";
 import { InventoryScreen } from "../screens/InventoryScreen";
 import { OutboxScreen } from "../screens/OutboxScreen";
 import { TimecardScreen } from "../screens/TimecardScreen";
-import type { ProjectListItem } from "../types/api";
+import { TodosScreen } from "../screens/TodosScreen";
+import { fetchAllTasks } from "../api/tasks";
+import type { ProjectListItem, TaskItem } from "../types/api";
 
 // Type definitions for navigation
 export type RootTabParamList = {
   HomeTab: { triggerSync?: boolean } | undefined;
+  TodosTab: undefined;
   TimecardTab: undefined;
   DirectoryTab: undefined;
   ProjectsTab: undefined;
@@ -40,6 +43,7 @@ const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
 function TabIcon({ label, focused }: { label: string; focused: boolean }) {
   const icons: Record<string, string> = {
     Home: "🏠",
+    "ToDo's": "✅",
     Timecard: "⏱️",
     Directory: "👥",
     Projects: "📋",
@@ -180,12 +184,61 @@ function HomeTabScreen() {
   );
 }
 
+// Badge dot component for ToDo's tab
+function TodoBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <View
+      style={{
+        position: "absolute",
+        top: -4,
+        right: -10,
+        backgroundColor: "#dc2626",
+        borderRadius: 10,
+        minWidth: 18,
+        height: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 4,
+      }}
+    >
+      <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
+        {count > 99 ? "99+" : count}
+      </Text>
+    </View>
+  );
+}
+
 export function AppNavigator({ onLogout }: { onLogout: () => void }) {
   const [company, setCompany] = React.useState<{ id: string | null; name: string | null; refreshKey: number }>({
     id: null,
     name: null,
     refreshKey: 0,
   });
+
+  // Track urgent task count for badge
+  const [urgentCount, setUrgentCount] = React.useState(0);
+  React.useEffect(() => {
+    let mounted = true;
+    const loadBadge = async () => {
+      try {
+        const tasks = await fetchAllTasks();
+        if (!mounted) return;
+        const now = new Date();
+        let urgent = 0;
+        for (const t of tasks) {
+          if (t.status === "DONE" || !t.dueDate) continue;
+          const diff = (new Date(t.dueDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+          if (diff <= 1) urgent++; // overdue or due within 24h
+        }
+        setUrgentCount(urgent);
+      } catch { /* ignore */ }
+    };
+    loadBadge();
+    // Refresh badge every 60s
+    const interval = setInterval(loadBadge, 60_000);
+    return () => { mounted = false; clearInterval(interval); };
+  }, []);
   
   return (
     <LogoutContext.Provider value={onLogout}>
@@ -213,6 +266,19 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
           name="HomeTab"
           options={{ tabBarLabel: "Home" }}
           component={HomeTabScreen}
+        />
+        <Tab.Screen
+          name="TodosTab"
+          options={{
+            tabBarLabel: "ToDo's",
+            tabBarIcon: ({ focused }) => (
+              <View>
+                <TabIcon label="ToDo's" focused={focused} />
+                <TodoBadge count={urgentCount} />
+              </View>
+            ),
+          }}
+          component={TodosScreen}
         />
         <Tab.Screen
           name="TimecardTab"
