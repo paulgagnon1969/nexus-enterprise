@@ -13,6 +13,7 @@ import { TaskService } from "../task/task.service";
 import { TaskPriorityEnum } from "../task/dto/task.dto";
 import { ReceiptOcrService } from "../ocr/receipt-ocr.service";
 import { OpenAiOcrProvider } from "../ocr/openai-ocr.provider";
+import { WeatherService } from "../weather/weather.service";
 
 // Profile codes that are considered PM+ level (can edit logs, see delayed logs, publish)
 const PM_PLUS_PROFILES = new Set(["PM", "EXECUTIVE"]);
@@ -33,6 +34,7 @@ export class DailyLogService {
     private readonly tasks: TaskService,
     private readonly receiptOcr: ReceiptOcrService,
     private readonly openAiOcr: OpenAiOcrProvider,
+    private readonly weather: WeatherService,
   ) {}
 
   private async assertProjectAccess(
@@ -844,6 +846,23 @@ export class DailyLogService {
   ) {
     const project = await this.assertProjectAccess(projectId, companyId, actor, null);
 
+    // Auto-fill weather if not manually provided
+    let autoWeatherSummary: string | null = null;
+    let autoWeatherJson: any = null;
+    if (!dto.weatherSummary) {
+      try {
+        const dateStr = dto.logDate.slice(0, 10);
+        const weatherResult = await this.weather.getWeatherForProject(projectId, companyId, dateStr);
+        if (weatherResult) {
+          autoWeatherSummary = weatherResult.summary;
+          autoWeatherJson = weatherResult.data;
+          this.logger.log(`Auto-filled weather for project ${projectId} on ${dateStr}: ${autoWeatherSummary}`);
+        }
+      } catch (err: any) {
+        this.logger.warn(`Weather auto-fill failed for project ${projectId}: ${err?.message ?? err}`);
+      }
+    }
+
     const tagsJson = dto.tags && dto.tags.length ? JSON.stringify(dto.tags) : null;
     const notifyUserIdsJson =
       dto.notifyUserIds && dto.notifyUserIds.length
@@ -868,7 +887,8 @@ export class DailyLogService {
         type: logType,
         title: dto.title ?? null,
         tagsJson,
-        weatherSummary: dto.weatherSummary ?? null,
+        weatherSummary: dto.weatherSummary ?? autoWeatherSummary ?? null,
+        weatherJson: dto.weatherJson ?? autoWeatherJson ?? undefined,
         crewOnSite: dto.crewOnSite ?? null,
         workPerformed: dto.workPerformed ?? null,
         issues: dto.issues ?? null,
@@ -1557,7 +1577,7 @@ export class DailyLogService {
 
     // Build the changes object (only include fields that are actually changing)
     const editableFields = [
-      "logDate", "title", "weatherSummary", "crewOnSite", "workPerformed",
+      "logDate", "title", "weatherSummary", "weatherJson", "crewOnSite", "workPerformed",
       "issues", "safetyIncidents", "manpowerOnsite", "personOnsite",
       "confidentialNotes", "buildingId", "unitId", "roomParticleId", "sowItemId",
       "shareInternal", "shareSubs", "shareClient", "sharePrivate",

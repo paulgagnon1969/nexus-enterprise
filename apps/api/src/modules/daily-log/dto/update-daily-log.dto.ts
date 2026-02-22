@@ -19,6 +19,9 @@ export class UpdateDailyLogDto {
   weatherSummary?: string | null;
 
   @IsOptional()
+  weatherJson?: any;
+
+  @IsOptional()
   @IsString()
   crewOnSite?: string | null;
 
