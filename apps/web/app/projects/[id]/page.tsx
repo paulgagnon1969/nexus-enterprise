@@ -26462,6 +26462,39 @@ ${htmlBody}
                     </div>
                   )}
                   {!fieldPetlLoading && !fieldPetlError && fieldPetlItems.length > 0 && (
+                    <div>
+                      {/* Show/Hide All Notes toggle */}
+                      {fieldPetlItems.some(it => it.qtyFlaggedIncorrect && it.qtyFieldNotes) && (
+                        <div style={{ marginBottom: 6, display: "flex", gap: 8, alignItems: "center" }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const allNoteIds = fieldPetlItems
+                                .filter(it => it.qtyFlaggedIncorrect && it.qtyFieldNotes)
+                                .map(it => it.sowItemId);
+                              const allExpanded = allNoteIds.every(id => fieldPetlExpandedNotes.has(id));
+                              if (allExpanded) {
+                                setFieldPetlExpandedNotes(new Set());
+                              } else {
+                                setFieldPetlExpandedNotes(new Set(allNoteIds));
+                              }
+                            }}
+                            style={{
+                              padding: "3px 10px", borderRadius: 4, border: "1px solid #d1d5db",
+                              background: "#fff", fontSize: 11, cursor: "pointer", color: "#4b5563",
+                            }}
+                          >
+                            {fieldPetlItems
+                              .filter(it => it.qtyFlaggedIncorrect && it.qtyFieldNotes)
+                              .every(it => fieldPetlExpandedNotes.has(it.sowItemId))
+                              ? "▾ Hide All Notes"
+                              : "▸ Show All Notes"}
+                          </button>
+                          <span style={{ fontSize: 11, color: "#6b7280" }}>
+                            {fieldPetlItems.filter(it => it.qtyFlaggedIncorrect && it.qtyFieldNotes).length} flagged with notes
+                          </span>
+                        </div>
+                      )}
                     <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
                       <table
                         style={{
@@ -26556,13 +26589,38 @@ ${htmlBody}
                                   style={{
                                     padding: "4px 6px",
                                     borderTop: "1px solid #e5e7eb",
+                                    whiteSpace: "nowrap",
                                   }}
                                 >
-                                  <input
-                                    type="checkbox"
-                                    checked={it.qtyFlaggedIncorrect}
-                                    onChange={() => handleFieldPetlCheckbox(it)}
-                                  />
+                                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={it.qtyFlaggedIncorrect}
+                                      onChange={() => handleFieldPetlCheckbox(it)}
+                                    />
+                                    {it.qtyFlaggedIncorrect && it.qtyFieldNotes && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setFieldPetlExpandedNotes(prev => {
+                                            const next = new Set(prev);
+                                            if (next.has(it.sowItemId)) next.delete(it.sowItemId);
+                                            else next.add(it.sowItemId);
+                                            return next;
+                                          });
+                                        }}
+                                        style={{
+                                          border: "none", background: "transparent", cursor: "pointer",
+                                          padding: 0, fontSize: 11, color: "#6b7280", lineHeight: 1,
+                                        }}
+                                        title={fieldPetlExpandedNotes.has(it.sowItemId) ? "Hide note" : "Show note"}
+                                      >
+                                        {fieldPetlExpandedNotes.has(it.sowItemId) ? "▾" : "▸"}
+                                        <span style={{ fontSize: 10, marginLeft: 2 }}>📝</span>
+                                      </button>
+                                    )}
+                                  </div>
                                 </td>
                                 <td
                                   style={{
@@ -26653,6 +26711,35 @@ ${htmlBody}
                                   </div>
                                 </td>
                               </tr>
+                              {/* Expanded note display row (persistent after save) */}
+                              {it.qtyFlaggedIncorrect && it.qtyFieldNotes && fieldPetlExpandedNotes.has(it.sowItemId) && fieldPetlInlineEdit?.sowItemId !== it.sowItemId && (
+                                <tr>
+                                  <td colSpan={7} style={{
+                                    padding: "5px 6px 5px 24px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    background: "#fefce8",
+                                    fontSize: 11,
+                                  }}>
+                                    <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                                      <span style={{ color: "#92400e", fontWeight: 600 }}>Note:</span>
+                                      <span style={{ color: "#78350f" }}>{it.qtyFieldNotes}</span>
+                                      {it.qtyFieldReported != null && (
+                                        <span style={{ color: "#b91c1c", marginLeft: 8, fontSize: 10 }}>
+                                          Field qty: {it.qtyFieldReported}
+                                        </span>
+                                      )}
+                                      <span style={{
+                                        marginLeft: "auto",
+                                        padding: "1px 6px", borderRadius: 4, fontSize: 10,
+                                        background: it.qtyReviewStatus === "ACCEPTED" ? "#dcfce7" : it.qtyReviewStatus === "REJECTED" ? "#fee2e2" : "#fef3c7",
+                                        color: it.qtyReviewStatus === "ACCEPTED" ? "#166534" : it.qtyReviewStatus === "REJECTED" ? "#991b1b" : "#92400e",
+                                      }}>
+                                        {it.qtyReviewStatus || "PENDING"}
+                                      </span>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
                               {fieldPetlInlineEdit?.sowItemId === it.sowItemId && (
                                 <tr>
                                   <td colSpan={7} style={{
@@ -26729,6 +26816,7 @@ ${htmlBody}
                           })}
                         </tbody>
                       </table>
+                    </div>
                     </div>
                   )}
             </div>
