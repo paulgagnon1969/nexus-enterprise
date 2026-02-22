@@ -511,6 +511,9 @@ model User {
 
   // Account Link Events (for duplicate detection/consolidation)
   accountLinkEvents AccountLinkEvent[]
+
+  // Personnel time entries (from TADL logs)
+  timeEntries TimeEntry[]
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -1062,6 +1065,16 @@ model Project {
   /// When set, client contact info is sourced from TenantClient.
   tenantClientId String?
 
+  /// Project Team Tree: JSON map of role → userId[]
+  /// e.g. { "PM": ["userId1"], "SUPERINTENDENT": ["userId2"], "FOREMAN": ["userId3"] }
+  teamTreeJson Json?
+
+  /// Daily log settings
+  personnelFavoritesJson Json?     /// Saved personnel favorites: same shape as personnelOnsiteJson
+  jsaReminderEnabled     Boolean   @default(true)
+  jsaReminderTime        String    @default("09:00") /// HH:mm in project timezone
+  jsaReminderSentDate    DateTime? /// Prevents duplicate reminders same day
+
   allocationRules           ComponentAllocationRule[]
   componentSummaries        ComponentSummary[]
   dailyLogs                 DailyLog[]
@@ -1125,6 +1138,9 @@ model Project {
 
   // Supplier Bid Portal
   bidRequests BidRequest[]
+
+  // Personnel time entries
+  timeEntries TimeEntry[]
 
   @@index([companyId, groupId], map: "Project_company_group_idx")
   @@index([tenantClientId], map: "Project_tenant_client_idx")
@@ -2700,6 +2716,14 @@ model DailyLog {
   safetyIncidents      String?
   manpowerOnsite       String?
   personOnsite         String?
+  /// Structured personnel onsite: [{ type: "user" | "external", userId?, name, note? }]
+  personnelOnsiteJson  Json?
+  /// Links to the JSA that seeded this log's roster
+  sourceJsaId          String?
+  /// Stamped true when created without a JSA for the day
+  jsaMissing           Boolean        @default(false)
+  /// JSA safety analysis data (hazards, controls, PPE, etc.)
+  jsaSafetyJson        Json?
   confidentialNotes    String?
   /// Optional PETL context
   buildingId           String?
@@ -2744,6 +2768,9 @@ model DailyLog {
   publishedBy  User?                @relation("DailyLogPublishedBy", fields: [publishedById], references: [id])
   sourceBill   ProjectBill?         @relation("DailyLogSourceBill", fields: [sourceBillId], references: [id])
   ocrResult    ReceiptOcrResult?
+  sourceJsa    DailyLog?            @relation("DailyLogSourceJsa", fields: [sourceJsaId], references: [id])
+  seededLogs   DailyLog[]           @relation("DailyLogSourceJsa")
+  timeEntries  TimeEntry[]
 
   @@index([projectId], map: "DailyLog_project_idx")
   @@index([projectId, roomParticleId], map: "DailyLog_project_room_idx")
@@ -2785,6 +2812,32 @@ model DailyLogRevision {
 
   @@unique([dailyLogId, revisionNumber], name: "DailyLogRevision_log_revision_key")
   @@index([dailyLogId], map: "DailyLogRevision_log_idx")
+}
+
+/// Time entries for personnel onsite (created via TADL daily logs)
+model TimeEntry {
+  id           String    @id @default(cuid())
+  dailyLogId   String
+  projectId    String
+  companyId    String
+  userId       String?
+  externalName String?
+  clockIn      DateTime
+  clockOut     DateTime?
+  breakMinutes Int       @default(0)
+  hoursWorked  Decimal?  @db.Decimal(6, 2)
+  source       String    @default("MANUAL") // MANUAL | DEVICE | IMPORTED
+  note         String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  dailyLog DailyLog @relation(fields: [dailyLogId], references: [id], onDelete: Cascade)
+  project  Project  @relation(fields: [projectId], references: [id])
+  user     User?    @relation(fields: [userId], references: [id])
+
+  @@index([dailyLogId], map: "TimeEntry_daily_log_idx")
+  @@index([projectId, userId], map: "TimeEntry_project_user_idx")
+  @@index([companyId, userId], map: "TimeEntry_company_user_idx")
 }
 
 model OnboardingSession {
@@ -3505,6 +3558,7 @@ enum DailyLogType {
   JSA // Job Safety Assessment
   INCIDENT // Safety incident report
   QUALITY // Quality inspection
+  TADL // Time Accounting Daily Log
 }
 
 enum OcrStatus {

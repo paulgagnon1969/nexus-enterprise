@@ -402,6 +402,13 @@ export class ProjectService {
     return project;
   }
 
+  async updateTeamTree(projectId: string, companyId: string, teamTree: Record<string, string[]>) {
+    return this.prisma.project.update({
+      where: { id: projectId },
+      data: { teamTreeJson: teamTree as any },
+    });
+  }
+
   async updateProject(projectId: string, dto: UpdateProjectDto, actor: AuthenticatedUser) {
     const { companyId, role } = actor;
 
@@ -7910,6 +7917,7 @@ export class ProjectService {
         qtyFlaggedIncorrect: item.qtyFlaggedIncorrect,
         qtyFieldReported: item.qtyFieldReported ?? null,
         qtyReviewStatus: item.qtyReviewStatus ?? null,
+        qtyFieldNotes: item.qtyFieldNotes ?? null,
         percentComplete: item.percentComplete ?? 0,
         orgGroupCode,
       };
