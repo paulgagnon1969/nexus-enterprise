@@ -30190,6 +30190,77 @@ ${htmlBody}
                 </div>
               </div>
 
+              {/* Field Qty Discrepancy Alert — shown when field worker flagged this line */}
+              {petlReconPanel.data?.sowItem?.qtyFlaggedIncorrect && (
+                <div
+                  style={{
+                    padding: 12,
+                    borderRadius: 8,
+                    border: "2px solid #f59e0b",
+                    background: "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)",
+                    marginBottom: 4,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 18 }}>⚠️</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      Field Qty Discrepancy
+                    </span>
+                    {petlReconPanel.data.sowItem.qtyReviewStatus && (
+                      <span
+                        style={{
+                          marginLeft: "auto",
+                          fontSize: 10,
+                          fontWeight: 600,
+                          padding: "2px 8px",
+                          borderRadius: 9999,
+                          background:
+                            petlReconPanel.data.sowItem.qtyReviewStatus === "resolved"
+                              ? "#d1fae5"
+                              : petlReconPanel.data.sowItem.qtyReviewStatus === "dismissed"
+                              ? "#e5e7eb"
+                              : "#fef3c7",
+                          color:
+                            petlReconPanel.data.sowItem.qtyReviewStatus === "resolved"
+                              ? "#065f46"
+                              : petlReconPanel.data.sowItem.qtyReviewStatus === "dismissed"
+                              ? "#6b7280"
+                              : "#92400e",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {petlReconPanel.data.sowItem.qtyReviewStatus}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 10px", fontSize: 12 }}>
+                    <div style={{ fontWeight: 600, color: "#78350f" }}>Field-Reported Qty:</div>
+                    <div style={{ color: "#111827", fontWeight: 700 }}>
+                      {petlReconPanel.data.sowItem.qtyFieldReported != null
+                        ? petlReconPanel.data.sowItem.qtyFieldReported
+                        : "—"}
+                      {petlReconPanel.data.sowItem.qty != null && petlReconPanel.data.sowItem.qtyFieldReported != null && (
+                        <span style={{ marginLeft: 6, fontSize: 11, color: "#b45309" }}>
+                          (estimate was {petlReconPanel.data.sowItem.qty})
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontWeight: 600, color: "#78350f" }}>Field Note:</div>
+                    <div style={{ color: "#111827", lineHeight: 1.4, fontStyle: "italic" }}>
+                      {petlReconPanel.data.sowItem.qtyFieldNotes || "No note provided"}
+                    </div>
+                    {petlReconPanel.data.sowItem.qtyFieldReportedAt && (
+                      <>
+                        <div style={{ fontWeight: 600, color: "#78350f" }}>Reported:</div>
+                        <div style={{ color: "#6b7280", fontSize: 11 }}>
+                          {new Date(petlReconPanel.data.sowItem.qtyFieldReportedAt).toLocaleString()}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Move to Standalone Change Order option - shown at TOP for non-CO entries */}
               {isPmOrAbove && !reconEntryEdit.entry?.isStandaloneChangeOrder && (
                 <div
