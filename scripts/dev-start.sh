@@ -101,12 +101,14 @@ export DATABASE_URL="postgresql://${LOCAL_DB_USER}:${LOCAL_DB_PASSWORD}@127.0.0.
 SANITIZED_DB_URL="${DATABASE_URL/${LOCAL_DB_PASSWORD}/****}"
 echo "[dev-start] Using DATABASE_URL=${SANITIZED_DB_URL}" | tee -a "$LOG_DIR/dev-start.log"
 
-# --- 3) Start API dev server ----------------------------------------------
+# --- 3) Ensure Prisma client is up-to-date --------------------------------
 
-export DATABASE_URL="postgresql://${LOCAL_DB_USER}:${LOCAL_DB_PASSWORD}@127.0.0.1:${LOCAL_DB_PORT}/${LOCAL_DB_NAME}"
-# Obfuscate password in log output
-SANITIZED_DB_URL="${DATABASE_URL/${LOCAL_DB_PASSWORD}/****}"
-echo "[dev-start] Using local DATABASE_URL=${SANITIZED_DB_URL}" | tee -a "$LOG_DIR/dev-start.log"
+echo "[dev-start] Regenerating Prisma client (ensures types match schema)…" | tee -a "$LOG_DIR/dev-start.log"
+(
+  cd "$REPO_ROOT/packages/database"
+  npx prisma generate >> "$LOG_DIR/dev-start.log" 2>&1
+)
+echo "[dev-start] Prisma client generated." | tee -a "$LOG_DIR/dev-start.log"
 
 # --- 4) Start API dev server ----------------------------------------------
 
