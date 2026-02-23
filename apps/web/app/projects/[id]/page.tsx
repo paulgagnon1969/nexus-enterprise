@@ -580,6 +580,11 @@ interface PetlItem {
   isStandaloneChangeOrder?: boolean;
   coSequenceNo?: number | null;
   coSourceLineNo?: number | null;
+  /// Field PETL (PUDL) discrepancy data
+  qtyFieldNotes?: string | null;
+  qtyFieldReported?: number | null;
+  qtyFlaggedIncorrect?: boolean;
+  qtyReviewStatus?: string | null;
 }
 
 interface Participant {
@@ -29388,6 +29393,56 @@ ${htmlBody}
                       )}
                     </div>
                   </div>
+
+                  {/* Field PETL notes (from Daily Logs / PUDL scope) */}
+                  {(() => {
+                    const fieldNotes = petlReconPanel.data?.sowItem?.qtyFieldNotes;
+                    const fieldQty = petlReconPanel.data?.sowItem?.qtyFieldReported;
+                    const flagged = petlReconPanel.data?.sowItem?.qtyFlaggedIncorrect;
+                    const reviewStatus = petlReconPanel.data?.sowItem?.qtyReviewStatus;
+                    if (!fieldNotes && fieldQty == null && !flagged) return null;
+                    return (
+                      <div
+                        style={{
+                          border: "1px solid #a78bfa",
+                          borderRadius: 8,
+                          padding: 10,
+                          background: "#f5f3ff",
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, marginBottom: 4, color: "#5b21b6", display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>🔍 Field PETL Note</span>
+                          {reviewStatus && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                padding: "2px 6px",
+                                borderRadius: 999,
+                                background: reviewStatus === "ACCEPTED" ? "#dcfce7" : reviewStatus === "REJECTED" ? "#fee2e2" : "#ede9fe",
+                                color: reviewStatus === "ACCEPTED" ? "#16a34a" : reviewStatus === "REJECTED" ? "#b91c1c" : "#7c3aed",
+                                fontWeight: 600,
+                              }}
+                            >
+                              {reviewStatus}
+                            </span>
+                          )}
+                        </div>
+                        {fieldQty != null && (
+                          <div style={{ fontSize: 12, marginBottom: 4 }}>
+                            <strong>Field-reported qty:</strong> {fieldQty}
+                            {petlReconPanel.data?.sowItem?.qty != null && (
+                              <span style={{ color: "#6b7280" }}> (estimate: {petlReconPanel.data.sowItem.qty})</span>
+                            )}
+                          </div>
+                        )}
+                        {fieldNotes && (
+                          <div style={{ fontSize: 12, color: "#374151", fontStyle: "italic" }}>
+                            {fieldNotes}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <div>
                     <div style={{ fontWeight: 600, marginBottom: 6 }}>Note</div>

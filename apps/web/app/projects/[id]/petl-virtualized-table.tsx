@@ -36,6 +36,11 @@ interface PetlItem {
   isStandaloneChangeOrder?: boolean;
   coSequenceNo?: number | null;
   coSourceLineNo?: number | null;
+  // Field PETL (PUDL) discrepancy data
+  qtyFieldNotes?: string | null;
+  qtyFieldReported?: number | null;
+  qtyFlaggedIncorrect?: boolean;
+  qtyReviewStatus?: string | null;
 }
 
 interface ReconEntry {
@@ -574,7 +579,7 @@ const PetlRow = memo(function PetlRow({
 
 // Flatten items into a render list that includes both items and their expanded sub-rows
 interface FlatRow {
-  type: "item" | "recon" | "itemNote";
+  type: "item" | "recon" | "itemNote" | "fieldNote";
   item: PetlItem;
   reconEntry?: ReconEntry;
   reconSeq?: number | null; // null for note-only entries
@@ -871,6 +876,52 @@ function VirtualizedRow({
     );
   }
 
+  // Render fieldNote sub-row (from Field PETL / PUDL scope)
+  if (row.type === "fieldNote") {
+    const parentItem = row.item;
+    const noteText = String(parentItem.qtyFieldNotes ?? "");
+    const fieldQty = parentItem.qtyFieldReported;
+    const reviewStatus = parentItem.qtyReviewStatus ?? "PENDING";
+    const statusColor = reviewStatus === "ACCEPTED" ? "#16a34a" : reviewStatus === "REJECTED" ? "#b91c1c" : "#7c3aed";
+
+    if (hideNotes) {
+      return <div style={{ ...style, height: 0, overflow: "hidden" }} />;
+    }
+
+    return (
+      <div style={{ ...style, display: "flex", alignItems: "stretch" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
+          <tbody>
+            <tr style={{ backgroundColor: "#f5f3ff" }}>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 120, fontFamily: "monospace" }}>
+                <span style={{ paddingLeft: 18, color: "#7c3aed" }}>↳ 🔍 Field</span>
+              </td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 220 }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100 }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <span style={{ color: "#5b21b6", fontStyle: "italic" }} title={noteText}>
+                  {noteText}
+                </span>
+              </td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right", color: "#7c3aed", fontWeight: 600 }}>
+                {fieldQty != null ? fieldQty : "—"}
+              </td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right", color: "#9ca3af" }}>—</td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>
+                <span style={{ fontSize: 10, color: statusColor, fontWeight: 600 }}>{reviewStatus}</span>
+              </td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80 }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80 }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 180 }} />
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   // Render itemNote sub-row (V0 note from the original PETL)
   if (row.type === "itemNote") {
     const parentItem = row.item;
@@ -959,7 +1010,7 @@ function VirtualizedRow({
           <tr style={{ backgroundColor: bg }}>
             <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 120, whiteSpace: "nowrap" }}>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                {(reconFinancial.length > 0 || item.itemNote) ? (
+                {(reconFinancial.length > 0 || item.itemNote || item.qtyFieldNotes) ? (
                   <button
                     type="button"
                     onClick={() => onToggleExpand(item.id)}
@@ -1001,6 +1052,27 @@ function VirtualizedRow({
                     }}
                   >
                     NOTE
+                  </span>
+                )}
+                {!hideNotes && item.qtyFieldNotes && (
+                  <span
+                    title={`Field Note: ${item.qtyFieldNotes}${item.qtyFieldReported != null ? ` (field qty: ${item.qtyFieldReported})` : ""}`}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      background: "#ede9fe",
+                      color: "#5b21b6",
+                      fontSize: 9,
+                      fontWeight: 600,
+                      cursor: "help",
+                      flexShrink: 0,
+                      border: "1px solid #a78bfa",
+                    }}
+                  >
+                    FIELD
                   </span>
                 )}
               </div>
@@ -1143,6 +1215,10 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
         if (item.itemNote) {
           rows.push({ type: "itemNote", item, displayLineNo });
         }
+        // If item has a field PETL note, show it as a sub-line
+        if (item.qtyFieldNotes) {
+          rows.push({ type: "fieldNote", item, displayLineNo });
+        }
 
         const reconEntries = reconEntriesBySowItemId.get(item.id) ?? [];
         // Single pass split to avoid repeated filters per item
@@ -1186,8 +1262,8 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
     (index: number, rowProps: VirtualizedRowProps) => {
       const row = rowProps.flatRows[index];
       if (!row) return ROW_HEIGHT;
-      if (row.type === "itemNote") {
-        // Hide itemNote rows when hideNotes is active
+      if (row.type === "itemNote" || row.type === "fieldNote") {
+        // Hide note rows when hideNotes is active
         if (rowProps.hideNotes) return 0;
         return RECON_ROW_HEIGHT;
       }

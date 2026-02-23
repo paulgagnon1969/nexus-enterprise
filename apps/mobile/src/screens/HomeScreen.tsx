@@ -4,7 +4,6 @@ import {
   Text,
   Pressable,
   StyleSheet,
-  Switch,
   Modal,
   ScrollView,
   RefreshControl,
@@ -20,8 +19,6 @@ import { getApiBaseUrl } from "../api/config";
 import { countPendingOutbox } from "../offline/outbox";
 import { syncOnce } from "../offline/sync";
 import {
-  getWifiOnlySync,
-  setWifiOnlySync,
   getFavoriteProjectIds,
   toggleFavoriteProject,
   getLastSelectedProjectId,
@@ -113,7 +110,6 @@ export function HomeScreen({
   const { width } = useWindowDimensions();
   const isLandscape = width > 600;
 
-  const [wifiOnly, setWifiOnly] = useState(false);
   const [pending, setPending] = useState<number>(0);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncMsg, setLastSyncMsg] = useState<string | null>(null);
@@ -164,9 +160,6 @@ export function HomeScreen({
   const [usageScoreMap, setUsageScoreMap] = useState<Map<string, number>>(new Map());
   const [autoDefaultApplied, setAutoDefaultApplied] = useState(false);
 
-  // WiFi tooltip
-  const [showWifiTooltip, setShowWifiTooltip] = useState(false);
-
   // Clock in/out state
   const [clockedIn, setClockedIn] = useState(false);
   const [clockInTime, setClockInTime] = useState<Date | null>(null);
@@ -184,8 +177,7 @@ export function HomeScreen({
   ];
 
   const refresh = async () => {
-    const [w, p] = await Promise.all([getWifiOnlySync(), countPendingOutbox()]);
-    setWifiOnly(w);
+    const p = await countPendingOutbox();
     setPending(p);
   };
 
@@ -380,11 +372,6 @@ export function HomeScreen({
       setProjectLogs([]);
     }
   }, [selectedProject, loadProjectLogs]);
-
-  const toggleWifiOnly = async (next: boolean) => {
-    setWifiOnly(next);
-    await setWifiOnlySync(next);
-  };
 
   const runSync = async () => {
     setSyncing(true);
@@ -1245,33 +1232,6 @@ export function HomeScreen({
         />
       )}
 
-      {/* Floating WiFi Only toggle — bottom right above tab bar */}
-      <View style={styles.wifiFloating}>
-        {showWifiTooltip && (
-          <View style={styles.wifiTooltip}>
-            <Text style={styles.wifiTooltipText}>
-              When enabled, syncing and uploads only occur over WiFi to save cellular data.
-            </Text>
-          </View>
-        )}
-        <View style={styles.wifiFloatingRow}>
-          <Pressable
-            onPress={() => setShowWifiTooltip((v) => !v)}
-            style={styles.wifiInfoBtn}
-          >
-            <Text style={styles.wifiInfoIcon}>ⓘ</Text>
-          </Pressable>
-          <Text style={styles.wifiFloatingLabel}>WiFi Only</Text>
-          <Switch
-            value={wifiOnly}
-            onValueChange={(v) => {
-              toggleWifiOnly(v);
-              setShowWifiTooltip(false);
-            }}
-            style={styles.wifiSwitch}
-          />
-        </View>
-      </View>
     </View>
   );
 }
@@ -1361,54 +1321,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Floating WiFi toggle (bottom right)
-  wifiFloating: {
-    position: "absolute",
-    bottom: 90,
-    right: 12,
-    alignItems: "flex-end",
-  },
-  wifiFloatingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#ffffff",
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
-    gap: 4,
-  },
-  wifiInfoBtn: {
-    padding: 2,
-  },
-  wifiInfoIcon: {
-    fontSize: 14,
-    color: "#6b7280",
-  },
-  wifiFloatingLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#374151",
-  },
-  wifiSwitch: {
-    transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }],
-  },
-  wifiTooltip: {
-    backgroundColor: "#1f2937",
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 6,
-    maxWidth: 220,
-  },
-  wifiTooltipText: {
-    fontSize: 12,
-    color: "#ffffff",
-    lineHeight: 16,
-  },
 
   companyMessage: {
     fontSize: 11,
