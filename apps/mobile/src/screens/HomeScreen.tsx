@@ -696,6 +696,9 @@ export function HomeScreen({
                           : ""}
                       </Text>
                     )}
+                    {log.attachments && log.attachments.length > 0 && (
+                      <Text style={styles.attachmentClip}>📎</Text>
+                    )}
                   </View>
                   <View style={styles.allLogCenter}>
                     <Text style={styles.allLogTitle} numberOfLines={1}>
@@ -766,6 +769,7 @@ export function HomeScreen({
                   {item.latestLog ? (
                     <Text style={styles.logSummary} numberOfLines={1}>
                       {formatDate(item.latestLog.logDate)}
+                      {item.latestLog.attachments && item.latestLog.attachments.length > 0 ? " 📎" : ""}
                       {item.latestLog.workPerformed
                         ? ` — ${item.latestLog.workPerformed}`
                         : item.latestLog.title
@@ -1835,6 +1839,11 @@ const styles = StyleSheet.create({
   allLogTypeBadge: {
     fontSize: 14,
     marginLeft: 4,
+  },
+  attachmentClip: {
+    fontSize: 13,
+    marginLeft: 4,
+    color: "#6b7280",
   },
   allLogCenter: {
     flex: 1,

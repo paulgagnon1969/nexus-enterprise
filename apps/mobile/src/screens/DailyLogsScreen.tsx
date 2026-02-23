@@ -563,7 +563,7 @@ export function DailyLogsScreen({
           </ScrollView>
         </View>
 
-        {/* 2. DATE */}
+        {/* 2. DATE + PETL inline */}
         <View style={styles.dateRow}>
           <Text style={styles.dateLabel}>Date</Text>
           <TextInput
@@ -571,6 +571,33 @@ export function DailyLogsScreen({
             value={logDate}
             onChangeText={setLogDate}
             placeholder="YYYY-MM-DD"
+          />
+          {onOpenPetl && logType === "PUDL" && (
+            <Pressable style={styles.petlButtonInline} onPress={onOpenPetl}>
+              <Text style={styles.petlButtonInlineText}>Review PETL →</Text>
+            </Pressable>
+          )}
+        </View>
+
+        {/* 3. SUBJECT/TITLE - right below date */}
+        <View style={styles.section}>
+          <View style={styles.titleLabelRow}>
+            <Text style={styles.sectionLabel}>Subject / Title</Text>
+            {workPerformed.trim().length > 10 && !title.trim() && (
+              <Pressable
+                style={styles.autoTitleButton}
+                onPress={() => setTitle(summarizeToTitle(workPerformed))}
+              >
+                <Text style={styles.autoTitleButtonText}>✨ Auto-generate</Text>
+              </Pressable>
+            )}
+          </View>
+          <TextInput
+            style={styles.titleInput}
+            value={title}
+            onChangeText={setTitle}
+            placeholder="Auto-fills from notes if left empty"
+            placeholderTextColor={colors.textMuted}
           />
         </View>
 
@@ -606,17 +633,6 @@ export function DailyLogsScreen({
           </View>
         )}
 
-        {/* 3. PETL REVIEW - Only for standard daily logs */}
-        {onOpenPetl && logType === "PUDL" && (
-          <Pressable style={styles.petlButton} onPress={onOpenPetl}>
-            <View>
-              <Text style={styles.petlButtonText}>Review PETL Scope</Text>
-              <Text style={styles.petlButtonSub}>Update % complete on line items</Text>
-            </View>
-            <Text style={styles.petlButtonArrow}>→</Text>
-          </Pressable>
-        )}
-
         {/* 4. NOTES - Main work area */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Notes</Text>
@@ -631,7 +647,7 @@ export function DailyLogsScreen({
           />
         </View>
 
-        {/* 5. ATTACHMENTS - Always visible with notes */}
+        {/* 5. ATTACHMENTS */}
         <View style={styles.attachmentsSection}>
           <View style={styles.attachmentsHeader}>
             <Text style={styles.sectionLabel}>Attachments</Text>
@@ -660,24 +676,14 @@ export function DailyLogsScreen({
           )}
         </View>
 
-        {/* 6. SUBJECT/TITLE - Auto-fills from notes if left empty */}
+        {/* 6. WEATHER - always visible above additional details */}
         <View style={styles.section}>
-          <View style={styles.titleLabelRow}>
-            <Text style={styles.sectionLabel}>Subject / Title</Text>
-            {workPerformed.trim().length > 10 && !title.trim() && (
-              <Pressable
-                style={styles.autoTitleButton}
-                onPress={() => setTitle(summarizeToTitle(workPerformed))}
-              >
-                <Text style={styles.autoTitleButtonText}>✨ Auto-generate</Text>
-              </Pressable>
-            )}
-          </View>
+          <Text style={styles.sectionLabel}>☀️ Weather</Text>
           <TextInput
-            style={styles.titleInput}
-            value={title}
-            onChangeText={setTitle}
-            placeholder="Auto-fills from notes if left empty"
+            style={styles.weatherInput}
+            value={weatherSummary}
+            onChangeText={setWeatherSummary}
+            placeholder="Sunny, 72°F — or leave blank for auto-fill"
             placeholderTextColor={colors.textMuted}
           />
         </View>
@@ -695,13 +701,6 @@ export function DailyLogsScreen({
 
         {detailsExpanded && (
           <View style={styles.detailsDrawer}>
-            <TextInput
-              style={styles.detailInput}
-              value={weatherSummary}
-              onChangeText={setWeatherSummary}
-              placeholder="Weather summary"
-              placeholderTextColor={colors.textMuted}
-            />
             <TextInput
               style={styles.detailInput}
               value={crewOnSite}
@@ -1115,30 +1114,17 @@ const styles = StyleSheet.create({
     padding: 0,
   },
 
-  // PETL button
-  petlButton: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  // PETL button (inline with date row)
+  petlButtonInline: {
     backgroundColor: colors.primary,
-    borderRadius: 10,
-    padding: 16,
-    marginBottom: 12,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginLeft: 8,
   },
-  petlButtonText: {
+  petlButtonInlineText: {
     color: colors.textOnPrimary,
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  petlButtonSub: {
-    color: colors.textOnPrimary,
-    fontSize: 12,
-    opacity: 0.8,
-    marginTop: 2,
-  },
-  petlButtonArrow: {
-    color: colors.textOnPrimary,
-    fontSize: 20,
+    fontSize: 13,
     fontWeight: "700",
   },
 
@@ -1186,6 +1172,15 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   titleInput: {
+    backgroundColor: colors.background,
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 15,
+    color: colors.textPrimary,
+    borderWidth: 1,
+    borderColor: colors.borderMuted,
+  },
+  weatherInput: {
     backgroundColor: colors.background,
     borderRadius: 10,
     padding: 14,
