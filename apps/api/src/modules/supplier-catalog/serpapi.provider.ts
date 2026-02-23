@@ -153,6 +153,7 @@ export class SerpApiProvider implements CatalogProvider {
   // -------------------------------------------------------------------------
 
   private mapSearchResult(r: any): CatalogProduct {
+    const pk = r.pickup ?? r.in_store_pickup ?? {};
     return {
       productId: String(r.product_id ?? ""),
       provider: this.providerKey,
@@ -167,10 +168,18 @@ export class SerpApiProvider implements CatalogProvider {
       upc: undefined, // Not in search results; available in product detail
       storeSku: undefined,
       rating: r.rating ?? undefined,
+      storeName: pk.store_name ?? undefined,
+      storeAddress: pk.address ?? pk.street ?? undefined,
+      storeCity: pk.city ?? undefined,
+      storeState: pk.state ?? undefined,
+      storeZip: pk.zipcode ?? pk.zip ?? undefined,
+      storePhone: pk.phone ?? undefined,
     };
   }
 
   private mapProductDetail(p: any): CatalogProduct {
+    const pk = p.pickup ?? {};
+    const ff = p.fulfillment ?? {};
     return {
       productId: String(p.product_id ?? ""),
       provider: this.providerKey,
@@ -188,6 +197,12 @@ export class SerpApiProvider implements CatalogProvider {
       aisle: p.aisle ?? undefined,
       inStock: p.in_stock ?? undefined,
       rating: p.rating ?? undefined,
+      storeName: pk.store_name ?? ff.store_name ?? undefined,
+      storeAddress: pk.address ?? pk.street ?? ff.store_address ?? undefined,
+      storeCity: pk.city ?? ff.store_city ?? undefined,
+      storeState: pk.state ?? ff.store_state ?? undefined,
+      storeZip: pk.zipcode ?? pk.zip ?? ff.store_zip ?? undefined,
+      storePhone: pk.phone ?? ff.store_phone ?? undefined,
       rawJson: {
         fulfillment: p.fulfillment ?? undefined,
         specifications: p.specifications ?? undefined,

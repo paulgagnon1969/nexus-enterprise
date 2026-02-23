@@ -93,6 +93,38 @@ function hashContent(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+/**
+ * Extract <div class="mermaid">...</div> blocks before markdown-it processing
+ * and re-insert them after. markdown-it's typographer converts quotes to smart
+ * quotes and can mangle content inside HTML blocks, breaking Mermaid syntax.
+ */
+function renderMarkdownPreservingMermaid(markdown: string): string {
+  const placeholders: Record<string, string> = {};
+  let counter = 0;
+
+  // Extract all <div class="mermaid">...</div> blocks
+  const stripped = markdown.replace(
+    /<div\s+class="mermaid">[\s\S]*?<\/div>/gi,
+    (match) => {
+      const key = `%%MERMAID_BLOCK_${counter++}%%`;
+      placeholders[key] = match;
+      return key;
+    },
+  );
+
+  // Run markdown-it on the safe content
+  let html = md.render(stripped);
+
+  // Re-insert the original mermaid blocks
+  for (const [key, block] of Object.entries(placeholders)) {
+    html = html.replace(key, block);
+    // Also handle the case where markdown-it wrapped the placeholder in a <p>
+    html = html.replace(`<p>${key}</p>`, block);
+  }
+
+  return html;
+}
+
 // --- Helper Functions --------------------------------------------------------
 
 function listSopFiles(): string[] {
@@ -113,8 +145,8 @@ function parseSopFile(filename: string): ParsedSop {
 
   const frontmatter = data as SopFrontmatter;
 
-  // Convert markdown to HTML
-  const html = md.render(content);
+  // Convert markdown to HTML, preserving mermaid blocks verbatim
+  const html = renderMarkdownPreservingMermaid(content);
 
   return {
     filename,

@@ -192,6 +192,10 @@ model Company {
 
   // Video calling rooms scoped to this company
   videoRooms VideoRoom[]
+
+  // BOM Pricing snapshots & price history
+  bomPricingSnapshots      BomPricingSnapshot[]
+  materialPriceObservations MaterialPriceObservation[]
 }
 
 model OrganizationTemplate {
@@ -531,6 +535,9 @@ model User {
   // Video calling
   videoRoomsCreated       VideoRoom[]
   videoRoomParticipations VideoRoomParticipant[]
+
+  // BOM Pricing snapshots created by this user
+  bomPricingSnapshotsCreated BomPricingSnapshot[]
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -1185,6 +1192,9 @@ model Project {
 
   // Video calling rooms on this project
   videoRooms VideoRoom[]
+
+  // BOM Pricing snapshots
+  bomPricingSnapshots BomPricingSnapshot[]
 
   @@index([companyId, groupId], map: "Project_company_group_idx")
   @@index([tenantClientId], map: "Project_tenant_client_idx")
@@ -2145,6 +2155,9 @@ model EstimateVersion {
   // Regional factors learned from this estimate
   regionalFactorsLearned ProjectRegionalFactors[]
 
+  // BOM Pricing snapshots sourced from this estimate
+  bomPricingSnapshots BomPricingSnapshot[]
+
   @@index([projectId, sequenceNo], map: "EstimateVersion_project_sequence_idx")
 }
 
@@ -2434,6 +2447,7 @@ model SowItem {
   sow                       Sow                       @relation(fields: [sowId], references: [id])
   assetUsages               AssetUsage[]
   dailyLogs                 DailyLog[]                @relation("SowItemDailyLogs")
+  bomPricingHits            BomPricingHit[]
 
   @@index([estimateVersionId, projectParticleId], map: "SowItem_estimate_particle_idx")
   @@index([projectParticleId], map: "SowItem_particle_idx")
@@ -4244,6 +4258,129 @@ model InventoryPosition {
 }
 
 /// v1 material planning & procurement models
+
+enum BomPricingSnapshotStatus {
+  DRAFT
+  LOCKED
+  ARCHIVED
+}
+
+/// Snapshot of a BOM pricing scrape. One per "Get Local Pricing" action.
+/// Results are persisted so subsequent visits don't re-scrape.
+model BomPricingSnapshot {
+  id                String @id @default(cuid())
+  companyId         String
+  projectId         String
+  estimateVersionId String
+
+  zipCode        String?
+  totalLines     Int
+  searchableLines Int
+
+  status BomPricingSnapshotStatus @default(DRAFT)
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company         Company          @relation(fields: [companyId], references: [id])
+  project         Project          @relation(fields: [projectId], references: [id])
+  estimateVersion EstimateVersion  @relation(fields: [estimateVersionId], references: [id])
+  createdBy       User?            @relation(fields: [createdByUserId], references: [id])
+
+  hits BomPricingHit[]
+
+  @@index([companyId, projectId])
+  @@index([projectId, estimateVersionId])
+}
+
+/// Individual BOM line searched within a snapshot.
+model BomPricingHit {
+  id         String @id @default(cuid())
+  snapshotId String
+
+  sowItemId    String
+  lineNo       Int
+  description  String
+  categoryCode String?
+  searchQuery  String
+
+  materialAmount Float?
+  qty            Float?
+  unit           String?
+
+  /// Index of the selected product (0-based). Null = not yet selected.
+  selectedProductIdx Int?
+
+  snapshot BomPricingSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  sowItem  SowItem            @relation(fields: [sowItemId], references: [id])
+
+  products BomPricingProduct[]
+
+  @@index([snapshotId])
+  @@index([sowItemId])
+}
+
+/// A supplier product result for a BOM pricing hit.
+model BomPricingProduct {
+  id    String @id @default(cuid())
+  hitId String
+  idx   Int    /// Display order (0, 1, 2…)
+
+  provider    String  /// e.g. "homedepot", "lowes"
+  productId   String  /// Provider-specific product ID
+  title       String
+  brand       String?
+  modelNumber String?
+
+  price    Float?
+  wasPrice Float?
+  unit     String?
+
+  imageUrl   String?
+  productUrl String?
+  rating     Float?
+  inStock    Boolean?
+
+  storeName    String?
+  storeAddress String?  /// street line
+  storeCity    String?
+  storeState   String?  /// 2-letter
+  storeZip     String?
+  storePhone   String?
+
+  rawJson Json?
+
+  createdAt DateTime @default(now())
+
+  hit BomPricingHit @relation(fields: [hitId], references: [id], onDelete: Cascade)
+
+  @@index([hitId])
+}
+
+/// Long-lived price observation. Every scrape appends rows here.
+/// Used for trending, seasonal analysis, and supplier comparison.
+model MaterialPriceObservation {
+  id        String @id @default(cuid())
+  companyId String
+
+  provider  String  /// "homedepot", "lowes"
+  productId String  /// Provider-specific product ID
+  title     String
+  brand     String?
+
+  searchQuery String /// Normalized query that found this product
+  price       Float?
+  zipCode     String?
+
+  observedAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, searchQuery, observedAt])
+  @@index([companyId, productId, observedAt])
+  @@index([companyId, provider, observedAt])
+}
 
 enum MaterialRequirementStatus {
   PLANNED

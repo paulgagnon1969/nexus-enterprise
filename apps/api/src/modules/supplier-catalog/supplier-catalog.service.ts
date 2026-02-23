@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { SerpApiProvider } from "./serpapi.provider";
 import { BigBoxProvider } from "./bigbox.provider";
+import { SerpApiLowesProvider } from "./serpapi-lowes.provider";
 import { LowesProvider } from "./lowes.provider";
 import type {
   CatalogProvider,
@@ -28,6 +29,105 @@ export interface PriceComparison {
   percentDifference: number | null;
 }
 
+/** Single BOM line matched against supplier catalogs. */
+export interface BomSearchHit {
+  sowItemId: string;
+  lineNo: number;
+  description: string;
+  categoryCode: string | null;
+  materialAmount: number | null;
+  qty: number | null;
+  unit: string | null;
+  searchQuery: string;
+  catalogResults: CatalogSearchResult[];
+}
+
+export interface BomSearchResult {
+  projectId: string;
+  estimateVersionId: string;
+  totalLines: number;
+  searchableLines: number;
+  hits: BomSearchHit[];
+}
+
+// ---------------------------------------------------------------------------
+// Xactimate description → search query cleaning
+// ---------------------------------------------------------------------------
+
+/** Prefixes that describe labor actions, not materials. */
+const LABOR_PREFIX_RE =
+  /^(r\s*&\s*r|remove\s*(&|and)?\s*(re)?install|replace|install|apply|clean|haul|dispose|demolish|demo|detach|reset|mask|seal|tape|sand|prep|prime|finish|paint|texture|float|skim|caulk|labor)\s*[-–—:]?\s*/i;
+
+/** Measurement / per-unit noise. */
+const PER_UNIT_RE =
+  /[-–—]?\s*per\s+\d*\s*(sf|sq\.?\s*ft|lf|lin\.?\s*ft|sy|sq\.?\s*yd|ea|each|unit|hr|hour|day|1000\s*sf)\b/gi;
+
+/** Level qualifiers ("Level 4 finish", "L4"). */
+const LEVEL_RE = /[-–—]?\s*level\s*\d+\s*(finish)?/gi;
+
+/** Contents / additional qualifiers that aren't material names. */
+const NOISE_RE =
+  /\b(contents|additional|charge|minimum|setup|mobilization|small\s*job|large\s*job|high\s*wall|tall\s*wall|detach|reset|mask|&\s*reset)\b/gi;
+
+/** Collapse whitespace and trim. */
+function collapseWs(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Normalize Xactimate dimension notation to retailer-friendly format.
+ *  - 2" x 4" x 12'  ->  2 in x 4 in x 12 ft
+ *  - 4' x 8'        ->  4 ft x 8 ft
+ *  - 1/2"           ->  1/2 in
+ * Preserves dimensions so search engines match the correct product size.
+ */
+function normalizeDimensions(s: string): string {
+  // Convert feet: 12' / 12\u2019 / 12\u2032 -> 12 ft
+  s = s.replace(/(\d+(?:\/\d+)?)\s*['\u2018\u2019\u2032]/g, "$1 ft");
+  // Convert inches: 2" / 2\u201D / 2\u2033 -> 2 in
+  s = s.replace(/(\d+(?:\/\d+)?)\s*["\u201C\u201D\u2033]/g, "$1 in");
+  return s;
+}
+
+/** Strip Xactimate grade jargon that retailers don't use. */
+function cleanGradeNoise(s: string): string {
+  // "#2 & better" -> "#2"
+  s = s.replace(/\s*&\s*better\b/gi, "");
+  // "(material only)" -> ""
+  s = s.replace(/\(material\s*only\)/gi, "");
+  return s;
+}
+
+/**
+ * Turn an Xactimate SOW description into a clean product search query.
+ * Returns null if nothing useful remains (pure labor lines).
+ */
+export function xactDescToSearchQuery(raw: string): string | null {
+  let q = raw;
+
+  // Strip labor prefixes
+  q = q.replace(LABOR_PREFIX_RE, "");
+
+  // Strip per-unit, level, and noise phrases
+  q = q.replace(PER_UNIT_RE, "");
+  q = q.replace(LEVEL_RE, "");
+  q = q.replace(NOISE_RE, "");
+
+  // Normalize dimensions BEFORE stripping punctuation
+  q = normalizeDimensions(q);
+  q = cleanGradeNoise(q);
+
+  // Strip leading/trailing punctuation and dashes
+  q = q.replace(/^[-\u2013\u2014:,;.\s]+/, "").replace(/[-\u2013\u2014:,;.\s]+$/, "");
+
+  q = collapseWs(q);
+
+  // If the cleaned string is too short to be a useful search, skip it
+  if (q.length < 3) return null;
+
+  return q;
+}
+
 @Injectable()
 export class SupplierCatalogService {
   private readonly logger = new Logger(SupplierCatalogService.name);
@@ -37,6 +137,7 @@ export class SupplierCatalogService {
     private readonly prisma: PrismaService,
     private readonly serpApi: SerpApiProvider,
     private readonly bigBox: BigBoxProvider,
+    private readonly serpApiLowes: SerpApiLowesProvider,
     private readonly lowes: LowesProvider,
   ) {
     // SerpAPI is the preferred HD provider (no zip pre-registration needed).
@@ -45,9 +146,15 @@ export class SupplierCatalogService {
       ? this.serpApi
       : this.bigBox;
 
+    // SerpAPI Google Shopping is the preferred Lowe's provider (uses same key).
+    // Falls back to Lowe's IMS-based provider if it has credentials.
+    const lowesProvider: CatalogProvider = this.serpApiLowes.isEnabled()
+      ? this.serpApiLowes
+      : this.lowes;
+
     this.providers = new Map<string, CatalogProvider>([
       [hdProvider.providerKey, hdProvider],
-      [this.lowes.providerKey, this.lowes],
+      [lowesProvider.providerKey, lowesProvider],
     ]);
   }
 
@@ -205,6 +312,287 @@ export class SupplierCatalogService {
       priceDifference,
       percentDifference,
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // BOM → Catalog Search (persisted snapshots)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Return the most recent DRAFT or LOCKED snapshot for this project+estimate.
+   * Returns null if none exists (caller should trigger a fresh scrape).
+   */
+  async getLatestBomSnapshot(
+    projectId: string,
+    estimateVersionId: string,
+  ) {
+    const snapshot = await this.prisma.bomPricingSnapshot.findFirst({
+      where: { projectId, estimateVersionId, status: { in: ["DRAFT", "LOCKED"] } },
+      orderBy: { createdAt: "desc" },
+      include: {
+        hits: {
+          include: { products: { orderBy: { idx: "asc" } } },
+          orderBy: { lineNo: "asc" },
+        },
+      },
+    });
+    return snapshot;
+  }
+
+  /**
+   * Load a specific snapshot by ID.
+   */
+  async getBomSnapshot(snapshotId: string) {
+    return this.prisma.bomPricingSnapshot.findUnique({
+      where: { id: snapshotId },
+      include: {
+        hits: {
+          include: { products: { orderBy: { idx: "asc" } } },
+          orderBy: { lineNo: "asc" },
+        },
+      },
+    });
+  }
+
+  /**
+   * Load SowItem lines with materialAmount > 0 from an estimate, clean the
+   * descriptions, batch-search all enabled catalog providers, persist the
+   * results as a BomPricingSnapshot, and append MaterialPriceObservations.
+   *
+   * Returns up to `limit` results (default 20) to avoid hammering SerpAPI.
+   */
+  async bomSearch(
+    companyId: string,
+    projectId: string,
+    estimateVersionId: string,
+    userId: string | null,
+    options?: { zipCode?: string; limit?: number; sowItemIds?: string[]; onProgress?: (msg: string) => void },
+  ): Promise<BomSearchResult & { snapshotId: string }> {
+    const emit = options?.onProgress ?? (() => {});
+    const limit = options?.limit ?? 20;
+
+    // 1. Load SowItem lines that have material cost
+    const sowItems = await this.prisma.sowItem.findMany({
+      where: {
+        estimateVersionId,
+        sow: { projectId },
+        materialAmount: { gt: 0 },
+        ...(options?.sowItemIds?.length ? { id: { in: options.sowItemIds } } : {}),
+      },
+      select: {
+        id: true,
+        lineNo: true,
+        description: true,
+        categoryCode: true,
+        materialAmount: true,
+        qty: true,
+        unit: true,
+      },
+      orderBy: { materialAmount: "desc" },
+    });
+
+    // 2. Deduplicate by search query
+    const seen = new Set<string>();
+    const searchable: Array<{
+      sowItem: (typeof sowItems)[0];
+      searchQuery: string;
+    }> = [];
+
+    for (const si of sowItems) {
+      const q = xactDescToSearchQuery(si.description);
+      if (!q) continue;
+      const normKey = q.toLowerCase();
+      if (seen.has(normKey)) continue;
+      seen.add(normKey);
+      searchable.push({ sowItem: si, searchQuery: q });
+      if (searchable.length >= limit) break;
+    }
+
+    emit(`Found ${sowItems.length} BOM lines with materials, ${searchable.length} unique searches`);
+
+    // 3. Search catalogs (sequential to stay within rate limits)
+    const hits: BomSearchHit[] = [];
+    let searchIdx = 0;
+    for (const { sowItem, searchQuery } of searchable) {
+      searchIdx++;
+      emit(`[${searchIdx}/${searchable.length}] Searching: "${searchQuery}"`);
+      try {
+        const catalogResults = await this.searchAll(searchQuery, {
+          zipCode: options?.zipCode,
+          pageSize: 5,
+        });
+        const productCount = catalogResults.reduce((n, cr) => n + cr.products.length, 0);
+        emit(`[${searchIdx}/${searchable.length}] ✓ "${searchQuery}" → ${productCount} products`);
+
+        hits.push({
+          sowItemId: sowItem.id,
+          lineNo: sowItem.lineNo,
+          description: sowItem.description,
+          categoryCode: sowItem.categoryCode,
+          materialAmount: sowItem.materialAmount,
+          qty: sowItem.qty,
+          unit: sowItem.unit,
+          searchQuery,
+          catalogResults,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `BOM search failed for "${searchQuery}" (sowItem ${sowItem.id}): ${err}`,
+        );
+      }
+    }
+
+    // 4. Archive any existing DRAFT snapshots for this project+estimate
+    await this.prisma.bomPricingSnapshot.updateMany({
+      where: {
+        projectId,
+        estimateVersionId,
+        status: "DRAFT",
+      },
+      data: { status: "ARCHIVED" },
+    });
+
+    // 5. Persist snapshot
+    const snapshot = await this.prisma.bomPricingSnapshot.create({
+      data: {
+        companyId,
+        projectId,
+        estimateVersionId,
+        zipCode: options?.zipCode ?? null,
+        totalLines: sowItems.length,
+        searchableLines: searchable.length,
+        status: "DRAFT",
+        createdByUserId: userId,
+        hits: {
+          create: hits.map((hit) => {
+            const allProducts = hit.catalogResults.flatMap((cr) => cr.products);
+            return {
+              sowItemId: hit.sowItemId,
+              lineNo: hit.lineNo,
+              description: hit.description,
+              categoryCode: hit.categoryCode,
+              searchQuery: hit.searchQuery,
+              materialAmount: hit.materialAmount ?? null,
+              qty: hit.qty ?? null,
+              unit: hit.unit ?? null,
+              products: {
+                create: allProducts.slice(0, 10).map((p, idx) => ({
+                  idx,
+                  provider: p.provider,
+                  productId: p.productId,
+                  title: p.title,
+                  brand: p.brand ?? null,
+                  modelNumber: p.modelNumber ?? null,
+                  price: p.price ?? null,
+                  wasPrice: p.wasPrice ?? null,
+                  unit: p.unit ?? null,
+                  imageUrl: p.imageUrl ?? null,
+                  productUrl: p.productUrl ?? null,
+                  rating: p.rating ?? null,
+                  inStock: p.inStock ?? null,
+                  storeName: p.storeName ?? null,
+                  storeAddress: p.storeAddress ?? null,
+                  storeCity: p.storeCity ?? null,
+                  storeState: p.storeState ?? null,
+                  storeZip: p.storeZip ?? null,
+                  storePhone: p.storePhone ?? null,
+                })),
+              },
+            };
+          }),
+        },
+      },
+    });
+
+    // 6. Append MaterialPriceObservations for trending (fire-and-forget)
+    const observations = hits.flatMap((hit) =>
+      hit.catalogResults.flatMap((cr) =>
+        cr.products
+          .filter((p) => p.price != null)
+          .map((p) => ({
+            companyId,
+            provider: p.provider,
+            productId: p.productId,
+            title: p.title,
+            brand: p.brand ?? null,
+            searchQuery: hit.searchQuery,
+            price: p.price!,
+            zipCode: options?.zipCode ?? null,
+          })),
+      ),
+    );
+
+    if (observations.length > 0) {
+      this.prisma.materialPriceObservation
+        .createMany({ data: observations })
+        .catch((err) =>
+          this.logger.warn(`Failed to persist price observations: ${err}`),
+        );
+    }
+
+    this.logger.log(
+      `BOM snapshot ${snapshot.id}: ${hits.length} hits, ${observations.length} price observations`,
+    );
+
+    return {
+      snapshotId: snapshot.id,
+      projectId,
+      estimateVersionId,
+      totalLines: sowItems.length,
+      searchableLines: searchable.length,
+      hits,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Snapshot Selection & Locking
+  // -------------------------------------------------------------------------
+
+  /**
+   * Set the selected product index for a specific BOM pricing hit.
+   */
+  async selectBomHitProduct(hitId: string, selectedProductIdx: number | null) {
+    return this.prisma.bomPricingHit.update({
+      where: { id: hitId },
+      data: { selectedProductIdx },
+    });
+  }
+
+  /**
+   * Lock a snapshot — marks it as LOCKED so prices are frozen.
+   */
+  async lockBomSnapshot(snapshotId: string) {
+    return this.prisma.bomPricingSnapshot.update({
+      where: { id: snapshotId },
+      data: { status: "LOCKED" },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Price History / Trending
+  // -------------------------------------------------------------------------
+
+  /**
+   * Get price observations for a search query over time.
+   */
+  async getPriceHistory(
+    companyId: string,
+    searchQuery: string,
+    options?: { days?: number; provider?: string },
+  ) {
+    const days = options?.days ?? 90;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    return this.prisma.materialPriceObservation.findMany({
+      where: {
+        companyId,
+        searchQuery: { equals: searchQuery, mode: "insensitive" },
+        observedAt: { gte: since },
+        ...(options?.provider ? { provider: options.provider } : {}),
+      },
+      orderBy: { observedAt: "asc" },
+    });
   }
 
   /** Find the best-matching CostBook item for a catalog product. */

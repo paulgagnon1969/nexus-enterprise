@@ -1010,6 +1010,22 @@ export class ProjectService {
         totalMaterialCost: petlTotalMaterialCost,
         lineCount: sowItems.length,
         uniqueCatSelCount: petlItems.length,
+        // Individual material lines for pre-search selection
+        materialLines: sowItems
+          .filter((si) => (si.materialAmount ?? 0) > 0)
+          .map((si) => ({
+            id: si.id,
+            lineNo: si.lineNo,
+            description: si.description,
+            categoryCode: si.categoryCode,
+            selectionCode: si.selectionCode,
+            qty: si.qty,
+            unit: si.unit,
+            materialAmount: si.materialAmount,
+            totalMaterial: (si.qty ?? 0) * (si.materialAmount ?? 0),
+          }))
+          .sort((a, b) => b.totalMaterial - a.totalMaterial),
+        manualLineCount: sowItems.filter((si) => (si.materialAmount ?? 0) > 0 && !(si.categoryCode)).length,
       },
       componentsBom: {
         items: componentItems,

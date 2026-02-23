@@ -540,6 +540,7 @@ interface Project {
   status: string;
   city: string;
   state: string;
+  postalCode?: string | null;
   addressLine1: string;
   addressLine2: string | null;
   createdAt: string;
@@ -1419,7 +1420,18 @@ export default function ProjectDetailPage({
   const [bomData, setBomData] = useState<any | null>(null);
   const [bomLoading, setBomLoading] = useState(false);
   const [bomError, setBomError] = useState<string | null>(null);
-  const [bomView, setBomView] = useState<"petl" | "components" | "raw">("petl");
+  const [bomView, setBomView] = useState<"petl" | "components" | "raw" | "pricing">("petl");
+
+  // BOM Pricing (SerpApi catalog search)
+  const [bomPricingData, setBomPricingData] = useState<any | null>(null);
+  const [bomPricingLoading, setBomPricingLoading] = useState(false);
+  const [bomPricingError, setBomPricingError] = useState<string | null>(null);
+  const [bomPricingZip, setBomPricingZip] = useState("");
+  const [bomPricingSelected, setBomPricingSelected] = useState<Set<string>>(new Set());
+  const [bomPricingSort, setBomPricingSort] = useState<{ col: string; dir: "asc" | "desc" }>({ col: "lineNo", dir: "asc" });
+  const [bomPricingLog, setBomPricingLog] = useState<string[]>([]);
+  // Pre-search: which material lines are checked for pricing lookup
+  const [bomLineSelected, setBomLineSelected] = useState<Set<string>>(new Set());
 
   // Raw Components data (for debugging/analysis)
   const [componentsRawData, setComponentsRawData] = useState<any | null>(null);
@@ -5249,6 +5261,7 @@ ${htmlBody}
         addressLine2: string | null;
         city: string;
         state: string;
+        postalCode: string | null;
         primaryContactName: string | null;
         primaryContactEmail: string | null;
         primaryContactPhone: string | null;
@@ -5818,6 +5831,7 @@ ${htmlBody}
       activeTab === "PETL" ||
       activeTab === "STRUCTURE" ||
       activeTab === "SUMMARY" ||
+      activeTab === "BOM" ||
       petlDiagnosticsModalOpen;
 
     if (!shouldLoadPetl) {
@@ -12252,8 +12266,9 @@ ${htmlBody}
   const projectAddressParts: string[] = [];
   if (project.addressLine1) projectAddressParts.push(project.addressLine1);
   if (project.addressLine2) projectAddressParts.push(project.addressLine2);
-  const cityState = [project.city, project.state].filter(Boolean).join(", ");
-  if (cityState) projectAddressParts.push(cityState);
+  const cityStateZip = [project.city, project.state].filter(Boolean).join(", ")
+    + (project.postalCode ? " " + project.postalCode : "");
+  if (cityStateZip.trim()) projectAddressParts.push(cityStateZip.trim());
   const projectAddress = projectAddressParts.join(", ");
   const projectMapsUrl = projectAddress
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(projectAddress)}`
@@ -12275,6 +12290,7 @@ ${htmlBody}
         addressLine2: project.addressLine2 ?? null,
         city: project.city,
         state: project.state,
+        postalCode: project.postalCode ?? null,
         primaryContactName: project.primaryContactName ?? null,
         primaryContactEmail: project.primaryContactEmail ?? null,
         primaryContactPhone: project.primaryContactPhone ?? null,
@@ -12342,6 +12358,7 @@ ${htmlBody}
           addressLine2: editProject.addressLine2,
           city: editProject.city,
           state: editProject.state,
+          postalCode: editProject.postalCode,
           primaryContactName: editProject.primaryContactName,
           primaryContactEmail: editProject.primaryContactEmail,
           primaryContactPhone: editProject.primaryContactPhone,
@@ -12954,6 +12971,28 @@ ${htmlBody}
                     onChange={e =>
                       setEditProject(prev =>
                         prev ? { ...prev, state: e.target.value } : prev,
+                      )
+                    }
+                    style={{
+                      width: "100%",
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 13,
+                    }}
+                  />
+                </div>
+                <div style={{ flex: "0 0 100px" }}>
+                  <label
+                    style={{ display: "block", fontSize: 12, fontWeight: 600 }}
+                  >
+                    Zip code
+                  </label>
+                  <input
+                    value={editProject.postalCode ?? ""}
+                    onChange={e =>
+                      setEditProject(prev =>
+                        prev ? { ...prev, postalCode: e.target.value || null } : prev,
                       )
                     }
                     style={{
@@ -23099,8 +23138,194 @@ ${htmlBody}
                   Raw Data (Debug)
                 </button>
 
-                {/* Spacer to push bid button to right */}
+                {bomPricingData && (
+                  <button
+                    type="button"
+                    onClick={() => setBomView("pricing")}
+                    style={{
+                      padding: "6px 12px",
+                      fontSize: 12,
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 4,
+                      background: bomView === "pricing" ? "#2563eb" : "#fff",
+                      color: bomView === "pricing" ? "#fff" : "#374151",
+                      cursor: "pointer",
+                      fontWeight: bomView === "pricing" ? 600 : 400,
+                    }}
+                  >
+                    💲 Local Pricing ({bomPricingData.searchableLines ?? 0})
+                  </button>
+                )}
+
+                {/* Spacer to push action buttons to right */}
                 <div style={{ flex: 1 }} />
+
+                {/* Last scraped badge */}
+                {bomPricingData?.createdAt && (
+                  <span style={{ fontSize: 10, color: "#6b7280", alignSelf: "center" }}>
+                    Scraped {new Date(bomPricingData.createdAt).toLocaleDateString()}
+                    {bomPricingData.status === "LOCKED" && (
+                      <span style={{ marginLeft: 4, color: "#059669", fontWeight: 600 }}>📌 Baseline</span>
+                    )}
+                  </span>
+                )}
+
+                {/* Refresh Pricing (force new scrape) */}
+                {bomPricingData && (
+                  <button
+                    type="button"
+                    disabled={bomPricingLoading}
+                    onClick={async () => {
+                      setBomView("pricing");
+                      setBomPricingError(null);
+                      if (!petlEstimateVersionId) {
+                        setBomPricingError("No estimate version found.");
+                        return;
+                      }
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) { setBomPricingError("Missing access token."); return; }
+                      setBomPricingLoading(true);
+                      setBomPricingLog([]);
+                      try {
+                        const params = new URLSearchParams({
+                          projectId: id,
+                          estimateVersionId: petlEstimateVersionId,
+                        });
+                        if (bomPricingZip.trim()) params.set("zip", bomPricingZip.trim());
+                        const res = await fetch(
+                          `${API_BASE}/supplier-catalog/bom-search/stream?${params}`,
+                          { headers: { Authorization: `Bearer ${token}` } },
+                        );
+                        if (!res.ok) {
+                          const text = await res.text().catch(() => "");
+                          throw new Error(`Refresh failed (${res.status}). ${text}`.slice(0, 500));
+                        }
+                        const reader = res.body?.getReader();
+                        if (!reader) throw new Error("No response body");
+                        const decoder = new TextDecoder();
+                        let buffer = "";
+                        let finalData: any = null;
+                        while (true) {
+                          const { done, value } = await reader.read();
+                          if (done) break;
+                          buffer += decoder.decode(value, { stream: true });
+                          const parts = buffer.split("\n\n");
+                          buffer = parts.pop() ?? "";
+                          for (const part of parts) {
+                            const eventMatch = part.match(/^event:\s*(.+)$/m);
+                            const dataMatch = part.match(/^data:\s*(.+)$/m);
+                            if (!eventMatch || !dataMatch) continue;
+                            const evtType = eventMatch[1].trim();
+                            const payload = JSON.parse(dataMatch[1]);
+                            if (evtType === "progress") {
+                              setBomPricingLog((prev) => [...prev, payload.message]);
+                            } else if (evtType === "done") {
+                              finalData = payload;
+                            } else if (evtType === "error") {
+                              throw new Error(payload.message);
+                            }
+                          }
+                        }
+                        if (finalData) {
+                          setBomPricingData(finalData);
+                          setBomPricingSelected(new Set());
+                        }
+                      } catch (err: any) {
+                        setBomPricingError(err?.message ?? "Failed to refresh pricing.");
+                      } finally {
+                        setBomPricingLoading(false);
+                      }
+                    }}
+                    style={{
+                      padding: "6px 10px",
+                      fontSize: 11,
+                      border: "1px solid #d1d5db",
+                      borderRadius: 4,
+                      background: "#fff",
+                      color: "#374151",
+                      cursor: bomPricingLoading ? "wait" : "pointer",
+                    }}
+                  >
+                    🔄 Refresh
+                  </button>
+                )}
+
+                {/* Get Local Pricing button */}
+                <button
+                  type="button"
+                  disabled={bomPricingLoading}
+                  onClick={async () => {
+                    setBomView("pricing");
+                    setBomPricingError(null);
+                    if (!petlEstimateVersionId) {
+                      setBomPricingError("No estimate version found for this project. Open the PETL tab first to load estimate data.");
+                      return;
+                    }
+                    // If we already have pricing data, just switch to the view
+                    if (bomPricingData) return;
+                    // Try to load a cached snapshot
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) {
+                      setBomPricingError("Missing access token. Please log in again.");
+                      return;
+                    }
+                    setBomPricingLoading(true);
+                    try {
+                      const cacheParams = new URLSearchParams({
+                        projectId: id,
+                        estimateVersionId: petlEstimateVersionId,
+                      });
+                      const cacheRes = await fetch(
+                        `${API_BASE}/supplier-catalog/bom-search?${cacheParams}`,
+                        { headers: { Authorization: `Bearer ${token}` } },
+                      );
+                      if (cacheRes.ok) {
+                        const cached = await cacheRes.json();
+                        if (cached?.snapshotId) {
+                          setBomPricingData(cached);
+                          return;
+                        }
+                      }
+                      // No cached snapshot — pre-select all material lines
+                      const lines: any[] = bomData?.petlBom?.materialLines ?? [];
+                      setBomLineSelected(new Set(lines.map((l: any) => l.id)));
+                    } catch { /* ignore */ } finally {
+                      setBomPricingLoading(false);
+                    }
+                  }}
+                  style={{
+                    padding: "6px 14px",
+                    fontSize: 12,
+                    border: "none",
+                    borderRadius: 4,
+                    background: bomPricingLoading
+                      ? "#9ca3af"
+                      : "linear-gradient(135deg, #2563eb 0%, #3b82f6 100%)",
+                    color: "#fff",
+                    cursor: bomPricingLoading ? "wait" : "pointer",
+                    fontWeight: 600,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  {bomPricingLoading ? "⏳ Loading…" : "💲 Get Local Pricing"}
+                </button>
+
+                {/* Optional zip code input for local pricing */}
+                <input
+                  type="text"
+                  placeholder="ZIP"
+                  value={bomPricingZip}
+                  onChange={(e) => setBomPricingZip(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                  style={{
+                    width: 60,
+                    padding: "6px 8px",
+                    fontSize: 12,
+                    border: "1px solid #d1d5db",
+                    borderRadius: 4,
+                  }}
+                />
 
                 {/* Create Bid Sheet button */}
                 <button
@@ -23344,6 +23569,558 @@ ${htmlBody}
                       </table>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Pricing View — SerpApi catalog results */}
+              {bomView === "pricing" && (
+                <div>
+                  {bomPricingLoading && (
+                    <div style={{ marginBottom: 12 }}>
+                      <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>Searching supplier catalogs for BOM materials…</p>
+                      {bomPricingLog.length > 0 && (
+                        <div
+                          style={{
+                            background: "#111827",
+                            borderRadius: 6,
+                            padding: "10px 12px",
+                            maxHeight: 200,
+                            overflowY: "auto",
+                            fontFamily: "monospace",
+                            fontSize: 11,
+                            lineHeight: 1.6,
+                          }}
+                          ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}
+                        >
+                          {bomPricingLog.map((msg, i) => (
+                            <div key={i} style={{ color: msg.includes("✓") ? "#34d399" : msg.includes("✗") ? "#f87171" : "#9ca3af" }}>
+                              {msg}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {bomPricingError && (
+                    <p style={{ fontSize: 12, color: "#b91c1c" }}>{bomPricingError}</p>
+                  )}
+
+                  {/* Pre-search selection table — shown when no pricing data yet */}
+                  {!bomPricingData && !bomPricingLoading && (() => {
+                    const materialLines: any[] = bomData?.petlBom?.materialLines ?? [];
+                    if (materialLines.length === 0) {
+                      return <p style={{ fontSize: 12, color: "#6b7280", fontStyle: "italic" }}>No material lines found. Import an estimate with material costs first.</p>;
+                    }
+                    const allLineIds = materialLines.map((l: any) => l.id as string);
+                    const allChecked = allLineIds.length > 0 && allLineIds.every((lid) => bomLineSelected.has(lid));
+                    const someChecked = allLineIds.some((lid) => bomLineSelected.has(lid));
+                    const selectedCount = bomLineSelected.size;
+                    const selectedTotal = materialLines.filter((l: any) => bomLineSelected.has(l.id)).reduce((s: number, l: any) => s + (l.totalMaterial ?? 0), 0);
+
+                    const toggleAllLines = () => {
+                      if (allChecked) setBomLineSelected(new Set());
+                      else setBomLineSelected(new Set(allLineIds));
+                    };
+                    const toggleOneLine = (lid: string) => {
+                      setBomLineSelected((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(lid)) next.delete(lid); else next.add(lid);
+                        return next;
+                      });
+                    };
+
+                    const runSearch = async (ids?: string[]) => {
+                      if (!petlEstimateVersionId) { setBomPricingError("No estimate version."); return; }
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) { setBomPricingError("Missing access token."); return; }
+                      setBomPricingLoading(true);
+                      setBomPricingLog([]);
+                      setBomPricingError(null);
+                      try {
+                        const params = new URLSearchParams({ projectId: id, estimateVersionId: petlEstimateVersionId });
+                        if (bomPricingZip.trim()) params.set("zip", bomPricingZip.trim());
+                        if (ids && ids.length > 0) params.set("sowItemIds", ids.join(","));
+                        const res = await fetch(
+                          `${API_BASE}/supplier-catalog/bom-search/stream?${params}`,
+                          { headers: { Authorization: `Bearer ${token}` } },
+                        );
+                        if (!res.ok) {
+                          const text = await res.text().catch(() => "");
+                          throw new Error(`Search failed (${res.status}). ${text}`.slice(0, 500));
+                        }
+                        const reader = res.body?.getReader();
+                        if (!reader) throw new Error("No response body");
+                        const decoder = new TextDecoder();
+                        let buffer = "";
+                        let finalData: any = null;
+                        while (true) {
+                          const { done, value } = await reader.read();
+                          if (done) break;
+                          buffer += decoder.decode(value, { stream: true });
+                          const parts = buffer.split("\n\n");
+                          buffer = parts.pop() ?? "";
+                          for (const part of parts) {
+                            const eventMatch = part.match(/^event:\s*(.+)$/m);
+                            const dataMatch = part.match(/^data:\s*(.+)$/m);
+                            if (!eventMatch || !dataMatch) continue;
+                            const evtType = eventMatch[1].trim();
+                            const payload = JSON.parse(dataMatch[1]);
+                            if (evtType === "progress") setBomPricingLog((prev) => [...prev, payload.message]);
+                            else if (evtType === "done") finalData = payload;
+                            else if (evtType === "error") throw new Error(payload.message);
+                          }
+                        }
+                        if (finalData) setBomPricingData(finalData);
+                      } catch (err: any) {
+                        setBomPricingError(err?.message ?? "Search failed.");
+                      } finally {
+                        setBomPricingLoading(false);
+                      }
+                    };
+
+                    return (
+                      <div>
+                        {/* Selection toolbar */}
+                        <div style={{
+                          display: "flex", alignItems: "center", gap: 12, marginBottom: 12,
+                          padding: "10px 12px", background: "#f0f9ff", borderRadius: 6, border: "1px solid #bae6fd",
+                        }}>
+                          <span style={{ fontSize: 12, color: "#0369a1", fontWeight: 600 }}>
+                            {selectedCount} of {allLineIds.length} lines selected
+                            {selectedCount > 0 && (
+                              <span style={{ fontWeight: 400, marginLeft: 6 }}>
+                                (${selectedTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })} materials)
+                              </span>
+                            )}
+                          </span>
+                          <div style={{ flex: 1 }} />
+                          <input
+                            type="text"
+                            placeholder="ZIP"
+                            value={bomPricingZip}
+                            onChange={(e) => setBomPricingZip(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                            style={{ width: 60, padding: "5px 8px", fontSize: 11, border: "1px solid #d1d5db", borderRadius: 4 }}
+                          />
+                          <button
+                            type="button"
+                            disabled={selectedCount === 0}
+                            onClick={() => runSearch(Array.from(bomLineSelected))}
+                            style={{
+                              padding: "6px 14px", fontSize: 12, border: "none", borderRadius: 4,
+                              background: selectedCount > 0 ? "linear-gradient(135deg, #2563eb 0%, #3b82f6 100%)" : "#d1d5db",
+                              color: "#fff", cursor: selectedCount > 0 ? "pointer" : "not-allowed", fontWeight: 600,
+                            }}
+                          >
+                            🔍 Search Selected ({selectedCount})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => runSearch()}
+                            style={{
+                              padding: "6px 14px", fontSize: 12, border: "1px solid #d1d5db", borderRadius: 4,
+                              background: "#fff", color: "#374151", cursor: "pointer", fontWeight: 500,
+                            }}
+                          >
+                            Search All ({allLineIds.length})
+                          </button>
+                        </div>
+
+                        {/* Material lines table */}
+                        <div style={{ overflowX: "auto", maxHeight: 500, overflowY: "auto" }}>
+                          <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                            <thead style={{ position: "sticky", top: 0, zIndex: 1 }}>
+                              <tr style={{ background: "#f3f4f6" }}>
+                                <th style={{ padding: "8px 6px", borderBottom: "2px solid #d1d5db", width: 32, textAlign: "center" }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={allChecked}
+                                    ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
+                                    onChange={toggleAllLines}
+                                    style={{ cursor: "pointer" }}
+                                  />
+                                </th>
+                                <th style={{ padding: "8px 6px", borderBottom: "2px solid #d1d5db", textAlign: "center", width: 50 }}>#</th>
+                                <th style={{ padding: "8px 6px", borderBottom: "2px solid #d1d5db", width: 80 }}>Cat/Sel</th>
+                                <th style={{ padding: "8px 6px", borderBottom: "2px solid #d1d5db" }}>Description</th>
+                                <th style={{ padding: "8px 6px", borderBottom: "2px solid #d1d5db", textAlign: "right", width: 60 }}>Qty</th>
+                                <th style={{ padding: "8px 6px", borderBottom: "2px solid #d1d5db", width: 50 }}>Unit</th>
+                                <th style={{ padding: "8px 6px", borderBottom: "2px solid #d1d5db", textAlign: "right", width: 90 }}>Per Unit $</th>
+                                <th style={{ padding: "8px 6px", borderBottom: "2px solid #d1d5db", textAlign: "right", width: 100 }}>Total Material $</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {materialLines.map((line: any) => {
+                                const checked = bomLineSelected.has(line.id);
+                                return (
+                                  <tr
+                                    key={line.id}
+                                    onClick={() => toggleOneLine(line.id)}
+                                    style={{
+                                      borderBottom: "1px solid #f3f4f6",
+                                      background: checked ? "#eff6ff" : "#fff",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    <td style={{ padding: "6px", textAlign: "center" }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => toggleOneLine(line.id)}
+                                        onClick={(e) => e.stopPropagation()}
+                                        style={{ cursor: "pointer" }}
+                                      />
+                                    </td>
+                                    <td style={{ padding: "6px", textAlign: "center", color: "#6b7280", fontVariantNumeric: "tabular-nums" }}>
+                                      {line.lineNo}
+                                    </td>
+                                    <td style={{ padding: "6px", fontWeight: 500, whiteSpace: "nowrap" }}>
+                                      {line.categoryCode ?? ""}{line.selectionCode ? `/${line.selectionCode}` : ""}
+                                    </td>
+                                    <td
+                                      style={{ padding: "6px", maxWidth: 350, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                                      title={line.description}
+                                    >
+                                      {line.description}
+                                    </td>
+                                    <td style={{ padding: "6px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                                      {(line.qty ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                    </td>
+                                    <td style={{ padding: "6px", color: "#6b7280" }}>{line.unit ?? ""}</td>
+                                    <td style={{ padding: "6px", textAlign: "right", color: "#6b7280", fontVariantNumeric: "tabular-nums" }}>
+                                      ${(line.materialAmount ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                    </td>
+                                    <td style={{ padding: "6px", textAlign: "right", fontWeight: 600, color: "#059669", fontVariantNumeric: "tabular-nums" }}>
+                                      ${(line.totalMaterial ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {bomPricingData && (() => {
+                    // Flatten hits and extract top 3 products per line for the supplier columns.
+                    // Supports both snapshot format (hit.products[]) and fresh-scrape format (hit.catalogResults[]).
+                    const rawHits: any[] = bomPricingData.hits ?? [];
+                    const hitsWithProducts = rawHits.map((hit: any) => {
+                      // Snapshot format: products are flat on the hit
+                      // Fresh scrape format: products nested inside catalogResults
+                      const allProducts: any[] = Array.isArray(hit.products)
+                        ? hit.products
+                        : (hit.catalogResults ?? []).flatMap((r: any) => r.products ?? []);
+                      // Dedupe by provider — pick cheapest per provider, then take top 3
+                      const byProvider = new Map<string, any>();
+                      for (const p of allProducts) {
+                        const key = p.provider ?? "unknown";
+                        const existing = byProvider.get(key);
+                        if (!existing || (p.price != null && (existing.price == null || p.price < existing.price))) {
+                          byProvider.set(key, p);
+                        }
+                      }
+                      // Sort by price ascending, take top 3
+                      const top3 = Array.from(byProvider.values())
+                        .concat(allProducts.filter((p: any) => !byProvider.has(p.provider)))
+                        .sort((a: any, b: any) => (a.price ?? Infinity) - (b.price ?? Infinity))
+                        .slice(0, 3);
+                      // Pad to 3
+                      while (top3.length < 3) top3.push(null);
+                      return { ...hit, _top3: top3, _hasResults: allProducts.length > 0, _allProducts: allProducts };
+                    });
+
+                    // Sort logic
+                    const sortCol = bomPricingSort.col;
+                    const sortDir = bomPricingSort.dir;
+                    const sorted = [...hitsWithProducts].sort((a, b) => {
+                      let av: any, bv: any;
+                      if (sortCol === "lineNo") { av = a.lineNo ?? 0; bv = b.lineNo ?? 0; }
+                      else if (sortCol === "catSel") { av = a.categoryCode ?? ""; bv = b.categoryCode ?? ""; }
+                      else if (sortCol === "description") { av = a.description ?? ""; bv = b.description ?? ""; }
+                      else if (sortCol === "petl") { av = a.materialAmount ?? 0; bv = b.materialAmount ?? 0; }
+                      else if (sortCol === "sup1") { av = a._top3[0]?.price ?? Infinity; bv = b._top3[0]?.price ?? Infinity; }
+                      else if (sortCol === "sup2") { av = a._top3[1]?.price ?? Infinity; bv = b._top3[1]?.price ?? Infinity; }
+                      else if (sortCol === "sup3") { av = a._top3[2]?.price ?? Infinity; bv = b._top3[2]?.price ?? Infinity; }
+                      else { av = a.lineNo ?? 0; bv = b.lineNo ?? 0; }
+                      if (typeof av === "string") return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+                      return sortDir === "asc" ? av - bv : bv - av;
+                    });
+
+                    const allIds = sorted.map((h: any) => h.sowItemId as string);
+                    const allSelected = allIds.length > 0 && allIds.every((id) => bomPricingSelected.has(id));
+                    const someSelected = allIds.some((id) => bomPricingSelected.has(id));
+
+                    const toggleAll = () => {
+                      if (allSelected) {
+                        setBomPricingSelected(new Set());
+                      } else {
+                        setBomPricingSelected(new Set(allIds));
+                      }
+                    };
+                    const toggleOne = (id: string) => {
+                      setBomPricingSelected((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(id)) next.delete(id); else next.add(id);
+                        return next;
+                      });
+                    };
+
+                    const SortHeader = ({ col, label, align }: { col: string; label: string; align?: string }) => {
+                      const active = bomPricingSort.col === col;
+                      const arrow = active ? (bomPricingSort.dir === "asc" ? " ▲" : " ▼") : " ⇅";
+                      return (
+                        <th
+                          onClick={() => {
+                            if (active) {
+                              setBomPricingSort({ col, dir: sortDir === "asc" ? "desc" : "asc" });
+                            } else {
+                              setBomPricingSort({ col, dir: "asc" });
+                            }
+                          }}
+                          style={{
+                            padding: "8px 6px",
+                            borderBottom: "2px solid #d1d5db",
+                            textAlign: (align as any) ?? "left",
+                            cursor: "pointer",
+                            userSelect: "none",
+                            whiteSpace: "nowrap",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: active ? "#1d4ed8" : "#374151",
+                            background: "#f3f4f6",
+                          }}
+                        >
+                          {label}<span style={{ fontSize: 10, marginLeft: 2, color: active ? "#2563eb" : "#9ca3af" }}>{arrow}</span>
+                        </th>
+                      );
+                    };
+
+                    const providerLabel = (p: any) =>
+                      p?.provider === "homedepot" ? "Home Depot" : p?.provider === "lowes" ? "Lowe's" : (p?.provider ?? "—");
+
+                    const hitsWithResults = sorted.filter((h: any) => h._hasResults);
+                    const noHits = sorted.filter((h: any) => !h._hasResults);
+
+                    return (
+                      <>
+                        {/* Summary banner */}
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 24,
+                            marginBottom: 16,
+                            padding: 12,
+                            background: "linear-gradient(135deg, #1e3a5f 0%, #1e40af 100%)",
+                            borderRadius: 8,
+                            color: "#fff",
+                            fontSize: 12,
+                          }}
+                        >
+                          <div>
+                            <div style={{ color: "#93c5fd", marginBottom: 2 }}>BOM Lines w/ Materials</div>
+                            <div style={{ fontWeight: 700, fontSize: 16 }}>{bomPricingData.totalLines ?? 0}</div>
+                          </div>
+                          <div>
+                            <div style={{ color: "#93c5fd", marginBottom: 2 }}>Unique Searches</div>
+                            <div style={{ fontWeight: 700, fontSize: 16 }}>{bomPricingData.searchableLines ?? 0}</div>
+                          </div>
+                          <div>
+                            <div style={{ color: "#93c5fd", marginBottom: 2 }}>Catalog Hits</div>
+                            <div style={{ fontWeight: 700, fontSize: 16 }}>{hitsWithResults.length}</div>
+                          </div>
+                          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+                            {someSelected && (
+                              <span style={{ color: "#93c5fd" }}>{bomPricingSelected.size} selected</span>
+                            )}
+                            {bomPricingData.snapshotId && bomPricingData.status === "DRAFT" && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const token = localStorage.getItem("accessToken");
+                                  if (!token) return;
+                                  try {
+                                    const res = await fetch(
+                                      `${API_BASE}/supplier-catalog/bom-snapshot/${bomPricingData.snapshotId}/lock`,
+                                      {
+                                        method: "PATCH",
+                                        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                                      },
+                                    );
+                                    if (res.ok) {
+                                      setBomPricingData((prev: any) => prev ? { ...prev, status: "LOCKED" } : prev);
+                                    }
+                                  } catch { /* ignore */ }
+                                }}
+                                style={{
+                                  padding: "4px 12px",
+                                  fontSize: 11,
+                                  border: "1px solid rgba(255,255,255,0.3)",
+                                  borderRadius: 4,
+                                  background: "rgba(255,255,255,0.15)",
+                                  color: "#fff",
+                                  cursor: "pointer",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                📌 Set as Baseline
+                              </button>
+                            )}
+                            {bomPricingData.status === "LOCKED" && (
+                              <span style={{ color: "#86efac", fontWeight: 600, fontSize: 11 }}>📌 Baseline Set</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Main pricing table */}
+                        <div style={{ overflowX: "auto" }}>
+                          <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                            <thead>
+                              <tr>
+                                <th
+                                  style={{
+                                    padding: "8px 6px",
+                                    borderBottom: "2px solid #d1d5db",
+                                    background: "#f3f4f6",
+                                    width: 32,
+                                    textAlign: "center",
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={allSelected}
+                                    ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                                    onChange={toggleAll}
+                                    style={{ cursor: "pointer" }}
+                                  />
+                                </th>
+                                <SortHeader col="lineNo" label="#" align="center" />
+                                <SortHeader col="catSel" label="Cat/Sel" />
+                                <SortHeader col="description" label="Description" />
+                                <SortHeader col="petl" label="PETL Material $" align="right" />
+                                <SortHeader col="sup1" label="Supplier 1" align="right" />
+                                <SortHeader col="sup2" label="Supplier 2" align="right" />
+                                <SortHeader col="sup3" label="Supplier 3" align="right" />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {sorted.map((hit: any) => {
+                                const checked = bomPricingSelected.has(hit.sowItemId);
+                                const hasResults = hit._hasResults;
+                                return (
+                                  <tr
+                                    key={hit.sowItemId}
+                                    style={{
+                                      borderBottom: "1px solid #f3f4f6",
+                                      background: checked ? "#eff6ff" : hasResults ? "#fff" : "#fafafa",
+                                    }}
+                                  >
+                                    <td style={{ padding: "6px", textAlign: "center" }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => toggleOne(hit.sowItemId)}
+                                        style={{ cursor: "pointer" }}
+                                      />
+                                    </td>
+                                    <td style={{ padding: "6px", textAlign: "center", color: "#6b7280", fontVariantNumeric: "tabular-nums" }}>
+                                      {hit.lineNo}
+                                    </td>
+                                    <td style={{ padding: "6px", fontWeight: 500, whiteSpace: "nowrap" }}>
+                                      {hit.categoryCode ?? "—"}
+                                    </td>
+                                    <td
+                                      style={{ padding: "6px", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                                      title={hit.description}
+                                    >
+                                      {hit.description}
+                                    </td>
+                                    <td style={{ padding: "6px", textAlign: "right", fontWeight: 600, color: "#059669", whiteSpace: "nowrap" }}>
+                                      ${hit.materialAmount?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? "0.00"}
+                                    </td>
+                                    {hit._top3.map((p: any, si: number) => (
+                                      <td
+                                        key={si}
+                                        style={{
+                                          padding: "6px 8px",
+                                          textAlign: "right",
+                                          whiteSpace: "nowrap",
+                                          verticalAlign: "top",
+                                        }}
+                                      >
+                                        {p ? (
+                                          <div>
+                                            <div style={{ fontWeight: 700, fontSize: 12, color: "#1e3a5f" }}>
+                                              {p.price != null ? `$${p.price.toFixed(2)}` : "N/A"}
+                                            </div>
+                                            <div style={{ fontSize: 9, color: "#6b7280", marginTop: 1 }}>
+                                              {providerLabel(p)}
+                                              {p.inStock === true && (
+                                                <span style={{ marginLeft: 4, color: "#16a34a", fontWeight: 600 }}>● In Stock</span>
+                                              )}
+                                              {p.inStock === false && (
+                                                <span style={{ marginLeft: 4, color: "#dc2626", fontWeight: 600 }}>○ Out</span>
+                                              )}
+                                            </div>
+                                            {p.title && (
+                                              <div
+                                                style={{ fontSize: 9, color: "#9ca3af", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", textAlign: "right" }}
+                                                title={p.title}
+                                              >
+                                                {(p.title ?? "").slice(0, 40)}{(p.title ?? "").length > 40 ? "…" : ""}
+                                              </div>
+                                            )}
+                                            {p.productUrl && (
+                                              <a
+                                                href={p.productUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                style={{ fontSize: 9, color: "#2563eb", textDecoration: "none" }}
+                                              >
+                                                view →
+                                              </a>
+                                            )}
+                                            {(p.storeName || p.storeAddress) && (
+                                              <div
+                                                style={{ fontSize: 8, color: "#a1a1aa", marginTop: 2, maxWidth: 150, textAlign: "right", lineHeight: 1.3 }}
+                                                title={[p.storeName, p.storeAddress, [p.storeCity, p.storeState, p.storeZip].filter(Boolean).join(" ")].filter(Boolean).join("\n")}
+                                              >
+                                                📍 {p.storeName ?? ""}{p.storeCity ? `, ${p.storeCity}` : ""}{p.storeState ? ` ${p.storeState}` : ""}
+                                              </div>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <span style={{ color: "#d1d5db" }}>—</span>
+                                        )}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Lines with no results */}
+                        {noHits.length > 0 && (
+                          <details style={{ marginTop: 12 }}>
+                            <summary style={{ fontSize: 12, color: "#6b7280", cursor: "pointer" }}>
+                              {noHits.length} BOM lines with no catalog matches
+                            </summary>
+                            <ul style={{ fontSize: 11, color: "#9ca3af", paddingLeft: 20, marginTop: 4 }}>
+                              {noHits.map((h: any) => (
+                                <li key={h.sowItemId}>
+                                  Line {h.lineNo}: {h.description} (searched: "{h.searchQuery}")
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
 

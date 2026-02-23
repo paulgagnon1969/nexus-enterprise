@@ -154,6 +154,8 @@ export class BigBoxProvider implements CatalogProvider {
     const product = r.product ?? r;
     const offers = r.offers ?? {};
     const primaryOffer = offers.primary ?? {};
+    const ff = r.fulfillment ?? {};
+    const po = ff.pickup_options ?? {};
     return {
       productId: String(product.item_id ?? product.link?.split("/")?.pop() ?? ""),
       provider: this.providerKey,
@@ -165,13 +167,21 @@ export class BigBoxProvider implements CatalogProvider {
       price: primaryOffer.price ?? product.price?.value ?? product.price ?? undefined,
       wasPrice: primaryOffer.was_price ?? product.was_price?.value ?? undefined,
       unit: primaryOffer.unit ?? product.unit ?? undefined,
-      inStock: r.fulfillment?.pickup ?? product.in_stock ?? undefined,
+      inStock: ff.pickup ?? product.in_stock ?? undefined,
       upc: product.upc ?? undefined,
       storeSku: product.store_sku ?? undefined,
+      storeName: ff.store_name ?? po.store_name ?? undefined,
+      storeAddress: ff.store_address ?? po.store_address ?? po.address ?? undefined,
+      storeCity: ff.store_city ?? po.store_city ?? po.city ?? undefined,
+      storeState: ff.store_state ?? po.store_state ?? po.state ?? undefined,
+      storeZip: ff.store_zip ?? po.store_zip ?? po.zipcode ?? undefined,
+      storePhone: ff.store_phone ?? po.store_phone ?? po.phone ?? undefined,
     };
   }
 
   private mapProductDetail(p: any): CatalogProduct {
+    const ff = p.fulfillment ?? {};
+    const po = ff.pickup_options ?? {};
     return {
       productId: String(p.item_id ?? ""),
       provider: this.providerKey,
@@ -189,6 +199,12 @@ export class BigBoxProvider implements CatalogProvider {
       unit: p.unit ?? undefined,
       aisle: p.aisle ? `Aisle ${p.aisle.aisle_id}, Bay ${p.aisle.bay_id ?? ""}`.trim() : undefined,
       inStock: p.in_stock ?? undefined,
+      storeName: ff.store_name ?? po.store_name ?? undefined,
+      storeAddress: ff.store_address ?? po.store_address ?? po.address ?? undefined,
+      storeCity: ff.store_city ?? po.store_city ?? po.city ?? undefined,
+      storeState: ff.store_state ?? po.store_state ?? po.state ?? undefined,
+      storeZip: ff.store_zip ?? po.store_zip ?? po.zipcode ?? undefined,
+      storePhone: ff.store_phone ?? po.store_phone ?? po.phone ?? undefined,
       rawJson: {
         fulfillment: p.fulfillment ?? undefined,
         specifications: p.specifications ?? undefined,

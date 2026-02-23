@@ -70,14 +70,21 @@ export default function LoginPage() {
     setSubmitting(true);
 
     try {
+      const payload = { email: email.trim(), password };
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify(payload)
       });
 
       if (!res.ok) {
-        setError("Login failed");
+        // Try to surface server-provided error details when available
+        try {
+          const errJson = await res.json();
+          setError(errJson?.message || `Login failed (${res.status})`);
+        } catch {
+          setError(`Login failed (${res.status})`);
+        }
         return;
       }
 
@@ -314,16 +321,16 @@ export default function LoginPage() {
             }}
           >
             <div style={{ fontWeight: 600, marginBottom: 4 }}>
-              Dev server reset helper
+              Dev diagnostics
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <div>API base: <code style={{ color: '#93c5fd' }}>{API_BASE}</code></div>
+              <div>Auth endpoint: <code style={{ color: '#93c5fd' }}>{`${API_BASE}/auth/login`}</code></div>
             </div>
             <p style={{ marginTop: 0, marginBottom: 8 }}>
-              If you see connection errors to <code>localhost:8000</code> or
+              If you see connection errors to <code>localhost:8001</code> or
               <code> localhost:3000</code>, reset the dev servers from your
               terminal, then refresh this page and sign in again.
-            </p>
-            <p style={{ marginTop: 0, marginBottom: 8, opacity: 0.85 }}>
-              This helper is for developers only; if everything is working,
-              you can safely ignore it.
             </p>
             <pre
               style={{

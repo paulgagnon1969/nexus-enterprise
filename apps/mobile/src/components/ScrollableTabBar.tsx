@@ -7,10 +7,13 @@ import {
   Switch,
   StyleSheet,
   Platform,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { colors } from "../theme/colors";
 import { getWifiOnlySync, setWifiOnlySync } from "../storage/settings";
+import { apiJson } from "../api/client";
 import * as Haptics from "expo-haptics";
 import appJson from "../../app.json";
 
@@ -46,6 +49,7 @@ export function ScrollableTabBar({
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [wifiOnly, setWifiOnly] = useState(false);
+  const [calling, setCalling] = useState(false);
 
   useEffect(() => {
     getWifiOnlySync().then(setWifiOnly);
@@ -89,6 +93,32 @@ export function ScrollableTabBar({
     }
   };
 
+  const startCall = async () => {
+    if (calling) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setCalling(true);
+    try {
+      const res = await apiJson<{ room: any; token: string; livekitUrl: string }>(
+        "/video/rooms",
+        { method: "POST", body: JSON.stringify({}) },
+      );
+      // Navigate to VideoCall on the root stack (parent of tab navigator)
+      const parent = navigation.getParent();
+      if (parent) {
+        parent.navigate("VideoCall", {
+          roomId: res.room.id,
+          token: res.token,
+          livekitUrl: res.livekitUrl,
+        });
+      }
+    } catch (err) {
+      Alert.alert("Call Failed", "Could not start video call. Please try again.");
+      console.warn("[video] Failed to start call:", err);
+    } finally {
+      setCalling(false);
+    }
+  };
+
   return (
     <>
       <View style={styles.bar}>
@@ -115,6 +145,15 @@ export function ScrollableTabBar({
                 {todoBadgeCount > 99 ? "99+" : todoBadgeCount}
               </Text>
             </View>
+          )}
+        </Pressable>
+
+        {/* Call button */}
+        <Pressable style={styles.callBtn} onPress={startCall} disabled={calling}>
+          {calling ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Text style={styles.callIcon}>📞</Text>
           )}
         </Pressable>
 
@@ -269,6 +308,19 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 10,
     fontWeight: "700",
+  },
+  callBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+  },
+  callIcon: {
+    fontSize: 18,
   },
   wifiToggle: {
     flexDirection: "row",

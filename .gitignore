@@ -34,6 +34,12 @@ start-dev-local.sh
 start-dev-cloud-all.sh
 start-prod-all.sh
 
+# Mobile build artifacts
+*.ipa
+*.apk
+android/
+ios/
+
 # Data promotion artifacts (never commit real data snapshots)
 scripts/data-promotion/*.json
 scripts/data-promotion/*.csv

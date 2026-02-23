@@ -39,6 +39,19 @@ export interface CatalogProduct {
   /** Average customer rating (e.g. 4.5). */
   rating?: number;
 
+  /** Nearest store name (e.g. "Phoenix #0409"). */
+  storeName?: string;
+  /** Nearest store street address. */
+  storeAddress?: string;
+  /** Store city. */
+  storeCity?: string;
+  /** Store state (2-letter). */
+  storeState?: string;
+  /** Store ZIP code. */
+  storeZip?: string;
+  /** Store phone number. */
+  storePhone?: string;
+
   /** Xactimate-style category code if we can infer it. */
   inferredCatCode?: string;
 

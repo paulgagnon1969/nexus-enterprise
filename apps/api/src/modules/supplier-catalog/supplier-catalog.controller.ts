@@ -1,13 +1,18 @@
 import {
   Controller,
   Get,
+  Patch,
+  Param,
+  Body,
   Query,
   Req,
+  Res,
   UseGuards,
   ForbiddenException,
   BadRequestException,
+  NotFoundException,
 } from "@nestjs/common";
-import type { FastifyRequest } from "fastify";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { JwtAuthGuard, getEffectiveRoleLevel } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { SupplierCatalogService } from "./supplier-catalog.service";
@@ -181,6 +186,216 @@ export class SupplierCatalogController {
     if (!zip) throw new BadRequestException("zip is required");
     await this.bigBox.removeZipcode(zip);
     return { ok: true, zipcode: zip, message: "Zipcode removed" };
+  }
+
+  // -------------------------------------------------------------------------
+  // BOM → Catalog Search (Snapshot-backed)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Search supplier catalogs using BOM/SOW line descriptions.
+   * Returns an existing snapshot if available; pass ?refresh=true to force
+   * a fresh scrape (costs SerpApi credits).
+   *
+   *  ?projectId=X&estimateVersionId=Y&zip=85001&limit=10&refresh=true
+   */
+  @Get("bom-search")
+  async bomSearch(
+    @Req() req: FastifyRequest,
+    @Query("projectId") projectId: string,
+    @Query("estimateVersionId") estimateVersionId: string,
+    @Query("zip") zip?: string,
+    @Query("limit") limit?: string,
+    @Query("refresh") refresh?: string,
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+
+    if (!projectId) throw new BadRequestException("projectId is required");
+    if (!estimateVersionId)
+      throw new BadRequestException("estimateVersionId is required");
+    if (!user.companyId)
+      throw new BadRequestException("Company context required");
+
+    // Return existing snapshot unless refresh is requested
+    const forceRefresh = refresh === "true" || refresh === "1";
+    if (!forceRefresh) {
+      const existing = await this.catalog.getLatestBomSnapshot(
+        projectId,
+        estimateVersionId,
+      );
+      if (existing) {
+        return {
+          snapshotId: existing.id,
+          projectId: existing.projectId,
+          estimateVersionId: existing.estimateVersionId,
+          totalLines: existing.totalLines,
+          searchableLines: existing.searchableLines,
+          status: existing.status,
+          createdAt: existing.createdAt,
+          hits: existing.hits.map((h) => ({
+            id: h.id,
+            sowItemId: h.sowItemId,
+            lineNo: h.lineNo,
+            description: h.description,
+            categoryCode: h.categoryCode,
+            searchQuery: h.searchQuery,
+            materialAmount: h.materialAmount,
+            qty: h.qty,
+            unit: h.unit,
+            selectedProductIdx: h.selectedProductIdx,
+            products: h.products,
+          })),
+        };
+      }
+    }
+
+    // Fresh scrape (non-streaming fallback)
+    return this.catalog.bomSearch(
+      user.companyId,
+      projectId,
+      estimateVersionId,
+      user.userId,
+      {
+        zipCode: zip,
+        limit: limit ? Number(limit) : undefined,
+      },
+    );
+  }
+
+  /**
+   * SSE streaming endpoint for BOM search.
+   * Sends progress events during the scrape, then a final "done" event
+   * with the full snapshot payload.
+   *
+   *  ?projectId=X&estimateVersionId=Y&zip=85001&limit=10
+   */
+  @Get("bom-search/stream")
+  async bomSearchStream(
+    @Req() req: FastifyRequest,
+    @Res() reply: FastifyReply,
+    @Query("projectId") projectId: string,
+    @Query("estimateVersionId") estimateVersionId: string,
+    @Query("zip") zip?: string,
+    @Query("limit") limit?: string,
+    @Query("sowItemIds") sowItemIdsRaw?: string,
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+
+    if (!projectId) throw new BadRequestException("projectId is required");
+    if (!estimateVersionId)
+      throw new BadRequestException("estimateVersionId is required");
+    if (!user.companyId)
+      throw new BadRequestException("Company context required");
+
+    // Set up SSE headers on the raw Node response
+    const raw = reply.raw;
+    raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "Access-Control-Allow-Origin": "*",
+    });
+
+    const sendEvent = (event: string, data: unknown) => {
+      raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    try {
+      // Parse optional comma-separated sowItemIds
+      const sowItemIds = sowItemIdsRaw
+        ? sowItemIdsRaw.split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined;
+
+      const result = await this.catalog.bomSearch(
+        user.companyId,
+        projectId,
+        estimateVersionId,
+        user.userId,
+        {
+          zipCode: zip,
+          limit: limit ? Number(limit) : undefined,
+          sowItemIds,
+          onProgress: (msg: string) => sendEvent("progress", { message: msg }),
+        },
+      );
+      sendEvent("done", result);
+    } catch (err: any) {
+      sendEvent("error", { message: err?.message ?? "Search failed" });
+    } finally {
+      raw.end();
+    }
+  }
+
+  /** Load a specific snapshot by ID. */
+  @Get("bom-snapshot/:id")
+  async getBomSnapshot(
+    @Req() req: FastifyRequest,
+    @Param("id") id: string,
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+
+    const snapshot = await this.catalog.getBomSnapshot(id);
+    if (!snapshot) throw new NotFoundException("Snapshot not found");
+    return snapshot;
+  }
+
+  /** Select a product for a BOM pricing hit. */
+  @Patch("bom-hit/:hitId/select")
+  async selectBomHitProduct(
+    @Req() req: FastifyRequest,
+    @Param("hitId") hitId: string,
+    @Body() body: { selectedProductIdx: number | null },
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+
+    if (body.selectedProductIdx !== null && typeof body.selectedProductIdx !== "number") {
+      throw new BadRequestException("selectedProductIdx must be a number or null");
+    }
+
+    return this.catalog.selectBomHitProduct(hitId, body.selectedProductIdx);
+  }
+
+  /** Lock a snapshot (freeze prices for PO creation). */
+  @Patch("bom-snapshot/:id/lock")
+  async lockBomSnapshot(
+    @Req() req: FastifyRequest,
+    @Param("id") id: string,
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+
+    const snapshot = await this.catalog.getBomSnapshot(id);
+    if (!snapshot) throw new NotFoundException("Snapshot not found");
+    if (snapshot.status === "LOCKED") return snapshot;
+    if (snapshot.status !== "DRAFT") {
+      throw new BadRequestException("Only DRAFT snapshots can be locked");
+    }
+
+    return this.catalog.lockBomSnapshot(id);
+  }
+
+  /** Get price history for a search query over time. */
+  @Get("price-history")
+  async getPriceHistory(
+    @Req() req: FastifyRequest,
+    @Query("query") query: string,
+    @Query("days") days?: string,
+    @Query("provider") provider?: string,
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+
+    if (!query) throw new BadRequestException("query is required");
+    if (!user.companyId) throw new BadRequestException("Company context required");
+
+    return this.catalog.getPriceHistory(user.companyId, query, {
+      days: days ? Number(days) : undefined,
+      provider,
+    });
   }
 
   // -------------------------------------------------------------------------
