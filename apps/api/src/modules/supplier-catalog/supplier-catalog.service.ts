@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
+import { SerpApiProvider } from "./serpapi.provider";
 import { BigBoxProvider } from "./bigbox.provider";
 import { LowesProvider } from "./lowes.provider";
 import type {
@@ -34,11 +35,18 @@ export class SupplierCatalogService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly serpApi: SerpApiProvider,
     private readonly bigBox: BigBoxProvider,
     private readonly lowes: LowesProvider,
   ) {
+    // SerpAPI is the preferred HD provider (no zip pre-registration needed).
+    // Falls back to BigBox if SERPAPI_KEY is not set.
+    const hdProvider: CatalogProvider = this.serpApi.isEnabled()
+      ? this.serpApi
+      : this.bigBox;
+
     this.providers = new Map<string, CatalogProvider>([
-      [this.bigBox.providerKey, this.bigBox],
+      [hdProvider.providerKey, hdProvider],
       [this.lowes.providerKey, this.lowes],
     ]);
   }

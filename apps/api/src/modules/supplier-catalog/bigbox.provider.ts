@@ -10,8 +10,12 @@ import type {
 } from "./catalog-provider.interface";
 
 const BIGBOX_BASE = "https://api.bigboxapi.com/request";
+const BIGBOX_ZIPCODES = "https://api.bigboxapi.com/zipcodes";
 const SEARCH_CACHE_TTL = 300; // 5 min
 const PRODUCT_CACHE_TTL = 900; // 15 min
+/** Cache registered zips in Redis so we don't re-check the API every request. */
+const ZIP_REGISTRY_KEY = "catalog:bb:registered_zips";
+const ZIP_REGISTRY_TTL = 3600; // 1 hour
 
 @Injectable()
 export class BigBoxProvider implements CatalogProvider {
@@ -194,6 +198,96 @@ export class BigBoxProvider implements CatalogProvider {
   }
 
   // -------------------------------------------------------------------------
+  // Zipcode Management (BigBox Zipcodes API)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Register a zipcode on the BigBox account so future requests can use
+   * `customer_zipcode` for localized pricing.
+   *
+   * Safe to call repeatedly — will skip if already registered.
+   * Takes ~2 min on BigBox's side before the zip is `available`.
+   */
+  async ensureZipcode(zipCode: string): Promise<void> {
+    if (!this.apiKey || !zipCode) return;
+
+    // Check local cache first
+    const cached = await this.getRegisteredZips();
+    if (cached.has(zipCode)) return;
+
+    this.logger.log(`Registering zipcode ${zipCode} with BigBox...`);
+    try {
+      const res = await fetch(`${BIGBOX_ZIPCODES}?api_key=${this.apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify([{ zipcode: zipCode, domain: "homedepot.com" }]),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const json: any = await res.json().catch(() => null);
+      if (json?.request_info?.success) {
+        this.logger.log(`BigBox zipcode ${zipCode} registered — will be available in ~2 min`);
+        // Add to local cache
+        cached.add(zipCode);
+        await this.redis.setJson(ZIP_REGISTRY_KEY, [...cached], ZIP_REGISTRY_TTL);
+      } else {
+        this.logger.warn(`BigBox zipcode registration response: ${JSON.stringify(json?.request_info)}`);
+      }
+    } catch (err: any) {
+      this.logger.warn(`Failed to register zipcode ${zipCode}: ${err?.message}`);
+    }
+  }
+
+  /** Remove a zipcode from BigBox. Call when no active projects use it. */
+  async removeZipcode(zipCode: string): Promise<void> {
+    if (!this.apiKey || !zipCode) return;
+
+    this.logger.log(`Removing zipcode ${zipCode} from BigBox...`);
+    try {
+      const res = await fetch(`${BIGBOX_ZIPCODES}?api_key=${this.apiKey}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify([{ zipcode: zipCode, domain: "homedepot.com" }]),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const json: any = await res.json().catch(() => null);
+      if (json?.request_info?.success) {
+        this.logger.log(`BigBox zipcode ${zipCode} removed`);
+        // Remove from local cache
+        const cached = await this.getRegisteredZips();
+        cached.delete(zipCode);
+        await this.redis.setJson(ZIP_REGISTRY_KEY, [...cached], ZIP_REGISTRY_TTL);
+      }
+    } catch (err: any) {
+      this.logger.warn(`Failed to remove zipcode ${zipCode}: ${err?.message}`);
+    }
+  }
+
+  /** List all zipcodes currently registered on the BigBox account. */
+  async listRegisteredZipcodes(): Promise<{ zipcode: string; status: string }[]> {
+    if (!this.apiKey) return [];
+    try {
+      const res = await fetch(`${BIGBOX_ZIPCODES}?api_key=${this.apiKey}`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      const json: any = await res.json().catch(() => null);
+      const zips = json?.zipcodes?.["homedepot.com"] ?? [];
+      // Refresh the local cache while we have the data
+      const set = new Set(zips.map((z: any) => z.zipcode));
+      await this.redis.setJson(ZIP_REGISTRY_KEY, [...set], ZIP_REGISTRY_TTL);
+      return zips;
+    } catch (err: any) {
+      this.logger.warn(`Failed to list BigBox zipcodes: ${err?.message}`);
+      return [];
+    }
+  }
+
+  /** Get locally cached set of registered zips (avoids hitting BigBox API). */
+  private async getRegisteredZips(): Promise<Set<string>> {
+    const cached = await this.redis.getJson<string[]>(ZIP_REGISTRY_KEY);
+    return new Set(cached ?? []);
+  }
+
+  // -------------------------------------------------------------------------
   // HTTP
   // -------------------------------------------------------------------------
 
@@ -208,7 +302,28 @@ export class BigBoxProvider implements CatalogProvider {
         this.logger.warn(`BigBox API returned ${res.status}: ${body.slice(0, 200)}`);
         return null;
       }
-      return res.json();
+      const json: any = await res.json();
+
+      // If the zipcode isn't registered on the BigBox account, auto-register
+      // it for future requests and retry without zip so the user still gets
+      // (non-localized) results immediately.
+      if (
+        json?.request_info?.success === false &&
+        typeof json?.request_info?.message === "string" &&
+        json.request_info.message.includes("not set up") &&
+        params.has("customer_zipcode")
+      ) {
+        const zip = params.get("customer_zipcode")!;
+        this.logger.warn(
+          `BigBox zipcode ${zip} not registered — auto-registering and retrying without zip`,
+        );
+        // Fire-and-forget: register the zip for next time
+        void this.ensureZipcode(zip);
+        params.delete("customer_zipcode");
+        return this.request(params);
+      }
+
+      return json;
     } catch (err: any) {
       this.logger.warn(`BigBox API request failed: ${err?.message ?? err}`);
       return null;

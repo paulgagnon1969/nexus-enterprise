@@ -539,10 +539,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
           <NavDropdown
             label={h.financial}
-            active={path.startsWith("/financial")}
+            active={path.startsWith("/financial") || path.startsWith("/tools/supplier-catalog")}
             items={[
               { label: "Overview", href: "/financial" },
               { label: "Logistics", href: "/financial?section=ASSET_LOGISTICS" },
+              { label: "Supplier Catalog", href: "/tools/supplier-catalog" },
             ]}
           />
           <Link

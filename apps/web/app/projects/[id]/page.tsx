@@ -9390,7 +9390,7 @@ ${htmlBody}
                       }}
                     >
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        {reconFinancial.length > 0 ? (
+                        {(reconFinancial.length > 0 || (!petlHideNotes && (item.itemNote || item.qtyFieldNotes))) ? (
                           <button
                             type="button"
                             onClick={() => {
@@ -9411,10 +9411,9 @@ ${htmlBody}
                               width: 14,
                               textAlign: "center",
                             }}
-                            aria-label={expanded ? "Collapse reconciliation lines" : "Expand reconciliation lines"}
-                            title={expanded ? "Collapse reconciliation lines" : `Show ${reconFinancial.length} reconciliation line(s)`}
+                            aria-label={expanded ? "Collapse" : "Expand"}
                           >
-                            {showSublines ? "▾" : "▸"}
+                            {expanded ? "▾" : "▸"}
                           </button>
                         ) : (
                           <span style={{ width: 14 }} />
@@ -9446,7 +9445,51 @@ ${htmlBody}
                         maxWidth: 520,
                       }}
                     >
-                      {item.description ?? ""}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span title={item.description ?? ""}>{item.description ?? ""}</span>
+                        {!petlHideNotes && item.itemNote && (
+                          <span
+                            title={`V0 Note: ${item.itemNote}`}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              background: "#fef3c7",
+                              color: "#92400e",
+                              fontSize: 9,
+                              fontWeight: 600,
+                              cursor: "help",
+                              flexShrink: 0,
+                              border: "1px solid #fbbf24",
+                            }}
+                          >
+                            NOTE
+                          </span>
+                        )}
+                        {!petlHideNotes && item.qtyFieldNotes && (
+                          <span
+                            title={`Field Note: ${item.qtyFieldNotes}${item.qtyFieldReported != null ? ` (field qty: ${item.qtyFieldReported})` : ""}`}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              background: "#ede9fe",
+                              color: "#5b21b6",
+                              fontSize: 9,
+                              fontWeight: 600,
+                              cursor: "help",
+                              flexShrink: 0,
+                              border: "1px solid #a78bfa",
+                            }}
+                          >
+                            FIELD
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td
                       style={{
@@ -9970,6 +10013,47 @@ ${htmlBody}
                   </tr>,
                 );
 
+                {/* Note sub-rows when expanded and notes visible */}
+                if (expanded && !petlHideNotes && item.itemNote) {
+                  out.push(
+                    <tr key={`${item.id}::itemNote`} style={{ backgroundColor: "#fefce8" }}>
+                      <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", fontFamily: "monospace" }}>
+                        <span style={{ paddingLeft: 18, color: "#ca8a04" }}>↳ 📝 V0</span>
+                      </td>
+                      <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+                      <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis" }} colSpan={8}>
+                        <span style={{ color: "#92400e", fontStyle: "italic" }}>{item.itemNote}</span>
+                      </td>
+                    </tr>,
+                  );
+                }
+                if (expanded && !petlHideNotes && item.qtyFieldNotes) {
+                  out.push(
+                    <tr key={`${item.id}::fieldNote`} style={{ backgroundColor: "#f5f3ff" }}>
+                      <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", fontFamily: "monospace" }}>
+                        <span style={{ paddingLeft: 18, color: "#7c3aed" }}>↳ 🔍 Field</span>
+                      </td>
+                      <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+                      <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        <span style={{ color: "#5b21b6", fontStyle: "italic" }}>{item.qtyFieldNotes}</span>
+                      </td>
+                      <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#7c3aed", fontWeight: 600 }}>
+                        {item.qtyFieldReported != null ? item.qtyFieldReported : "—"}
+                      </td>
+                      <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+                      <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+                      <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+                      <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                        <span style={{ fontSize: 10, color: (item.qtyReviewStatus === "ACCEPTED" ? "#16a34a" : item.qtyReviewStatus === "REJECTED" ? "#b91c1c" : "#7c3aed"), fontWeight: 600 }}>
+                          {item.qtyReviewStatus ?? "PENDING"}
+                        </span>
+                      </td>
+                      <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+                      <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+                    </tr>,
+                  );
+                }
+
                 if (showSublines) {
                   for (const e of reconFinancial) {
                     const entryId = String(e?.id ?? "");
@@ -10178,6 +10262,7 @@ ${htmlBody}
     cancelPetlCellEditor,
     handleVirtualPercentChange,
     petlContainerHeight,
+    petlHideNotes,
   ]);
 
   const submitReconCredit = async () => {

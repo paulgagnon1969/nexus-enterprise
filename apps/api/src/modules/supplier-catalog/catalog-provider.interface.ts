@@ -36,6 +36,8 @@ export interface CatalogProduct {
   aisle?: string;
   /** Whether the item is in stock at a nearby store. */
   inStock?: boolean;
+  /** Average customer rating (e.g. 4.5). */
+  rating?: number;
 
   /** Xactimate-style category code if we can infer it. */
   inferredCatCode?: string;

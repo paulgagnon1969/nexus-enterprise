@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { HelpIcon } from "../components/help-icon";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "https://ncc-nexus-contractor-connect.com";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 // Hard-coded IDs for Nexus System and Nexus Fortified Structures tenants.
 const NEXUS_SYSTEM_COMPANY_ID = "cmjr7o4zs000101s6z1rt1ssz";

@@ -453,6 +453,9 @@ function ProjectImportPageInner() {
       if (!ok) {
         return;
       }
+      // performRawImport() already fires performComponentsImport() when a
+      // components file is present, so return here to avoid a duplicate import.
+      return;
     }
 
     void performComponentsImport();

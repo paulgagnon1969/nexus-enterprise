@@ -267,22 +267,33 @@ bash scripts/build-android-local.sh release
 - Also creates a `nexus-mobile-release-latest.apk` symlink
 - Opens the Google Drive folder when complete
 
-### iOS IPA — EAS Cloud Build + Auto-Submit to TestFlight
-iOS builds use EAS Build (cloud) because Apple code signing requires it.
+### iOS IPA — Local EAS Build + Auto-Submit to TestFlight
+iOS builds use `eas build --local` to compile on the local Mac (zero cloud credits). EAS handles code signing automatically using credentials stored on EAS servers.
 **Warp MUST always submit to TestFlight immediately after the build finishes.** Do NOT use `--no-wait` — wait for the build to complete, then submit in the same flow.
 
 ```bash
-# From apps/mobile — build and wait for completion:
-eas build --platform ios --profile production --non-interactive
+# From apps/mobile — build locally and wait for completion:
+eas build --platform ios --profile production --local --non-interactive
 
 # Immediately after build succeeds, submit to TestFlight:
 eas submit --platform ios --latest --non-interactive
 ```
 
 - Uses the `production` profile in `eas.json`
+- `--local` builds on the Mac instead of EAS cloud (no credits consumed)
 - `autoIncrement: true` handles build numbers automatically
 - **Submission is NOT optional** — every iOS build MUST be submitted to TestFlight
 - After submission, the build appears in TestFlight for internal testing (usually within 5-15 minutes)
+
+### 🗓️ TODO: Migrate to full Xcode-native iOS builds (revisit March 1, 2026)
+Strategic goal: eliminate EAS dependency entirely for iOS builds.
+Steps when ready:
+1. Revoke EAS-managed iOS Distribution cert
+2. Create new Apple Distribution cert from Xcode (stores private key in local Keychain)
+3. Create new Provisioning Profile on Apple Developer Portal tied to local cert
+4. Create `scripts/build-ios-local.sh` using `npx expo prebuild` + `xcodebuild`
+5. Update this contract to use the local script
+6. `eas submit` can still be used for TestFlight uploads, or switch to `xcrun altool`
 
 ### Version Bumping
 Before building, bump the version in `apps/mobile/app.json`:

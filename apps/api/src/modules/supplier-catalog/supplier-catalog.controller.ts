@@ -11,6 +11,7 @@ import type { FastifyRequest } from "fastify";
 import { JwtAuthGuard, getEffectiveRoleLevel } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { SupplierCatalogService } from "./supplier-catalog.service";
+import { BigBoxProvider } from "./bigbox.provider";
 
 function getUser(req: FastifyRequest): AuthenticatedUser {
   const user = (req as any).user as AuthenticatedUser | undefined;
@@ -32,7 +33,10 @@ function assertPmOrAbove(user: AuthenticatedUser) {
 @Controller("supplier-catalog")
 @UseGuards(JwtAuthGuard)
 export class SupplierCatalogController {
-  constructor(private readonly catalog: SupplierCatalogService) {}
+  constructor(
+    private readonly catalog: SupplierCatalogService,
+    private readonly bigBox: BigBoxProvider,
+  ) {}
 
   // -------------------------------------------------------------------------
   // Provider Status
@@ -138,6 +142,45 @@ export class SupplierCatalogController {
     if (!zip) throw new BadRequestException("zip is required");
 
     return this.catalog.getAvailability(provider, id, zip);
+  }
+
+  // -------------------------------------------------------------------------
+  // Zipcode Management
+  // -------------------------------------------------------------------------
+
+  /** List all registered BigBox zipcodes. */
+  @Get("zipcodes")
+  async listZipcodes(@Req() req: FastifyRequest) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+    const zips = await this.bigBox.listRegisteredZipcodes();
+    return { zipcodes: zips };
+  }
+
+  /** Register a zipcode for localized pricing. */
+  @Get("zipcodes/register")
+  async registerZipcode(
+    @Req() req: FastifyRequest,
+    @Query("zip") zip: string,
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+    if (!zip) throw new BadRequestException("zip is required");
+    await this.bigBox.ensureZipcode(zip);
+    return { ok: true, zipcode: zip, message: "Registered — localized results available in ~2 minutes" };
+  }
+
+  /** Remove a zipcode from BigBox. */
+  @Get("zipcodes/remove")
+  async removeZipcode(
+    @Req() req: FastifyRequest,
+    @Query("zip") zip: string,
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+    if (!zip) throw new BadRequestException("zip is required");
+    await this.bigBox.removeZipcode(zip);
+    return { ok: true, zipcode: zip, message: "Zipcode removed" };
   }
 
   // -------------------------------------------------------------------------

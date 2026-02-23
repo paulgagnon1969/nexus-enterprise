@@ -54,6 +54,7 @@ import {
 } from "./dto/project-bill.dto";
 import { importXactCsvForProject, importXactComponentsCsvForEstimate, allocateComponentsForEstimate } from "@repo/database";
 import { TaxJurisdictionService } from "./tax-jurisdiction.service";
+import { BigBoxProvider } from "../supplier-catalog/bigbox.provider";
 
 type PetlArchiveBundleV1 = {
   schemaVersion: 1;
@@ -182,6 +183,7 @@ export class ProjectService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly taxJurisdictions: TaxJurisdictionService,
+    private readonly bigBox: BigBoxProvider,
   ) {}
 
   /**
@@ -357,6 +359,11 @@ export class ProjectService {
       this.logger.warn(`Client membership sync failed (non-fatal): ${err.message}`);
     }
 
+    // Auto-register project zipcode with BigBox for localized supplier pricing
+    if (project.postalCode) {
+      void this.bigBox.ensureZipcode(project.postalCode).catch(() => {});
+    }
+
     await this.audit.log(actor, "PROJECT_CREATED", {
       companyId,
       projectId: project.id,
@@ -448,6 +455,11 @@ export class ProjectService {
     // Auto-sync client portal membership if tenantClientId was changed
     if (dto.tenantClientId !== undefined && dto.tenantClientId !== project.tenantClientId) {
       await this.syncClientMembershipForProject(projectId, companyId, dto.tenantClientId);
+    }
+
+    // Auto-register new zipcode with BigBox if address changed
+    if (dto.postalCode && dto.postalCode !== project.postalCode) {
+      void this.bigBox.ensureZipcode(dto.postalCode).catch(() => {});
     }
 
     await this.audit.log(actor, "PROJECT_UPDATED", {
