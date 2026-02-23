@@ -189,6 +189,9 @@ model Company {
 
   // Push notification preferences scoped to this company
   notificationPreferences NotificationPreference[]
+
+  // Video calling rooms scoped to this company
+  videoRooms VideoRoom[]
 }
 
 model OrganizationTemplate {
@@ -524,6 +527,10 @@ model User {
   // Push notification device tokens & preferences
   devicePushTokens        DevicePushToken[]
   notificationPreferences NotificationPreference[]
+
+  // Video calling
+  videoRoomsCreated       VideoRoom[]
+  videoRoomParticipations VideoRoomParticipant[]
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -1175,6 +1182,9 @@ model Project {
 
   // Push notification preferences scoped to this project
   notificationPreferences NotificationPreference[]
+
+  // Video calling rooms on this project
+  videoRooms VideoRoom[]
 
   @@index([companyId, groupId], map: "Project_company_group_idx")
   @@index([tenantClientId], map: "Project_tenant_client_idx")
@@ -3527,6 +3537,48 @@ model NotificationPreference {
 
   @@unique([userId, companyId, projectId], map: "NotificationPreference_user_company_project_uk")
   @@index([userId], map: "NotificationPreference_user_idx")
+}
+
+/// Status of a video call room.
+enum VideoRoomStatus {
+  ACTIVE
+  ENDED
+}
+
+/// A video/audio call room backed by LiveKit.
+model VideoRoom {
+  id               String          @id @default(cuid())
+  companyId        String
+  projectId        String?
+  createdById      String
+  livekitRoomName  String          @unique
+  status           VideoRoomStatus @default(ACTIVE)
+  startedAt        DateTime        @default(now())
+  endedAt          DateTime?
+  participantCount Int             @default(0)
+
+  company      Company                @relation(fields: [companyId], references: [id])
+  project      Project?               @relation(fields: [projectId], references: [id])
+  createdBy    User                   @relation(fields: [createdById], references: [id])
+  participants VideoRoomParticipant[]
+
+  @@index([companyId, status], map: "VideoRoom_company_status_idx")
+  @@index([projectId, status], map: "VideoRoom_project_status_idx")
+}
+
+/// Tracks which users joined a video room and when.
+model VideoRoomParticipant {
+  id       String    @id @default(cuid())
+  roomId   String
+  userId   String
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+
+  room VideoRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User      @relation(fields: [userId], references: [id])
+
+  @@index([roomId], map: "VideoRoomParticipant_room_idx")
+  @@index([userId], map: "VideoRoomParticipant_user_idx")
 }
 
 enum MessageThreadType {

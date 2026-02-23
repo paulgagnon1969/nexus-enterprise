@@ -1,4 +1,8 @@
 import { registerRootComponent } from 'expo';
+import { registerGlobals } from '@livekit/react-native';
+
+// LiveKit: setup WebRTC globals before anything else
+registerGlobals();
 
 import App from './App';
 

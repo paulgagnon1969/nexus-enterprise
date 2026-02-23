@@ -53,6 +53,7 @@ import { OshaSyncModule } from "./modules/osha-sync/osha-sync.module";
 import { GovInfoModule } from "./modules/govinfo/govinfo.module";
 import { WeatherModule } from "./modules/weather/weather.module";
 import { SupplierCatalogModule } from "./modules/supplier-catalog/supplier-catalog.module";
+import { VideoModule } from "./modules/video/video.module";
 
 @Module({
   imports: [
@@ -114,6 +115,7 @@ import { SupplierCatalogModule } from "./modules/supplier-catalog/supplier-catal
     GovInfoModule,
     WeatherModule,
     SupplierCatalogModule,
+    VideoModule,
   ],
   controllers: [DevController]
 })
