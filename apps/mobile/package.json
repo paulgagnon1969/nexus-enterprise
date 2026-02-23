@@ -1,6 +1,6 @@
 {
   "name": "mobile",
-  "version": "2.3.2",
+  "version": "2.3.3",
   "private": true,
   "main": "index.ts",
   "scripts": {
@@ -27,6 +27,7 @@
     "expo-camera": "~55.0.5",
     "expo-dev-client": "~55.0.5",
     "expo-file-system": "~55.0.5",
+    "expo-haptics": "~55.0.7",
     "expo-image-manipulator": "~55.0.5",
     "expo-image-picker": "~55.0.5",
     "expo-local-authentication": "~55.0.5",

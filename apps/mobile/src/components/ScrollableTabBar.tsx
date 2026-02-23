@@ -11,6 +11,7 @@ import {
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { colors } from "../theme/colors";
 import { getWifiOnlySync, setWifiOnlySync } from "../storage/settings";
+import * as Haptics from "expo-haptics";
 import appJson from "../../app.json";
 
 /** Module metadata (everything except Home) */
@@ -60,6 +61,7 @@ export function ScrollableTabBar({
   const activeMeta = TAB_META[currentRoute] ?? { icon: "•", label: currentRoute };
 
   const goHome = () => {
+    void Haptics.selectionAsync();
     const homeRoute = state.routes.find((r) => r.name === "HomeTab");
     if (!homeRoute) return;
     const event = navigation.emit({
@@ -73,6 +75,7 @@ export function ScrollableTabBar({
   };
 
   const goToModule = (tabKey: string) => {
+    void Haptics.selectionAsync();
     setMenuOpen(false);
     const route = state.routes.find((r) => r.name === tabKey);
     if (!route) return;
@@ -96,7 +99,7 @@ export function ScrollableTabBar({
         </Pressable>
 
         {/* Modules dropdown trigger */}
-        <Pressable style={styles.modulesBtn} onPress={() => setMenuOpen(true)}>
+        <Pressable style={styles.modulesBtn} onPress={() => { void Haptics.selectionAsync(); setMenuOpen(true); }}>
           <View style={styles.modulesBtnInner}>
             {!isHome && (
               <Text style={styles.activeModuleIcon}>{activeMeta.icon}</Text>

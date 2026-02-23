@@ -13,6 +13,7 @@ import {
 import { fetchAllTasks, updateTaskStatus, updateTask, fetchCompanyMembers } from "../api/tasks";
 import type { TeamMember } from "../api/tasks";
 import { colors } from "../theme/colors";
+import * as Haptics from "expo-haptics";
 import type { TaskItem, TaskStatus } from "../types/api";
 
 // ── Urgency bucketing ───────────────────────────────────────────────
@@ -118,6 +119,7 @@ export function TodosScreen() {
 
   // Open detail card
   const openDetail = (task: TaskItem) => {
+    void Haptics.selectionAsync();
     setSelectedTask(task);
     setShowDetail(true);
   };
@@ -136,8 +138,10 @@ export function TodosScreen() {
       setTasks((prev) =>
         prev.map((t) => (t.id === selectedTask.id ? { ...t, status: "DONE" as TaskStatus } : t))
       );
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       closeDetail();
     } catch {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert("Error", "Failed to close task");
     } finally {
       setDetailActionLoading(false);
@@ -153,8 +157,10 @@ export function TodosScreen() {
       setTasks((prev) =>
         prev.map((t) => (t.id === selectedTask.id ? { ...t, status: "TODO" as TaskStatus } : t))
       );
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       closeDetail();
     } catch {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert("Error", "Failed to reopen task");
     } finally {
       setDetailActionLoading(false);
@@ -186,8 +192,10 @@ export function TodosScreen() {
       );
       setSelectedTask(updated);
       setShowReassign(false);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert("Reassigned", "Task has been reassigned.");
     } catch {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert("Error", "Failed to reassign task");
     } finally {
       setDetailActionLoading(false);
@@ -195,6 +203,7 @@ export function TodosScreen() {
   };
 
   const toggleCollapse = (bucket: UrgencyBucket) => {
+    void Haptics.selectionAsync();
     setCollapsedBuckets((prev) => {
       const next = new Set(prev);
       if (next.has(bucket)) next.delete(bucket);

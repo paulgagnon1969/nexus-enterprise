@@ -143,7 +143,7 @@ const PetlRow = memo(function PetlRow({
       <tr style={{ backgroundColor: bg }}>
         <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", whiteSpace: "nowrap" }}>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            {(reconFinancial.length > 0 || item.itemNote) ? (
+            {(reconFinancial.length > 0 || item.itemNote || item.qtyFieldNotes) ? (
               <button
                 type="button"
                 onClick={() => onToggleExpand(item.id)}
@@ -223,6 +223,27 @@ const PetlRow = memo(function PetlRow({
                 }}
               >
                 NOTE
+              </span>
+            )}
+            {item.qtyFieldNotes && (
+              <span
+                title={`Field Note: ${item.qtyFieldNotes}${item.qtyFieldReported != null ? ` (field qty: ${item.qtyFieldReported})` : ""}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  background: "#ede9fe",
+                  color: "#5b21b6",
+                  fontSize: 9,
+                  fontWeight: 600,
+                  cursor: "help",
+                  flexShrink: 0,
+                  border: "1px solid #a78bfa",
+                }}
+              >
+                FIELD
               </span>
             )}
           </div>
@@ -464,6 +485,44 @@ const PetlRow = memo(function PetlRow({
           </RoleVisible>
         </td>
       </tr>
+      {/* Note sub-rows when expanded (non-virtualized path) */}
+      {isExpanded && item.itemNote && (
+        <tr style={{ backgroundColor: "#fefce8" }}>
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", fontFamily: "monospace" }}>
+            <span style={{ paddingLeft: 18, color: "#ca8a04" }}>↳ 📝 V0</span>
+          </td>
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis" }} colSpan={8}>
+            <span style={{ color: "#92400e", fontStyle: "italic" }}>{item.itemNote}</span>
+          </td>
+        </tr>
+      )}
+      {isExpanded && item.qtyFieldNotes && (
+        <tr style={{ backgroundColor: "#f5f3ff" }}>
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", fontFamily: "monospace" }}>
+            <span style={{ paddingLeft: 18, color: "#7c3aed" }}>↳ 🔍 Field</span>
+          </td>
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <span style={{ color: "#5b21b6", fontStyle: "italic" }}>{item.qtyFieldNotes}</span>
+          </td>
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#7c3aed", fontWeight: 600 }}>
+            {item.qtyFieldReported != null ? item.qtyFieldReported : "—"}
+          </td>
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+            <span style={{ fontSize: 10, color: (item.qtyReviewStatus === "ACCEPTED" ? "#16a34a" : item.qtyReviewStatus === "REJECTED" ? "#b91c1c" : "#7c3aed"), fontWeight: 600 }}>
+              {item.qtyReviewStatus ?? "PENDING"}
+            </span>
+          </td>
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
+        </tr>
+      )}
       {showSublines &&
         reconFinancial.map((e) => {
           const entryId = String(e?.id ?? "");

@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { logout } from "../auth/auth";
 import { Platform, Linking } from "react-native";
+import * as Haptics from "expo-haptics";
 import appJson from "../../app.json";
 import { getApiBaseUrl } from "../api/config";
 import { countPendingOutbox } from "../offline/outbox";
@@ -433,6 +434,7 @@ export function HomeScreen({
 
   // Open daily log detail
   const openLogDetail = async (logId: string, projectId?: string) => {
+    void Haptics.selectionAsync();
     if (projectId) void recordUsage(projectId, "view_daily_log");
     setExpandedLogLoading(true);
     setShowLogDetail(true);
@@ -460,8 +462,10 @@ export function HomeScreen({
       });
       setExpandedLog(updated);
       setEditingLog(false);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       void loadProjectFeed();
     } catch (e) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Failed to save log:", e);
     } finally {
       setSavingLog(false);
@@ -476,8 +480,10 @@ export function HomeScreen({
       const updated = await reassignDailyLog(expandedLog.id, targetProjectId);
       setExpandedLog(updated);
       setShowReassignModal(false);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       void loadProjectFeed();
     } catch (e) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.error("Failed to reassign log:", e);
     } finally {
       setReassigning(false);
@@ -498,6 +504,7 @@ export function HomeScreen({
 
   // Clock in/out handler
   const handleClockToggle = () => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (clockedIn) {
       setClockedIn(false);
       setClockInTime(null);
@@ -551,7 +558,7 @@ export function HomeScreen({
         {/* Center: Sync bar (shrunk) */}
         <Pressable
           style={[styles.syncBar, syncing && styles.syncBarActive]}
-          onPress={runSync}
+          onPress={() => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); runSync(); }}
           disabled={syncing}
         >
           {syncing ? (
@@ -746,7 +753,8 @@ export function HomeScreen({
               <Pressable
                 key={item.project.id}
                 style={styles.projectRow}
-                onPress={() => {
+          onPress={() => {
+                  void Haptics.selectionAsync();
                   void recordUsage(item.project.id, "open_project");
                   setSelectedProject(item.project);
                 }}

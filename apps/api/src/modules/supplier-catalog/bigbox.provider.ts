@@ -60,7 +60,7 @@ export class BigBoxProvider implements CatalogProvider {
       search_term: query,
       page: String(page),
     });
-    if (options?.zipCode) params.set("zip_code", options.zipCode);
+    if (options?.zipCode) params.set("customer_zipcode", options.zipCode);
     if (options?.sort) params.set("sort_by", options.sort);
 
     const data = await this.request(params);
@@ -103,7 +103,7 @@ export class BigBoxProvider implements CatalogProvider {
       type: "product",
       item_id: productId,
     });
-    if (zipCode) params.set("zip_code", zipCode);
+    if (zipCode) params.set("customer_zipcode", zipCode);
 
     const data = await this.request(params);
     if (!data?.product) return null;
@@ -148,6 +148,8 @@ export class BigBoxProvider implements CatalogProvider {
 
   private mapSearchResult(r: any): CatalogProduct {
     const product = r.product ?? r;
+    const offers = r.offers ?? {};
+    const primaryOffer = offers.primary ?? {};
     return {
       productId: String(product.item_id ?? product.link?.split("/")?.pop() ?? ""),
       provider: this.providerKey,
@@ -156,11 +158,12 @@ export class BigBoxProvider implements CatalogProvider {
       modelNumber: product.model_number ?? undefined,
       imageUrl: product.primary_image ?? product.thumbnail ?? undefined,
       productUrl: product.link ?? undefined,
-      price: product.price?.value ?? product.price ?? undefined,
-      wasPrice: product.was_price?.value ?? undefined,
-      unit: product.unit ?? undefined,
-      inStock: product.in_stock ?? undefined,
+      price: primaryOffer.price ?? product.price?.value ?? product.price ?? undefined,
+      wasPrice: primaryOffer.was_price ?? product.was_price?.value ?? undefined,
+      unit: primaryOffer.unit ?? product.unit ?? undefined,
+      inStock: r.fulfillment?.pickup ?? product.in_stock ?? undefined,
       upc: product.upc ?? undefined,
+      storeSku: product.store_sku ?? undefined,
     };
   }
 

@@ -1226,14 +1226,14 @@ export default function ProjectDetailPage({
   const [availableMembers, setAvailableMembers] = useState<
     { userId: string; email: string; firstName: string; lastName: string; role: string }[]
   >([]);
-  const [newMemberRole, setNewMemberRole] = useState<string>("MANAGER");
+  const [newMemberRole, setNewMemberRole] = useState<string>("CREW");
   const [bulkInternalSelection, setBulkInternalSelection] = useState<string[]>([]);
   const [bulkInternalSaving, setBulkInternalSaving] = useState(false);
   const [bulkInternalMessage, setBulkInternalMessage] = useState<string | null>(null);
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [invitePassword, setInvitePassword] = useState("");
-  const [inviteProjectRole, setInviteProjectRole] = useState<string>("MANAGER");
+  const [inviteProjectRole, setInviteProjectRole] = useState<string>("CREW");
   const [inviteSaving, setInviteSaving] = useState(false);
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
 
@@ -13809,39 +13809,31 @@ ${htmlBody}
       {/* SUMMARY tab content */}
       {activeTab === "SUMMARY" && (
         <div style={{ marginBottom: 16 }}>
-          {/* General Info card */}
-          <div
-            style={{
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: "#ffffff",
-              marginBottom: 12,
-            }}
-          >
+          {/* === ROW 1: General Info | Project Team | Job Groups/Tags === */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+            {/* General Info card */}
             <div
               style={{
-                padding: "6px 10px",
-                borderBottom: "1px solid #e5e7eb",
-                fontSize: 13,
-                fontWeight: 600,
-                background: "#f3f4f6",
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#ffffff",
               }}
             >
-              General Info
-            </div>
-            <div
-              style={{
-                padding: 10,
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 8,
-                fontSize: 13,
-              }}
-            >
-              <div>
+              <div
+                style={{
+                  padding: "6px 10px",
+                  borderBottom: "1px solid #e5e7eb",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: "#f3f4f6",
+                }}
+              >
+                General Info
+              </div>
+              <div style={{ padding: 10, fontSize: 12, lineHeight: 1.7 }}>
                 <div><strong>Job:</strong> {project.name}</div>
+                <div><strong>Status:</strong> {project.status}</div>
                 <div><strong>Job Type:</strong> N/A</div>
-                <div><strong>Job Group:</strong> N/A</div>
                 <div><strong>Contract Type:</strong> N/A</div>
                 <div>
                   <strong>Address:</strong>{" "}
@@ -13859,15 +13851,8 @@ ${htmlBody}
                   )}
                 </div>
                 <div><strong>Square Feet:</strong> N/A</div>
-                <div><strong>Lot Info:</strong> N/A</div>
-              </div>
-              <div>
-                <div><strong>Status:</strong> {project.status}</div>
-                <div><strong>Project Managers:</strong> N/A</div>
                 <div><strong>Projected Start:</strong> N/A</div>
-                <div><strong>Actual Start:</strong> N/A</div>
                 <div><strong>Projected Completion:</strong> N/A</div>
-                <div><strong>Actual Completion:</strong> N/A</div>
                 <div><strong>Permit #:</strong> N/A</div>
                 <RoleVisible minRole="SUPER">
                   <div>
@@ -13881,174 +13866,311 @@ ${htmlBody}
                 </RoleVisible>
               </div>
             </div>
-          </div>
 
-          {/* Project Team Tree — Editable */}
-          <div
-            style={{
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: "#ffffff",
-              marginBottom: 12,
-            }}
-          >
+            {/* Project Team Tree — Editable */}
             <div
               style={{
-                padding: "6px 10px",
-                borderBottom: "1px solid #e5e7eb",
-                fontSize: 13,
-                fontWeight: 600,
-                background: "#f3f4f6",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#ffffff",
               }}
             >
-              <span style={{ fontSize: 15 }}>&#127795;</span> Project Team
-            </div>
-            <div style={{ padding: "10px 14px" }}>
-              {TEAM_TREE_SLOTS.map((slot, idx) => {
-                const selectedUserId = teamTreeLocal[slot.key] || "";
-                const members = participants?.myOrganization ?? [];
-                const selectedMember = members.find((m) => m.userId === selectedUserId);
-                const displayName = selectedMember
-                  ? [selectedMember.user.firstName, selectedMember.user.lastName].filter(Boolean).join(" ") || selectedMember.user.email
-                  : null;
-                return (
-                  <div key={slot.key} style={{ position: "relative", paddingLeft: 20, marginBottom: idx < TEAM_TREE_SLOTS.length - 1 ? 8 : 0 }}>
-                    {/* Vertical connector line */}
-                    {idx < TEAM_TREE_SLOTS.length - 1 && (
+              <div
+                style={{
+                  padding: "6px 10px",
+                  borderBottom: "1px solid #e5e7eb",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: "#f3f4f6",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <span style={{ fontSize: 15 }}>&#127795;</span> Project Team
+              </div>
+              <div style={{ padding: "10px 14px" }}>
+                {TEAM_TREE_SLOTS.map((slot, idx) => {
+                  const selectedUserId = teamTreeLocal[slot.key] || "";
+                  const members = participants?.myOrganization ?? [];
+                  const selectedMember = members.find((m) => m.userId === selectedUserId);
+                  const displayName = selectedMember
+                    ? [selectedMember.user.firstName, selectedMember.user.lastName].filter(Boolean).join(" ") || selectedMember.user.email
+                    : null;
+                  return (
+                    <div key={slot.key} style={{ position: "relative", paddingLeft: 20, marginBottom: idx < TEAM_TREE_SLOTS.length - 1 ? 8 : 0 }}>
+                      {/* Vertical connector line */}
+                      {idx < TEAM_TREE_SLOTS.length - 1 && (
+                        <div style={{
+                          position: "absolute",
+                          left: 7,
+                          top: 14,
+                          bottom: -8,
+                          width: 2,
+                          background: "#d1d5db",
+                        }} />
+                      )}
+                      {/* Connector dot */}
                       <div style={{
                         position: "absolute",
-                        left: 7,
-                        top: 14,
-                        bottom: -8,
-                        width: 2,
-                        background: "#d1d5db",
+                        left: 2,
+                        top: 6,
+                        width: 12,
+                        height: 12,
+                        borderRadius: "50%",
+                        background: idx === 0 ? "#2563eb" : idx === TEAM_TREE_SLOTS.length - 1 ? "#9ca3af" : "#6b7280",
+                        border: "2px solid #ffffff",
+                        boxShadow: "0 0 0 1px #d1d5db",
                       }} />
-                    )}
-                    {/* Connector dot */}
-                    <div style={{
-                      position: "absolute",
-                      left: 2,
-                      top: 6,
-                      width: 12,
-                      height: 12,
-                      borderRadius: "50%",
-                      background: idx === 0 ? "#2563eb" : idx === TEAM_TREE_SLOTS.length - 1 ? "#9ca3af" : "#6b7280",
-                      border: "2px solid #ffffff",
-                      boxShadow: "0 0 0 1px #d1d5db",
-                    }} />
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "#111827", marginBottom: 2 }}>
-                      {slot.label}
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#111827", marginBottom: 2 }}>
+                        {slot.label}
+                      </div>
+                      <select
+                        value={selectedUserId}
+                        onChange={(e) => {
+                          setTeamTreeLocal((prev) => ({ ...prev, [slot.key]: e.target.value }));
+                          setTeamTreeDirty(true);
+                        }}
+                        style={{
+                          fontSize: 12,
+                          padding: "3px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          background: "#ffffff",
+                          minWidth: 160,
+                          maxWidth: "100%",
+                          color: selectedUserId ? "#111827" : "#9ca3af",
+                        }}
+                      >
+                        <option value="">— Select —</option>
+                        {members.map((m) => {
+                          const name = [m.user.firstName, m.user.lastName].filter(Boolean).join(" ") || m.user.email;
+                          return (
+                            <option key={m.userId} value={m.userId}>{name}</option>
+                          );
+                        })}
+                      </select>
+                      {displayName && (
+                        <span style={{ fontSize: 11, color: "#6b7280", marginLeft: 6 }}>{displayName}</span>
+                      )}
                     </div>
-                    <select
-                      value={selectedUserId}
-                      onChange={(e) => {
-                        setTeamTreeLocal((prev) => ({ ...prev, [slot.key]: e.target.value }));
-                        setTeamTreeDirty(true);
+                  );
+                })}
+                {/* Save button */}
+                {teamTreeDirty && (
+                  <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      disabled={teamTreeSaving}
+                      onClick={async () => {
+                        const token = localStorage.getItem("accessToken");
+                        if (!token) return;
+                        setTeamTreeSaving(true);
+                        const payload: Record<string, string[]> = {};
+                        for (const [key, userId] of Object.entries(teamTreeLocal)) {
+                          if (userId) payload[key] = [userId];
+                        }
+                        try {
+                          const res = await fetch(`${API_BASE}/projects/${id}/team-tree`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                            body: JSON.stringify({ teamTreeJson: payload }),
+                          });
+                          if (res.ok) {
+                            const updated = await res.json();
+                            setProject((prev) => prev ? { ...prev, teamTreeJson: updated.teamTreeJson ?? payload } : prev);
+                            setTeamTreeDirty(false);
+                          }
+                        } catch (err) {
+                          console.error("Failed to save team tree", err);
+                        } finally {
+                          setTeamTreeSaving(false);
+                        }
                       }}
                       style={{
-                        fontSize: 12,
-                        padding: "3px 6px",
+                        padding: "4px 12px",
                         borderRadius: 4,
-                        border: "1px solid #d1d5db",
-                        background: "#ffffff",
-                        minWidth: 180,
-                        color: selectedUserId ? "#111827" : "#9ca3af",
+                        border: "1px solid #22c55e",
+                        background: "#dcfce7",
+                        color: "#166534",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: teamTreeSaving ? "not-allowed" : "pointer",
+                        opacity: teamTreeSaving ? 0.6 : 1,
                       }}
                     >
-                      <option value="">— Select —</option>
-                      {members.map((m) => {
-                        const name = [m.user.firstName, m.user.lastName].filter(Boolean).join(" ") || m.user.email;
-                        return (
-                          <option key={m.userId} value={m.userId}>{name}</option>
-                        );
-                      })}
-                    </select>
-                    {displayName && (
-                      <span style={{ fontSize: 11, color: "#6b7280", marginLeft: 6 }}>{displayName}</span>
-                    )}
+                      {teamTreeSaving ? "Saving…" : "Save Team"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={teamTreeSaving}
+                      onClick={() => {
+                        const map: Record<string, string> = {};
+                        if (project?.teamTreeJson) {
+                          for (const [key, arr] of Object.entries(project.teamTreeJson)) {
+                            if (Array.isArray(arr) && arr.length > 0) map[key] = arr[0];
+                          }
+                        }
+                        setTeamTreeLocal(map);
+                        setTeamTreeDirty(false);
+                      }}
+                      style={{
+                        padding: "4px 12px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        background: "#f9fafb",
+                        color: "#374151",
+                        fontSize: 12,
+                        cursor: teamTreeSaving ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      Cancel
+                    </button>
                   </div>
-                );
-              })}
-              {/* Save button */}
-              {teamTreeDirty && (
-                <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
-                  <button
-                    type="button"
-                    disabled={teamTreeSaving}
-                    onClick={async () => {
-                      const token = localStorage.getItem("accessToken");
-                      if (!token) return;
-                      setTeamTreeSaving(true);
-                      // Convert local map (role→userId) to role→userId[] for API
-                      const payload: Record<string, string[]> = {};
-                      for (const [key, userId] of Object.entries(teamTreeLocal)) {
-                        if (userId) payload[key] = [userId];
-                      }
-                      try {
-                        const res = await fetch(`${API_BASE}/projects/${id}/team-tree`, {
-                          method: "PUT",
-                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                          body: JSON.stringify({ teamTreeJson: payload }),
-                        });
-                        if (res.ok) {
-                          const updated = await res.json();
-                          setProject((prev) => prev ? { ...prev, teamTreeJson: updated.teamTreeJson ?? payload } : prev);
-                          setTeamTreeDirty(false);
-                        }
-                      } catch (err) {
-                        console.error("Failed to save team tree", err);
-                      } finally {
-                        setTeamTreeSaving(false);
-                      }
-                    }}
-                    style={{
-                      padding: "4px 12px",
-                      borderRadius: 4,
-                      border: "1px solid #22c55e",
-                      background: "#dcfce7",
-                      color: "#166534",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: teamTreeSaving ? "not-allowed" : "pointer",
-                      opacity: teamTreeSaving ? 0.6 : 1,
-                    }}
-                  >
-                    {teamTreeSaving ? "Saving…" : "Save Team"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={teamTreeSaving}
-                    onClick={() => {
-                      // Reset to persisted values
-                      const map: Record<string, string> = {};
-                      if (project?.teamTreeJson) {
-                        for (const [key, arr] of Object.entries(project.teamTreeJson)) {
-                          if (Array.isArray(arr) && arr.length > 0) map[key] = arr[0];
-                        }
-                      }
-                      setTeamTreeLocal(map);
-                      setTeamTreeDirty(false);
-                    }}
-                    style={{
-                      padding: "4px 12px",
-                      borderRadius: 4,
-                      border: "1px solid #d1d5db",
-                      background: "#f9fafb",
-                      color: "#374151",
-                      fontSize: 12,
-                      cursor: teamTreeSaving ? "not-allowed" : "pointer",
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              )}
+                )}
+              </div>
+            </div>
+
+            {/* Job Groups / Tags card */}
+            <div
+              style={{
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#ffffff",
+              }}
+            >
+              <div
+                style={{
+                  padding: "6px 10px",
+                  borderBottom: "1px solid #e5e7eb",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: "#f3f4f6",
+                }}
+              >
+                Job Groups / Tags
+              </div>
+              <div style={{ padding: 10, fontSize: 13 }}>
+                {availableTags.length === 0 ? (
+                  <div style={{ color: "#6b7280" }}>
+                    No project tags defined yet.
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {availableTags.map(tag => {
+                      const isSelected = projectTags.some(t => t.tagId === tag.id);
+                      return (
+                        <span
+                          key={tag.id}
+                          style={{
+                            borderRadius: 999,
+                            border: isSelected
+                              ? "1px solid #2563eb"
+                              : "1px solid #d1d5db",
+                            backgroundColor: isSelected ? "#eff6ff" : "#ffffff",
+                            color: "#111827",
+                            padding: "2px 10px",
+                            fontSize: 12,
+                          }}
+                        >
+                          {tag.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                {tagsSaving && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: "#6b7280" }}>
+                    Saving tags…
+                  </div>
+                )}
+                {(actorCompanyRole === "OWNER" || actorCompanyRole === "ADMIN") && (
+                  <div style={{ marginTop: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowTagManager(true)}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 999,
+                        border: "1px solid #d1d5db",
+                        background: "#ffffff",
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Manage tags (PM+)
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
+          {/* === ROW 2: Job Notes (2/3) | Custom Fields (1/3) === */}
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 12 }}>
+            {/* Job Notes card */}
+            <div
+              style={{
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#ffffff",
+              }}
+            >
+              <div
+                style={{
+                  padding: "6px 10px",
+                  borderBottom: "1px solid #e5e7eb",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: "#f3f4f6",
+                }}
+              >
+                Job Notes
+              </div>
+              <div style={{ padding: 10, fontSize: 13 }}>
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontWeight: 600 }}>Notes for Internal Users:</div>
+                  <div style={{ color: "#6b7280" }}>N/A</div>
+                </div>
+                <div>
+                  <div style={{ fontWeight: 600 }}>Notes for Subs/Vendors:</div>
+                  <div style={{ color: "#6b7280" }}>N/A</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Custom fields card */}
+            <div
+              style={{
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#ffffff",
+              }}
+            >
+              <div
+                style={{
+                  padding: "6px 10px",
+                  borderBottom: "1px solid #e5e7eb",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: "#f3f4f6",
+                }}
+              >
+                Custom Fields
+              </div>
+              <div style={{ padding: 10, fontSize: 12, lineHeight: 1.7 }}>
+                <div>Claim Information: N/A</div>
+                <div>Policy Documents: N/A</div>
+                <div>Permit Parcel ID: N/A</div>
+                <div>Contractor License: N/A</div>
+                <div>FL GIS Link: N/A</div>
+                <div>Local Supplier Link: N/A</div>
+                <div># Property Special Notes: N/A</div>
+              </div>
+            </div>
+          </div>
+
+          {/* === ROW 3: Schedule / Gantt === */}
           <ScheduleSection
             projectId={project.id}
             petlEstimateVersionId={petlEstimateVersionId}
@@ -14057,143 +14179,6 @@ ${htmlBody}
             mode="SUMMARY"
             apiBase={API_BASE}
           />
-
-          {/* Job Notes card */}
-          <div
-            style={{
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: "#ffffff",
-              marginBottom: 12,
-            }}
-          >
-            <div
-              style={{
-                padding: "6px 10px",
-                borderBottom: "1px solid #e5e7eb",
-                fontSize: 13,
-                fontWeight: 600,
-                background: "#f3f4f6",
-              }}
-            >
-              Job Notes
-            </div>
-            <div style={{ padding: 10, fontSize: 13 }}>
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontWeight: 600 }}>Notes for Internal Users:</div>
-                <div style={{ color: "#6b7280" }}>N/A</div>
-              </div>
-              <div>
-                <div style={{ fontWeight: 600 }}>Notes for Subs/Vendors:</div>
-                <div style={{ color: "#6b7280" }}>N/A</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Custom fields card */}
-          <div
-            style={{
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: "#ffffff",
-            }}
-          >
-            <div
-              style={{
-                padding: "6px 10px",
-                borderBottom: "1px solid #e5e7eb",
-                fontSize: 13,
-                fontWeight: 600,
-                background: "#f3f4f6",
-              }}
-            >
-              Custom fields
-            </div>
-            <div style={{ padding: 10, fontSize: 13 }}>
-              <div>Claim Information: N/A</div>
-              <div>Policy Documents: N/A</div>
-              <div>Permit Parcel ID: N/A</div>
-              <div>Contractor License: N/A</div>
-              <div>FL GIS Link: N/A</div>
-              <div>Local Supplier Link: N/A</div>
-              <div># Property Special Notes: N/A</div>
-            </div>
-          </div>
-
-          {/* Job Groups / Tags card */}
-          <div
-            style={{
-              marginTop: 12,
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: "#ffffff",
-            }}
-          >
-            <div
-              style={{
-                padding: "6px 10px",
-                borderBottom: "1px solid #e5e7eb",
-                fontSize: 13,
-                fontWeight: 600,
-                background: "#f3f4f6",
-              }}
-            >
-              Job Groups / Tags
-            </div>
-            <div style={{ padding: 10, fontSize: 13 }}>
-              {availableTags.length === 0 ? (
-                <div style={{ color: "#6b7280" }}>
-                  No project tags defined yet.
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {availableTags.map(tag => {
-                    const isSelected = projectTags.some(t => t.tagId === tag.id);
-                    return (
-                      <span
-                        key={tag.id}
-                        style={{
-                          borderRadius: 999,
-                          border: isSelected
-                            ? "1px solid #2563eb"
-                            : "1px solid #d1d5db",
-                          backgroundColor: isSelected ? "#eff6ff" : "#ffffff",
-                          color: "#111827",
-                          padding: "2px 10px",
-                          fontSize: 12,
-                        }}
-                      >
-                        {tag.label}
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-              {tagsSaving && (
-                <div style={{ marginTop: 8, fontSize: 11, color: "#6b7280" }}>
-                  Saving tags…
-                </div>
-              )}
-              {(actorCompanyRole === "OWNER" || actorCompanyRole === "ADMIN") && (
-                <div style={{ marginTop: 8 }}>
-                  <button
-                    type="button"
-                    onClick={() => setShowTagManager(true)}
-                    style={{
-                      padding: "4px 10px",
-                      borderRadius: 999,
-                      border: "1px solid #d1d5db",
-                      background: "#ffffff",
-                      fontSize: 12,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Manage tags (PM+)
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
 
           {/* Tag manager overlay for PM+ */}
           {showTagManager && (actorCompanyRole === "OWNER" || actorCompanyRole === "ADMIN") && (
