@@ -8,23 +8,39 @@ import { AccessToken, RoomServiceClient } from "livekit-server-sdk";
 @Injectable()
 export class VideoService {
   private readonly logger = new Logger(VideoService.name);
-  private readonly roomService: RoomServiceClient;
-  private readonly apiKey: string;
-  private readonly apiSecret: string;
-  private readonly livekitUrl: string;
+  private roomService: RoomServiceClient | null = null;
+  private readonly apiKey: string | undefined;
+  private readonly apiSecret: string | undefined;
+  private readonly livekitUrl: string | undefined;
+  private readonly enabled: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly push: PushService,
   ) {
-    this.apiKey = this.config.getOrThrow<string>("LIVEKIT_API_KEY");
-    this.apiSecret = this.config.getOrThrow<string>("LIVEKIT_API_SECRET");
-    this.livekitUrl = this.config.getOrThrow<string>("LIVEKIT_URL");
+    this.apiKey = this.config.get<string>("LIVEKIT_API_KEY");
+    this.apiSecret = this.config.get<string>("LIVEKIT_API_SECRET");
+    this.livekitUrl = this.config.get<string>("LIVEKIT_URL");
 
+    if (!this.apiKey || !this.apiSecret || !this.livekitUrl) {
+      this.logger.warn(
+        "LIVEKIT_API_KEY / LIVEKIT_API_SECRET / LIVEKIT_URL not set — video calling will be disabled.",
+      );
+      this.enabled = false;
+      return;
+    }
+
+    this.enabled = true;
     // RoomServiceClient uses the HTTP endpoint (replace wss:// with https://)
     const httpUrl = this.livekitUrl.replace("wss://", "https://");
     this.roomService = new RoomServiceClient(httpUrl, this.apiKey, this.apiSecret);
+  }
+
+  private assertEnabled() {
+    if (!this.enabled) {
+      throw new NotFoundException("Video calling is not configured on this server.");
+    }
   }
 
   /**
@@ -35,10 +51,11 @@ export class VideoService {
     actor: AuthenticatedUser,
     opts: { projectId?: string; companyId: string },
   ) {
+    this.assertEnabled();
     const roomName = `nexus-${opts.companyId.slice(-6)}-${Date.now()}`;
 
     // Create the room on LiveKit
-    await this.roomService.createRoom({
+    await this.roomService!.createRoom({
       name: roomName,
       emptyTimeout: 300, // auto-close after 5 min if empty
       maxParticipants: 20,
@@ -70,6 +87,7 @@ export class VideoService {
    * Join an existing room. Returns a participant token.
    */
   async joinRoom(roomId: string, actor: AuthenticatedUser) {
+    this.assertEnabled();
     const room = await this.prisma.videoRoom.findUnique({ where: { id: roomId } });
     if (!room || room.status !== "ACTIVE") {
       throw new NotFoundException("Room not found or already ended");
@@ -104,6 +122,7 @@ export class VideoService {
    * End a room. Marks it as ENDED and closes the LiveKit room.
    */
   async endRoom(roomId: string, actor: AuthenticatedUser) {
+    this.assertEnabled();
     const room = await this.prisma.videoRoom.findUnique({ where: { id: roomId } });
     if (!room) {
       throw new NotFoundException("Room not found");
@@ -111,7 +130,7 @@ export class VideoService {
 
     // Close the room on LiveKit
     try {
-      await this.roomService.deleteRoom(room.livekitRoomName);
+      await this.roomService!.deleteRoom(room.livekitRoomName);
     } catch (err: any) {
       this.logger.warn(`Failed to delete LiveKit room ${room.livekitRoomName}: ${err?.message}`);
     }
